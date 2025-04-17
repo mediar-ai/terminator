@@ -42,8 +42,8 @@ async fn main() -> Result<(), AutomationError> {
     // println!("found single element: {:?}", element);
 
     // open an application
-    // let opened_app = engine.open_application("msedge")?;
-    // println!("opened application: {:?}", opened_app);
+    let opened_app = engine.open_application("whatsapp")?;
+    println!("opened application: {:?}", opened_app);
 
     // open a URL in a browser
     // let ele = engine.open_url("https://github.com", Some("msedge"))?;
@@ -91,7 +91,7 @@ async fn main() -> Result<(), AutomationError> {
 
     // Initialize the automation engine
     // Use true, true if you need debug logs and accessibility mode
-    let engine = platforms::create_engine(false, false)?;
+    // let engine = platforms::create_engine(false, false)?;
 
     // --- Part 1: Open Notepad and Simulate Legacy App ---
 
@@ -102,15 +102,15 @@ async fn main() -> Result<(), AutomationError> {
     // Or, just open notepad blank and paste the data (less realistic simulation).
     // Let's try opening notepad blank first, then finding the edit area and setting its value.
     // let notepad_app = engine.open_application("notepad")?;
-    let desktop = Desktop::new(false, true).await.unwrap();
-    // desktop.activate_application("cursor")?;
-    let screen = desktop.capture_screen().await.unwrap();
-    let image_width = screen.width;
-    let image_height = screen.height;
-    println!("image_width: {:?}", image_width);
-    println!("image_height: {:?}", image_height);
-    let ocr = desktop.ocr_screenshot(&screen).await.unwrap();
-    println!("ocr: {:?}", ocr);
+    // let desktop = Desktop::new(false, true).await.unwrap();
+    // // desktop.activate_application("cursor")?;
+    // let screen = desktop.capture_screen().await.unwrap();
+    // let image_width = screen.width;
+    // let image_height = screen.height;
+    // println!("image_width: {:?}", image_width);
+    // println!("image_height: {:?}", image_height);
+    // let ocr = desktop.ocr_screenshot(&screen).await.unwrap();
+    // println!("ocr: {:?}", ocr);
     // let children = desktop.locator("role:button").all(None).await.unwrap();
     // for child in children.iter() {
     //     println!("child: {:?}", child.attributes());

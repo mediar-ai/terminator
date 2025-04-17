@@ -606,20 +606,50 @@ impl AccessibilityEngine for WindowsEngine {
     }
 
     fn open_application(&self, app_name: &str) -> Result<UIElement, AutomationError> {
-        let status = std::process::Command::new("powershell")
+        // start command is bad at opening uwp applications
+        let s = std::process::Command::new("powershell")
             .args([
                 "-NoProfile",
                 "-WindowStyle",
                 "hidden",
                 "-Command",
-                "start",
-                app_name,
+                "Get-StartApps | Out-String",
+            ])
+            .output()
+            .map_err(|e| AutomationError::PlatformError(e.to_string()))?;
+
+        if !s.status.success() {
+            return Err(AutomationError::PlatformError(
+                "Failed to get startup apps".to_string(),
+            ));
+        }
+        // case-insensitive
+        let output_str = String::from_utf8_lossy(&s.stdout);
+        let app_id = output_str
+            .lines()
+            .find(|line| line.to_lowercase().contains(&app_name.to_lowercase()))
+            .and_then(|line| line.split_whitespace().last())
+            .ok_or_else(|| {
+                AutomationError::PlatformError(format!(
+                    "Application '{}' not found in the start menu",
+                    app_name
+                ))
+            })?;
+
+        let e = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-WindowStyle",
+                "hidden",
+                "-Command",
+                &format!("explorer 'shell:AppsFolder\\{}'", app_id),
             ])
             .status()
             .map_err(|e| AutomationError::PlatformError(e.to_string()))?;
-        if !status.success() {
+
+        if !e.success() {
             return Err(AutomationError::PlatformError(
-                "Failed to open application".to_string(),
+                "Failed to open application via explorer".to_string(),
             ));
         }
 
