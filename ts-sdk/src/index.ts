@@ -182,6 +182,10 @@ export interface ExploreResponse {
   children: ExploredElementDetail[]; // List of direct children details
 }
 
+interface MonitorNameResponse {
+  name: string;
+}
+
 // --- Custom Error --- //
 
 export class ApiError extends Error {
@@ -428,6 +432,18 @@ export class DesktopUseClient {
       "/capture_monitor",
       payload
     );
+  }
+
+  /**
+   * Gets the name of the currently active monitor.
+   * @returns A promise resolving to the monitor name.
+   */
+  async getActiveMonitorName(): Promise<string> {
+    const response = await this._makeRequest<MonitorNameResponse>(
+      "/get_active_monitor_name",
+      {}
+    );
+    return response.name;
   }
 
   /**

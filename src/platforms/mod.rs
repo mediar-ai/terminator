@@ -78,6 +78,8 @@ pub trait AccessibilityEngine: Send + Sync {
         timeout: Option<Duration>,
     ) -> Result<UIElement, AutomationError>;
 
+    /// Get the name of the currently active monitor
+    async fn get_active_monitor_name(&self) -> Result<String, AutomationError>;
 }
 
 #[cfg(target_os = "linux")]

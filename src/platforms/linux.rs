@@ -109,6 +109,12 @@ impl AccessibilityEngine for LinuxEngine {
             "Linux implementation is not yet available".to_string(),
         ))
     }
+
+    async fn get_active_monitor_name(&self) -> Result<String, AutomationError> {
+        Err(AutomationError::UnsupportedPlatform(
+            "Linux implementation is not yet available".to_string(),
+        ))
+    }
 }
 
 // Placeholder LinuxUIElement that implements UIElementImpl

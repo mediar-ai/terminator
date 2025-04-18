@@ -91,6 +91,10 @@ class CaptureMonitorRequest:
     monitor_name: str
 
 @dataclass
+class MonitorNameResponse:
+    name: str
+
+@dataclass
 class OcrImagePathRequest:
     image_path: str
 
@@ -126,4 +130,35 @@ class ScreenshotResponse:
 
 @dataclass
 class OcrResponse:
-    text: str 
+    text: str
+
+@dataclass
+class FindWindowRequest:
+    title_contains: Optional[str] = None
+    timeout_ms: Optional[int] = None
+
+@dataclass
+class ExploredElementDetail:
+    role: str
+    name: Optional[str] = None
+    id: Optional[str] = None
+    bounds: Optional[Dict[str, Any]] = None
+    value: Optional[str] = None
+    description: Optional[str] = None
+    text: Optional[str] = None
+    parent_id: Optional[str] = None
+    children_ids: List[str] = field(default_factory=list)
+    suggested_selector: str = ""
+
+@dataclass
+class ExploreRequest(ChainedRequest):
+    timeout_ms: Optional[int] = None
+
+@dataclass
+class ExploreResponse:
+    parent: ElementResponse
+    children: List[ExploredElementDetail]
+
+@dataclass
+class ActivateApplicationRequest:
+    app_name: str 
