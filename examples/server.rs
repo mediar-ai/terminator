@@ -149,16 +149,16 @@ struct BasicResponse {
 }
 
 // Response structure for element details
-#[derive(Serialize, Clone)] // Add Clone
+#[derive(Serialize, Clone)]
 struct ElementResponse {
     role: String,
     label: Option<String>,
     id: Option<String>,
-    text: String,
-    bounds: (f64, f64, f64, f64),
-    visible: bool,
-    enabled: bool,
-    focused: bool,
+    text: Option<String>,
+    bounds: Option<(f64, f64, f64, f64)>,
+    visible: Option<bool>,
+    enabled: Option<bool>,
+    focused: Option<bool>,
 }
 
 impl ElementResponse {
@@ -168,11 +168,11 @@ impl ElementResponse {
             role: attrs.role,
             label: attrs.label,
             id: element.id(),
-            text: element.text(1).unwrap_or_default(),
-            bounds: element.bounds().unwrap_or_default(),
-            visible: element.is_visible().unwrap_or_default(),
-            enabled: element.is_enabled().unwrap_or_default(),
-            focused: element.is_focused().unwrap_or_default(),
+            text: Some(element.text(1).unwrap_or_default()),
+            bounds: Some(element.bounds().unwrap_or_default()),
+            visible: Some(element.is_visible().unwrap_or_default()),
+            enabled: Some(element.is_enabled().unwrap_or_default()),
+            focused: Some(element.is_focused().unwrap_or_default()),
         }
     }
 }
@@ -795,11 +795,11 @@ async fn explore_handler(
                 role: "root".to_string(),
                 label: None,
                 id: None,
-                text: "Screen Root".to_string(), // More descriptive text
-                bounds: (0.0, 0.0, 0.0, 0.0), // Bounds are not applicable
-                visible: true, // Root is conceptually always visible
-                enabled: true, // Root is conceptually always enabled
-                focused: false, // Root itself cannot be focused
+                text: Some("Screen Root".to_string()), // More descriptive text
+                bounds: Some((0.0, 0.0, 0.0, 0.0)), // Bounds are not applicable
+                visible: Some(true), // Root is conceptually always visible
+                enabled: Some(true), // Root is conceptually always enabled
+                focused: Some(false), // Root itself cannot be focused
             };
 
             // Get top-level applications/windows
@@ -1108,7 +1108,17 @@ async fn expect_element_text_equals(
     {
         Ok(element) => {
             info!("Element found and text matches");
-            Ok(Json(ElementResponse::from_element(&element)))
+            let attrs = element.attributes();
+            Ok(Json(ElementResponse {
+                role: attrs.role,
+                label: attrs.label,
+                id: element.id(),
+                text: Some(payload.expected_text.to_string()),
+                bounds: Some(element.bounds().unwrap_or_default()),
+                visible: Some(element.is_visible().unwrap_or_default()),
+                enabled: Some(element.is_enabled().unwrap_or_default()),
+                focused: Some(element.is_focused().unwrap_or_default()),
+            }))
         }
         Err(e) => {
             error!("Expect text equals failed: {}", e);

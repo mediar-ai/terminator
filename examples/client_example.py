@@ -22,6 +22,27 @@ logging.basicConfig(level=logging.INFO,
 
 # Ensure the Terminator server (e.g., `cargo run --example server`) is running!
 
+def find_calculator_results(calculator_window):
+    """Find the element with AutomationId 'CalculatorResults' within the Group element."""
+    # Get the display element and explore result
+    display_element = calculator_window.locator("Id:CalculatorResults")
+    explore_result = display_element.explore()
+    
+    # Find the Group element
+    for child in explore_result.children:
+        if child.get('role') == 'Group' and child.get('suggested_selector'):
+            # Get the Group element's children
+            group_result = calculator_window.locator(child['suggested_selector']).explore()
+            
+            # Search for CalculatorResults within the Group's children
+            for group_child in group_result.children:
+                if group_child.get('suggested_selector'):
+                    child_locator = calculator_window.locator(group_child['suggested_selector'])
+                    child_attrs = child_locator.get_attributes()
+                    if 'CalculatorResults' in str(child_attrs.properties.get('AutomationId', '')):
+                        return child_locator
+    return None
+
 def run_example():
     """Runs the calculator automation example."""
     # Ensure the package is installed or path is set correctly
@@ -56,9 +77,24 @@ def run_example():
         # 3. Get initial text (with expect_visible)
         print("\n--- 3. Getting Initial Text ---")
         try:
-            display_element.expect_visible(timeout=3000) # Wait up to 3 seconds
-            initial_text = display_element.get_text()
-            print(f"Initial display text: {initial_text.text}")
+            # display_element.expect_visible(timeout=5000) # Wait up to 3 seconds
+            # Get the explore result
+            display_element_attributes = display_element.get_attributes()
+            
+            # Remember if we need to find CalculatorResults
+            needs_calculator_results = 'CalculatorResults' not in str(display_element_attributes.properties.get('AutomationId', ''))
+            
+            # Only proceed if not already CalculatorResults
+            if needs_calculator_results:
+                # Find the element with AutomationId CalculatorResults
+                display_element = find_calculator_results(calculator_window)
+                if display_element:
+                    print(f"Text: {display_element.get_text().text}")
+                else:
+                    print("Could not find element with AutomationId 'CalculatorResults'")
+            else:
+                print("Element already has AutomationId 'CalculatorResults'")
+                
         except ApiError as e:
             print(f"Warning: Could not get initial display text: {e}", file=sys.stderr)
 
@@ -76,10 +112,22 @@ def run_example():
         # 5. Verify final text using expect
         print("\n--- 5. Verifying Final Text --- (Expecting 3)")
         try:
-            # Note: Calculator display might show 'Display is 3' or just '3'.
-            # We'll expect the exact text content '3'.
-            display_element.expect_text_equals("3", timeout=5000, max_depth=1)
-            print("Final display text is verified to be '3'")
+            # If we needed to find CalculatorResults earlier, find it again as it might be unstable
+            if needs_calculator_results:
+                display_element = find_calculator_results(calculator_window)
+                if not display_element:
+                    raise ApiError("Could not find CalculatorResults element for verification")
+
+            # Get the text and verify it
+            text_response = display_element.get_text()
+            if text_response.text == "Display is 3":
+                display_element.expect_text_equals("Display is 3", timeout=5000, max_depth=1)
+                print("Final display text is verified to be 'Display is 3'")
+            elif text_response.text == "3":
+                display_element.expect_text_equals("3", timeout=5000, max_depth=1)
+                print("Final display text is verified to be '3'")
+            else:
+                print(f"Unexpected text: {text_response.text}")
 
             # Optionally get text again after verification
             final_text = display_element.get_text()

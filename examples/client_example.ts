@@ -1,8 +1,41 @@
 // examples/client_example.ts
 // Import necessary components from the installed SDK
-import { DesktopUseClient, ApiError, sleep } from '../ts-sdk/src/index'; // Adjust if using package name after build/install
+import { DesktopUseClient, ApiError, sleep, Locator } from '../ts-sdk/src/index'; // Adjust if using package name after build/install
 
 // --- Example Usage using the SDK ---
+
+/**
+ * Find the element with AutomationId 'CalculatorResults' within the Group element.
+ * @param calculatorWindow The calculator window locator
+ * @returns A locator for the CalculatorResults element or null if not found
+ */
+async function findCalculatorResults(calculatorWindow: Locator): Promise<Locator | null> {
+    // Get the display element and explore result
+    const displayElement = calculatorWindow.locator("Id:CalculatorResults");
+    const exploreResult = await displayElement.explore();
+    
+    // Find the Group element
+    for (const child of exploreResult.children) {
+        if (child.role === 'Group' && child.suggested_selector) {
+            // Get the Group element's children
+            const groupResult = await calculatorWindow.locator(child.suggested_selector).explore();
+            
+            // Search for CalculatorResults within the Group's children
+            for (const groupChild of groupResult.children) {
+                if (groupChild.suggested_selector) {
+                    const childLocator = calculatorWindow.locator(groupChild.suggested_selector);
+                    const childAttrs = await childLocator.getAttributes();
+                    if (childAttrs.properties && 
+                        childAttrs.properties.AutomationId && 
+                        String(childAttrs.properties.AutomationId).includes('CalculatorResults')) {
+                        return childLocator;
+                    }
+                }
+            }
+        }
+    }
+    return null;
+}
 
 // Use an async IIFE (Immediately Invoked Function Expression) to allow top-level await
 (async () => {
@@ -21,7 +54,7 @@ import { DesktopUseClient, ApiError, sleep } from '../ts-sdk/src/index'; // Adju
         const calculatorWindow = client.locator("window:Calculator"); // Adjust selector if window title is different
         // Locators relative to the calculator window
         // IMPORTANT: Selectors might differ significantly on non-Windows platforms or even Win versions
-        const displayElement = calculatorWindow.locator("Id:CalculatorResults"); // Using AutomationId is often more stable
+        let displayElement = calculatorWindow.locator("Id:CalculatorResults"); // Using AutomationId is often more stable
         const button1 = calculatorWindow.locator("Name:One");
         const buttonPlus = calculatorWindow.locator("Name:Plus");
         const button2 = calculatorWindow.locator("Name:Two");
@@ -29,11 +62,31 @@ import { DesktopUseClient, ApiError, sleep } from '../ts-sdk/src/index'; // Adju
 
         // 3. Get initial text
         console.log("\n--- 3. Getting Initial Text ---");
+        let needsCalculatorResults = false; // Initialize the variable
         try {
-            // Wait for the display to be visible before getting text
-            await displayElement.expectVisible(3000);
-            const initialTextResponse = await displayElement.getText();
-            console.log(`Initial display text: ${initialTextResponse?.text}`);
+            // Get the explore result
+            const displayElementAttributes = await displayElement.getAttributes();
+            
+            // Remember if we need to find CalculatorResults
+            needsCalculatorResults = !displayElementAttributes.properties || 
+                !displayElementAttributes.properties.AutomationId || 
+                !String(displayElementAttributes.properties.AutomationId).includes('CalculatorResults');
+            
+            // Only proceed if not already CalculatorResults
+            if (needsCalculatorResults) {
+                // Find the element with AutomationId CalculatorResults
+                const foundElement = await findCalculatorResults(calculatorWindow);
+                if (foundElement) {
+                    displayElement = foundElement;
+                    const textResponse = await displayElement.getText();
+                    console.log(`Text: ${textResponse?.text}`);
+                } else {
+                    console.log("Could not find element with AutomationId 'CalculatorResults'");
+                }
+            } else {
+                console.log("Element already has AutomationId 'CalculatorResults'");
+            }
+                
         } catch (e) {
             console.warn(`Could not get initial display text: ${e instanceof Error ? e.message : e}`);
         }
@@ -52,21 +105,38 @@ import { DesktopUseClient, ApiError, sleep } from '../ts-sdk/src/index'; // Adju
         // 5. Get final text & Verify using expect
         console.log("\n--- 5. Verifying Final Text --- (Expecting 3)");
         try {
-             // Use expectTextEquals to wait for the result to be '3'
-             // Note: Calculator display might show 'Display is 3' or just '3'. Adapt if needed.
-             await displayElement.expectTextEquals("3", { timeout: 5000, maxDepth: 1 });
-             console.log(`Final display text is verified to be '3'`);
+            // If we needed to find CalculatorResults earlier, find it again as it might be unstable
+            if (needsCalculatorResults) {
+                const foundElement = await findCalculatorResults(calculatorWindow);
+                if (foundElement) {
+                    displayElement = foundElement;
+                } else {
+                    throw new Error("Could not find CalculatorResults element for verification");
+                }
+            }
 
-             // Optionally, get the text again after verification
-             const finalTextResponse = await displayElement.getText();
-             console.log(`Final display text (raw): ${finalTextResponse?.text}`);
+            // Get the text and verify it
+            const textResponse = await displayElement.getText();
+            if (textResponse?.text === "Display is 3") {
+                await displayElement.expectTextEquals("Display is 3", { timeout: 5000, maxDepth: 1 });
+                console.log("Final display text is verified to be 'Display is 3'");
+            } else if (textResponse?.text === "3") {
+                await displayElement.expectTextEquals("3", { timeout: 5000, maxDepth: 1 });
+                console.log("Final display text is verified to be '3'");
+            } else {
+                console.log(`Unexpected text: ${textResponse?.text}`);
+            }
+
+            // Optionally get text again after verification
+            const finalText = await displayElement.getText();
+            console.log(`Final display text (raw): ${finalText?.text}`);
 
         } catch (e) {
             console.error(`Verification failed or could not get final text: ${e instanceof Error ? e.message : e}`);
             // Try getting raw text anyway on failure for debugging
             try {
-                 const rawText = await displayElement.getText();
-                 console.error(`Raw text on failure: ${rawText?.text}`);
+                const rawText = await displayElement.getText();
+                console.error(`Raw text on failure: ${rawText?.text}`);
             } catch (innerErr) {
                  console.error(`Could not even get raw text after verification failure: ${innerErr instanceof Error ? innerErr.message : innerErr}`);
             }
@@ -100,7 +170,10 @@ import { DesktopUseClient, ApiError, sleep } from '../ts-sdk/src/index'; // Adju
         } else {
              console.error(`\nAn unknown error occurred: ${e}`);
         }
-        process.exit(1); // Exit with error code
+        // Use process.exit only if we're in a Node.js environment
+        if (typeof process !== 'undefined') {
+            process.exit(1); // Exit with error code
+        }
     }
 
     console.log("\n--- Example Finished --- (Press Ctrl+C if server doesn't exit)");

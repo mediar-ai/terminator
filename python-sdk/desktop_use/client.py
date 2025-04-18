@@ -120,10 +120,10 @@ class DesktopUseClient:
                     return response_model(**data)
                 except (json.JSONDecodeError, TypeError) as e:
                     logger.error(f"Failed to decode JSON or create response model {response_model.__name__} from data: {response.text}. Error: {e}", exc_info=True)
-                    raise ApiError(f"Invalid JSON response or model mismatch: {e}", response.status_code, response.text)
+                    raise ApiError(f"Invalid JSON response or model mismatch: {e}", response.status_code)
                 except Exception as e: # Catch broader errors during model instantiation
                     logger.error(f"Failed to instantiate response model {response_model.__name__} from data: {response.text}. Error: {e}", exc_info=True)
-                    raise ApiError(f"Error creating response model: {e}", response.status_code, response.text)
+                    raise ApiError(f"Error creating response model: {e}", response.status_code)
             else:
                 # Attempt to parse error message from server
                 try:
@@ -132,7 +132,7 @@ class DesktopUseClient:
                 except json.JSONDecodeError:
                     error_message = response.text
                 logger.error(f"API Error ({response.status_code}): {error_message}")
-                raise ApiError(error_message, response.status_code, response.text)
+                raise ApiError(error_message, response.status_code)
 
         except requests.exceptions.ConnectionError as e:
             logger.error(f"Connection Error connecting to {url}: {e}", exc_info=True)
@@ -595,7 +595,7 @@ class Locator:
             selector_chain=self._selector_chain,
             timeout_ms=self._timeout_ms
         )
-        response = self._client._makeRequest("/explore", payload, ExploreResponse)
+        response = self._client._make_request("/explore", payload, ExploreResponse)
         logger.info(f"Exploration found {len(response.children) if response and response.children else 0} children.")
         return response
 
