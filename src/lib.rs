@@ -143,4 +143,9 @@ impl Desktop {
     ) -> Result<UIElement, AutomationError> {
         self.engine.find_window_by_criteria(title_contains, timeout).await
     }
+
+    /// Get the name of the currently active monitor
+    pub async fn get_active_monitor_name(&self) -> Result<String, AutomationError> {
+        self.engine.get_active_monitor_name().await
+    }
 }
