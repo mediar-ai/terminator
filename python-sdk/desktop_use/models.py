@@ -96,6 +96,10 @@ class CaptureMonitorRequest:
     monitor_name: str
 
 @dataclass
+class MonitorNameResponse:
+    name: str
+
+@dataclass
 class OcrImagePathRequest:
     image_path: str
 

@@ -1018,6 +1018,23 @@ async fn capture_monitor(
     }
 }
 
+// Handler for getting the active monitor name
+async fn get_active_monitor_name(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<MonitorNameResponse>, ApiError> {
+    info!("Attempting to get active monitor name");
+    match state.desktop.get_active_monitor_name().await {
+        Ok(monitor_name) => {
+            info!("Got active monitor name: {}", monitor_name);
+            Ok(Json(MonitorNameResponse { name: monitor_name }))
+        }
+        Err(e) => {
+            error!("Failed to get active monitor name: {}", e);
+            Err(e.into())
+        }
+    }
+}
+
 // Handler for performing OCR on an image path
 async fn ocr_image_path(
     State(state): State<Arc<AppState>>,
@@ -1213,6 +1230,11 @@ async fn activate_app_handler(
     }
 }
 
+#[derive(Serialize)]
+struct MonitorNameResponse {
+    name: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Use tracing subscriber with settings appropriate for environment
@@ -1266,6 +1288,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/run_command", post(run_command))
         .route("/capture_screen", post(capture_screen))
         .route("/capture_monitor", post(capture_monitor))
+        .route("/get_active_monitor_name", post(get_active_monitor_name))
         // Activation Actions
         .route("/activate_application", post(activate_application_handler)) // Activate by name
         .route(

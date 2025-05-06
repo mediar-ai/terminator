@@ -16,7 +16,7 @@ from .models import (
     OpenFileRequest, RunCommandRequest, CaptureMonitorRequest, OcrImagePathRequest,
     CommandOutputResponse, ScreenshotResponse, OcrResponse, OcrScreenshotRequest,
     FindWindowRequest, ExploreRequest, ExploredElementDetail, ExploreResponse,
-    ActivateApplicationRequest
+    ActivateApplicationRequest, MonitorNameResponse
 )
 
 logger = logging.getLogger(__name__)
@@ -250,6 +250,16 @@ class DesktopUseClient:
         """
         payload = CaptureMonitorRequest(monitor_name=monitor_name)
         return self._make_request("/capture_monitor", payload, ScreenshotResponse)
+
+    def get_active_monitor_name(self) -> str:
+        """
+        Gets the name of the currently active monitor.
+
+        Returns:
+            The name of the active monitor.
+        """
+        response = self._make_request("/get_active_monitor_name", {}, MonitorNameResponse)
+        return response.name
 
     def ocr_image_path(self, image_path: str) -> OcrResponse:
         """
