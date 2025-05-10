@@ -508,6 +508,35 @@ export class DesktopUseClient {
     const payload: ExploreRequest = { selector_chain: null };
     return await this._makeRequest<ExploreResponse>("/explore", payload);
   }
+
+  /**
+   * Drags the mouse from (startX, startY) to (endX, endY) on the element specified by selectorChain.
+   * @param selectorChain - The selector chain identifying the element.
+   * @param startX - Starting X coordinate (relative to element or screen).
+   * @param startY - Starting Y coordinate.
+   * @param endX - Ending X coordinate.
+   * @param endY - Ending Y coordinate.
+   * @param timeoutMs - Optional timeout in milliseconds.
+   * @returns A promise resolving to a basic response on success.
+   */
+  async mouseDrag(
+    selectorChain: string[],
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number,
+    timeoutMs?: number | null
+  ): Promise<BasicResponse> {
+    const payload = {
+      selector_chain: selectorChain,
+      start_x: startX,
+      start_y: startY,
+      end_x: endX,
+      end_y: endY,
+      timeout_ms: timeoutMs,
+    };
+    return await this._makeRequest<BasicResponse>("/mouse_drag", payload);
+  }
 }
 
 export class Locator {
@@ -855,6 +884,30 @@ export class Locator {
     const response = await this._client._makeRequest<ElementsResponse>("/get_full_tree", payload);
     console.log(`[Locator] Full tree retrieval found ${response.elements.length} descendant elements.`);
     return response;
+  }
+
+  /**
+   * Drags the mouse from (startX, startY) to (endX, endY) relative to the element.
+   * @param startX - Starting X coordinate (relative to element or screen).
+   * @param startY - Starting Y coordinate.
+   * @param endX - Ending X coordinate.
+   * @param endY - Ending Y coordinate.
+   * @returns A promise resolving to a basic response on success.
+   */
+  async mouseDrag(
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number
+  ): Promise<BasicResponse> {
+    return await this._client.mouseDrag(
+      this._selector_chain,
+      startX,
+      startY,
+      endX,
+      endY,
+      this._timeoutMs
+    );
   }
 }
 

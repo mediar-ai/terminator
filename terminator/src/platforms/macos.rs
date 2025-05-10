@@ -1416,6 +1416,12 @@ impl UIElementImpl for MacOSUIElement {
         );
         self.focus()
     }
+
+    fn mouse_drag(&self, _start_x: f64, _start_y: f64, _end_x: f64, _end_y: f64) -> Result<(), AutomationError> {
+        Err(AutomationError::UnsupportedOperation(
+            "mouse_drag is not implemented for macOS yet".to_string(),
+        ))
+    }
 }
 
 // Helper function to parse AXUIElement attribute values into appropriate types

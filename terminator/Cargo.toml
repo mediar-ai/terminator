@@ -19,6 +19,7 @@ uni-ocr = { git = "https://github.com/mediar-ai/uniOCR", branch = "main" }
 tempfile = "3.19.1"
 async-trait = "0.1.88"
 base64 = "0.22.1"
+windows = "0.61.1"
 
 [lib]
 name = "terminator"
