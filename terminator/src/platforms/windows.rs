@@ -1871,6 +1871,82 @@ impl UIElementImpl for WindowsUIElement {
         }
         Ok(())
     }
+
+    fn mouse_drag(&self, start_x: f64, start_y: f64, end_x: f64, end_y: f64) -> Result<(), AutomationError> {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_ABSOLUTE, MOUSEINPUT, SendInput,
+        };
+        use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+        use std::thread::sleep;
+        use std::time::Duration;
+
+        fn to_absolute(x: f64, y: f64) -> (i32, i32) {
+            let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+            let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+            let abs_x = ((x / screen_w as f64) * 65535.0).round() as i32;
+            let abs_y = ((y / screen_h as f64) * 65535.0).round() as i32;
+            (abs_x, abs_y)
+        }
+
+        fn mouse_move_abs(x: f64, y: f64) {
+            let (abs_x, abs_y) = to_absolute(x, y);
+            let mi = MOUSEINPUT {
+                dx: abs_x,
+                dy: abs_y,
+                mouseData: 0,
+                dwFlags: MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE,
+                time: 0,
+                dwExtraInfo: 0,
+            };
+            let input = INPUT {
+                r#type: INPUT_MOUSE,
+                Anonymous: INPUT_0 { mi },
+            };
+            unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) };
+        }
+
+        fn click_and_hold() {
+            let mi = MOUSEINPUT {
+                dx: 0,
+                dy: 0,
+                mouseData: 0,
+                dwFlags: MOUSEEVENTF_LEFTDOWN,
+                time: 0,
+                dwExtraInfo: 0,
+            };
+            let input = INPUT {
+                r#type: INPUT_MOUSE,
+                Anonymous: INPUT_0 { mi },
+            };
+            unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) };
+        }
+
+        fn release_mouse() {
+            let mi = MOUSEINPUT {
+                dx: 0,
+                dy: 0,
+                mouseData: 0,
+                dwFlags: MOUSEEVENTF_LEFTUP,
+                time: 0,
+                dwExtraInfo: 0,
+            };
+            let input = INPUT {
+                r#type: INPUT_MOUSE,
+                Anonymous: INPUT_0 { mi },
+            };
+            unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) };
+        }
+
+        // Move to start
+        mouse_move_abs(start_x, start_y);
+        sleep(Duration::from_millis(20));
+        click_and_hold();
+        sleep(Duration::from_millis(20));
+        mouse_move_abs(end_x, end_y);
+        sleep(Duration::from_millis(20));
+        release_mouse();
+        Ok(())
+    }
 }
 
 // make easier to pass roles

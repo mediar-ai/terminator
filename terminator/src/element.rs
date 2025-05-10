@@ -52,6 +52,8 @@ pub(crate) trait UIElementImpl: Send + Sync + Debug {
 
     // Add a method to clone the box
     fn clone_box(&self) -> Box<dyn UIElementImpl>;
+
+    fn mouse_drag(&self, start_x: f64, start_y: f64, end_x: f64, end_y: f64) -> Result<(), AutomationError>;
 }
 
 impl UIElement {
@@ -174,6 +176,11 @@ impl UIElement {
     /// Activate the window containing this element (bring to foreground)
     pub fn activate_window(&self) -> Result<(), AutomationError> {
         self.inner.activate_window()
+    }
+
+    /// Drag mouse from start to end coordinates
+    pub fn mouse_drag(&self, start_x: f64, start_y: f64, end_x: f64, end_y: f64) -> Result<(), AutomationError> {
+        self.inner.mouse_drag(start_x, start_y, end_x, end_y)
     }
 }
 

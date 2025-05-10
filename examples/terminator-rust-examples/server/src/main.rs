@@ -143,6 +143,17 @@ struct ExploreRequest {
     timeout_ms: Option<u64>,             // Added timeout
 }
 
+// Add at the top with other request structs
+#[derive(Deserialize)]
+struct MouseDragRequest {
+    selector_chain: Vec<String>,
+    start_x: f64,
+    start_y: f64,
+    end_x: f64,
+    end_y: f64,
+    timeout_ms: Option<u64>,
+}
+
 // Basic response structure
 #[derive(Serialize)]
 struct BasicResponse {
@@ -1213,6 +1224,29 @@ async fn activate_app_handler(
     }
 }
 
+// Handler for mouse_drag
+async fn mouse_drag_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<MouseDragRequest>,
+) -> Result<Json<BasicResponse>, ApiError> {
+    info!(chain = ?payload.selector_chain, start_x = payload.start_x, start_y = payload.start_y, end_x = payload.end_x, end_y = payload.end_y, timeout = ?payload.timeout_ms, "Attempting to mouse_drag element");
+    let locator = create_locator_for_chain(&state, &payload.selector_chain)?;
+    let timeout = get_timeout(payload.timeout_ms);
+    // Wait for the element (reuse locator.wait)
+    let element = locator.wait(timeout).await.map_err(|e| {
+        error!("Failed to find element for mouse_drag: {}", e);
+        ApiError::from(e)
+    })?;
+    // Call mouse_drag on the element
+    element.mouse_drag(payload.start_x, payload.start_y, payload.end_x, payload.end_y).map_err(|e| {
+        error!("Failed to mouse_drag element: {}", e);
+        ApiError::from(e)
+    })?;
+    Ok(Json(BasicResponse {
+        message: "Mouse drag performed successfully".to_string(),
+    }))
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Use tracing subscriber with settings appropriate for environment
@@ -1280,6 +1314,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // OCR Actions
         .route("/ocr_image_path", post(ocr_image_path))
         // State and Layers
+        .route("/mouse_drag", post(mouse_drag_handler))
         .layer(RequestBodyLimitLayer::new(BODY_LIMIT))
         .layer(cors)
         .with_state(shared_state);

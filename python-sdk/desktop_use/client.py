@@ -354,6 +354,17 @@ class DesktopUseClient:
         payload = ExploreRequest(selector_chain=None)
         return self._make_request("/explore", payload, ExploreResponse)
 
+    def mouse_drag(self, selector_chain, start_x, start_y, end_x, end_y, timeout_ms=None):
+        """Drags the mouse from (start_x, start_y) to (end_x, end_y) on the element specified by selector_chain."""
+        payload = {
+            "selector_chain": selector_chain,
+            "start_x": start_x,
+            "start_y": start_y,
+            "end_x": end_x,
+            "end_y": end_y,
+            "timeout_ms": timeout_ms,
+        }
+        return self._make_request("/mouse_drag", payload, BasicResponse)
 
 class Locator:
     """
@@ -599,6 +610,9 @@ class Locator:
         logger.info(f"Exploration found {len(response.children) if response and response.children else 0} children.")
         return response
 
+    def mouse_drag(self, start_x, start_y, end_x, end_y):
+        """Drags the mouse from (start_x, start_y) to (end_x, end_y) relative to the element."""
+        return self._client.mouse_drag(self._selector_chain, start_x, start_y, end_x, end_y, self._timeout_ms)
 
 # Helper function (can be part of the SDK or used externally)
 def sleep(seconds: float) -> None:
