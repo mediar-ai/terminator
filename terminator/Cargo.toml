@@ -46,3 +46,6 @@ path = "examples/server.rs"
 [dev-dependencies]
 axum = "0.8.3"
 tower-http = { version = "0.6.2", features = ["cors", "limit"] }
+reqwest = { version = "0.12.5", features = ["json", "blocking"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

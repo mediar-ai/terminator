@@ -11,17 +11,14 @@ members = [
 
 # Shared metadata for workspace members
 [workspace.package]
-version = "0.2.7"   # From your original Cargo.toml
+version = "0.2.8"   # From your original Cargo.toml
 edition = "2021"    # From your original Cargo.toml
-# authors = ["Your Name <you@example.com>"] # Consider adding this
-# license = "MIT OR Apache-2.0"            # Consider adding this
-# repository = "https://github.com/user/project" # Consider adding this
 
 # Centralized dependency definitions
 # Member crates can use these by specifying, e.g., `tokio = { workspace = true }`
 [workspace.dependencies]
 # Terminator Core library itself (for other members to depend on)
-terminator = { path = "./terminator", version = "0.2.0" }
+terminator = { path = "./terminator" }
 
 # Common dependencies from your original Cargo.toml
 serde = { version = "1.0.219", features = ["derive"] }

@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use terminator::{AutomationError, Desktop, Locator, Selector, UIElement};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
-use tracing::{error, info, instrument};
+use tracing::{error, info, instrument, debug};
 use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
 
 // Cache entry with timestamp for expiration
@@ -38,35 +38,69 @@ impl AppState {
         }
     }
 
-    // Helper to get cache key from selector chain
-    fn get_cache_key(selector_chain: &[String]) -> String {
-        selector_chain.join("|")
+    // Helper to get cache key from selector chain, now returns Option<String>
+    // Only use the last element if it's an ID selector
+    fn get_cache_key(selector_chain: &[String]) -> Option<String> {
+        if let Some(last_selector) = selector_chain.last() {
+            if last_selector.starts_with('#') {
+                debug!(last_selector = %last_selector, "Valid cache key (ID selector): {}", last_selector);
+                return Some(last_selector.clone());
+            } else {
+                debug!(original_chain = ?selector_chain, last_selector = %last_selector, "Invalid cache key (last element is not an ID selector). Caching/retrieval will be skipped for this chain.");
+                return None;
+            }
+        }
+        debug!(original_chain = ?selector_chain, "Empty selector chain or invalid structure. Caching/retrieval will be skipped.");
+        None
     }
 
     // Helper to get element from cache
     async fn get_cached_element(&self, selector_chain: &[String]) -> Option<UIElement> {
-        let cache_key = Self::get_cache_key(selector_chain);
-        let mut cache = self.element_cache.write().await;
-        
-        if let Some(entry) = cache.get_mut(&cache_key) {
-            if entry.last_accessed.elapsed() < self.cache_ttl {
-                entry.last_accessed = Instant::now();
-                return Some(entry.element.clone());
+        if let Some(cache_key) = Self::get_cache_key(selector_chain) {
+            let mut cache = self.element_cache.write().await;
+            debug!(cache_key = %cache_key, "Attempting to retrieve element from cache using derived key for chain: {:?}", selector_chain);
+
+            if let Some(entry) = cache.get_mut(&cache_key) {
+                if entry.last_accessed.elapsed() < self.cache_ttl {
+                    entry.last_accessed = Instant::now();
+                    debug!(cache_key = %cache_key, "Cache hit: Element found and not expired for chain: {:?}", selector_chain);
+                    return Some(entry.element.clone());
+                } else {
+                    debug!(cache_key = %cache_key, "Cache miss: Element found but expired for chain: {:?}. Removing from cache.", selector_chain);
+                    cache.remove(&cache_key);
+                }
             } else {
-                cache.remove(&cache_key);
+                debug!(cache_key = %cache_key, "Cache miss: Element not found in cache for chain: {:?}", selector_chain);
             }
+        } else {
+            // Reason for skipping is logged by get_cache_key
+            debug!(original_chain = ?selector_chain, "Cache lookup skipped for this chain as it does not qualify for caching by ID selector rule.");
         }
         None
     }
 
     // Helper to store element in cache
     async fn cache_element(&self, selector_chain: &[String], element: UIElement) {
-        let cache_key = Self::get_cache_key(selector_chain);
-        let mut cache = self.element_cache.write().await;
-        cache.insert(cache_key, CacheEntry {
-            element,
-            last_accessed: Instant::now(),
-        });
+        if let Some(cache_key) = Self::get_cache_key(selector_chain) {
+            let mut cache = self.element_cache.write().await;
+            
+            let element_id = element.id().unwrap_or_else(|| "N/A".to_string());
+            let element_role = element.attributes().role;
+            debug!(cache_key = %cache_key, element_id = %element_id, element_role = %element_role, "Caching element using derived key for chain: {:?}", selector_chain);
+            
+            cache.insert(cache_key.clone(), CacheEntry {
+                element,
+                last_accessed: Instant::now(),
+            });
+            debug!("Current cache size: {}. Item cached with key: {} for chain: {:?}", cache.len(), cache_key, selector_chain);
+            // Optionally, log all keys if verbose logging is desired
+            // for (key, entry) in cache.iter() {
+            //     debug!(cached_item_key = %key, last_accessed = ?entry.last_accessed.elapsed(), "Item in cache");
+            // }
+        } else {
+            // Reason for skipping is logged by get_cache_key
+            debug!(original_chain = ?selector_chain, "Element caching skipped for this chain as it does not qualify for caching by ID selector rule.");
+        }
     }
 }
 
@@ -477,7 +511,10 @@ async fn first(
     match locator.first(timeout).await {
         Ok(element) => {
             // Cache the element
-            state.cache_element(&payload.selector_chain, element.clone()).await;
+            if let Some(id) = element.id() {
+                let cache_key = vec![format!("#{}", id)];
+                state.cache_element(&cache_key, element.clone()).await;
+            }
             
             info!("Element found successfully");
             Ok(Json(ElementResponse::from_element(&element)))
@@ -519,8 +556,11 @@ async fn click_element(
         
         match locator.first(timeout).await {
             Ok(element) => {
-                // Cache the element
-                state.cache_element(&payload.selector_chain, element.clone()).await;
+                // Cache the element using its ID as the cache key
+                if let Some(id) = element.id() {
+                    let cache_key = vec![format!("#{}", id)];
+                    state.cache_element(&cache_key, element.clone()).await;
+                }
                 
                 match element.click() {
                     Ok(_) => {
@@ -573,8 +613,11 @@ async fn type_text_into_element(
         
         match locator.first(timeout).await {
             Ok(element) => {
-                // Cache the element
-                state.cache_element(&payload.selector_chain, element.clone()).await;
+                // Cache the element using its ID as the cache key
+                if let Some(id) = element.id() {
+                    let cache_key = vec![format!("#{}", id)];
+                    state.cache_element(&cache_key, element.clone()).await;
+                }
                 
                 match element.type_text(&payload.text, payload.use_clipboard.unwrap_or(false)) {
                     Ok(_) => {
@@ -636,6 +679,15 @@ async fn all(
     match locator.all(timeout, payload.depth).await {
         Ok(elements) => {
             info!(count = elements.len(), "Elements found successfully");
+            
+            // Cache each element individually using its ID as the cache key
+            for element in &elements {
+                if let Some(id) = element.id() {
+                    let cache_key = vec![format!("#{}", id)];
+                    state.cache_element(&cache_key, element.clone()).await;
+                }
+            }
+            
             Ok(Json(ElementsResponse {
                 elements: elements
                     .into_iter()
@@ -1460,9 +1512,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .with_timer(tracing_subscriber::fmt::time::time())
         .with_span_events(FmtSpan::CLOSE)
-        .with_target(true)
-        .with_thread_ids(true)
-        .with_thread_names(true)
+        .with_target(false)
+        .with_thread_ids(false)
+        .with_thread_names(false)
         .with_file(true)
         .with_line_number(true)
         .init();

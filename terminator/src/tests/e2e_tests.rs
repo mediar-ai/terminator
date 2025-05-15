@@ -1,0 +1,174 @@
+use crate::Desktop;
+use std::time::Duration;
+use tokio::time::sleep;
+use reqwest;
+use serde_json::json;
+use tracing::{info, error, debug};
+use super::init_tracing;
+
+const API_BASE_URL: &str = "http://localhost:9375";
+const TEST_URL: &str = "https://pages.dataiku.com/guide-to-ai-agents";
+
+// Helper function to make API calls
+async fn make_api_request(endpoint: &str, payload: serde_json::Value) -> Result<reqwest::Response, reqwest::Error> {
+    let client = reqwest::Client::new();
+    client
+        .post(format!("{}{}", API_BASE_URL, endpoint))
+        .json(&payload)
+        .send()
+        .await
+}
+
+// Helper function to make GET API calls
+async fn make_get_request(endpoint: &str) -> Result<reqwest::Response, reqwest::Error> {
+    let client = reqwest::Client::new();
+    client
+        .get(format!("{}{}", API_BASE_URL, endpoint))
+        .send()
+        .await
+}
+
+#[tokio::test]
+async fn test_fill_edit_elements_http() {
+    init_tracing();
+    info!("Starting HTTP API test for filling edit elements");
+    
+    // 1. Open the website
+    info!("Opening URL: {}", TEST_URL);
+    let open_url_response = make_api_request("/open_url", json!({
+        "url": TEST_URL,
+        "browser": "chrome"
+    })).await.unwrap();
+    assert!(open_url_response.status().is_success());
+    info!("Successfully opened URL");
+    
+    // Wait for page load
+    info!("Waiting for page load...");
+    sleep(Duration::from_secs(2)).await;
+
+    // 2. Get current browser window ID
+    info!("Getting current browser window ID...");
+    let window_response = make_get_request("/current_browser_window").await.unwrap();
+    assert!(window_response.status().is_success());
+    
+    let window_data: serde_json::Value = window_response.json().await.unwrap();
+    let window_id = window_data["id"].as_str().expect("No window ID in response");
+    info!("Got current browser window ID: {}", window_id);
+
+    // 3. Find all edit elements within the current window
+    info!("Searching for edit elements in window {}...", window_id);
+    let edit_elements_response = make_api_request("/all", json!({
+        "selector_chain": [
+            format!("#{}", window_id),
+            "role:edit"
+        ],
+        "timeout_ms": 5000,
+        "depth": 50
+    })).await.unwrap();
+    assert!(edit_elements_response.status().is_success());
+    
+    let elements_data: serde_json::Value = edit_elements_response.json().await.unwrap();
+    let elements = elements_data["elements"].as_array().unwrap();
+    info!("Found {} edit elements", elements.len());
+    
+    // Store element IDs and their initial properties for verification
+    let mut element_info: Vec<(String, serde_json::Value)> = Vec::new();
+    for element in elements {
+        if let Some(id) = element["id"].as_str() {
+            element_info.push((id.to_string(), element.clone()));
+            info!("Found element with ID: {} and properties: {:?}", id, element);
+        }
+    }
+    
+    // 4. Fill each edit element with test text
+    for (index, (element_id, _)) in element_info.iter().enumerate() {
+        info!("Processing element {} of {} (ID: {})", index + 1, element_info.len(), element_id);
+        
+        // Type text into the element
+        info!("Attempting to type text into element {}", element_id);
+        let type_response = make_api_request("/type_text", json!({
+            "selector_chain": [
+                format!("#{}", window_id),
+                format!("#{}", element_id)
+            ],
+            "text": "Test input text",
+            "timeout_ms": 10000,
+            "use_clipboard": true
+        })).await.unwrap();
+        
+        if !type_response.status().is_success() {
+            error!("Failed to type into element {}: {:?}", element_id, type_response.text().await);
+            panic!("Failed to type into element with ID: {}", element_id);
+        }
+        info!("Successfully typed text into element {}", element_id);
+        
+        // Small delay between typing operations
+        sleep(Duration::from_millis(500)).await;
+    }
+    info!("HTTP API test completed successfully");
+}
+
+#[tokio::test]
+async fn test_fill_edit_elements_direct() {
+    init_tracing();
+    info!("Starting direct Rust test for filling edit elements");
+    
+    // 1. Initialize Desktop automation
+    info!("Initializing Desktop automation");
+    let desktop = Desktop::new(false, false).await.unwrap();
+    
+    // 2. Open the website
+    info!("Opening URL: {}", TEST_URL);
+    desktop.open_url(TEST_URL, Some("chrome")).unwrap();
+    info!("Successfully opened URL");
+    
+    // Wait for page load
+    info!("Waiting for page load...");
+    sleep(Duration::from_secs(2)).await;
+
+    // 3. Find all edit elements
+    info!("Searching for edit elements...");
+    let edit_elements = desktop.locator("role:edit").all(Some(Duration::from_secs(5)), Some(50)).await.unwrap();
+    info!("Found {} edit elements", edit_elements.len());
+    
+    // 4. Fill each edit element with test text
+    for (index, element) in edit_elements.iter().enumerate() {
+        let element_id = element.id().unwrap();
+        info!("Processing element {} of {} (ID: {})", index + 1, edit_elements.len(), element_id);
+        
+        // Log element details
+        let attrs = element.attributes();
+        debug!("Element attributes: role={}, name={:?}, label={:?}", 
+            attrs.role, attrs.name, attrs.label);
+        
+        // Check if element is keyboard focusable
+        match element.is_keyboard_focusable() {
+            Ok(true) => {
+                info!("Element {} is keyboard focusable, proceeding with typing", element_id);
+            }
+            Ok(false) => {
+                info!("Skipping element {} as it's not keyboard focusable", element_id);
+                continue;
+            }
+            Err(e) => {
+                error!("Failed to check keyboard focusable state for element {}: {:?}", element_id, e);
+                continue;
+            }
+        }
+        
+        // Type text into the element
+        info!("Attempting to type text into element {}", element_id);
+        match element.type_text("Test input text", true) {
+            Ok(_) => info!("Successfully typed text into element {}", element_id),
+            Err(e) => {
+                error!("Failed to type into element {}: {:?}", element_id, e);
+                panic!("Failed to type into element with ID: {}: {:?}", element_id, e);
+            }
+        }
+        
+        // Small delay between typing operations
+        sleep(Duration::from_millis(500)).await;
+    }
+    info!("Direct Rust test completed successfully");
+}
+

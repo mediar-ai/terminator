@@ -6,9 +6,8 @@ use crate::{ClickResult, ScreenshotResult};
 use image::DynamicImage;
 use image::{ImageBuffer, Rgba};
 use serde_json::Value;
-use std::collections::{HashMap, hash_map::DefaultHasher};
+use std::collections::HashMap;
 use std::fmt::Debug;
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -24,7 +23,6 @@ use uiautomation::types::{Point, TreeScope, UIProperty};
 use uiautomation::variants::Variant;
 use uni_ocr::{OcrEngine, OcrProvider};
 use arboard::Clipboard;
-use uiautomation::patterns::UILegacyIAccessiblePattern;
 
 // Define a default timeout duration
 const DEFAULT_FIND_TIMEOUT: Duration = Duration::from_millis(5000);
@@ -293,6 +291,7 @@ impl AccessibilityEngine for WindowsEngine {
                     .collect());
             }
             Selector::Id(id) => {
+                debug!("Searching for element with ID: {}", id);
                 // Clone id to move into the closure
                 let target_id = id.clone();
                 let matcher = self
@@ -303,16 +302,28 @@ impl AccessibilityEngine for WindowsEngine {
                     .filter_fn(Box::new(move |e: &uiautomation::UIElement| {
                         // Use the common function to generate ID
                         match generate_element_id(e) {
-                            Ok(calculated_id) => Ok(calculated_id.to_string() == target_id),
-                            Err(_) => Ok(false)
+                            Ok(calculated_id) => {
+                                let matches = calculated_id.to_string() == target_id;
+                                if matches {
+                                    debug!("Found matching element with ID: {}", calculated_id);
+                                }
+                                Ok(matches)
+                            },
+                            Err(e) => {
+                                debug!("Failed to generate ID for element: {}", e);
+                                Ok(false)
+                            }
                         }
                     }))
                     .timeout(timeout_ms as u64);
 
+                debug!("Starting element search with timeout: {}ms", timeout_ms);
                 let elements = matcher.find_all().map_err(|e| {
+                    debug!("Element search failed: {}", e);
                     AutomationError::ElementNotFound(format!("ID: '{}', Err: {}", id, e))
                 })?;
 
+                debug!("Found {} elements matching ID: {}", elements.len(), id);
                 let collected_elements: Vec<UIElement> = elements
                     .into_iter()
                     .map(|ele| {
@@ -545,29 +556,39 @@ impl AccessibilityEngine for WindowsEngine {
                 })))
             }
             Selector::Id(id) => {
+                debug!("Searching for element with ID: {}", id);
                 // Clone id to move into the closure
                 let target_id = id.clone();
                 let matcher = self
                     .automation
                     .0
                     .create_matcher()
-                    .depth(50)
                     .from_ref(root_ele)
                     .filter_fn(Box::new(move |e: &uiautomation::UIElement| {
                         // Use the common function to generate ID
                         match generate_element_id(e) {
-                            Ok(calculated_id) => Ok(calculated_id.to_string() == target_id),
-                            Err(_) => Ok(false)
+                            Ok(calculated_id) => {
+                                let matches = calculated_id.to_string() == target_id;
+                                if matches {
+                                    debug!("Found matching element with ID: {}", calculated_id);
+                                }
+                                Ok(matches)
+                            },
+                            Err(e) => {
+                                debug!("Failed to generate ID for element: {}", e);
+                                Ok(false)
+                            }
                         }
                     }))
                     .timeout(timeout_ms as u64);
 
+                debug!("Starting element search with timeout: {}ms", timeout_ms);
                 let element = matcher.find_first().map_err(|e| {
-                    AutomationError::ElementNotFound(format!(
-                        "ID: '{}', Root: {:?}, Err: {}",
-                        id, root, e
-                    ))
+                    debug!("Element search failed: {}", e);
+                    AutomationError::ElementNotFound(format!("ID: '{}', Err: {}", id, e))
                 })?;
+
+                debug!("Found element matching ID: {}", id);
                 let arc_ele = ThreadSafeWinUIElement(Arc::new(element));
                 Ok(UIElement::new(Box::new(WindowsUIElement {
                     element: arc_ele,
@@ -2249,53 +2270,50 @@ fn get_pid_by_name(name: &str) -> Option<i32> {
 
 // Add this function before the WindowsUIElement implementation
 fn generate_element_id(element: &uiautomation::UIElement) -> Result<usize, AutomationError> {
-    let mut hasher = DefaultHasher::new();
+    // Get stable properties that are less likely to change
+    let control_type = element.get_control_type().map_err(|e| AutomationError::PlatformError(e.to_string()))?;
+    let name = element.get_name().map_err(|e| AutomationError::PlatformError(e.to_string()))?;
+    let automation_id = element.get_automation_id().map_err(|e| AutomationError::PlatformError(e.to_string()))?;
+    let class_name = element.get_classname().map_err(|e| AutomationError::PlatformError(e.to_string()))?;
+    let bounds = element.get_bounding_rectangle().map_err(|e| AutomationError::PlatformError(e.to_string()))?;
+    let runtime_id = element.get_runtime_id().map_err(|e| AutomationError::PlatformError(e.to_string()))?;
+    let help_text = element.get_help_text().map_err(|e| AutomationError::PlatformError(e.to_string()))?;
     
-    // Get basic properties
-    let name = element.get_name().unwrap_or_default();
-    let role = element.get_control_type().unwrap().to_string();
-    let text = element
-        .get_property_value(UIProperty::ValueValue)
-        .ok()
-        .map(|v| v.to_string())
-        .unwrap_or_default();
-    let automation_id = element.get_automation_id().unwrap_or_default();
-    let help_text = element.get_help_text().unwrap_or_default();
-    let class_name = element.get_classname().unwrap_or_default();
-    let process_id = element.get_process_id().unwrap_or_default();
-
-    // Get bounds information
-    let bounds = element.get_bounding_rectangle().unwrap_or_default();
-    let bounds_str = format!(
-        "{:.0}_{:.0}_{:.0}_{:.0}",
+    // Create a stable string representation
+    let id_string = format!(
+        "{}:{}:{}:{}:{}:{}:{}:{}:{:?}:{}",
+        control_type,
+        name,
+        automation_id,
+        class_name,
         bounds.get_left(),
         bounds.get_top(),
         bounds.get_width(),
-        bounds.get_height()
+        bounds.get_height(),
+        runtime_id,
+        help_text
     );
-
-    // Combine all properties
-    let combined_string = format!(
-        "{} {} {} {} {} {} {} {}",
-        name, role, text, automation_id, help_text, class_name, process_id, bounds_str
-    );
-
-    // Hash the combined string
-    combined_string.hash(&mut hasher);
-
-    // --- Add legacy accessibility state for improved uniqueness ---
-    if let Ok(legacy_pattern) = element.get_pattern::<UILegacyIAccessiblePattern>() {
-        if let Ok(state) = legacy_pattern.get_state() {
-            state.hash(&mut hasher);
-        }
-        if let Ok(legacy_role) = legacy_pattern.get_role() {
-            legacy_role.hash(&mut hasher);
-        }
-        if let Ok(child_id) = legacy_pattern.get_child_id() {
-            child_id.hash(&mut hasher);
-        }
-    }
-    // ------------------------------------------------------------
-
-    Ok(hasher.finish() as usize)
+    
+    // Generate a hash from the stable string
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    id_string.hash(&mut hasher);
+    let hash = hasher.finish() as usize;
+    
+    // debug!(
+    //     "Generated element ID: hash={}, control_type={}, name={}, automation_id={}, class_name={}, bounds=({},{},{},{}), help_text={}",
+    //     hash,
+    //     control_type,
+    //     name,
+    //     automation_id,
+    //     class_name,
+    //     bounds.get_left(),
+    //     bounds.get_top(),
+    //     bounds.get_width(),
+    //     bounds.get_height(),
+    //     help_text
+    // );
+    
+    Ok(hash)
 }
