@@ -6,6 +6,7 @@ members = [
     "examples/terminator-rust-examples/popup",     # Assuming this is a crate
     "examples/terminator-rust-examples/server",    # Assuming this is the crate in the 'server' subdirectory
     "examples/terminator-rust-examples/win_automation", # Assuming this is the crate in the 'win_automation' subdirectory
+    "workflow-recorder", # new crate
     # Add other crates from examples/terminator-rust-examples if they exist
 ]
 
@@ -58,3 +59,7 @@ sysinfo = "0.34.2"
 # Dev dependencies (can be used by examples or tests across the workspace)
 axum = "0.8.3"
 tower-http = { version = "0.6.2", features = ["cors", "limit"] }
+
+# Workflow recorder dependencies
+chrono = "0.4"
+ctrlc = "3.4"
