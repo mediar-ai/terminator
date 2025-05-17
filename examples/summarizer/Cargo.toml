@@ -9,7 +9,8 @@ regex = "1.10"
 rdev = "0.5.3"
 tokio = { workspace = true }
 
-terminator = { workspace = true }
+terminator = { path = "C:/Users/User/Desktop/terminator/terminator" }
+
 anyhow = { workspace = true }
 serde_json = { workspace = true }
 serde = { workspace = true }
@@ -17,4 +18,5 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uiautomation.workspace = true
+clap = { version = "4.4", features = ["derive"] }
 
