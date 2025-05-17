@@ -7,19 +7,18 @@
     "start": "tsx index.ts"
   },
   "dependencies": {
-    "@ai-sdk/google": "^1.2.18",
-    "desktop-use": "file:../../ts-sdk",
-    "dotenv": "^16.5.0",
+    "@ai-sdk/google": "^1.0.0",
+    "dotenv": "^16.4.5",
     "fs": "^0.0.1-security",
     "inquirer": "^12.6.1",
     "path": "^0.12.7",
     "pdf-parse": "^1.1.1",
-    "sqlite3": "^5.1.7",
-    "ai": "^4.3.5"
+    "ai": "^4.3.5",
+    "desktop-use": "file:../../ts-sdk",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
-    "tsx": "^4.15.6",
-    "electron": "^28.0.0"
+    "tsx": "^4.15.6"
   }
-} 
+}
