@@ -1,66 +1,26 @@
+use anyhow::{Context, Result};
 use arboard::Clipboard;
+use terminator::{Desktop, Selector, UIElement};
+use tracing::{info, warn, Level};
 use std::{
     io::{self, Write},
     process::Command,
     thread,
     time::Duration,
 };
-use windows::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetWindowTextLengthW, GetWindowTextW, EnumWindows, IsWindowVisible,
-};
-use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
 
-fn get_foreground_window_title() -> String {
-    unsafe {
-        let hwnd = GetForegroundWindow();
-        let len = GetWindowTextLengthW(hwnd) + 1;
-        let mut buffer = vec![0u16; len as usize];
-        let _ = GetWindowTextW(hwnd, &mut buffer);
-        String::from_utf16_lossy(&buffer)
-            .trim_matches(char::from(0))
-            .trim()
-            .to_string()
-    }
-}
-
-fn get_ui_context() -> String {
-    unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
-        let titles = &mut *(lparam.0 as *mut Vec<String>);
-
-        if IsWindowVisible(hwnd).as_bool() {
-            let len = GetWindowTextLengthW(hwnd);
-            if len > 0 {
-                let mut buffer = vec![0u16; (len + 1) as usize];
-                if GetWindowTextW(hwnd, &mut buffer) > 0 {
-                    let title = String::from_utf16_lossy(&buffer)
-                        .trim_matches(char::from(0))
-                        .trim()
-                        .to_string();
-                    if !title.is_empty() {
-                        titles.push(title);
-                    }
-                }
-            }
-        }
-
-        BOOL(1) // continue enumeration (TRUE)
-    }
-
-    let mut titles: Vec<String> = Vec::new();
-    unsafe {
-        EnumWindows(Some(enum_windows_proc), LPARAM(&mut titles as *mut _ as isize));
-    }
-
-    titles.join("\n")
-}
-
-fn run_ollama(prompt: &str) -> String {
+fn run_ollama(prompt: &str) -> Result<String> {
     let output = Command::new("ollama")
         .args(["run", "gemma3", prompt])
         .output()
-        .expect("❌ Failed to run Ollama");
+        .context("Failed to execute Ollama command")?;
 
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow::anyhow!("Ollama execution failed: {}", stderr));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 fn extract_numbered_points(summary: &str) -> Vec<String> {
@@ -72,83 +32,135 @@ fn extract_numbered_points(summary: &str) -> Vec<String> {
                 && !line.starts_with("---")
                 && !line.starts_with("Okay")
                 && !line.starts_with("Would you like")
+                && (line.starts_with(|c: char| c.is_ascii_digit()) || line.starts_with('-'))
         })
         .map(|line| line.trim().trim_matches('"').to_string())
         .collect()
 }
 
-fn main() {
-    println!("⏳ Waiting for Ctrl+J to be pressed...");
+async fn resolve_window(desktop: &Desktop) -> Result<UIElement> {
+    // Try browser first
+    match desktop.get_current_browser_window().await {
+        Ok(win) => Ok(win),
+        Err(e) => {
+            warn!("Not a browser window: {}. Falling back to active window.", e);
+            desktop.focused_element()
+                .context("Failed to get focused element")
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    // Initialize logging
+    tracing_subscriber::fmt()
+        .with_max_level(Level::INFO)
+        .init();
+
+    info!("Initializing Terminator desktop automation");
+    let desktop = Desktop::new(false, true)
+        .await
+        .context("Failed to initialize Desktop")?;
+
+    info!("⏳ Waiting for activation trigger...");
     thread::sleep(Duration::from_secs(5));
 
-    println!("⌨ Hotkey triggered. Capturing UI context...");
-    let context = get_ui_context();
+    info!("⌨ Hotkey triggered — capturing UI context");
 
+    // Pick the right window (browser or active window)
+    let window = resolve_window(&desktop)
+        .await
+        .context("Failed to determine which window to capture")?;
+
+    // Get all editable elements
+    let elements = window
+        .locator(Selector::Role {
+            role: "edit".into(),
+            name: None,
+        })
+        .context("Failed to create locator")?
+        .all(None, None)
+        .await
+        .context("Failed to find editable elements")?;
+
+    let mut ui_context = String::new();
+
+    // Window metadata via attributes
+    let wattr = window.attributes();
+    let wname = wattr.name.clone().unwrap_or_else(|| "Unnamed window".into());
+    ui_context.push_str(&format!("Window: {} [{}]\n", wname, wattr.role));
+
+    // Analyze each editable field
+    for el in elements {
+        if el.is_keyboard_focusable().unwrap_or(false) {
+            let a = el.attributes();
+            let name = a.name.clone().unwrap_or_else(|| "[unnamed]".into());
+            ui_context.push_str(&format!("\n- {} [{}]\n", name, a.role));
+            if let Some(val) = &a.value {
+                ui_context.push_str(&format!("  Current value: {}\n", val));
+            }
+        }
+    }
+
+    // Build and send the prompt
     let prompt = format!(
         r#"
-You're helping build a local AI assistant that can understand what the user is doing based on their active screen context.
+Application Context Analysis:
+{ui_context}
 
-Here is a raw string extracted from the user's currently focused window titles:
-"{context}"
-
-Your job is to:
-1. Analyze this data and identify **exactly what** the user might be doing — be specific (e.g., "solving Leetcode 2 Sum problem", "viewing John Smith's LinkedIn profile", "writing an email", "editing main.rs").
-2. Infer which websites or tasks are active from window titles.
-3. Group your response into:
-   - **Summary**: One-line, high-confidence guess.
-   - **Details**: A breakdown of the current windows and what they suggest.
-   - **Possible Next Help**: What the assistant can help with now.
-
-Respond with markdown, no follow-up questions or meta-comments.
-"#
+Please provide:
+1. User activity summary
+2. Potential assistance opportunities
+3. Recommended actions
+"#,
+        ui_context = ui_context
     );
 
-    println!("🤖 Sending prompt to Ollama...");
-    let summary = run_ollama(&prompt);
+    info!("🤖 Querying AI model...");
+    let summary = run_ollama(&prompt).context("AI query failed")?;
 
-    let mut clipboard = Clipboard::new().unwrap();
-    clipboard.set_text(summary.clone()).unwrap();
+    // Copy to clipboard and print
+    let mut clipboard = Clipboard::new().context("Clipboard init failed")?;
+    clipboard.set_text(summary.clone()).context("Copy failed")?;
+    info!("✅ Results copied to clipboard");
+    println!("{}", summary);
 
-    println!("✅ Copied summary to clipboard:\n{}", summary);
-
+    // Refinement loop
     let points = extract_numbered_points(&summary);
-
     if !points.is_empty() {
         loop {
-            println!("\n💡 Which part would you like me to refine?");
-            for (i, point) in points.iter().enumerate() {
-                println!("{}. {}", i + 1, point);
+            println!("\n🔍 Refinement Options:");
+            for (i, p) in points.iter().enumerate() {
+                println!("{}. {}", i + 1, p);
             }
             println!("0. Exit");
 
-            print!("Enter your choice: ");
-            io::stdout().flush().unwrap();
+            print!("> ");
+            io::stdout().flush().context("Flush failed")?;
             let mut input = String::new();
-            io::stdin().read_line(&mut input).unwrap();
+            io::stdin().read_line(&mut input).context("Read failed")?;
 
             match input.trim() {
-                "0" | "exit" => {
-                    println!("👋 Exiting...");
-                    break;
-                }
-                n if n.parse::<usize>().is_ok() => {
-                    let index = n.parse::<usize>().unwrap();
-                    if index >= 1 && index <= points.len() {
-                        let sub_prompt = format!(
-                            "Please elaborate on the following context in detail:\n\"{}\"",
-                            points[index - 1]
-                        );
-                        println!("🔍 Refining...\n");
-                        let refined = run_ollama(&sub_prompt);
-                        println!("✨ Refined Output:\n{}", refined);
-                    } else {
-                        println!("❌ Invalid option.");
+                "0" => break,
+                n => {
+                    if let Ok(idx) = n.parse::<usize>() {
+                        if idx > 0 && idx <= points.len() {
+                            let refined = run_ollama(&format!(
+                                "Expand on this point in detail:\n{}",
+                                points[idx - 1]
+                            ))
+                            .context("Refinement query failed")?;
+                            println!("\n✨ Refined Analysis:\n{}", refined);
+                            
+                            // Copy refined analysis to clipboard
+                            clipboard.set_text(refined.clone()).context("Copy failed")?;
+                            info!("✅ Refined results copied to clipboard");
+                        }
                     }
                 }
-                _ => println!("❌ Invalid input."),
             }
         }
-    } else {
-        println!("⚠️ No bullet points found to refine.");
     }
+
+    Ok(())
 }

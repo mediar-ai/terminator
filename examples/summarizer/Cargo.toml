@@ -3,21 +3,18 @@ name = "summarizer"
 version.workspace = true
 edition.workspace = true
 
-
-
 [dependencies]
 arboard = "3.3.0"
 regex = "1.10"
-global-hotkey = "0.7"
-windows = { version = "0.54", features = [
-    "Win32_UI_Accessibility",
-    "Win32_Foundation",
-    "Win32_UI_WindowsAndMessaging",
-    "Win32_System_Com"
-]}
-anyhow = "1.0"
-serde_json = "1.0"
 rdev = "0.5.3"
-tokio = { version = "1.0", features = ["full"] }
-windows-core = "0.54"
+tokio = { workspace = true }
+
+terminator = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 uiautomation.workspace = true
+
