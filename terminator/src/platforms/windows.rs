@@ -258,29 +258,33 @@ impl AccessibilityEngine for WindowsEngine {
 
         // make condition according to selector
         match selector {
-            Selector::Role { role, name: _ } => {
-                let roles = map_generic_role_to_win_roles(role);
-                debug!("searching elements by role: {} within subtree", roles);
-                
-                // Create a condition for the control type
-                let condition = self
+            Selector::Role { role, name } => {
+                let win_control_type = map_generic_role_to_win_roles(role);
+                debug!(
+                    "searching elements by role: {:?} (from: {}), name_filter: {:?}, depth: {:?}, timeout: {}ms, within: {:?}",
+                    win_control_type, role, name, depth, timeout_ms, root_ele.get_name().unwrap_or_default()
+                );
+
+                let actual_depth = depth.unwrap_or(50) as u32;
+
+                let matcher_builder = self
                     .automation
                     .0
-                    .create_property_condition(
-                        UIProperty::ControlType,
-                        Variant::from(roles as i32),
-                        None,
-                    )
-                    .unwrap();
+                    .create_matcher()
+                    .from_ref(root_ele)
+                    .control_type(win_control_type)
+                    .depth(actual_depth)
+                    .timeout(timeout_ms as u64);
+   
+                
+                let elements = matcher_builder.find_all().map_err(|e| {
+                    AutomationError::ElementNotFound(format!(
+                        "Role: '{}' (mapped to {:?}), Name: {:?}, Err: {}",
+                        role, win_control_type, name, e
+                    ))
+                })?;
 
-                // Use find_all with TreeScope::Subtree to ensure we only search within the root element's subtree
-                let elements = root_ele
-                    .find_all(TreeScope::Subtree, &condition)
-                    .map_err(|e| {
-                        AutomationError::ElementNotFound(format!("Role: '{}', Err: {}", role, e))
-                    })?;
-
-                debug!("found {} elements with role: {} within subtree", elements.len(), role);
+                debug!("found {} elements with role: {} (mapped to {:?}), name_filter: {:?}", elements.len(), role, win_control_type, name);
                 return Ok(elements
                     .into_iter()
                     .map(|ele| {
@@ -525,30 +529,29 @@ impl AccessibilityEngine for WindowsEngine {
         let timeout_ms = timeout.unwrap_or(DEFAULT_FIND_TIMEOUT).as_millis() as u32;
 
         match selector {
-            Selector::Role { role, name: _ } => {
-                let roles = map_generic_role_to_win_roles(role);
-                debug!("searching element by role: {} within subtree", roles);
-                
-                // Create a condition for the control type
-                let condition = self
+            Selector::Role { role, name } => {
+                let win_control_type = map_generic_role_to_win_roles(role);
+                debug!(
+                    "searching element by role: {:?} (from: {}), name_filter: {:?}, timeout: {}ms, within: {:?}",
+                    win_control_type, role, name, timeout_ms, root_ele.get_name().unwrap_or_default()
+                );
+
+                let matcher_builder = self
                     .automation
                     .0
-                    .create_property_condition(
-                        UIProperty::ControlType,
-                        Variant::from(roles as i32),
-                        None,
-                    )
-                    .unwrap();
+                    .create_matcher()
+                    .from_ref(root_ele)
+                    .control_type(win_control_type)
+                    .depth(50) // Default depth for find_element
+                    .timeout(timeout_ms as u64);
 
-                // Use find_first with TreeScope::Subtree to ensure we only search within the root element's subtree
-                let element = root_ele
-                    .find_first(TreeScope::Subtree, &condition)
-                    .map_err(|e| {
-                        AutomationError::ElementNotFound(format!(
-                            "Role: '{}', Root: {:?}, Err: {}",
-                            role, root, e
-                        ))
-                    })?;
+
+                let element = matcher_builder.find_first().map_err(|e| {
+                     AutomationError::ElementNotFound(format!(
+                        "Role: '{}' (mapped to {:?}), Name: {:?}, Root: {:?}, Err: {}",
+                        role, win_control_type, name, root, e
+                    ))
+                })?;
 
                 let arc_ele = ThreadSafeWinUIElement(Arc::new(element));
                 Ok(UIElement::new(Box::new(WindowsUIElement {
@@ -1903,20 +1906,11 @@ impl UIElementImpl for WindowsUIElement {
     }
 
     fn is_focused(&self) -> Result<bool, AutomationError> {
-        // start a instance of `uiautomation` just to check the
-        // current focused element is same as focused element or not
-        let automation = WindowsEngine::new(false, false)
-            .map_err(|e| AutomationError::PlatformError(e.to_string()))?;
-        let focused_element = automation
-            .automation
-            .0
-            .get_focused_element()
-            .map_err(|e| AutomationError::PlatformError(e.to_string()))?;
-        if Arc::ptr_eq(&self.element.0, &Arc::new(focused_element)) {
-            Ok(true)
-        } else {
-            Ok(false)
-        }
+        // The original implementation was inefficient:
+        // It created a new WindowsEngine and compared the focused element's Arc pointer,
+        // which is not reliable and very slow.
+        // The uiautomation::UIElement provides a direct has_keyboard_focus() method.
+        self.element.0.has_keyboard_focus().map_err(|e| AutomationError::PlatformError(format!("Failed to get keyboard focus state: {}", e)))
     }
 
     fn perform_action(&self, action: &str) -> Result<(), AutomationError> {
@@ -2271,14 +2265,30 @@ fn get_pid_by_name(name: &str) -> Option<i32> {
 // Add this function before the WindowsUIElement implementation
 fn generate_element_id(element: &uiautomation::UIElement) -> Result<usize, AutomationError> {
     // Get stable properties that are less likely to change
-    let control_type = element.get_control_type().map_err(|e| AutomationError::PlatformError(e.to_string()))?;
-    let name = element.get_name().map_err(|e| AutomationError::PlatformError(e.to_string()))?;
-    let automation_id = element.get_automation_id().map_err(|e| AutomationError::PlatformError(e.to_string()))?;
-    let class_name = element.get_classname().map_err(|e| AutomationError::PlatformError(e.to_string()))?;
-    let bounds = element.get_bounding_rectangle().map_err(|e| AutomationError::PlatformError(e.to_string()))?;
-    let runtime_id = element.get_runtime_id().map_err(|e| AutomationError::PlatformError(e.to_string()))?;
-    let help_text = element.get_help_text().map_err(|e| AutomationError::PlatformError(e.to_string()))?;
-    
+    // Try cached versions first, fallback to live versions
+    let control_type = element.get_cached_control_type()
+        .or_else(|_| element.get_control_type())
+        .map_err(|e| AutomationError::PlatformError(format!("Failed to get control type: {}", e)))?;
+    let name = element.get_cached_name()
+        .or_else(|_| element.get_name())
+        .map_err(|e| AutomationError::PlatformError(format!("Failed to get name: {}", e)))?;
+    let automation_id = element.get_cached_automation_id()
+        .or_else(|_| element.get_automation_id())
+        .map_err(|e| AutomationError::PlatformError(format!("Failed to get automation ID: {}", e)))?;
+    let class_name = element.get_cached_classname()
+        .or_else(|_| element.get_classname())
+        .map_err(|e| AutomationError::PlatformError(format!("Failed to get classname: {}", e)))?;
+    let bounds = element.get_cached_bounding_rectangle()
+        .or_else(|_| element.get_bounding_rectangle())
+        .map_err(|e| AutomationError::PlatformError(format!("Failed to get bounding rectangle: {}", e)))?;
+    // runtime_id is fundamental and less likely to have a distinct cached vs. live fetch issue here
+    // It's usually retrieved when the element handle is obtained.
+    let runtime_id = element.get_runtime_id()
+        .map_err(|e| AutomationError::PlatformError(format!("Failed to get runtime ID: {}", e)))?;
+    let help_text = element.get_cached_help_text()
+        .or_else(|_| element.get_help_text())
+        .map_err(|e| AutomationError::PlatformError(format!("Failed to get help text: {}", e)))?;
+
     // Create a stable string representation
     let id_string = format!(
         "{}:{}:{}:{}:{}:{}:{}:{}:{:?}:{}",

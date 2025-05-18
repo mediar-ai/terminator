@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Selector {
     /// Select by role and optional name
-    Role { role: String, name: Option<String> },
+    Role { role: String, name: Option<String> }, // TODO: name unused 
     /// Select by accessibility ID
     Id(String),
     /// Select by name/label
@@ -50,13 +50,6 @@ impl From<&str> for Selector {
             _ if s.to_lowercase().starts_with("classname:") => {
                 let parts: Vec<&str> = s.splitn(2, ':').collect();
                 Selector::ClassName(parts[1].to_string())
-            }
-            _ if s.contains(':') => {
-                let parts: Vec<&str> = s.splitn(2, ':').collect();
-                Selector::Role {
-                    role: parts[0].to_string(),
-                    name: Some(parts[1].to_string()),
-                }
             }
             _ if s.starts_with('#') => Selector::Id(s[1..].to_string()),
             _ if s.starts_with("id:") => Selector::Id(s[3..].to_string()),

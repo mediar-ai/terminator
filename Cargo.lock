@@ -4918,7 +4918,7 @@ dependencies = [
 
 [[package]]
 name = "terminator"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "accessibility",
  "accessibility-sys",
