@@ -90,6 +90,7 @@ For more details, see the [Getting Started Guide](https://docs.screenpi.pe/termi
 ## Explore Further
 
 -   **Vercel AI SDK Example:** Learn how to use Terminator with AI in the [PDF-to-Form example](https://github.com/mediar-ai/terminator/tree/main/examples/pdf-to-form).
+-   **Login Automator Example:** A minimal [dummy login automation](https://github.com/mediar-ai/terminator/tree/main/examples/login-automator) using the Python SDK.
 -   **MCP:** Discover [how to Vibe Work using MCP](https://github.com/mediar-ai/terminator/tree/main/mcp).
 
 ## Technical Details & Debugging
