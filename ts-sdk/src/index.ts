@@ -5,7 +5,6 @@ const DEFAULT_BASE_URL = "http://127.0.0.1:9375";
 // General Responses
 export interface BasicResponse {
   message: string;
-  title: string;
 }
 
 export interface BooleanResponse {
