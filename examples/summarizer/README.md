@@ -1,9 +1,10 @@
 # summarizer (🧠 Ctrl+J to Clipboard using Ollama)
 
-Local AI context summarizer using:
-- 🪟 Ctrl+J hotkey detection
-- 🪟 Accessibility tree capture (real UI Automation)
-- 🤖 Ollama with Gemma 3 or local LLM
+
+Simple local AI context summarizer using:
+- 🪟 Hotkey detection (Ctrl+J)
+- 🪟 Accessibility tree capture
+- 🤖 Ollama + Gemma 3
 - 📋 Clipboard output
 
 ---
