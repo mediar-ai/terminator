@@ -2079,6 +2079,20 @@ checksum = "a8d1add55171497b4705a648c6b583acafb01d58050a51727785f0b2c8e0a2b2"
 
 [[package]]
 name = "global-hotkey"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "927a00fd7c31d82029f99ce2481a8de1ae974758017d6a55ebbe7f22edcd1617"
+dependencies = [
+ "crossbeam-channel",
+ "keyboard-types",
+ "once_cell",
+ "thiserror 1.0.69",
+ "windows-sys 0.52.0",
+ "x11-dl",
+]
+
+[[package]]
+name = "global-hotkey"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9247516746aa8e53411a0db9b62b0e24efbcf6a76e0ba73e5a91b512ddabed7"
@@ -3837,7 +3851,7 @@ name = "popup"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "global-hotkey",
+ "global-hotkey 0.7.0",
  "lazy_static",
  "once_cell",
  "terminator",
@@ -4771,6 +4785,7 @@ dependencies = [
  "anyhow",
  "arboard",
  "clap",
+ "global-hotkey 0.4.2",
  "rdev",
  "regex",
  "serde",

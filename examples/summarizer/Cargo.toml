@@ -10,7 +10,7 @@ rdev = "0.5.3"
 tokio = { workspace = true }
 
 terminator = { path = "C:/Users/User/Desktop/terminator/terminator" }
-
+global-hotkey = "0.4"
 anyhow = { workspace = true }
 serde_json = { workspace = true }
 serde = { workspace = true }

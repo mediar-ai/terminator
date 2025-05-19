@@ -25,15 +25,29 @@ async fn main() -> Result<()> {
 
     let is_triggered = Arc::new(Mutex::new(false));
     let trigger_clone = Arc::clone(&is_triggered);
+    let ctrl_pressed = Arc::new(Mutex::new(false));
+    let ctrl_state = Arc::clone(&ctrl_pressed);
 
     thread::spawn(move || {
         let _ = listen(move |event: Event| {
-            if let EventType::KeyPress(Key::KeyJ) = event.event_type {
-                if event.modifiers.ctrl {
-                    println!("🎯 Ctrl+J pressed!");
-                    let mut t = trigger_clone.lock().unwrap();
-                    *t = true;
+            match event.event_type {
+                EventType::KeyPress(Key::ControlLeft) | EventType::KeyPress(Key::ControlRight) => {
+                    let mut state = ctrl_state.lock().unwrap();
+                    *state = true;
                 }
+                EventType::KeyRelease(Key::ControlLeft) | EventType::KeyRelease(Key::ControlRight) => {
+                    let mut state = ctrl_state.lock().unwrap();
+                    *state = false;
+                }
+                EventType::KeyPress(Key::KeyJ) => {
+                    let ctrl = *ctrl_state.lock().unwrap();
+                    if ctrl {
+                        println!("🎯 Ctrl+J pressed!");
+                        let mut t = trigger_clone.lock().unwrap();
+                        *t = true;
+                    }
+                }
+                _ => {}
             }
         });
     });
@@ -96,7 +110,7 @@ Please provide:
     );
 
     let summary = run_ollama(&prompt, model).context("AI query failed")?;
-    let clean_summary = summary.replace("**", "").replace("* ", "- ");
+    let clean_summary = summary.replace("", "").replace("* ", "- ");
 
     let mut clipboard = Clipboard::new().context("Clipboard init failed")?;
     clipboard.set_text(clean_summary.clone()).context("Copy failed")?;
