@@ -32,13 +32,13 @@ def open_gmail_compose(client: DesktopUseClient, recipient: str, subject: str, b
         client.open_url(gmail_url)
         
         # Wait for the page to load
-        sleep(7)  # Adjust this based on your internet speed
+        sleep(10)  # Adjust this based on your internet speed
         
         # Get the Gmail window
-        gmail_window = client.locator('window:Gmail')
+        gmail_window = client.locator('window:Gmail').locator('Document:Gmail')
         
         # Find and fill recipient field
-        recipient_field = gmail_window.locator('Name:To')
+        recipient_field = gmail_window.locator('Name:To recipients')
         recipient_field.type_text(recipient)
         sleep(1)
         
@@ -55,7 +55,7 @@ def open_gmail_compose(client: DesktopUseClient, recipient: str, subject: str, b
         logging.info("Email composed successfully!")
 
         # Find and click the Send button
-        send_button = gmail_window.locator('Name:Send ‪(Ctrl-Enter)')
+        send_button = gmail_window.locator('Name:(Ctrl-Enter)')
         send_button.click()
         sleep(1)
 
