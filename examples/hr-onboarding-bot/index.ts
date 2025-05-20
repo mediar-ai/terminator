@@ -159,22 +159,7 @@ async function main() {
         }
       }),
 
-      // Tool to get PDF text (already extracted)
-      getPdfText: tool({
-        description: `Returns the already extracted text content from the PDF resume.
-                    Use this to analyze the resume content and extract relevant information.`,
-        parameters: z.object({}),
-        execute: async () => {
-          try {
-            console.log(`\n🔧 [Tool Call] Getting PDF text content`);
-            console.log(`\n✅ [Tool Result] Retrieved PDF text content (${pdfText.length} characters)`);
-            return { success: true, text: pdfText };
-          } catch (error: any) {
-            console.error(`\n❌ [Tool Error] Failed to get PDF text: ${error.message}`);
-            return { success: false, error: error.message };
-          }
-        }
-      }),
+
 
       // Tool to type text into a specific UI element (like a form field)
       typeIntoElement: tool({
