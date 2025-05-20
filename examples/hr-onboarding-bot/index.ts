@@ -159,8 +159,6 @@ async function main() {
         }
       }),
 
-
-
       // Tool to type text into a specific UI element (like a form field)
       typeIntoElement: tool({
         description: `Types the given text into the UI element (usually an input field or text area) identified by the selector string.
@@ -344,11 +342,9 @@ async function main() {
     The user has manually opened the HR onboarding web application ('${WEB_APP_URL}') and the PDF text has already been extracted for you to analyze.
 
     **Your Goal - Follow This Order Strictly:**
-    1. **Get PDF Content:** Use the **'getPdfText'** tool to retrieve the already extracted text from the resume PDF. This will give you all the content you need to analyze.
+    1. **Identify Web Form Window:** Use **'findWindow'** with \`titleContains:"HR Onboarding System"\` to locate the web form. **Note the unique ID or selector returned.**
     
-    2. **Identify Web Form Window:** Use **'findWindow'** with \`titleContains:"HR Onboarding System"\` to locate the web form. **Note the unique ID or selector returned.**
-    
-    3. **Analyze Resume Content:** From the PDF text, extract the following information:
+    2. **Analyze Resume Content:** The PDF text has already been extracted and will be provided to you. Extract the following information:
        - Full Name
        - Email Address
        - Phone Number
@@ -376,7 +372,7 @@ async function main() {
 
     **Start now by using the tools as described in the steps above.**`;
 
-    const initialUserMessage = "The HR Onboarding web app is open and the PDF text has been extracted. Please start the process following the system prompt exactly: get the PDF content, find the web form window, analyze the resume content, fill the form with the extracted information, and submit it.";
+    const initialUserMessage = "The HR Onboarding web app is open and the PDF text has been extracted. Please start the process following the system prompt exactly: find the web form window, analyze the resume content, fill the form with the extracted information, and submit it.";
 
     const messages: CoreMessage[] = [
       { role: 'system', content: systemPrompt },
