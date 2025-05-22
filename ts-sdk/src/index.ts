@@ -538,6 +538,56 @@ export class DesktopUseClient {
     };
     return await this._makeRequest<BasicResponse>("/mouse_drag", payload);
   }
+
+  /**
+   * Moves mouse to (x, y) and presses down on the element specified by selectorChain.
+   */
+  async mouseClickAndHold(
+    selectorChain: string[],
+    x: number,
+    y: number,
+    timeoutMs?: number | null
+  ): Promise<BasicResponse> {
+    const payload = {
+      selector_chain: selectorChain,
+      x,
+      y,
+      timeout_ms: timeoutMs,
+    };
+    return await this._makeRequest<BasicResponse>("/mouse_click_and_hold", payload);
+  }
+
+  /**
+   * Moves mouse to (x, y) on the element specified by selectorChain.
+   */
+  async mouseMove(
+    selectorChain: string[],
+    x: number,
+    y: number,
+    timeoutMs?: number | null
+  ): Promise<BasicResponse> {
+    const payload = {
+      selector_chain: selectorChain,
+      x,
+      y,
+      timeout_ms: timeoutMs,
+    };
+    return await this._makeRequest<BasicResponse>("/mouse_move", payload);
+  }
+
+  /**
+   * Releases mouse button on the element specified by selectorChain.
+   */
+  async mouseRelease(
+    selectorChain: string[],
+    timeoutMs?: number | null
+  ): Promise<BasicResponse> {
+    const payload = {
+      selector_chain: selectorChain,
+      timeout_ms: timeoutMs,
+    };
+    return await this._makeRequest<BasicResponse>("/mouse_release", payload);
+  }
 }
 
 export class Locator {
@@ -909,6 +959,27 @@ export class Locator {
       endY,
       this._timeoutMs
     );
+  }
+
+  /**
+   * Moves mouse to (x, y) and presses down on the element specified by selectorChain.
+   */
+  async clickAndHold(x: number, y: number): Promise<BasicResponse> {
+    return await this._client.mouseClickAndHold(this._selector_chain, x, y, this._timeoutMs);
+  }
+
+  /**
+   * Moves mouse to (x, y) on the element specified by selectorChain.
+   */
+  async mouseMove(x: number, y: number): Promise<BasicResponse> {
+    return await this._client.mouseMove(this._selector_chain, x, y, this._timeoutMs);
+  }
+
+  /**
+   * Releases mouse button on the element specified by selectorChain.
+   */
+  async releaseMouse(): Promise<BasicResponse> {
+    return await this._client.mouseRelease(this._selector_chain, this._timeoutMs);
   }
 }
 

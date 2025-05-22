@@ -366,6 +366,34 @@ class DesktopUseClient:
         }
         return self._make_request("/mouse_drag", payload, BasicResponse)
 
+    def mouse_click_and_hold(self, selector_chain, x, y, timeout_ms=None):
+        """Moves mouse to (x, y) and presses down on the element specified by selector_chain."""
+        payload = {
+            "selector_chain": selector_chain,
+            "x": x,
+            "y": y,
+            "timeout_ms": timeout_ms,
+        }
+        return self._make_request("/mouse_click_and_hold", payload, BasicResponse)
+
+    def mouse_move(self, selector_chain, x, y, timeout_ms=None):
+        """Moves mouse to (x, y) on the element specified by selector_chain."""
+        payload = {
+            "selector_chain": selector_chain,
+            "x": x,
+            "y": y,
+            "timeout_ms": timeout_ms,
+        }
+        return self._make_request("/mouse_move", payload, BasicResponse)
+
+    def mouse_release(self, selector_chain, timeout_ms=None):
+        """Releases mouse button on the element specified by selector_chain."""
+        payload = {
+            "selector_chain": selector_chain,
+            "timeout_ms": timeout_ms,
+        }
+        return self._make_request("/mouse_release", payload, BasicResponse)
+
 class Locator:
     """
     Represents a UI element locator, allowing chained selections and actions.
@@ -613,6 +641,18 @@ class Locator:
     def mouse_drag(self, start_x, start_y, end_x, end_y):
         """Drags the mouse from (start_x, start_y) to (end_x, end_y) relative to the element."""
         return self._client.mouse_drag(self._selector_chain, start_x, start_y, end_x, end_y, self._timeout_ms)
+
+    def mouse_click_and_hold(self, x, y):
+        """Moves mouse to (x, y) and presses down relative to the element."""
+        return self._client.mouse_click_and_hold(self._selector_chain, x, y, self._timeout_ms)
+
+    def mouse_move(self, x, y):
+        """Moves mouse to (x, y) relative to the element."""
+        return self._client.mouse_move(self._selector_chain, x, y, self._timeout_ms)
+
+    def mouse_release(self):
+        """Releases mouse button relative to the element."""
+        return self._client.mouse_release(self._selector_chain, self._timeout_ms)
 
 # Helper function (can be part of the SDK or used externally)
 def sleep(seconds: float) -> None:

@@ -716,6 +716,7 @@ impl UIElementImpl for MacOSUIElement {
                 value: None,
                 description: None,
                 properties,
+                is_keyboard_focusable: Some(false), // macos: not implemented
             };
 
             // Special handling for window title - try multiple attributes
@@ -776,6 +777,7 @@ impl UIElementImpl for MacOSUIElement {
             value: None,
             description: None,
             properties,
+            is_keyboard_focusable: Some(false), // macos: not implemented
         };
 
         // Debug attribute collection
@@ -1425,9 +1427,38 @@ impl UIElementImpl for MacOSUIElement {
         self.focus()
     }
 
-    fn mouse_drag(&self, _start_x: f64, _start_y: f64, _end_x: f64, _end_y: f64) -> Result<(), AutomationError> {
+    fn mouse_drag(
+        &self,
+        _start_x: f64,
+        _start_y: f64,
+        _end_x: f64,
+        _end_y: f64,
+    ) -> Result<(), AutomationError> {
         Err(AutomationError::UnsupportedOperation(
             "mouse_drag is not implemented for macOS yet".to_string(),
+        ))
+    }
+
+    fn is_keyboard_focusable(&self) -> Result<bool, AutomationError> {
+        // Not implemented for macOS yet
+        Ok(false)
+    }
+
+    fn mouse_click_and_hold(&self, _x: f64, _y: f64) -> Result<(), AutomationError> {
+        Err(AutomationError::UnsupportedOperation(
+            "mouse_click_and_hold is not implemented for macOS yet".to_string(),
+        ))
+    }
+
+    fn mouse_move(&self, _x: f64, _y: f64) -> Result<(), AutomationError> {
+        Err(AutomationError::UnsupportedOperation(
+            "mouse_move is not implemented for macOS yet".to_string(),
+        ))
+    }
+
+    fn mouse_release(&self) -> Result<(), AutomationError> {
+        Err(AutomationError::UnsupportedOperation(
+            "mouse_release is not implemented for macOS yet".to_string(),
         ))
     }
 }
@@ -1831,9 +1862,6 @@ impl AccessibilityEngine for MacOSEngine {
         _timeout: Option<Duration>, // Timeout not directly supported by macOS AX API like Windows UIA
         _depth: Option<usize>,      // Depth parameter required by trait
     ) -> Result<Vec<UIElement>, AutomationError> {
-        let start_time = Instant::now();
-        let mut results: Vec<UIElement> = Vec::new();
-
         let start_element = if let Some(el) = root {
             // Try to downcast to MacOSUIElement to get the underlying AXUIElement
             if let Some(macos_el) = el.as_any().downcast_ref::<MacOSUIElement>() {
@@ -2000,9 +2028,14 @@ impl AccessibilityEngine for MacOSEngine {
 
                     for root_element in &current_roots {
                         // Find elements matching the current selector within the current root
-                        let found_elements =
-                            self.find_elements(selector, Some(root_element), _timeout, None)
-                                .map_err(|e| AutomationError::PlatformError(format!("Recursive find_elements failed: {}", e)))?;
+                        let found_elements = self
+                            .find_elements(selector, Some(root_element), _timeout, None)
+                            .map_err(|e| {
+                                AutomationError::PlatformError(format!(
+                                    "Recursive find_elements failed: {}",
+                                    e
+                                ))
+                            })?;
 
                         if is_last_selector {
                             // If it's the last selector, collect all found elements
@@ -2031,6 +2064,9 @@ impl AccessibilityEngine for MacOSEngine {
                 }
                 Ok(current_roots) // Return all elements found by the last selector
             }
+            Selector::ClassName(_) => Err(AutomationError::UnsupportedOperation(
+                "ClassName selector is not yet supported for macOS".to_string(),
+            )),
         }
     }
 
@@ -2229,6 +2265,9 @@ impl AccessibilityEngine for MacOSEngine {
                 // If the loop completes, current_element holds the final result
                 Ok(current_element)
             }
+            Selector::ClassName(_) => Err(AutomationError::UnsupportedOperation(
+                "ClassName selector is not yet supported for macOS".to_string(),
+            )),
         }
     }
 
@@ -2641,11 +2680,123 @@ impl AccessibilityEngine for MacOSEngine {
     }
 
     async fn get_current_browser_window(&self) -> Result<UIElement, AutomationError> {
-        Err(AutomationError::UnsupportedOperation(
-            "get_current_browser_window not yet implemented for macOS".to_string(),
-        ))
-    }
+        use accessibility::AXAttribute;
+        use core_foundation::string::CFString;
+        use objc::{class, msg_send, sel, sel_impl};
 
+        // 1. Get focused application and focused UI element
+        let system_wide = accessibility::AXUIElement::system_wide();
+        let focused_app_attr = AXAttribute::new(&CFString::new("AXFocusedApplication"));
+        let focused_element_attr = AXAttribute::new(&CFString::new("AXFocusedUIElement"));
+
+        let focused_app = system_wide.attribute(&focused_app_attr).map_err(|e| {
+            AutomationError::ElementNotFound(format!("Failed to get focused application: {}", e))
+        })?;
+        let focused_element = system_wide.attribute(&focused_element_attr).map_err(|e| {
+            AutomationError::ElementNotFound(format!("Failed to get focused UI element: {}", e))
+        })?;
+
+        let app_ax_element = if let Some(ax) = focused_app.downcast::<accessibility::AXUIElement>()
+        {
+            ax
+        } else {
+            return Err(AutomationError::ElementNotFound(
+                "Focused application attribute did not contain a valid AXUIElement".to_string(),
+            ));
+        };
+        let focused_ax_element =
+            if let Some(ax) = focused_element.downcast::<accessibility::AXUIElement>() {
+                ax
+            } else {
+                return Err(AutomationError::ElementNotFound(
+                    "Focused UI element attribute did not contain a valid AXUIElement".to_string(),
+                ));
+            };
+
+        // 2. Get PID and app name
+        let pid = {
+            // Use accessibility API to get the PID
+            unsafe {
+                let element_ref =
+                    app_ax_element.as_concrete_TypeRef() as *mut ::std::os::raw::c_void;
+                #[link(name = "ApplicationServices", kind = "framework")]
+                unsafe extern "C" {
+                    fn AXUIElementGetPid(
+                        element: *mut ::std::os::raw::c_void,
+                        pid: *mut i32,
+                    ) -> i32;
+                }
+                let mut pid: i32 = 0;
+                let result = AXUIElementGetPid(element_ref, &mut pid);
+                if result == 0 { pid } else { -1 }
+            }
+        };
+        if pid == -1 {
+            return Err(AutomationError::ElementNotFound(
+                "Failed to get PID for focused application".to_string(),
+            ));
+        }
+
+        // 3. Get app name from PID using Objective-C
+        let app_name = unsafe {
+            let nsra_class = class!(NSRunningApplication);
+            let app: *mut objc::runtime::Object =
+                msg_send![nsra_class, runningApplicationWithProcessIdentifier:pid];
+            if app.is_null() {
+                return Err(AutomationError::ElementNotFound(format!(
+                    "No NSRunningApplication for PID {}",
+                    pid
+                )));
+            }
+            let app_name_obj: *mut objc::runtime::Object = msg_send![app, localizedName];
+            if app_name_obj.is_null() {
+                return Err(AutomationError::ElementNotFound(format!(
+                    "No localizedName for PID {}",
+                    pid
+                )));
+            }
+            let nsstring = app_name_obj as *const objc::runtime::Object;
+            let bytes: *const std::os::raw::c_char = msg_send![nsstring, UTF8String];
+            let len: usize = msg_send![nsstring, lengthOfBytesUsingEncoding:4]; // NSUTF8StringEncoding = 4
+            let bytes_slice = std::slice::from_raw_parts(bytes as *const u8, len);
+            std::str::from_utf8_unchecked(bytes_slice).to_string()
+        };
+
+        // 4. Check if app is a known browser
+        let known_browsers = [
+            "Safari",
+            "Google Chrome",
+            "Firefox",
+            "Arc",
+            "Microsoft Edge",
+            "Brave Browser",
+            "Opera",
+            "Vivaldi",
+        ];
+        let is_browser = known_browsers
+            .iter()
+            .any(|b| app_name.to_lowercase().contains(&b.to_lowercase()));
+        if !is_browser {
+            return Err(AutomationError::ElementNotFound(format!(
+                "Currently focused application '{}' is not a recognized browser.",
+                app_name
+            )));
+        }
+
+        // 5. Try to get the focused window from the app element
+        let window = app_ax_element
+            .main_window()
+            .ok()
+            .or_else(|| {
+                app_ax_element
+                    .windows()
+                    .ok()
+                    .and_then(|ws| ws.get(0).map(|w| w.to_owned()))
+            })
+            .unwrap_or(focused_ax_element.clone());
+
+        Ok(self.wrap_element(ThreadSafeAXUIElement::new(window)))
+    }
 
     fn activate_application(&self, app_name: &str) -> Result<(), AutomationError> {
         let app_element = self.get_application_by_name(app_name)?;

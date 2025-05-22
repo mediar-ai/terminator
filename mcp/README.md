@@ -39,17 +39,17 @@ Open a new terminal (like PowerShell or Command Prompt) **separate from the one 
     # Run this command inside the terminator/mcp directory
     MCP_PATH="$(pwd)/dist/index.js"
     JSON_CONTENT=$(cat <<EOF
-{
-  "mcpServers": {
-    "terminator-mcp-agent": {
-      "command": "node",
-      "args": [
-          "$MCP_PATH"
-      ]
+    {
+      "mcpServers": {
+        "terminator-mcp-agent": {
+          "command": "node",
+          "args": [
+              "$MCP_PATH"
+          ]
+        }
+      }
     }
-  }
-}
-EOF
+    EOF
     )
     echo "--- Copy the JSON below and save it as mcp.json in your ~/.cursor directory ---"
     echo "$JSON_CONTENT"
@@ -65,17 +65,17 @@ EOF
     # Run this command inside the terminator/mcp directory
     $mcpPath = ($pwd).Path.Replace('\', '\\') + '\\dist\\index.js'
     $jsonContent = @"
-{
-  "mcpServers": {
-    "terminator-mcp-agent": {
-      "command": "node",
-      "args": [
-          "$mcpPath"
-      ]
+    {
+      "mcpServers": {
+        "terminator-mcp-agent": {
+          "command": "node",
+          "args": [
+              "$mcpPath"
+          ]
+        }
+      }
     }
-  }
-}
-"@
+    "@
     Write-Host "--- Copy the JSON below and save it as mcp.json in your %USERPROFILE%\.cursor directory ---"
     Write-Host $jsonContent
     Write-Host "------------------------------------------------------------------------------------------"

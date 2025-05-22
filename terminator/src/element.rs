@@ -65,6 +65,11 @@ pub(crate) trait UIElementImpl: Send + Sync + Debug {
 
     // New method for mouse drag
     fn mouse_drag(&self, start_x: f64, start_y: f64, end_x: f64, end_y: f64) -> Result<(), AutomationError>;
+
+    // New methods for mouse control
+    fn mouse_click_and_hold(&self, x: f64, y: f64) -> Result<(), AutomationError>;
+    fn mouse_move(&self, x: f64, y: f64) -> Result<(), AutomationError>;
+    fn mouse_release(&self) -> Result<(), AutomationError>;
 }
 
 impl UIElement {
@@ -277,6 +282,21 @@ impl UIElement {
     /// Drag mouse from start to end coordinates
     pub fn mouse_drag(&self, start_x: f64, start_y: f64, end_x: f64, end_y: f64) -> Result<(), AutomationError> {
         self.inner.mouse_drag(start_x, start_y, end_x, end_y)
+    }
+
+    /// Press and hold mouse at (x, y)
+    pub fn mouse_click_and_hold(&self, x: f64, y: f64) -> Result<(), AutomationError> {
+        self.inner.mouse_click_and_hold(x, y)
+    }
+
+    /// Move mouse to (x, y)
+    pub fn mouse_move(&self, x: f64, y: f64) -> Result<(), AutomationError> {
+        self.inner.mouse_move(x, y)
+    }
+
+    /// Release mouse button
+    pub fn mouse_release(&self) -> Result<(), AutomationError> {
+        self.inner.mouse_release()
     }
 }
 

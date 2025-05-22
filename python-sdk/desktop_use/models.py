@@ -34,9 +34,10 @@ class ElementsResponse:
 
 @dataclass
 class ClickResponse:
-    method: str
-    details: str
+    method: Optional[str] = None
+    details: Optional[str] = None
     coordinates: Optional[Tuple[float, float]] = None
+    message: Optional[str] = None
 
 @dataclass
 class AttributesResponse:

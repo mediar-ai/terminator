@@ -1,7 +1,5 @@
-use std::time::Duration;
-
-use terminator::{AutomationError, Desktop, Selector, platforms};
-use tracing::{Level, debug};
+use terminator::{AutomationError, Desktop, Selector};
+use tracing::Level;
 
 // like a playground, just uncomment
 #[tokio::main]
@@ -16,7 +14,6 @@ async fn main() -> Result<(), AutomationError> {
     // let element_by_id = engine.get_element_by_id(12304)?;
     // println!("element by pid: {:?}", element_by_id);
 
-    
     // get the focused element
     // let focused_element = engine.get_focused_element()?;
     // println!("Focused element: {:?}", focused_element);
@@ -122,7 +119,15 @@ async fn main() -> Result<(), AutomationError> {
     // in firefox, get all edit elements and type hello in each of them
     // let app = desktop.application("firefox").unwrap();
     let window = desktop.get_current_browser_window().await.unwrap();
-    let elements = window.locator(Selector::Role { role: "edit".to_string(), name: None }).unwrap().all(None, None).await.unwrap();
+    let elements = window
+        .locator(Selector::Role {
+            role: "edit".to_string(),
+            name: None,
+        })
+        .unwrap()
+        .all(None, None)
+        .await
+        .unwrap();
     for element in elements.iter() {
         // element.type_text("hello", true)?;
 
@@ -139,20 +144,20 @@ async fn main() -> Result<(), AutomationError> {
     // Debug logging
     // println!("Found Cursor application");
     // println!("App attributes: {:?}", app.attributes());
-    
+
     // Try to find the editor area
     // let editor = app.locator(Selector::Role { role: "edit".to_string(), name: None })
     //     .unwrap()
     //     .first(None)
     //     .await
     //     .unwrap();
-    
+
     // println!("Found editor element: {:?}", editor.attributes());
-    
+
     // Focus the editor
     // editor.focus().unwrap();
     // std::thread::sleep(Duration::from_millis(500));
-    
+
     // Try scrolling with a smaller amount first
     // app.scroll("down", 100.0).unwrap();
     // editor.press_key("{page_down}").unwrap();
