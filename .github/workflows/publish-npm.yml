@@ -1,0 +1,101 @@
+name: Publish to npm
+env:
+  DEBUG: napi:*
+  APP_NAME: terminator
+  # MACOSX_DEPLOYMENT_TARGET: '10.13'  # Commented out for now
+permissions:
+  contents: write
+  id-token: write
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - host: windows-latest
+            build: npm run build
+            target: x86_64-pc-windows-msvc
+          # TODO: Uncomment this when we want to build for macOS
+          # - host: macos-13
+          #   target: x86_64-apple-darwin
+          #   build: npm run build
+          # - host: macos-14
+          #   target: aarch64-apple-darwin
+          #   build: npm run build
+    name: stable - ${{ matrix.settings.target }} - node@20
+    runs-on: ${{ matrix.settings.host }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.settings.target }}
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: bindings/node
+
+      - name: Build
+        run: ${{ matrix.settings.build }}
+        shell: bash
+        working-directory: bindings/node
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings-${{ matrix.settings.target }}
+          path: bindings/node/${{ env.APP_NAME }}.*.node
+          if-no-files-found: error
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+
+      - uses: actions/checkout@v4
+
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: bindings/node
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: bindings/node/artifacts
+
+      - name: Move artifacts
+        run: npm run artifacts
+        working-directory: bindings/node
+
+      - name: Publish
+        run: |
+          npm config set provenance true
+          if git log -1 --pretty=%B | grep "^[0-9]\+\.[0-9]\+\.[0-9]\+$";
+          then
+            echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
+            npm publish --access public
+          elif git log -1 --pretty=%B | grep "^[0-9]\+\.[0-9]\+\.[0-9]\+";
+          then
+            echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
+            npm publish --tag next --access public
+          else
+            echo "Not a release, skipping publish"
+          fi
+        working-directory: bindings/node
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

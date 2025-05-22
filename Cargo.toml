@@ -6,7 +6,9 @@ members = [
     "examples/terminator-rust-examples/button",   
     "examples/terminator-rust-examples/popup", 
     "examples/terminator-rust-examples/server", 
-    "examples/terminator-rust-examples/win_automation", 
+    "examples/terminator-rust-examples/win_automation",
+    "bindings/python",
+    "bindings/node"
 ]
 
 # Shared metadata for workspace members

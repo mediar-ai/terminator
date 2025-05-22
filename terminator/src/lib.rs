@@ -7,11 +7,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{info, instrument, warn};
 
-mod element;
-mod errors;
-mod locator;
+pub mod element;
+pub mod errors;
+pub mod locator;
 pub mod platforms;
-mod selector;
+pub mod selector;
 #[cfg(test)]
 mod tests;
 pub mod utils;
@@ -415,3 +415,12 @@ impl Desktop {
         Ok(application)
     }
 }
+
+impl Clone for Desktop {
+    fn clone(&self) -> Self {
+        Self {
+            engine: self.engine.clone(),
+        }
+    }
+}
+

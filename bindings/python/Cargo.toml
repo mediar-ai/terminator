@@ -1,0 +1,15 @@
+[package]
+name = "terminator-py-bindings"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "terminator"
+crate-type = ["cdylib"]
+
+[dependencies]
+# PyO3 for Python bindings
+pyo3 = { version = "0.20", features = ["extension-module", "abi3-py311"] }
+pyo3-asyncio = { version = "0.20", features = ["attributes", "tokio-runtime"] }
+terminator = { workspace = true }
+tokio = { workspace = true }
