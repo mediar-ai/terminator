@@ -6,6 +6,7 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3_asyncio::tokio as pyo3_tokio;
 use terminator::{Desktop, element::UIElement, selector::Selector, ScreenshotResult, locator::Locator, ClickResult, CommandOutput, errors::AutomationError};
 use pyo3::create_exception;
+use std::sync::Once;
 
 /// Main entry point for desktop automation.
 #[pyclass]
@@ -121,6 +122,12 @@ impl PyDesktop {
     #[pyo3(text_signature = "()")]
     /// Create a new PyDesktop instance.
     pub fn new() -> PyResult<Self> {
+        static INIT: Once = Once::new();
+        INIT.call_once(|| {
+            let _ = tracing_subscriber::fmt()
+                .with_env_filter("info")
+                .try_init();
+        });
         let desktop = tokio::runtime::Runtime::new()
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
             .block_on(Desktop::new(false, false))

@@ -14,6 +14,7 @@ napi = { version = "2", features = ["tokio_rt", "napi4"] }
 napi-derive = { version = "2" }
 terminator = { workspace = true }
 tokio = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [build-dependencies]
 napi-build = "2"

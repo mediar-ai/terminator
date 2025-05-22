@@ -13,3 +13,4 @@ pyo3 = { version = "0.20", features = ["extension-module", "abi3-py311"] }
 pyo3-asyncio = { version = "0.20", features = ["attributes", "tokio-runtime"] }
 terminator = { workspace = true }
 tokio = { workspace = true }
+tracing-subscriber = { workspace = true }

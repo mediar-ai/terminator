@@ -1,6 +1,6 @@
 use napi::Status;
 use napi_derive::napi;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Once};
 use terminator::{Desktop, element::UIElement, locator::Locator, errors::AutomationError};
 
 /// Main entry point for desktop automation
@@ -14,6 +14,12 @@ impl NodeDesktop {
     /// Create a new Desktop automation instance
     #[napi(constructor)]
     pub fn new() -> napi::Result<Self> {
+        static INIT: Once = Once::new();
+        INIT.call_once(|| {
+            let _ = tracing_subscriber::fmt()
+                .with_env_filter("info")
+                .try_init();
+        });
         // For now, use default args: use_background_apps=false, activate_app=false
         let rt = tokio::runtime::Runtime::new()
             .map_err(|e| napi::Error::from_reason(format!("Tokio runtime error: {e}")))?;

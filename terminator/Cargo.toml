@@ -41,7 +41,7 @@ arboard = "3.3.0"
 
 [[example]]
 name = "server"
-path = "examples/server.rs"
+path = "../examples/terminator-rust-examples/server/src/main.rs"
 
 [dev-dependencies]
 axum = "0.8.3"
