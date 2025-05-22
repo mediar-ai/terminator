@@ -7,8 +7,13 @@ Simple local AI context summarizer using:
 ---
 ## ⚡ Quick Start (Windows)
 
-```bash
+# Clone the repo and go to the example folder
 git clone https://github.com/mediar-ai/terminator
-cd terminator/examples/summarizer
+cd examples/summarizer
+
+# Run setup script to install dependencies and configure environment
 powershell -ExecutionPolicy Bypass -File setup_windows.ps1
+
+# Build and run the summarizer CLI
 cargo build --release
+./target/release/summarizer.exe
