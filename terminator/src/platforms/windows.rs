@@ -337,6 +337,38 @@ impl AccessibilityEngine for WindowsEngine {
                     })
                     .collect();
 
+
+                return Ok(collected_elements);
+            }
+            Selector::AutomationId(automation_id) => {
+                debug!("Searching for element with AutomationId: {}", automation_id);
+                
+                let matcher = self
+                    .automation
+                    .0
+                    .create_matcher()
+                    .from_ref(root_ele)
+                    .filter(Box::new(AutomationIdFilter { 
+                        automation_id: automation_id.clone() 
+                    }))
+                    .timeout(timeout_ms as u64);
+
+                debug!("Starting element search with timeout: {}ms", timeout_ms);
+                let elements = matcher.find_all().map_err(|e| {
+                    debug!("Element search failed: {}", e);
+                    AutomationError::ElementNotFound(format!("AutomationId: '{}', Err: {}", automation_id, e))
+                })?;
+
+                debug!("Found {} elements matching AutomationId: {}", elements.len(), automation_id);
+                let collected_elements: Vec<UIElement> = elements
+                    .into_iter()
+                    .map(|ele| {
+                        UIElement::new(Box::new(WindowsUIElement {
+                            element: ThreadSafeWinUIElement(Arc::new(ele)),
+                        }))
+                    })
+                    .collect();
+
                 return Ok(collected_elements);
             }
             Selector::Name(name) => {
@@ -718,6 +750,31 @@ impl AccessibilityEngine for WindowsEngine {
                 return Ok(UIElement::new(Box::new(WindowsUIElement {
                     element: arc_ele,
                 })));
+            }
+            Selector::AutomationId(automation_id) => {
+                debug!("Searching for element with AutomationId: {}", automation_id);
+                
+                let matcher = self
+                    .automation
+                    .0
+                    .create_matcher()
+                    .from_ref(root_ele)
+                    .filter(Box::new(AutomationIdFilter { 
+                        automation_id: automation_id.clone() 
+                    }))
+                    .timeout(timeout_ms as u64);
+
+                debug!("Starting element search with timeout: {}ms", timeout_ms);
+                let element = matcher.find_first().map_err(|e| {
+                    debug!("Element search failed: {}", e);
+                    AutomationError::ElementNotFound(format!("AutomationId: '{}', Err: {}", automation_id, e))
+                })?;
+
+                debug!("Found element matching AutomationId: {}", automation_id);
+                let arc_ele = ThreadSafeWinUIElement(Arc::new(element));
+                Ok(UIElement::new(Box::new(WindowsUIElement {
+                    element: arc_ele,
+                })))
             }
         }
     }
@@ -2233,6 +2290,25 @@ impl UIElementImpl for WindowsUIElement {
             SendInput(&[up_input], std::mem::size_of::<INPUT>() as i32);
         }
         Ok(())
+    }
+}
+
+// Custom filter for AutomationId
+struct AutomationIdFilter {
+    automation_id: String,
+}
+
+impl uiautomation::filters::MatcherFilter for AutomationIdFilter {
+    fn judge(&self, element: &uiautomation::UIElement) -> uiautomation::errors::Result<bool> {
+        match element.get_property_value(UIProperty::AutomationId) {
+            Ok(property_value) => {
+                match property_value.get_string() {
+                    Ok(id) => Ok(id == self.automation_id),
+                    Err(_) => Ok(false)
+                }
+            },
+            Err(_) => Ok(false)
+        }
     }
 }
 

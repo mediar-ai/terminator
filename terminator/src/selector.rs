@@ -7,6 +7,8 @@ pub enum Selector {
     Role { role: String, name: Option<String> }, // TODO: name unused 
     /// Select by accessibility ID
     Id(String),
+    /// Select by automation ID (Windows-specific)
+    AutomationId(String),
     /// Select by name/label
     Name(String),
     /// Select by text content
@@ -50,6 +52,10 @@ impl From<&str> for Selector {
             _ if s.to_lowercase().starts_with("classname:") => {
                 let parts: Vec<&str> = s.splitn(2, ':').collect();
                 Selector::ClassName(parts[1].to_string())
+            }
+            _ if s.to_lowercase().starts_with("automationid:") => {
+                let parts: Vec<&str> = s.splitn(2, ':').collect();
+                Selector::AutomationId(parts[1].trim().to_string())
             }
             _ if s.contains(':') => {
                 let parts: Vec<&str> = s.splitn(2, ':').collect();
