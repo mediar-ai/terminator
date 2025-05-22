@@ -70,6 +70,13 @@ pub(crate) trait UIElementImpl: Send + Sync + Debug {
     fn mouse_click_and_hold(&self, x: f64, y: f64) -> Result<(), AutomationError>;
     fn mouse_move(&self, x: f64, y: f64) -> Result<(), AutomationError>;
     fn mouse_release(&self) -> Result<(), AutomationError>;
+    
+    /// Highlight the element by drawing a rectangle around it
+    /// This is a visual aid for debugging and demonstration
+    fn highlight_element(&self) -> Result<(), AutomationError> {
+        // Default implementation does nothing
+        Ok(())
+    }
 }
 
 impl UIElement {
