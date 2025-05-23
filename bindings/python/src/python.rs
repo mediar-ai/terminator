@@ -136,12 +136,6 @@ impl PyDesktop {
     }
 
     #[pyo3(text_signature = "($self)")]
-    /// Returns a hello string from Rust.
-    pub fn hello(&self) -> &'static str {
-        "Hello from Rust!"
-    }
-
-    #[pyo3(text_signature = "($self)")]
     /// Returns the root UI element.
     pub fn root(&self) -> PyResult<PyUIElement> {
         let root = self.inner.root();
