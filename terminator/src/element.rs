@@ -71,13 +71,17 @@ pub(crate) trait UIElementImpl: Send + Sync + Debug {
     fn mouse_move(&self, x: f64, y: f64) -> Result<(), AutomationError>;
     fn mouse_release(&self) -> Result<(), AutomationError>;
     
-    /// Highlight the element by drawing a rectangle around it
-    /// This is a visual aid for debugging and demonstration
+    /// Highlights the element with a colored border.
     /// 
-    /// Args:
-    ///     color: BGR color code (32-bit integer). Default: 0x0000FF (red)
-    ///            Example: 0x800080 (purple)
-    fn highlight(&self, color: Option<u32>) -> Result<(), AutomationError>;
+    /// # Arguments
+    /// * `color` - Optional BGR color code (32-bit integer). Default: 0x0000FF (red)
+    /// * `duration` - Optional duration for the highlight.
+    /// 
+    /// # Example
+    /// ```
+    /// element.highlight(Some(0x800080), Some(std::time::Duration::from_secs(2)))?; // Purple highlight for 2 seconds
+    /// ```
+    fn highlight(&self, color: Option<u32>, duration: Option<std::time::Duration>) -> Result<(), AutomationError>;
 }
 
 impl UIElement {
@@ -313,8 +317,8 @@ impl UIElement {
     /// Args:
     ///     color: BGR color code (32-bit integer). Default: 0x0000FF (red)
     ///            Example: 0x800080 (purple)
-    pub fn highlight(&self, color: Option<u32>) -> Result<(), AutomationError> {
-        self.inner.highlight(color)
+    pub fn highlight(&self, color: Option<u32>, duration: Option<std::time::Duration>) -> Result<(), AutomationError> {
+        self.inner.highlight(color, duration)
     }
 }
 

@@ -23,6 +23,8 @@ use uiautomation::types::{Point, TreeScope, UIProperty};
 use uiautomation::variants::Variant;
 use uni_ocr::{OcrEngine, OcrProvider};
 use arboard::Clipboard;
+use std::thread;
+use std::time::Instant;
 
 // Define a default timeout duration
 const DEFAULT_FIND_TIMEOUT: Duration = Duration::from_millis(5000);
@@ -2238,13 +2240,14 @@ impl UIElementImpl for WindowsUIElement {
         Ok(())
     }
 
-    fn highlight(&self, color: Option<u32>) -> Result<(), AutomationError> {
+    fn highlight(&self, color: Option<u32>, duration: Option<std::time::Duration>) -> Result<(), AutomationError> {
         use windows::Win32::Graphics::Gdi::{
             GetDC, ReleaseDC, CreatePen, SelectObject, DeleteObject, Rectangle,
             PS_SOLID, NULL_BRUSH, GetStockObject, HGDIOBJ
         };
         use windows::Win32::Foundation::{COLORREF, POINT};
         use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+        use std::time::Instant;
 
         self.element.0.try_focus();
 
@@ -2301,6 +2304,7 @@ impl UIElementImpl for WindowsUIElement {
         // Constants for border appearance
         const BORDER_SIZE: i32 = 4;
         const DEFAULT_RED_COLOR: u32 = 0x0000FF; // Pure red in BGR format
+        const REDRAW_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
 
         // Use provided color or default to red
         let highlight_color = color.unwrap_or(DEFAULT_RED_COLOR);
@@ -2311,38 +2315,42 @@ impl UIElementImpl for WindowsUIElement {
         let width = (rect.get_width() as f64 * scale_factor) as i32;
         let height = (rect.get_height() as f64 * scale_factor) as i32;
 
-        // Get the screen DC
-        let hdc = unsafe { GetDC(None) };
-        if hdc.0.is_null() {
-            return Err(AutomationError::PlatformError(
-                "Failed to get device context".to_string(),
-            ));
-        }
+        // Spawn a thread to handle the highlighting
+        thread::spawn(move || {
+            let start_time = Instant::now();
+            let duration = duration.unwrap_or(std::time::Duration::from_millis(500));
 
-        unsafe {
-            // Create a pen for drawing with the specified color
-            let hpen = CreatePen(PS_SOLID, BORDER_SIZE, COLORREF(highlight_color));
-            if hpen.0.is_null() {
-                ReleaseDC(None, hdc);
-                return Err(AutomationError::PlatformError(
-                    "Failed to create pen".to_string(),
-                ));
+            while start_time.elapsed() < duration {
+                // Get the screen DC
+                let hdc = unsafe { GetDC(None) };
+                if hdc.0.is_null() {
+                    return;
+                }
+
+                unsafe {
+                    // Create a pen for drawing with the specified color
+                    let hpen = CreatePen(PS_SOLID, BORDER_SIZE, COLORREF(highlight_color));
+                    if hpen.0.is_null() {
+                        ReleaseDC(None, hdc);
+                        return;
+                    }
+
+                    // Save current objects
+                    let old_pen = SelectObject(hdc, HGDIOBJ(hpen.0));
+                    let null_brush = GetStockObject(NULL_BRUSH);
+                    let old_brush = SelectObject(hdc, null_brush);
+                    
+                    // Draw the border rectangle
+                    let _ = Rectangle(hdc, x, y, x + width, y + height);
+
+                    // Restore original objects and clean up
+                    SelectObject(hdc, old_brush);
+                    SelectObject(hdc, old_pen);
+                    let _ = DeleteObject(HGDIOBJ(hpen.0));
+                    ReleaseDC(None, hdc);
+                }
             }
-
-            // Save current objects
-            let old_pen = SelectObject(hdc, HGDIOBJ(hpen.0));
-            let null_brush = GetStockObject(NULL_BRUSH);
-            let old_brush = SelectObject(hdc, null_brush);
-            
-            // Draw the border rectangle
-            let _ = Rectangle(hdc, x, y, x + width, y + height);
-            
-            // Restore original objects and clean up
-            SelectObject(hdc, old_brush);
-            SelectObject(hdc, old_pen);
-            let _ = DeleteObject(HGDIOBJ(hpen.0));
-            ReleaseDC(None, hdc);
-        }
+        });
 
         Ok(())
     }

@@ -595,14 +595,17 @@ export class DesktopUseClient {
    * @param selectorChain - Array of selectors to find the element
    * @param color - BGR color code (32-bit integer). Default: 0x0000FF (red)
    *               Example: 0x800080 (purple)
+   * @param durationMs - Optional duration in milliseconds.
    */
   async highlight(
     selectorChain: string[],
-    color?: number | null
+    color?: number | null,
+    durationMs?: number | null
   ): Promise<BasicResponse> {
     return this._makeRequest<BasicResponse>("/highlight", {
       selector_chain: selectorChain,
-      color
+      color,
+      duration_ms: durationMs
     });
   }
 }
@@ -1004,9 +1007,10 @@ export class Locator {
    * 
    * @param color - BGR color code (32-bit integer). Default: 0x0000FF (red)
    *               Example: 0x800080 (purple)
+   * @param durationMs - Optional duration in milliseconds.
    */
-  async highlight(color?: number | null): Promise<BasicResponse> {
-    return this._client.highlight(this._selector_chain, color);
+  async highlight(color?: number | null, durationMs?: number | null): Promise<BasicResponse> {
+    return this._client.highlight(this._selector_chain, color, durationMs);
   }
 }
 

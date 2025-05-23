@@ -1656,6 +1656,8 @@ struct HighlightRequest {
     /// BGR color code (32-bit integer). Default: 0x0000FF (red)
     /// Example: 0x800080 (purple)
     color: Option<u32>,
+    /// Optional duration in milliseconds
+    duration_ms: Option<u64>,
     /// Optional timeout in milliseconds
     timeout_ms: Option<u64>,
 }
@@ -1669,7 +1671,8 @@ async fn highlight_handler(
     let locator = create_locator_for_chain(&state, &payload.selector_chain)?;
     let element = locator.first(timeout).await?;
     
-    element.highlight(payload.color).map_err(ApiError::from)?;
+    let duration = payload.duration_ms.map(Duration::from_millis);
+    element.highlight(payload.color, duration).map_err(ApiError::from)?;
     
     Ok(Json(BasicResponse {
         message: "Element highlighted successfully".to_string(),
