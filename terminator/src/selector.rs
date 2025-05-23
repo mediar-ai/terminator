@@ -13,6 +13,8 @@ pub enum Selector {
     Text(String),
     /// Select using XPath-like query
     Path(String),
+    // Select by using Native Automation id, (eg: `AutomationID` for windows)
+    UINativeId(String),
     /// Select by multiple attributes (key-value pairs)
     Attributes(BTreeMap<String, String>),
     /// Filter current elements by a predicate
@@ -57,6 +59,10 @@ impl From<&str> for Selector {
                     role: parts[0].to_string(),
                     name: Some(parts[1].to_string()),
                 }
+            }
+            _ if s.to_lowercase().starts_with("uinativeid:") => {
+                let parts: Vec<&str> = s.splitn(2, ':').collect();
+                Selector::UINativeId(parts[1].trim().to_string())
             }
             _ if s.starts_with('#') => Selector::Id(s[1..].to_string()),
             _ if s.starts_with("id:") => Selector::Id(s[3..].to_string()),

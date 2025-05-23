@@ -412,6 +412,50 @@ impl AccessibilityEngine for WindowsEngine {
                     "`Path` selector not supported".to_string(),
                 ));
             }
+            Selector::UINativeId(automation_id) => {    // for windows passing `UIProperty::AutomationID` as `UINativeId`
+                debug!("searching for elements using AutomationId: {}", automation_id);
+
+                let ele_id = automation_id.clone();
+                let matcher = self
+                    .automation
+                    .0
+                    .create_matcher()
+                    .from_ref(root_ele)
+                    .filter_fn(Box::new(move |e: &uiautomation::UIElement| {
+                        match e.get_automation_id() {
+                            Ok(id) => {
+                                let matches = id == ele_id;
+                                if matches {
+                                    debug!("found matching elements with AutomationID : {}", ele_id);
+                                }
+                                Ok(matches)
+                            }
+                            Err(err) => {
+                                debug!("failed to get AutomationId: {}", err);
+                                Ok(false)
+                            }
+                        }
+                    }))
+                    .timeout(timeout_ms as u64);
+
+                debug!("searching elements with timeout: {}ms", timeout_ms);
+                let elements = matcher.find_all().map_err(|e| {
+                    debug!("Elements search failed: {}", e);
+                    AutomationError::ElementNotFound(format!(
+                        "AutomationId: '{}', Err: {}", automation_id, e))
+                })?;
+
+                debug!("found {} elements matching AutomationID: {}", elements.len(), automation_id);
+                let collected_elements: Vec<UIElement> = elements
+                    .into_iter()
+                    .map(|ele| {
+                        UIElement::new(Box::new(WindowsUIElement {
+                            element: ThreadSafeWinUIElement(Arc::new(ele)),
+                        }))
+                    })
+                    .collect();
+                return Ok(collected_elements);
+            }
             Selector::Attributes(_attributes) => {
                 return Err(AutomationError::UnsupportedOperation(
                     "`Attributes` selector not supported".to_string(),
@@ -662,6 +706,45 @@ impl AccessibilityEngine for WindowsEngine {
                 return Err(AutomationError::UnsupportedOperation(
                     "`Path` selector not supported".to_string(),
                 ));
+            }
+            Selector::UINativeId(automation_id) => {    // for windows passing `UIProperty::AutomationID` as `UINativeId`
+                debug!("searching for element using AutomationId: {}", automation_id);
+
+                let ele_id = automation_id.clone();
+                let matcher = self
+                    .automation
+                    .0
+                    .create_matcher()
+                    .from_ref(root_ele)
+                    .filter_fn(Box::new(move |e: &uiautomation::UIElement| {
+                        match e.get_automation_id() {
+                            Ok(id) => {
+                                let matches = id == ele_id;
+                                if matches {
+                                    debug!("found matching element with AutomationID : {}", ele_id);
+                                }
+                                Ok(matches)
+                            }
+                            Err(err) => {
+                                debug!("failed to get AutomationId: {}", err);
+                                Ok(false)
+                            }
+                        }
+                    }))
+                    .timeout(timeout_ms as u64);
+
+                debug!("searching element with timeout: {}ms", timeout_ms);
+
+                let element = matcher.find_first().map_err(|e| {
+                    debug!("Element search failed: {}", e);
+                    AutomationError::ElementNotFound(format!(
+                        "AutomationId: '{}', Err: {}", automation_id, e))
+                })?;
+
+                let arc_ele = ThreadSafeWinUIElement(Arc::new(element));
+                return Ok(UIElement::new(Box::new(WindowsUIElement {
+                    element: arc_ele,
+                })));
             }
             Selector::Attributes(_attributes) => {
                 return Err(AutomationError::UnsupportedOperation(
