@@ -171,7 +171,7 @@ Instead, use the new native bindings for maximum speed:
 
 1. **Install Deps & Build the native addon:**
    ```bash
-   cd bindings/node
+   cd bindings/nodejs
    npm install
    npm run build
    ```

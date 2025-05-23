@@ -9,20 +9,20 @@ use pyo3::create_exception;
 use std::sync::Once;
 
 /// Main entry point for desktop automation.
-#[pyclass]
+#[pyclass(name = "Desktop")]
 pub struct PyDesktop {
     inner: Desktop,
 }
 
 /// Represents a UI element in the desktop UI tree.
-#[pyclass]
+#[pyclass(name = "UIElement")]
 #[derive(Clone)]
 pub struct PyUIElement {
     inner: UIElement,
 }
 
 /// Result of a screenshot operation.
-#[pyclass]
+#[pyclass(name = "ScreenshotResult")]
 pub struct PyScreenshotResult {
     #[pyo3(get)]
     pub width: u32,
@@ -33,7 +33,7 @@ pub struct PyScreenshotResult {
 }
 
 /// Result of a click operation.
-#[pyclass]
+#[pyclass(name = "ClickResult")]
 pub struct PyClickResult {
     #[pyo3(get)]
     pub method: String,
@@ -44,7 +44,7 @@ pub struct PyClickResult {
 }
 
 /// Result of a command execution.
-#[pyclass]
+#[pyclass(name = "CommandOutput")]
 pub struct PyCommandOutput {
     #[pyo3(get)]
     pub exit_status: Option<i32>,
@@ -55,7 +55,7 @@ pub struct PyCommandOutput {
 }
 
 /// Locator for finding UI elements by selector.
-#[pyclass]
+#[pyclass(name = "Locator")]
 pub struct PyLocator {
     inner: Locator,
 }
@@ -173,7 +173,7 @@ impl PyDesktop {
     }
 
     #[pyo3(name = "locator", text_signature = "($self, selector)")]
-    /// Returns a PyLocator for the given selector string.
+    /// Returns a Locator for the given selector string.
     pub fn locator_py(&self, selector: &str) -> PyResult<PyLocator> {
         let locator = self.inner.locator(selector);
         Ok(PyLocator { inner: locator })

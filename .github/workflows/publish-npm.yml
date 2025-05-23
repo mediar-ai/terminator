@@ -42,18 +42,18 @@ jobs:
 
       - name: Install dependencies
         run: npm install
-        working-directory: bindings/node
+        working-directory: bindings/nodejs
 
       - name: Build
         run: ${{ matrix.settings.build }}
         shell: bash
-        working-directory: bindings/node
+        working-directory: bindings/nodejs
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: bindings-${{ matrix.settings.target }}
-          path: bindings/node/${{ env.APP_NAME }}.*.node
+          path: bindings/nodejs/${{ env.APP_NAME }}.*.node
           if-no-files-found: error
   publish:
     name: Publish
@@ -70,16 +70,16 @@ jobs:
 
       - name: Install dependencies
         run: npm install
-        working-directory: bindings/node
+        working-directory: bindings/nodejs
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          path: bindings/node/artifacts
+          path: bindings/nodejs/artifacts
 
       - name: Move artifacts
         run: npm run artifacts
-        working-directory: bindings/node
+        working-directory: bindings/nodejs
 
       - name: Publish
         run: |
@@ -95,7 +95,7 @@ jobs:
           else
             echo "Not a release, skipping publish"
           fi
-        working-directory: bindings/node
+        working-directory: bindings/nodejs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

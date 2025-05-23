@@ -5,8 +5,8 @@ import asyncio
 import terminator
 
 async def main():
-    desktop = terminator.PyDesktop()
-    print(desktop.hello())
+
+    desktop = terminator.Desktop()
     print("Root element:", desktop.root().role, desktop.root().name)
 
     # List applications
@@ -36,9 +36,9 @@ async def main():
     except Exception as e:
         print("Expected error:", e)
 
-    # Show docstring help
-    print("\nHelp for PyDesktop:")
-    help(terminator.PyDesktop)
+    # ask the user if he wants to see the help
+    if input("Do you want to see the help? (y/n): ") == "y":
+        print(help(terminator))
 
 if __name__ == "__main__":
     asyncio.run(main()) 
