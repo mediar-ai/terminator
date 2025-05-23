@@ -2303,7 +2303,7 @@ impl uiautomation::filters::MatcherFilter for AutomationIdFilter {
         match element.get_property_value(UIProperty::AutomationId) {
             Ok(property_value) => {
                 match property_value.get_string() {
-                    Ok(id) => Ok(id == self.automation_id),
+                    Ok(id) => Ok(id.contains(&self.automation_id)),
                     Err(_) => Ok(false)
                 }
             },
