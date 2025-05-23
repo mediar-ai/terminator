@@ -1567,94 +1567,9 @@ impl UIElementImpl for WindowsUIElement {
         ))
     }
 
-    fn highlight_element(&self) -> Result<(), AutomationError> {
-        use windows::Win32::Graphics::Gdi::{
-            GetDC, ReleaseDC, CreatePen, SelectObject, DeleteObject, Rectangle,
-            PS_SOLID, NULL_BRUSH, GetStockObject, HGDIOBJ
-        };
-        use windows::Win32::Foundation::COLORREF;
-
-        // Get the element's bounding rectangle
-        let rect = self.element.0.get_bounding_rectangle().map_err(|e| {
-            AutomationError::PlatformError(format!("Failed to get element bounds: {}", e))
-        })?;
-
-        // Get the monitor scale factor using xcap
-        let windows = xcap::Window::all().map_err(|e| {
-            AutomationError::PlatformError(format!("Failed to get windows: {}", e))
-        })?;
-
-        // Find the focused window
-        let focused_window = windows.iter()
-            .find(|w| w.is_focused().unwrap_or(false))
-            .ok_or_else(|| {
-                AutomationError::ElementNotFound("No focused window found".to_string())
-            })?;
-
-        // Get the monitor for the focused window
-        let monitor = focused_window.current_monitor().map_err(|e| {
-            AutomationError::PlatformError(format!("Failed to get current monitor: {}", e))
-        })?;
-
-        let scale_factor = monitor.scale_factor().map_err(|e| {
-            AutomationError::PlatformError(format!("Failed to get monitor scale_factor: {}", e))
-        })? as f64;
-
-        // Constants for border appea
-        const BORDER_SIZE: i32 = 4; // Increased from 2 to 4 for more visibility
-        const HIGHLIGHT_DURATION_MS: u64 = 500; // Increased from 100ms to 300ms
-        const RED_COLOR: u32 = 0x0000FF; // Pure red in BGR format
-
-        // Scale the coordinates and dimensions
-        let x = (rect.get_left() as f64 * scale_factor) as i32;
-        let y = (rect.get_top() as f64 * scale_factor) as i32;
-        let width = (rect.get_width() as f64 * scale_factor) as i32;
-        let height = (rect.get_height() as f64 * scale_factor) as i32;
-
-        // Get the screen DC
-        let hdc = unsafe { GetDC(None) };
-        if hdc.0.is_null() {
-            return Err(AutomationError::PlatformError(
-                "Failed to get device context".to_string(),
-            ));
-        }
-
-        unsafe {
-            // Create a red pen for drawing
-            let hpen = CreatePen(PS_SOLID, BORDER_SIZE, COLORREF(RED_COLOR));
-            if hpen.0.is_null() {
-                ReleaseDC(None, hdc);
-                return Err(AutomationError::PlatformError(
-                    "Failed to create pen".to_string(),
-                ));
-            }
-
-            // Save current objects
-            let old_pen = SelectObject(hdc, HGDIOBJ(hpen.0));
-            let null_brush = GetStockObject(NULL_BRUSH);
-            let old_brush = SelectObject(hdc, null_brush);
-            
-            // Draw the border rectangle
-            let _ = Rectangle(hdc, x, y, x + width, y + height);
-            
-            // Restore original objects and clean up
-            SelectObject(hdc, old_brush);
-            SelectObject(hdc, old_pen);
-            let _ = DeleteObject(HGDIOBJ(hpen.0));
-            ReleaseDC(None, hdc);
-        }
-
-        // Keep the highlight visible longer
-        std::thread::sleep(Duration::from_millis(HIGHLIGHT_DURATION_MS));
-
-        Ok(())
-    }
+    
     
     fn click(&self) -> Result<ClickResult, AutomationError> {
-        // Highlight the element before clicking
-        let _ = self.highlight_element();
-// ...
-        
         self.element.0.try_focus();
         debug!("attempting to click element: {:?}", self.element.0);
 
@@ -1693,8 +1608,6 @@ impl UIElementImpl for WindowsUIElement {
         // If first method fails, try using the bounding rectangle
         if let Err(_) = click_result {
             debug!("clickable point unavailable, falling back to bounding rectangle");
-            // Highlight before falling back to bounding rectangle
-            let _ = self.highlight_element();
             
             if let Ok(rect) = self.element.0.get_bounding_rectangle() {
                 println!("bounding rectangle: {:?}", rect);
@@ -2322,6 +2235,115 @@ impl UIElementImpl for WindowsUIElement {
         unsafe {
             SendInput(&[up_input], std::mem::size_of::<INPUT>() as i32);
         }
+        Ok(())
+    }
+
+    fn highlight(&self, color: Option<u32>) -> Result<(), AutomationError> {
+        use windows::Win32::Graphics::Gdi::{
+            GetDC, ReleaseDC, CreatePen, SelectObject, DeleteObject, Rectangle,
+            PS_SOLID, NULL_BRUSH, GetStockObject, HGDIOBJ
+        };
+        use windows::Win32::Foundation::{COLORREF, POINT};
+        use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+        self.element.0.try_focus();
+
+        // Get the element's bounding rectangle
+        let rect = self.element.0.get_bounding_rectangle().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to get element bounds: {}", e))
+        })?;
+
+        // Helper function to get scale factor from cursor position
+        fn get_scale_factor_from_cursor() -> f64 {
+            let mut point = POINT { x: 0, y: 0 };
+            unsafe {
+                let _ = GetCursorPos(&mut point);
+            }
+            match xcap::Monitor::from_point(point.x, point.y) {
+                Ok(monitor) => match monitor.scale_factor() {
+                    Ok(factor) => factor as f64,
+                    Err(e) => {
+                        error!("Failed to get scale factor from cursor position: {}", e);
+                        1.0 // Fallback to default scale factor
+                    }
+                },
+                Err(e) => {
+                    error!("Failed to get monitor from cursor position: {}", e);
+                    1.0 // Fallback to default scale factor
+                }
+            }
+        }
+
+        // Helper function to get scale factor from focused window
+        fn get_scale_factor_from_focused_window() -> Option<f64> {
+            match xcap::Window::all() {
+                Ok(windows) => {
+                    windows.iter()
+                        .find(|w| w.is_focused().unwrap_or(false))
+                        .and_then(|focused_window| {
+                            focused_window.current_monitor().ok()
+                        })
+                        .and_then(|monitor| {
+                            monitor.scale_factor().ok().map(|factor| factor as f64)
+                        })
+                },
+                Err(e) => {
+                    error!("Failed to get windows: {}", e);
+                    None
+                }
+            }
+        }
+
+        // Try to get scale factor from focused window first, fall back to cursor position
+        let scale_factor = get_scale_factor_from_focused_window()
+            .unwrap_or_else(get_scale_factor_from_cursor);
+
+        // Constants for border appearance
+        const BORDER_SIZE: i32 = 4;
+        const DEFAULT_RED_COLOR: u32 = 0x0000FF; // Pure red in BGR format
+
+        // Use provided color or default to red
+        let highlight_color = color.unwrap_or(DEFAULT_RED_COLOR);
+
+        // Scale the coordinates and dimensions
+        let x = (rect.get_left() as f64 * scale_factor) as i32;
+        let y = (rect.get_top() as f64 * scale_factor) as i32;
+        let width = (rect.get_width() as f64 * scale_factor) as i32;
+        let height = (rect.get_height() as f64 * scale_factor) as i32;
+
+        // Get the screen DC
+        let hdc = unsafe { GetDC(None) };
+        if hdc.0.is_null() {
+            return Err(AutomationError::PlatformError(
+                "Failed to get device context".to_string(),
+            ));
+        }
+
+        unsafe {
+            // Create a pen for drawing with the specified color
+            let hpen = CreatePen(PS_SOLID, BORDER_SIZE, COLORREF(highlight_color));
+            if hpen.0.is_null() {
+                ReleaseDC(None, hdc);
+                return Err(AutomationError::PlatformError(
+                    "Failed to create pen".to_string(),
+                ));
+            }
+
+            // Save current objects
+            let old_pen = SelectObject(hdc, HGDIOBJ(hpen.0));
+            let null_brush = GetStockObject(NULL_BRUSH);
+            let old_brush = SelectObject(hdc, null_brush);
+            
+            // Draw the border rectangle
+            let _ = Rectangle(hdc, x, y, x + width, y + height);
+            
+            // Restore original objects and clean up
+            SelectObject(hdc, old_brush);
+            SelectObject(hdc, old_pen);
+            let _ = DeleteObject(HGDIOBJ(hpen.0));
+            ReleaseDC(None, hdc);
+        }
+
         Ok(())
     }
 }

@@ -1648,6 +1648,34 @@ async fn mouse_release_handler(
     }))
 }
 
+/// Request to highlight an element with a colored border
+#[derive(Debug, Deserialize)]
+struct HighlightRequest {
+    /// Chain of selectors to find the element
+    selector_chain: Vec<String>,
+    /// BGR color code (32-bit integer). Default: 0x0000FF (red)
+    /// Example: 0x800080 (purple)
+    color: Option<u32>,
+    /// Optional timeout in milliseconds
+    timeout_ms: Option<u64>,
+}
+
+/// Handler for highlighting elements with a colored border
+async fn highlight_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<HighlightRequest>,
+) -> Result<Json<BasicResponse>, ApiError> {
+    let timeout = get_timeout(payload.timeout_ms);
+    let locator = create_locator_for_chain(&state, &payload.selector_chain)?;
+    let element = locator.first(timeout).await?;
+    
+    element.highlight(payload.color).map_err(ApiError::from)?;
+    
+    Ok(Json(BasicResponse {
+        message: "Element highlighted successfully".to_string(),
+    }))
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing with timestamps and more detailed formatting
@@ -1715,6 +1743,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/mouse_move", post(mouse_move_handler))
         .route("/mouse_release", post(mouse_release_handler))
         .route("/scroll", post(scroll_handler))
+        .route("/highlight", post(highlight_handler))
         .layer(RequestBodyLimitLayer::new(10 * 1024 * 1024)) // Reduced to 10MB
         .layer(
             CorsLayer::new()

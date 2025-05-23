@@ -73,10 +73,11 @@ pub(crate) trait UIElementImpl: Send + Sync + Debug {
     
     /// Highlight the element by drawing a rectangle around it
     /// This is a visual aid for debugging and demonstration
-    fn highlight_element(&self) -> Result<(), AutomationError> {
-        // Default implementation does nothing
-        Ok(())
-    }
+    /// 
+    /// Args:
+    ///     color: BGR color code (32-bit integer). Default: 0x0000FF (red)
+    ///            Example: 0x800080 (purple)
+    fn highlight(&self, color: Option<u32>) -> Result<(), AutomationError>;
 }
 
 impl UIElement {
@@ -304,6 +305,16 @@ impl UIElement {
     /// Release mouse button
     pub fn mouse_release(&self) -> Result<(), AutomationError> {
         self.inner.mouse_release()
+    }
+
+    /// Highlight the element by drawing a rectangle around it
+    /// This is a visual aid for debugging and demonstration
+    /// 
+    /// Args:
+    ///     color: BGR color code (32-bit integer). Default: 0x0000FF (red)
+    ///            Example: 0x800080 (purple)
+    pub fn highlight(&self, color: Option<u32>) -> Result<(), AutomationError> {
+        self.inner.highlight(color)
     }
 }
 

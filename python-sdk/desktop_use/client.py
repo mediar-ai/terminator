@@ -394,6 +394,20 @@ class DesktopUseClient:
         }
         return self._make_request("/mouse_release", payload, BasicResponse)
 
+    def highlight(self, selector_chain, color: Optional[int] = None) -> BasicResponse:
+        """Highlight an element with a colored border.
+        
+        Args:
+            selector_chain: List of selectors to find the element
+            color: BGR color code (32-bit integer). Default: 0x0000FF (red)
+                  Example: 0x800080 (purple)
+        """
+        payload = {
+            "selector_chain": selector_chain,
+            "color": color
+        }
+        return self._make_request("/highlight", payload, BasicResponse)
+
 class Locator:
     """
     Represents a UI element locator, allowing chained selections and actions.
@@ -653,6 +667,15 @@ class Locator:
     def mouse_release(self):
         """Releases mouse button relative to the element."""
         return self._client.mouse_release(self._selector_chain, self._timeout_ms)
+
+    def highlight(self, color: Optional[int] = None) -> BasicResponse:
+        """Highlight this element with a colored border.
+        
+        Args:
+            color: BGR color code (32-bit integer). Default: 0x0000FF (red)
+                  Example: 0x800080 (purple)
+        """
+        return self._client.highlight(self._selector_chain, color)
 
 # Helper function (can be part of the SDK or used externally)
 def sleep(seconds: float) -> None:

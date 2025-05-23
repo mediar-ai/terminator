@@ -588,6 +588,23 @@ export class DesktopUseClient {
     };
     return await this._makeRequest<BasicResponse>("/mouse_release", payload);
   }
+
+  /**
+   * Highlight an element with a colored border.
+   * 
+   * @param selectorChain - Array of selectors to find the element
+   * @param color - BGR color code (32-bit integer). Default: 0x0000FF (red)
+   *               Example: 0x800080 (purple)
+   */
+  async highlight(
+    selectorChain: string[],
+    color?: number | null
+  ): Promise<BasicResponse> {
+    return this._makeRequest<BasicResponse>("/highlight", {
+      selector_chain: selectorChain,
+      color
+    });
+  }
 }
 
 export class Locator {
@@ -980,6 +997,16 @@ export class Locator {
    */
   async releaseMouse(): Promise<BasicResponse> {
     return await this._client.mouseRelease(this._selector_chain, this._timeoutMs);
+  }
+
+  /**
+   * Highlight this element with a colored border.
+   * 
+   * @param color - BGR color code (32-bit integer). Default: 0x0000FF (red)
+   *               Example: 0x800080 (purple)
+   */
+  async highlight(color?: number | null): Promise<BasicResponse> {
+    return this._client.highlight(this._selector_chain, color);
   }
 }
 

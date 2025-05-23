@@ -29,10 +29,13 @@ def run_notepad():
         time.sleep(2)  # Wait for Notepad to open
 
         editor = client.locator('window:Notepad')
+        editor.highlight()  # Red color (Default)
         document = editor.locator('role:Document')
+        document.highlight(color=0x00FF00)  # Green color
 
         if platform.release() == "11":
             AddButton = editor.locator('name:Add New Tab')
+            AddButton.highlight(color=0x0000FF)  # Blue color
             AddButton.click()
 
         print('typing text...')
@@ -56,8 +59,10 @@ def run_notepad():
 
         print("Entering file name...")
         save_dialog = client.locator('window:Save As').locator('window:Save As')
+        save_dialog.highlight(color=0xFF00FF)  # Magenta color
         time.sleep(1)
         file_name_edit_box = save_dialog.locator('role:Pane').locator('role:ComboBox').locator('role:Edit')
+        file_name_edit_box.highlight(color=0xFFFF00)  # Yellow color
 
         home_dir = os.path.expanduser('~')
         file_path = os.path.join(home_dir, 'terminator_notepad_test.md')
@@ -65,6 +70,7 @@ def run_notepad():
         
         # Get the pane and explore its contents
         pane = save_dialog.locator('role:Pane')
+        pane.highlight(color=0x00FFFF)  # Cyan color
         pane_elements = pane.explore()
         
         # Find and click the Save as type ComboBox
@@ -72,6 +78,7 @@ def run_notepad():
         for child in pane_elements.children:
             if child.get('role') == 'ComboBox' and child.get('suggested_selector') and child.get('name') == 'Save as type:':
                 combo_box = save_dialog.locator(child['suggested_selector'])
+                combo_box.highlight(color=0xFFA500)  # Orange color
                 combo_box.click()
                 combo_box.press_key('{Ctrl}a')
                 break
@@ -81,6 +88,7 @@ def run_notepad():
         for child in window_elements.children:
             if child.get('role') == 'Button' and child.get('suggested_selector') and child.get('name') == 'Save':
                 save_button = save_dialog.locator(child['suggested_selector'])
+                save_button.highlight(color=0x800080)  # Purple color
                 save_button.click()
                 break
 
@@ -89,6 +97,7 @@ def run_notepad():
         for child in confirm_overwrite.children:
             if child.get('role') == 'Window' and child.get('suggested_selector') and 'Confirm Save As' in child.get('name'):
                 save_button = save_dialog.locator(child['suggested_selector'])
+                save_button.highlight(color=0x008080)  # Teal color
                 save_button.locator('Name:Yes').click()
                 break
 
