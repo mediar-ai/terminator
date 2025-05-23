@@ -32,8 +32,6 @@ export interface NodeScreenshotResult {
 export declare class NodeDesktop {
   /** Create a new Desktop automation instance */
   constructor()
-  /** Returns a hello string */
-  hello(): string
   /** Get the root UI element */
   root(): NodeUIElement
   /** List all running applications */

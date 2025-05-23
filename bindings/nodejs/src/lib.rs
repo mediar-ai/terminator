@@ -28,12 +28,6 @@ impl NodeDesktop {
         Ok(NodeDesktop { inner: desktop })
     }
 
-    /// Returns a hello string
-    #[napi]
-    pub fn hello(&self) -> String {
-        "Hello from Rust (Node)!".to_string()
-    }
-
     /// Get the root UI element
     #[napi]
     pub fn root(&self) -> NodeUIElement {
