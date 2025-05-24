@@ -167,6 +167,22 @@ impl Desktop {
         let loc = self.inner.locator(sel);
         Ok(Locator::from(loc))
     }
+
+    /// Get the currently focused window
+    #[napi]
+    pub async fn get_current_window(&self) -> napi::Result<Element> {
+        self.inner.get_current_window().await
+            .map(Element::from)
+            .map_err(|e| napi::Error::from_reason(format!("{e}")))
+    }
+
+    /// Get the currently focused application
+    #[napi]
+    pub async fn get_current_application(&self) -> napi::Result<Element> {
+        self.inner.get_current_application().await
+            .map(Element::from)
+            .map_err(|e| napi::Error::from_reason(format!("{e}")))
+    }
 }
 
 /// A UI element in the accessibility tree
@@ -353,6 +369,22 @@ impl Element {
         let sel: terminator::selector::Selector = selector.as_str().into();
         let loc = self.inner.lock().unwrap().locator(sel).map_err(map_error)?;
         Ok(Locator::from(loc))
+    }
+
+    /// Get the containing application element
+    #[napi]
+    pub fn application(&self) -> napi::Result<Option<Element>> {
+        self.inner.lock().unwrap().application()
+            .map(|opt| opt.map(Element::from))
+            .map_err(map_error)
+    }
+
+    /// Get the containing window element (e.g., tab, dialog)
+    #[napi]
+    pub fn window(&self) -> napi::Result<Option<Element>> {
+        self.inner.lock().unwrap().window()
+            .map(|opt| opt.map(Element::from))
+            .map_err(map_error)
     }
 }
 

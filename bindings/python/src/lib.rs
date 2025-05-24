@@ -288,6 +288,30 @@ impl PyDesktop {
             })
         })
     }
+
+    #[pyo3(name = "get_current_window", text_signature = "($self)")]
+    pub fn get_current_window_py<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let desktop = self.inner.clone();
+        pyo3_tokio::future_into_py(py, async move {
+            let result = desktop.get_current_window().await.map_err(|e| automation_error_to_pyerr(e))?;
+            Python::with_gil(|py| {
+                let py_result = PyUIElement { inner: result };
+                Ok(py_result.into_py(py))
+            })
+        })
+    }
+
+    #[pyo3(name = "get_current_application", text_signature = "($self)")]
+    pub fn get_current_application_py<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let desktop = self.inner.clone();
+        pyo3_tokio::future_into_py(py, async move {
+            let result = desktop.get_current_application().await.map_err(|e| automation_error_to_pyerr(e))?;
+            Python::with_gil(|py| {
+                let py_result = PyUIElement { inner: result };
+                Ok(py_result.into_py(py))
+            })
+        })
+    }
 }
 
 #[gen_stub_pymethods]
@@ -399,6 +423,20 @@ impl PyUIElement {
                 Ok(py_result.into_py(py))
             })
         })
+    }
+
+    /// Get the containing application element
+    pub fn application(&self) -> PyResult<Option<PyUIElement>> {
+        self.inner.application()
+            .map(|opt| opt.map(|e| PyUIElement { inner: e }))
+            .map_err(|e| automation_error_to_pyerr(e))
+    }
+
+    /// Get the containing window element (e.g., tab, dialog)
+    pub fn window(&self) -> PyResult<Option<PyUIElement>> {
+        self.inner.window()
+            .map(|opt| opt.map(|e| PyUIElement { inner: e }))
+            .map_err(|e| automation_error_to_pyerr(e))
     }
 }
 

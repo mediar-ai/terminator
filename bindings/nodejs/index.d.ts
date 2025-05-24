@@ -68,6 +68,10 @@ export declare class Desktop {
   getCurrentBrowserWindow(): Promise<Element>
   /** Create a locator for advanced queries */
   locator(selector: string): Locator
+  /** Get the currently focused window */
+  getCurrentWindow(): Promise<Element>
+  /** Get the currently focused application */
+  getCurrentApplication(): Promise<Element>
 }
 /** A UI element in the accessibility tree */
 export declare class Element {
@@ -121,6 +125,10 @@ export declare class Element {
   mouseRelease(): void
   /** Create a locator from this element */
   locator(selector: string): Locator
+  /** Get the containing application element */
+  application(): Element | null
+  /** Get the containing window element (e.g., tab, dialog) */
+  window(): Element | null
 }
 /** Locator for advanced queries (chainable) */
 export declare class Locator {
