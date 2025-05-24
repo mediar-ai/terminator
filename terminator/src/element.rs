@@ -82,6 +82,10 @@ pub(crate) trait UIElementImpl: Send + Sync + Debug {
     /// element.highlight(Some(0x800080), Some(std::time::Duration::from_secs(2)))?; // Purple highlight for 2 seconds
     /// ```
     fn highlight(&self, color: Option<u32>, duration: Option<std::time::Duration>) -> Result<(), AutomationError>;
+
+    // New methods to get containing application and window
+    fn application(&self) -> Result<Option<UIElement>, AutomationError>;
+    fn window(&self) -> Result<Option<UIElement>, AutomationError>;
 }
 
 impl UIElement {
@@ -319,6 +323,14 @@ impl UIElement {
     ///            Example: 0x800080 (purple)
     pub fn highlight(&self, color: Option<u32>, duration: Option<std::time::Duration>) -> Result<(), AutomationError> {
         self.inner.highlight(color, duration)
+    /// Get the containing application element
+    pub fn application(&self) -> Result<Option<UIElement>, AutomationError> {
+        self.inner.application()
+    }
+
+    /// Get the containing window element (e.g., tab, dialog)
+    pub fn window(&self) -> Result<Option<UIElement>, AutomationError> {
+        self.inner.window()
     }
 }
 

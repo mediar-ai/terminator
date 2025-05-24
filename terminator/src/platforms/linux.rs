@@ -132,6 +132,18 @@ impl AccessibilityEngine for LinuxEngine {
             "get_current_browser_window not yet implemented for Linux".to_string(),
         ))
     }
+
+    async fn get_current_window(&self) -> Result<UIElement, AutomationError> {
+        Err(AutomationError::UnsupportedPlatform(
+            "get_current_window not yet implemented for Linux".to_string(),
+        ))
+    }
+
+    async fn get_current_application(&self) -> Result<UIElement, AutomationError> {
+        Err(AutomationError::UnsupportedPlatform(
+            "get_current_application not yet implemented for Linux".to_string(),
+        ))
+    }
 }
 
 // Placeholder LinuxUIElement that implements UIElementImpl
@@ -282,6 +294,18 @@ impl UIElementImpl for LinuxUIElement {
     }
 
     fn scroll(&self, _direction: &str, _amount: f64) -> Result<(), AutomationError> {
+        Err(AutomationError::UnsupportedPlatform(
+            "Linux implementation is not yet available".to_string(),
+        ))
+    }
+
+    fn application(&self) -> Result<Option<UIElement>, AutomationError> {
+        Err(AutomationError::UnsupportedPlatform(
+            "Linux implementation is not yet available".to_string(),
+        ))
+    }
+
+    fn window(&self) -> Result<Option<UIElement>, AutomationError> {
         Err(AutomationError::UnsupportedPlatform(
             "Linux implementation is not yet available".to_string(),
         ))

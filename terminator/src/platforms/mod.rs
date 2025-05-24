@@ -84,6 +84,12 @@ pub trait AccessibilityEngine: Send + Sync {
 
     /// Get the currently focused browser window (async)
     async fn get_current_browser_window(&self) -> Result<UIElement, AutomationError>;
+
+    /// Get the currently focused window
+    async fn get_current_window(&self) -> Result<UIElement, AutomationError>;
+
+    /// Get the currently focused application
+    async fn get_current_application(&self) -> Result<UIElement, AutomationError>;
 }
 
 #[cfg(target_os = "linux")]

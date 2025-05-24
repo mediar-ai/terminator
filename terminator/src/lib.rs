@@ -380,4 +380,38 @@ impl Desktop {
         
         Ok(window)
     }
+
+    #[instrument(skip(self))]
+    pub async fn get_current_window(&self) -> Result<UIElement, AutomationError> {
+        let start = Instant::now();
+        info!("Getting current window");
+
+        let window = self.engine.get_current_window().await?;
+
+        let duration = start.elapsed();
+        info!(
+            duration_ms = duration.as_millis(),
+            window_id = window.id().unwrap_or_default(),
+            "Current window retrieved"
+        );
+
+        Ok(window)
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_current_application(&self) -> Result<UIElement, AutomationError> {
+        let start = Instant::now();
+        info!("Getting current application");
+
+        let application = self.engine.get_current_application().await?;
+
+        let duration = start.elapsed();
+        info!(
+            duration_ms = duration.as_millis(),
+            app_id = application.id().unwrap_or_default(),
+            "Current application retrieved"
+        );
+
+        Ok(application)
+    }
 }

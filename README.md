@@ -2,6 +2,7 @@
 
 
 
+
 https://github.com/user-attachments/assets/00329105-8875-48cb-8970-a62a85a9ebd0
 
 
@@ -15,7 +16,13 @@ https://github.com/user-attachments/assets/00329105-8875-48cb-8970-a62a85a9ebd0
     </a>
 </p>
 
-**Terminator** is the fastest, AI-first, computer use SDK. It's designed to interact with native GUI applications on Windows using a Playwright-like API, like parsing a website. By leveraging OS-level accessibility APIs, Terminator is significantly faster and more reliable for AI agents than vision-based approaches, and can interact with background applications.
+
+<p style="text-align: center;">
+    <img style="text-align: center;" src="https://github.com/user-attachments/assets/4a206b9c-5d24-4b10-a35a-1871eb3571e8" alt="." width="600">
+</p>
+
+
+**Terminator** is the best computer use AI SDK. Record human workflows into compiled AI workflows, deploy (offline) automation at scale. It's designed to interact with native GUI applications on Windows using a Playwright-like API, like parsing a website. By leveraging OS-level accessibility APIs, Terminator is significantly faster and more reliable for AI agents than vision-based approaches, and can interact with background applications.
 
 > **⚠️ Experimental ⚠️:** Terminator is under active development. Expect bugs and breaking changes. Please report issues – we aim to fix them quickly!
 
@@ -35,6 +42,7 @@ https://github.com/user-attachments/assets/00329105-8875-48cb-8970-a62a85a9ebd0
 *   **Cross-Platform (Windows Focus):** Automate native GUI applications on Windows (primary) and macOS.
 *   **Deep UI Introspection:** Enables detailed understanding and control of complex UI elements.
 *   **Background App Interaction:** Capable of interacting with applications even if they are not in focus.
+*   **Human workflow recording & compilation:** Can record human workflows and compile into AI decision tree that runs 10000x faster, only using AI as fallback during inference.
 
 ## Benchmarks
 

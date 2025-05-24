@@ -25,6 +25,10 @@ pub enum WorkflowRecorderError {
     #[error("Windows API error: {0}")]
     WindowsError(String),
 
+    /// Error from notify file watcher
+    #[error("File watcher error: {0}")]
+    NotifyError(#[from] notify::Error),
+
     /// Error when serializing or deserializing JSON
     #[error("JSON error: {0}")]
     JsonError(#[from] serde_json::Error),

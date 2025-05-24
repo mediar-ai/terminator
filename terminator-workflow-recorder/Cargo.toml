@@ -19,6 +19,13 @@ anyhow = "1.0"
 chrono = "0.4"
 ctrlc = "3.4"
 rdev = "0.5.2"
+dashmap = "6.1.0"
+notify = "8.0"
+arboard = "3.0"
+regex = "1.0"
+
+[dev-dependencies]
+tempfile = "3.0"
 
 # Windows-specific dependencies
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -26,6 +33,12 @@ uiautomation = "0.18.3"
 windows = { version = "0.61.1", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
+    "Win32_System_DataExchange",
+    "Win32_System_Threading",
+    "Win32_Storage_FileSystem",
+    "Win32_UI_Shell",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_Input",
 ]}
 
 [lib]
