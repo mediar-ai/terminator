@@ -44,6 +44,12 @@ jobs:
         with:
           python-version: '3.11'
           architecture: x64
+
+      - name: Generate stubs
+        run: |
+          cargo run --bin stub_gen
+        working-directory: bindings/python
+
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
