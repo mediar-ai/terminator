@@ -7,6 +7,7 @@ members = [
     "examples/terminator-rust-examples/popup", 
     "examples/terminator-rust-examples/server", 
     "examples/terminator-rust-examples/win_automation", 
+    "examples/terminator-rust-examples/wh-scrapper",
 ]
 
 # Shared metadata for workspace members
