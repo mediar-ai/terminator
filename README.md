@@ -127,3 +127,66 @@ contributions are welcome! please feel free to submit issues and pull requests. 
 
 if you want desktop automation at scale for your business, [let's talk](https://mediar.ai)
 
+
+## 🐍 How to Use the Python Bindings
+
+**Don't use the old `python-sdk` folder.**
+Instead, follow these steps to build and use the new, fast Python API:
+
+1. **Create and activate a Python virtual environment (recommended):**
+   ```bash
+   python -m venv .venv
+   # On Windows:
+   .venv\Scripts\activate
+   # On macOS/Linux:
+   source .venv/bin/activate
+   ```
+2. **Install [Maturin](https://github.com/PyO3/maturin):**
+   ```bash
+   pip install maturin
+   ```
+3. **Build and install the Python bindings:**
+   ```bash
+   cd bindings/python
+   maturin develop
+   ```
+   This will compile the Rust code and install the `terminator` Python package into your current environment.
+
+4. **Use it in Python:**
+   ```python
+   import terminator
+   desktop = terminator.PyDesktop()
+   print(desktop.hello())
+   ```
+
+**If you get stuck:**
+- Make sure you're in the right folder (`cd bindings/python`).
+- Make sure you're using a Python virtual environment (see above).
+- If you see errors, try `pip install maturin --upgrade` and `cargo clean`.
+
+## 🟦 How to Use the Node.js/TypeScript Bindings
+
+**Don’t use the old HTTP server for JS/TS.**
+Instead, use the new native bindings for maximum speed:
+
+1. **Install Deps & Build the native addon:**
+   ```bash
+   cd bindings/nodejs
+   npm install
+   npm run build
+   ```
+   This will compile the Rust code and generate a `.node` binary for use in JS/TS.
+   You can use the wrapper `index.js`, It will handle loading `.node` binary
+
+3. **Use it in JavaScript/TypeScript:**
+   ```js
+   const { NodeDesktop } = require('./index.js');
+   const desktop = new NodeDesktop();
+   console.log(desktop.hello());
+   ```
+
+**If you get stuck:**
+- Make sure you’re in the right folder (`cd node/bindings`).
+- Make sure you have Rust and Node.js installed.
+- If you see errors, try `cargo clean` and `npm run build` again.
+

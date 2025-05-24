@@ -1,0 +1,35 @@
+{
+  "name": "terminator",
+  "version": "0.1.0",
+  "description": "Node.js/TypeScript bindings for the Terminator Rust library (via napi-rs)",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "napi": {
+    "name": "terminator",
+    "triples": {
+      "additional": [
+        "aarch64-apple-darwin"
+      ]
+    }
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.4"
+  },
+  "engines": {
+    "node": ">= 10"
+  },
+  "scripts": {
+    "artifacts": "napi artifacts",
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "prepublishOnly": "napi prepublish -t npm"
+  },
+  "keywords": [
+    "napi",
+    "rust",
+    "native",
+    "terminator",
+    "automation"
+  ],
+  "license": "MIT"
+}
