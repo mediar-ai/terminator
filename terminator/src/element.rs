@@ -70,6 +70,18 @@ pub(crate) trait UIElementImpl: Send + Sync + Debug {
     fn mouse_click_and_hold(&self, x: f64, y: f64) -> Result<(), AutomationError>;
     fn mouse_move(&self, x: f64, y: f64) -> Result<(), AutomationError>;
     fn mouse_release(&self) -> Result<(), AutomationError>;
+    
+    /// Highlights the element with a colored border.
+    /// 
+    /// # Arguments
+    /// * `color` - Optional BGR color code (32-bit integer). Default: 0x0000FF (red)
+    /// * `duration` - Optional duration for the highlight.
+    /// 
+    /// # Example
+    /// ```
+    /// element.highlight(Some(0x800080), Some(std::time::Duration::from_secs(2)))?; // Purple highlight for 2 seconds
+    /// ```
+    fn highlight(&self, color: Option<u32>, duration: Option<std::time::Duration>) -> Result<(), AutomationError>;
 
     // New methods to get containing application and window
     fn application(&self) -> Result<Option<UIElement>, AutomationError>;
@@ -303,6 +315,14 @@ impl UIElement {
         self.inner.mouse_release()
     }
 
+    /// Highlight the element by drawing a rectangle around it
+    /// This is a visual aid for debugging and demonstration
+    /// 
+    /// Args:
+    ///     color: BGR color code (32-bit integer). Default: 0x0000FF (red)
+    ///            Example: 0x800080 (purple)
+    pub fn highlight(&self, color: Option<u32>, duration: Option<std::time::Duration>) -> Result<(), AutomationError> {
+        self.inner.highlight(color, duration)
     /// Get the containing application element
     pub fn application(&self) -> Result<Option<UIElement>, AutomationError> {
         self.inner.application()
