@@ -101,8 +101,8 @@ impl Desktop {
 
     /// Run a shell command
     #[napi]
-    pub async fn run_command(&self, windows_command: Option<String>, unix_command: Option<String>) -> napi::Result<CommandOutput> {
-        self.inner.run_command(windows_command.as_deref(), unix_command.as_deref()).await
+    pub async fn run_command(&self, options: RunCommandOptions) -> napi::Result<CommandOutput> {
+        self.inner.run_command(options.windows_command.as_deref(), options.unix_command.as_deref()).await
             .map(|r| CommandOutput {
                 exit_status: r.exit_status,
                 stdout: r.stdout,
@@ -466,6 +466,12 @@ pub struct Screenshot {
     pub width: u32,
     pub height: u32,
     pub image_data: Vec<u8>,
+}
+
+#[napi(object)]
+pub struct RunCommandOptions {
+    pub windows_command: Option<String>,
+    pub unix_command: Option<String>,
 }
 
 impl From<(f64, f64, f64, f64)> for Bounds {

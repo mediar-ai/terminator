@@ -1,8 +1,7 @@
-const { NodeDesktop } = require('./index.js');
+const { Desktop } = require('./index.js');
 
 async function main() {
-  const desktop = new NodeDesktop();
-  console.log(desktop.hello());
+  const desktop = new Desktop();
   const root = desktop.root();
   console.log('Root element:', root.role, root.name);
 
@@ -15,7 +14,7 @@ async function main() {
   try {
     const button = await locator.first();
     console.log('Found button:', button.role, button.name);
-    button.click();
+    await button.click();
   } catch (e) {
     if (e && e.code === 'ElementNotFoundError') {
       console.log('No button found:', e.message);
@@ -25,12 +24,23 @@ async function main() {
   }
 
   // Run a command (async)
-  const cmd = await desktop.runCommand('echo hello', 'echo hello');
-  console.log('Command output:', cmd.stdout);
+  try {
+    const cmd = await desktop.runCommand({
+      windowsCommand: 'echo hello',
+      unixCommand: 'echo hello'
+    });
+    console.log('Command output:', cmd.stdout);
+  } catch (e) {
+    console.log('Command failed:', e);
+  }
 
   // Screenshot (async)
-  const screenshot = await desktop.captureScreen();
-  console.log(`Screenshot: ${screenshot.width}x${screenshot.height}, ${screenshot.imageData.length} bytes`);
+  try {
+    const screenshot = await desktop.captureScreen();
+    console.log(`Screenshot: ${screenshot.width}x${screenshot.height}, ${screenshot.imageData.length} bytes`);
+  } catch (e) {
+    console.log('Screenshot failed:', e);
+  }
 
   // Error handling example
   try {
@@ -43,9 +53,9 @@ async function main() {
     }
   }
 
-  // Show help for NodeDesktop (prints method names)
-  console.log('\nHelp for NodeDesktop:');
-  console.log(Object.getOwnPropertyNames(NodeDesktop.prototype));
+  // Show help for Desktop (prints method names)
+  console.log('\nHelp for Desktop:');
+  console.log(Object.getOwnPropertyNames(Desktop.prototype));
 }
 
 main().catch(err => {

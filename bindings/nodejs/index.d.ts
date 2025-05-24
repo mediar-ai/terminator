@@ -28,6 +28,10 @@ export interface Screenshot {
   height: number
   imageData: Array<number>
 }
+export interface RunCommandOptions {
+  windowsCommand?: string
+  unixCommand?: string
+}
 /** Main entry point for desktop automation */
 export declare class Desktop {
   /** Create a new Desktop automation instance with default settings */
@@ -51,7 +55,7 @@ export declare class Desktop {
   /** Capture a screenshot of the primary monitor */
   captureScreen(): Promise<Screenshot>
   /** Run a shell command */
-  runCommand(windowsCommand?: string | undefined | null, unixCommand?: string | undefined | null): Promise<CommandOutput>
+  runCommand(options: RunCommandOptions): Promise<CommandOutput>
   /** Capture a screenshot of a specific monitor */
   captureMonitorByName(name: string): Promise<Screenshot>
   /** Perform OCR on an image file */
