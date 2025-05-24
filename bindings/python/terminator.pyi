@@ -85,6 +85,12 @@ class Desktop:
     def get_current_browser_window(self) -> typing.Any:
         ...
 
+    def get_current_window(self) -> typing.Any:
+        ...
+
+    def get_current_application(self) -> typing.Any:
+        ...
+
 
 class Locator:
     r"""
@@ -179,6 +185,18 @@ class UIElement:
         ...
 
     def locator(self, selector:builtins.str) -> typing.Any:
+        ...
+
+    def application(self) -> typing.Optional[UIElement]:
+        r"""
+        Get the containing application element
+        """
+        ...
+
+    def window(self) -> typing.Optional[UIElement]:
+        r"""
+        Get the containing window element (e.g., tab, dialog)
+        """
         ...
 
 
