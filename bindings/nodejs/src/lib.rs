@@ -1,53 +1,75 @@
 use napi::Status;
 use napi_derive::napi;
 use std::sync::{Arc, Mutex, Once};
-use terminator::{Desktop, element::UIElement, locator::Locator, errors::AutomationError};
+use terminator::{Desktop as TerminatorDesktop, element::UIElement as TerminatorUIElement, locator::Locator as TerminatorLocator, errors::AutomationError};
 
 /// Main entry point for desktop automation
-#[napi]
-pub struct NodeDesktop {
-    inner: Desktop,
+#[napi(js_name = "Desktop")]
+pub struct Desktop {
+    inner: TerminatorDesktop,
 }
 
 #[napi]
-impl NodeDesktop {
-    /// Create a new Desktop automation instance
+impl Desktop {
+    /// Create a new Desktop automation instance with default settings
     #[napi(constructor)]
     pub fn new() -> napi::Result<Self> {
+        Self::with_options(false, false)
+    }
+
+    /// Create a new Desktop automation instance with background apps enabled
+    #[napi(factory)]
+    pub fn with_background_apps() -> napi::Result<Self> {
+        Self::with_options(true, false)
+    }
+
+    /// Create a new Desktop automation instance with app activation enabled
+    #[napi(factory)]
+    pub fn with_app_activation() -> napi::Result<Self> {
+        Self::with_options(false, true)
+    }
+
+    /// Create a new Desktop automation instance with both background apps and app activation enabled
+    #[napi(factory)]
+    pub fn with_all_features() -> napi::Result<Self> {
+        Self::with_options(true, true)
+    }
+
+    /// Internal helper to create a Desktop instance with specific options
+    fn with_options(use_background_apps: bool, activate_app: bool) -> napi::Result<Self> {
         static INIT: Once = Once::new();
         INIT.call_once(|| {
             let _ = tracing_subscriber::fmt()
                 .with_env_filter("info")
                 .try_init();
         });
-        // For now, use default args: use_background_apps=false, activate_app=false
         let rt = tokio::runtime::Runtime::new()
             .map_err(|e| napi::Error::from_reason(format!("Tokio runtime error: {e}")))?;
-        let desktop = rt.block_on(Desktop::new(false, false))
+        let desktop = rt.block_on(TerminatorDesktop::new(use_background_apps, activate_app))
             .map_err(|e| napi::Error::from_reason(format!("{e}")))?;
-        Ok(NodeDesktop { inner: desktop })
+        Ok(Desktop { inner: desktop })
     }
 
     /// Get the root UI element
     #[napi]
-    pub fn root(&self) -> NodeUIElement {
+    pub fn root(&self) -> Element {
         let root = self.inner.root();
-        NodeUIElement::from(root)
+        Element::from(root)
     }
 
     /// List all running applications
     #[napi]
-    pub fn applications(&self) -> napi::Result<Vec<NodeUIElement>> {
+    pub fn applications(&self) -> napi::Result<Vec<Element>> {
         self.inner.applications()
-            .map(|apps| apps.into_iter().map(NodeUIElement::from).collect())
+            .map(|apps| apps.into_iter().map(Element::from).collect())
             .map_err(|e| napi::Error::from_reason(format!("{e}")))
     }
 
     /// Get a running application by name
     #[napi]
-    pub fn application(&self, name: String) -> napi::Result<NodeUIElement> {
+    pub fn application(&self, name: String) -> napi::Result<Element> {
         self.inner.application(&name)
-            .map(NodeUIElement::from)
+            .map(Element::from)
             .map_err(|e| napi::Error::from_reason(format!("{e}")))
     }
 
@@ -67,9 +89,9 @@ impl NodeDesktop {
 
     /// Capture a screenshot of the primary monitor
     #[napi]
-    pub async fn capture_screen(&self) -> napi::Result<NodeScreenshotResult> {
+    pub async fn capture_screen(&self) -> napi::Result<Screenshot> {
         self.inner.capture_screen().await
-            .map(|r| NodeScreenshotResult {
+            .map(|r| Screenshot {
                 width: r.width,
                 height: r.height,
                 image_data: r.image_data,
@@ -79,9 +101,9 @@ impl NodeDesktop {
 
     /// Run a shell command
     #[napi]
-    pub async fn run_command(&self, windows_command: Option<String>, unix_command: Option<String>) -> napi::Result<NodeCommandOutput> {
+    pub async fn run_command(&self, windows_command: Option<String>, unix_command: Option<String>) -> napi::Result<CommandOutput> {
         self.inner.run_command(windows_command.as_deref(), unix_command.as_deref()).await
-            .map(|r| NodeCommandOutput {
+            .map(|r| CommandOutput {
                 exit_status: r.exit_status,
                 stdout: r.stdout,
                 stderr: r.stderr,
@@ -91,9 +113,9 @@ impl NodeDesktop {
 
     /// Capture a screenshot of a specific monitor
     #[napi]
-    pub async fn capture_monitor_by_name(&self, name: String) -> napi::Result<NodeScreenshotResult> {
+    pub async fn capture_monitor_by_name(&self, name: String) -> napi::Result<Screenshot> {
         self.inner.capture_monitor_by_name(&name).await
-            .map(|r| NodeScreenshotResult {
+            .map(|r| Screenshot {
                 width: r.width,
                 height: r.height,
                 image_data: r.image_data,
@@ -110,7 +132,7 @@ impl NodeDesktop {
 
     /// Perform OCR on a screenshot
     #[napi]
-    pub async fn ocr_screenshot(&self, screenshot: NodeScreenshotResult) -> napi::Result<String> {
+    pub async fn ocr_screenshot(&self, screenshot: Screenshot) -> napi::Result<String> {
         let rust_screenshot = terminator::ScreenshotResult {
             image_data: screenshot.image_data,
             width: screenshot.width,
@@ -122,47 +144,69 @@ impl NodeDesktop {
 
     /// Find a window by criteria
     #[napi]
-    pub async fn find_window_by_criteria(&self, title_contains: Option<String>, timeout_ms: Option<f64>) -> napi::Result<NodeUIElement> {
+    pub async fn find_window_by_criteria(&self, title_contains: Option<String>, timeout_ms: Option<f64>) -> napi::Result<Element> {
         use std::time::Duration;
         let timeout = timeout_ms.map(|ms| Duration::from_millis(ms as u64));
         self.inner.find_window_by_criteria(title_contains.as_deref(), timeout).await
-            .map(NodeUIElement::from)
+            .map(Element::from)
             .map_err(|e| napi::Error::from_reason(format!("{e}")))
     }
 
     /// Get the currently focused browser window
     #[napi]
-    pub async fn get_current_browser_window(&self) -> napi::Result<NodeUIElement> {
+    pub async fn get_current_browser_window(&self) -> napi::Result<Element> {
         self.inner.get_current_browser_window().await
-            .map(NodeUIElement::from)
+            .map(Element::from)
             .map_err(|e| napi::Error::from_reason(format!("{e}")))
     }
 
     /// Create a locator for advanced queries
     #[napi]
-    pub fn locator(&self, selector: String) -> napi::Result<NodeLocator> {
+    pub fn locator(&self, selector: String) -> napi::Result<Locator> {
         let sel: terminator::selector::Selector = selector.as_str().into();
         let loc = self.inner.locator(sel);
-        Ok(NodeLocator::from(loc))
+        Ok(Locator::from(loc))
     }
 }
 
 /// A UI element in the accessibility tree
-#[napi]
-pub struct NodeUIElement {
-    inner: Arc<Mutex<UIElement>>,
+#[napi(js_name = "Element")]
+pub struct Element {
+    inner: Arc<Mutex<TerminatorUIElement>>,
 }
 
-impl From<UIElement> for NodeUIElement {
-    fn from(e: UIElement) -> Self {
-        NodeUIElement {
+impl From<TerminatorUIElement> for Element {
+    fn from(e: TerminatorUIElement) -> Self {
+        Element {
             inner: Arc::new(Mutex::new(e)),
         }
     }
 }
 
 #[napi]
-impl NodeUIElement {
+impl Element {
+    /// Create a new Element from a selector string
+    #[napi(factory)]
+    pub async fn from_selector(desktop: &Desktop, selector: String) -> napi::Result<Self> {
+        let sel: terminator::selector::Selector = selector.as_str().into();
+        let loc = desktop.inner.locator(sel);
+        loc.first(None).await
+            .map(Element::from)
+            .map_err(map_error)
+    }
+
+    /// Create a new Element from a selector string with timeout
+    #[napi(factory)]
+    pub async fn from_selector_with_timeout(desktop: &Desktop, selector: String, timeout_ms: f64) -> napi::Result<Self> {
+        let sel: terminator::selector::Selector = selector.as_str().into();
+        let loc = desktop.inner.locator(sel);
+        use std::time::Duration;
+        let timeout = Duration::from_millis(timeout_ms as u64);
+        loc.first(Some(timeout)).await
+            .map(Element::from)
+            .map_err(map_error)
+    }
+
     /// The accessibility role
     #[napi(getter)]
     pub fn role(&self) -> String {
@@ -177,44 +221,44 @@ impl NodeUIElement {
 
     /// Get children of this element
     #[napi]
-    pub fn children(&self) -> napi::Result<Vec<NodeUIElement>> {
+    pub fn children(&self) -> napi::Result<Vec<Element>> {
         self.inner.lock().unwrap().children()
-            .map(|kids| kids.into_iter().map(NodeUIElement::from).collect())
+            .map(|kids| kids.into_iter().map(Element::from).collect())
             .map_err(map_error)
     }
 
     /// Get the parent element
     #[napi]
-    pub fn parent(&self) -> napi::Result<Option<NodeUIElement>> {
+    pub fn parent(&self) -> napi::Result<Option<Element>> {
         self.inner.lock().unwrap().parent()
-            .map(|opt| opt.map(NodeUIElement::from))
+            .map(|opt| opt.map(Element::from))
             .map_err(map_error)
     }
 
     /// The bounding rectangle
     #[napi(getter)]
-    pub fn bounds(&self) -> napi::Result<NodeBounds> {
+    pub fn bounds(&self) -> napi::Result<Bounds> {
         self.inner.lock().unwrap().bounds()
-            .map(NodeBounds::from)
+            .map(Bounds::from)
             .map_err(map_error)
     }
 
     /// Click the element (returns click result)
     #[napi]
-    pub fn click(&self) -> napi::Result<NodeClickResult> {
+    pub fn click(&self) -> napi::Result<ClickResult> {
         self.inner.lock().unwrap().click()
-            .map(NodeClickResult::from)
+            .map(ClickResult::from)
             .map_err(map_error)
     }
 
     /// Is the element visible?
-    #[napi]
+    #[napi(getter)]
     pub fn is_visible(&self) -> napi::Result<bool> {
         self.inner.lock().unwrap().is_visible().map_err(map_error)
     }
 
     /// Is the element enabled?
-    #[napi]
+    #[napi(getter)]
     pub fn is_enabled(&self) -> napi::Result<bool> {
         self.inner.lock().unwrap().is_enabled().map_err(map_error)
     }
@@ -268,13 +312,13 @@ impl NodeUIElement {
     }
 
     /// Is the element focused?
-    #[napi]
+    #[napi(getter)]
     pub fn is_focused(&self) -> napi::Result<bool> {
         self.inner.lock().unwrap().is_focused().map_err(map_error)
     }
 
     /// Is the element keyboard focusable?
-    #[napi]
+    #[napi(getter)]
     pub fn is_keyboard_focusable(&self) -> napi::Result<bool> {
         self.inner.lock().unwrap().is_keyboard_focusable().map_err(map_error)
     }
@@ -305,165 +349,182 @@ impl NodeUIElement {
 
     /// Create a locator from this element
     #[napi]
-    pub fn locator(&self, selector: String) -> napi::Result<NodeLocator> {
+    pub fn locator(&self, selector: String) -> napi::Result<Locator> {
         let sel: terminator::selector::Selector = selector.as_str().into();
         let loc = self.inner.lock().unwrap().locator(sel).map_err(map_error)?;
-        Ok(NodeLocator::from(loc))
+        Ok(Locator::from(loc))
     }
 }
 
 /// Locator for advanced queries (chainable)
-#[napi]
-pub struct NodeLocator {
-    inner: Arc<Mutex<Locator>>,
+#[napi(js_name = "Locator")]
+pub struct Locator {
+    inner: Arc<Mutex<TerminatorLocator>>,
 }
 
-impl From<Locator> for NodeLocator {
-    fn from(l: Locator) -> Self {
-        NodeLocator {
+impl From<TerminatorLocator> for Locator {
+    fn from(l: TerminatorLocator) -> Self {
+        Locator {
             inner: Arc::new(Mutex::new(l)),
         }
     }
 }
 
 #[napi]
-impl NodeLocator {
+impl Locator {
+    /// Create a new Locator with a selector
+    #[napi(factory)]
+    pub fn with_selector(desktop: &Desktop, selector: String) -> napi::Result<Self> {
+        let sel: terminator::selector::Selector = selector.as_str().into();
+        let loc = desktop.inner.locator(sel);
+        Ok(Locator::from(loc))
+    }
+
+    /// Create a new Locator with a selector and timeout
+    #[napi(factory)]
+    pub fn with_selector_and_timeout(desktop: &Desktop, selector: String, timeout_ms: f64) -> napi::Result<Self> {
+        let sel: terminator::selector::Selector = selector.as_str().into();
+        let loc = desktop.inner.locator(sel);
+        let loc = loc.set_default_timeout(std::time::Duration::from_millis(timeout_ms as u64));
+        Ok(Locator::from(loc))
+    }
+
     /// Get the first matching element (async)
     #[napi]
-    pub async fn first(&self) -> napi::Result<NodeUIElement> {
+    pub async fn first(&self) -> napi::Result<Element> {
         let loc = self.inner.lock().unwrap().clone();
-        loc.first(None).await.map(NodeUIElement::from).map_err(map_error)
+        loc.first(None).await.map(Element::from).map_err(map_error)
     }
 
     /// Get all matching elements (async)
     #[napi]
-    pub async fn all(&self, timeout_ms: Option<f64>, depth: Option<u32>) -> napi::Result<Vec<NodeUIElement>> {
+    pub async fn all(&self, timeout_ms: Option<f64>, depth: Option<u32>) -> napi::Result<Vec<Element>> {
         use std::time::Duration;
         let timeout = timeout_ms.map(|ms| Duration::from_millis(ms as u64));
         let depth = depth.map(|d| d as usize);
         let loc = self.inner.lock().unwrap().clone();
-        loc.all(timeout, depth).await.map(|els| els.into_iter().map(NodeUIElement::from).collect()).map_err(map_error)
+        loc.all(timeout, depth).await.map(|els| els.into_iter().map(Element::from).collect()).map_err(map_error)
     }
 
     /// Wait for the first matching element (async)
     #[napi]
-    pub async fn wait(&self, timeout_ms: Option<f64>) -> napi::Result<NodeUIElement> {
+    pub async fn wait(&self, timeout_ms: Option<f64>) -> napi::Result<Element> {
         use std::time::Duration;
         let timeout = timeout_ms.map(|ms| Duration::from_millis(ms as u64));
         let loc = self.inner.lock().unwrap().clone();
-        loc.wait(timeout).await.map(NodeUIElement::from).map_err(map_error)
+        loc.wait(timeout).await.map(Element::from).map_err(map_error)
     }
 
     /// Set a default timeout for this locator (returns a new locator)
     #[napi]
-    pub fn timeout(&self, timeout_ms: f64) -> NodeLocator {
+    pub fn timeout(&self, timeout_ms: f64) -> Locator {
         let loc = self.inner.lock().unwrap().clone().set_default_timeout(std::time::Duration::from_millis(timeout_ms as u64));
-        NodeLocator::from(loc)
+        Locator::from(loc)
     }
 
     /// Chain another selector
     #[napi]
-    pub fn locator(&self, selector: String) -> napi::Result<NodeLocator> {
+    pub fn locator(&self, selector: String) -> napi::Result<Locator> {
         let sel: terminator::selector::Selector = selector.as_str().into();
         let loc = self.inner.lock().unwrap().clone().locator(sel);
-        Ok(NodeLocator::from(loc))
+        Ok(Locator::from(loc))
     }
 }
 
 // --- Result types ---
 
-#[napi(object)]
-pub struct NodeBounds {
+#[napi(object, js_name = "Bounds")]
+pub struct Bounds {
     pub x: f64,
     pub y: f64,
     pub width: f64,
     pub height: f64,
 }
 
-#[napi(object)]
-pub struct NodeCoordinates {
+#[napi(object, js_name = "Coordinates")]
+pub struct Coordinates {
     pub x: f64,
     pub y: f64,
 }
 
-#[napi(object)]
-pub struct NodeClickResult {
+#[napi(object, js_name = "ClickResult")]
+pub struct ClickResult {
     pub method: String,
-    pub coordinates: Option<NodeCoordinates>,
+    pub coordinates: Option<Coordinates>,
     pub details: String,
 }
 
-#[napi(object)]
-pub struct NodeCommandOutput {
+#[napi(object, js_name = "CommandOutput")]
+pub struct CommandOutput {
     pub exit_status: Option<i32>,
     pub stdout: String,
     pub stderr: String,
 }
 
-#[napi(object)]
-pub struct NodeScreenshotResult {
+#[napi(object, js_name = "Screenshot")]
+pub struct Screenshot {
     pub width: u32,
     pub height: u32,
     pub image_data: Vec<u8>,
 }
 
-impl From<(f64, f64, f64, f64)> for NodeBounds {
+impl From<(f64, f64, f64, f64)> for Bounds {
     fn from(t: (f64, f64, f64, f64)) -> Self {
-        NodeBounds { x: t.0, y: t.1, width: t.2, height: t.3 }
+        Bounds { x: t.0, y: t.1, width: t.2, height: t.3 }
     }
 }
 
-impl From<(f64, f64)> for NodeCoordinates {
+impl From<(f64, f64)> for Coordinates {
     fn from(t: (f64, f64)) -> Self {
-        NodeCoordinates { x: t.0, y: t.1 }
+        Coordinates { x: t.0, y: t.1 }
     }
 }
 
-impl From<terminator::ClickResult> for NodeClickResult {
+impl From<terminator::ClickResult> for ClickResult {
     fn from(r: terminator::ClickResult) -> Self {
-        NodeClickResult {
+        ClickResult {
             method: r.method,
-            coordinates: r.coordinates.map(NodeCoordinates::from),
+            coordinates: r.coordinates.map(Coordinates::from),
             details: r.details,
         }
     }
 }
 
-// --- Custom JS error classes for AutomationError variants ---
+// --- Error types ---
 
 /// Thrown when an element is not found.
 #[napi(js_name = "ElementNotFoundError")]
-pub struct JsElementNotFoundError(pub String);
+pub struct ElementNotFoundError(pub String);
 
 /// Thrown when an operation times out.
 #[napi(js_name = "TimeoutError")]
-pub struct JsTimeoutError(pub String);
+pub struct TimeoutError(pub String);
 
 /// Thrown when permission is denied.
 #[napi(js_name = "PermissionDeniedError")]
-pub struct JsPermissionDeniedError(pub String);
+pub struct PermissionDeniedError(pub String);
 
 /// Thrown for platform-specific errors.
 #[napi(js_name = "PlatformError")]
-pub struct JsPlatformError(pub String);
+pub struct PlatformError(pub String);
 
 /// Thrown for unsupported operations.
 #[napi(js_name = "UnsupportedOperationError")]
-pub struct JsUnsupportedOperationError(pub String);
+pub struct UnsupportedOperationError(pub String);
 
 /// Thrown for unsupported platforms.
 #[napi(js_name = "UnsupportedPlatformError")]
-pub struct JsUnsupportedPlatformError(pub String);
+pub struct UnsupportedPlatformError(pub String);
 
 /// Thrown for invalid arguments.
 #[napi(js_name = "InvalidArgumentError")]
-pub struct JsInvalidArgumentError(pub String);
+pub struct InvalidArgumentError(pub String);
 
 /// Thrown for internal errors.
 #[napi(js_name = "InternalError")]
-pub struct JsInternalError(pub String);
+pub struct InternalError(pub String);
 
-// Implement Display and Error for all error classes, and make them extend JS Error
+// Implement Display and Error for all error classes
 macro_rules! impl_js_error {
     ($name:ident) => {
         impl std::fmt::Display for $name {
@@ -479,14 +540,14 @@ macro_rules! impl_js_error {
         impl std::error::Error for $name {}
     };
 }
-impl_js_error!(JsElementNotFoundError);
-impl_js_error!(JsTimeoutError);
-impl_js_error!(JsPermissionDeniedError);
-impl_js_error!(JsPlatformError);
-impl_js_error!(JsUnsupportedOperationError);
-impl_js_error!(JsUnsupportedPlatformError);
-impl_js_error!(JsInvalidArgumentError);
-impl_js_error!(JsInternalError);
+impl_js_error!(ElementNotFoundError);
+impl_js_error!(TimeoutError);
+impl_js_error!(PermissionDeniedError);
+impl_js_error!(PlatformError);
+impl_js_error!(UnsupportedOperationError);
+impl_js_error!(UnsupportedPlatformError);
+impl_js_error!(InvalidArgumentError);
+impl_js_error!(InternalError);
 
 fn map_error(e: AutomationError) -> napi::Error {
     use AutomationError::*;
