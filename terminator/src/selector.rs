@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Selector {
     /// Select by role and optional name
-    Role { role: String, name: Option<String> },
+    Role { role: String, name: Option<String> }, // TODO: name unused 
     /// Select by accessibility ID
     Id(String),
     /// Select by name/label

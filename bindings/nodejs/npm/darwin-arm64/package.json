@@ -1,0 +1,20 @@
+{
+  "name": "terminator-darwin-arm64",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mediar-ai/terminator"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "main": "terminator.darwin-arm64.node",
+  "files": [
+    "terminator.darwin-arm64.node"
+  ],
+  "engines": {
+    "node": ">= 10"
+  }
+}

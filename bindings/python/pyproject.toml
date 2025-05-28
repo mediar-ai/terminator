@@ -1,0 +1,25 @@
+[build-system]
+requires = ["maturin>=1.8,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "terminator"
+requires-python = ">=3.11"
+authors = [
+  { name="mediar-ai", email="louis@mediar.ai" },
+]
+description = "Python bindings for the Terminator Rust library (via PyO3)"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+]
+dynamic = ["version"]
+[tool.maturin]
+# "extension-module" tells pyo3 we want to build an extension module (skips linking against libpython.so)
+features = ["pyo3/extension-module"]
+
+[project.urls]
+"Homepage" = "https://github.com/mediar-ai/terminator" # Replace with actual URL
+"Bug Tracker" = "https://github.com/mediar-ai/terminator/issues" # Replace with actual URL 
+

@@ -1,0 +1,20 @@
+{
+  "name": "terminator-win32-x64-msvc",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mediar-ai/terminator"
+  },
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "main": "terminator.win32-x64-msvc.node",
+  "files": [
+    "terminator.win32-x64-msvc.node"
+  ],
+  "engines": {
+    "node": ">= 10"
+  }
+}

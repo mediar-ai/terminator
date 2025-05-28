@@ -2,16 +2,17 @@
 resolver = "2"
 members = [
     "terminator",
-    "examples/terminator-rust-examples/button",    # Assuming this is a crate
-    "examples/terminator-rust-examples/popup",     # Assuming this is a crate
-    "examples/terminator-rust-examples/server",    # Assuming this is the crate in the 'server' subdirectory
-    "examples/terminator-rust-examples/win_automation", # Assuming this is the crate in the 'win_automation' subdirectory
-    # Add other crates from examples/terminator-rust-examples if they exist
+    "terminator-workflow-recorder", 
+    "examples/terminator-rust-examples/button",   
+    "examples/terminator-rust-examples/server", 
+    "examples/terminator-rust-examples/win_automation",
+    "bindings/python",
+    "bindings/nodejs"
 ]
 
 # Shared metadata for workspace members
 [workspace.package]
-version = "0.2.8"   # From your original Cargo.toml
+version = "0.3.5"   # From your original Cargo.toml
 edition = "2021"    # From your original Cargo.toml
 
 # Centralized dependency definitions
@@ -58,3 +59,7 @@ sysinfo = "0.34.2"
 # Dev dependencies (can be used by examples or tests across the workspace)
 axum = "0.8.3"
 tower-http = { version = "0.6.2", features = ["cors", "limit"] }
+
+# Workflow recorder dependencies
+chrono = "0.4"
+ctrlc = "3.4"

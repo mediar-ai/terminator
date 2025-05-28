@@ -2,6 +2,7 @@
 
 
 
+
 https://github.com/user-attachments/assets/00329105-8875-48cb-8970-a62a85a9ebd0
 
 
@@ -15,26 +16,57 @@ https://github.com/user-attachments/assets/00329105-8875-48cb-8970-a62a85a9ebd0
     </a>
 </p>
 
-**Terminator** is the fastest, AI-first, computer use SDK. It's designed to interact with native GUI applications on Windows using a Playwright-like API, like parsing a website. By leveraging OS-level accessibility APIs, Terminator is significantly faster and more reliable for AI agents than vision-based approaches, and can interact with background applications.
+>Automate desktop apps like a browser. AI-native GUI automation for Windows. Fast, reliable, agent-ready.
 
-> **⚠️ Experimental ⚠️:** Terminator is under active development. Expect bugs and breaking changes. Please report issues – we aim to fix them quickly!
+## ⚡ TL;DR — Hello World Example
 
-## OS Support
+> Skip the boilerplate. This is the fastest way to feel the magic.
 
-| Operating System | Support Status        | Key Characteristics                                                     |
-|------------------|-----------------------|-------------------------------------------------------------------------|
-| Windows          | ✅ **Active Focus**   | Full features, best performance, actively developed & documented.       |
-| macOS            | 🟡 **Partial**        | Core functionality available; community-driven, less documented.        |
-| Linux            | ❌ **No Support**     | Not currently supported.                                                |
+### 🐍 Python
 
-## Key Features
+```bash
+pip install maturin
+cd bindings/python
+maturin develop
+```
 
-*   **AI-First & Agentic:** Built from the ground up for modern AI agents and workflows.
-*   **Blazing Fast & Reliable:** Uses OS-level accessibility APIs, making it much faster and more robust than vision-based tools.
-*   **Playwright-Style API:** Offers a familiar, powerful, and developer-friendly interface.
-*   **Cross-Platform (Windows Focus):** Automate native GUI applications on Windows (primary) and macOS.
-*   **Deep UI Introspection:** Enables detailed understanding and control of complex UI elements.
-*   **Background App Interaction:** Capable of interacting with applications even if they are not in focus.
+```python
+import terminator
+desktop = terminator.Desktop()
+desktop.open_application('calc')
+seven = desktop.locator('name:Seven')
+seven.click()
+```
+
+### 🟦 TypeScript / Node.js
+
+```bash
+cd bindings/nodejs
+npm install
+npm run build
+```
+
+```ts
+const { Desktop } = require('../bindings/nodejs');
+const desktop = new Desktop();
+await client.openApplication('notepad')
+await client.locator('name:Edit').typeText('hello world')
+```
+
+### 🧠 What is Terminator?
+Terminator is the Playwright-style SDK for automating Windows GUI apps.
+
+- 🪟 Built for Windows, works on macOS (partial)
+- 🧠 Designed for AI agents, not humans
+- ⚡ Uses OS-level accessibility (not vision)
+- 🧩 TS, Python, and Rust support
+- 📈 80ms UI scans, 10000x speedup via compiled workflows
+
+## Benchmarks
+
+The [benchmark test](./terminator/src/tests/e2e_tests.rs) illustrates how fast Terminator can query the UI. It finds all edit elements in about **80&nbsp;ms**, showcasing a big speed advantage over vision-based tools.
+
+This [form-filling app](https://www.mediar.ai/) can read & fill 1000 inputs forms as soon as you see them in <1s end-to-end using Gemini.
 
 ## Demos
 
@@ -48,44 +80,6 @@ Check out Terminator in action:
 ## Documentation
 
 For detailed information on features, installation, usage, and the API, please visit the **[Official Documentation](https://docs.screenpi.pe/terminator/introduction)**.
-
-## Quick Start
-
-Get up and running with Terminator:
-
-1.  **Clone the repo:**
-    ```bash
-    git clone https://github.com/mediar-ai/terminator
-    cd terminator
-    ```
-2.  **Set up the server:**
-    *   **Windows:** Download & unzip the pre-built server using PowerShell:
-        ```powershell
-        powershell -ExecutionPolicy Bypass -File .\setup_windows.ps1
-        ```
-    *   **macOS:** Compile the server using Rust/Cargo (ensure Rust and Xcode Command Line Tools are installed):
-        ```bash
-        cargo build --release --package server
-        ```
-3.  **Run the server:**
-    *   **Windows:**
-        ```powershell
-        ./server_release/server.exe --debug
-        ```
-    *   **macOS:**
-        ```bash
-        ./target/release/examples/server --debug
-        ```
-4.  **Run an example client (in a separate terminal):**
-    Navigate to the example directory, install dependencies, and run:
-    ```bash
-    cd examples/hello-world
-    npm i
-    npm run dev
-    # Then, open http://localhost:3000 in your browser
-    ```
-
-For more details, see the [Getting Started Guide](https://docs.screenpi.pe/terminator/getting-started) in the docs.
 
 ## Explore Further
 
@@ -112,4 +106,3 @@ contributions are welcome! please feel free to submit issues and pull requests. 
 ## businesses 
 
 if you want desktop automation at scale for your business, [let's talk](https://mediar.ai)
-

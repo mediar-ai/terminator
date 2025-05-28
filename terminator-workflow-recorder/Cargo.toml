@@ -1,0 +1,51 @@
+[package]
+name = "terminator-workflow-recorder"
+version = "0.1.0"
+edition = "2021"
+description = "A crate for recording user workflows on Windows"
+authors = ["Terminator Contributors"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+tokio-stream = "0.1"
+futures = "0.3"
+async-stream = "0.3"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1.0"
+chrono = "0.4"
+ctrlc = "3.4"
+rdev = "0.5.2"
+dashmap = "6.1.0"
+notify = "8.0"
+arboard = "3.0"
+regex = "1.0"
+
+[dev-dependencies]
+tempfile = "3.0"
+
+# Windows-specific dependencies
+[target.'cfg(target_os = "windows")'.dependencies]
+uiautomation = { version = "0.19", features = ["event", "pattern"] }
+windows = { version = "0.61.1", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_DataExchange",
+    "Win32_System_Threading",
+    "Win32_Storage_FileSystem",
+    "Win32_UI_Shell",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_Input",
+    "Win32_System_Diagnostics_ToolHelp",
+]}
+
+[lib]
+name = "terminator_workflow_recorder"
+path = "src/lib.rs"
+
+[[example]]
+name = "record_workflow"
+path = "examples/record_workflow.rs" 

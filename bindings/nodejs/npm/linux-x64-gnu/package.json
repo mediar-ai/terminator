@@ -1,0 +1,23 @@
+{
+  "name": "terminator-linux-x64-gnu",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mediar-ai/terminator"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "main": "terminator.linux-x64-gnu.node",
+  "files": [
+    "terminator.linux-x64-gnu.node"
+  ],
+  "engines": {
+    "node": ">= 10"
+  },
+  "libc": [
+    "glibc"
+  ]
+}

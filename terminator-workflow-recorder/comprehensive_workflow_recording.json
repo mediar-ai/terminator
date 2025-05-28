@@ -1,0 +1,1461 @@
+{
+  "name": "Comprehensive Workflow Recording",
+  "start_time": 1748313473019,
+  "end_time": 1748313480338,
+  "events": [
+    {
+      "timestamp": 1748313473463,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 511,
+            "y": 1200
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313473519,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 519,
+            "y": 1197
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313473549,
+      "event": {
+        "UiFocusChanged": {
+          "previous_element": null,
+          "metadata": {
+            "ui_element": {
+              "name": "Taskbar",
+              "automation_id": "",
+              "class_name": "Shell_TrayWnd",
+              "control_type": "Pane",
+              "process_id": 7268,
+              "application_name": "explorer",
+              "window_title": "Taskbar",
+              "bounding_rect": {
+                "x": 0,
+                "y": 1392,
+                "width": 2561,
+                "height": 49
+              },
+              "is_enabled": true,
+              "has_keyboard_focus": false,
+              "hierarchy_path": "Pane[Taskbar]",
+              "value": "STRING(Taskbar)"
+            },
+            "application": "explorer",
+            "window_title": "Taskbar",
+            "process_id": 7268
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313473575,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 534,
+            "y": 1193
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313473631,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 600,
+            "y": 1188
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313473687,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 823,
+            "y": 1188
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313473743,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1139,
+            "y": 1193
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313473799,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1383,
+            "y": 1239
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313473855,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1530,
+            "y": 1244
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313473911,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1722,
+            "y": 1273
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313473967,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1838,
+            "y": 1298
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313474023,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1882,
+            "y": 1312
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313474079,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1944,
+            "y": 1322
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313474135,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 2012,
+            "y": 1323
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313474199,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 2025,
+            "y": 1322
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313474287,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 2026,
+            "y": 1320
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313474343,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 2032,
+            "y": 1317
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313474399,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 2046,
+            "y": 1306
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313474455,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 2050,
+            "y": 1302
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313474511,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 2052,
+            "y": 1299
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313474891,
+      "event": {
+        "Mouse": {
+          "event_type": "Down",
+          "button": "Left",
+          "position": {
+            "x": 2054,
+            "y": 1295
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": {
+              "name": "Plan, search, build anything",
+              "automation_id": "",
+              "class_name": "",
+              "control_type": "Text",
+              "process_id": 17340,
+              "application_name": "Cursor",
+              "window_title": "lib.rs - terminator - Cursor",
+              "bounding_rect": {
+                "x": 2036,
+                "y": 1279,
+                "width": 146,
+                "height": 18
+              },
+              "is_enabled": true,
+              "has_keyboard_focus": false,
+              "hierarchy_path": "Text[Plan, search, build anything]",
+              "value": "STRING(Plan, search, build anything)"
+            },
+            "application": "Cursor",
+            "window_title": "lib.rs - terminator - Cursor",
+            "process_id": 17340
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313474895,
+      "event": {
+        "Mouse": {
+          "event_type": "Up",
+          "button": "Left",
+          "position": {
+            "x": 2054,
+            "y": 1295
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": {
+              "name": "",
+              "automation_id": "",
+              "class_name": "",
+              "control_type": "Edit",
+              "process_id": 17340,
+              "application_name": "Cursor",
+              "window_title": "lib.rs - terminator - Cursor",
+              "bounding_rect": {
+                "x": 2036,
+                "y": 1278,
+                "width": 506,
+                "height": 20
+              },
+              "is_enabled": true,
+              "has_keyboard_focus": false,
+              "hierarchy_path": "Edit",
+              "value": "STRING()"
+            },
+            "application": "Cursor",
+            "window_title": "lib.rs - terminator - Cursor",
+            "process_id": 17340
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313474938,
+      "event": {
+        "UiFocusChanged": {
+          "previous_element": null,
+          "metadata": {
+            "ui_element": {
+              "name": "",
+              "automation_id": "",
+              "class_name": "",
+              "control_type": "Edit",
+              "process_id": 17340,
+              "application_name": "Cursor",
+              "window_title": "lib.rs - terminator - Cursor",
+              "bounding_rect": {
+                "x": 2036,
+                "y": 1278,
+                "width": 506,
+                "height": 20
+              },
+              "is_enabled": true,
+              "has_keyboard_focus": true,
+              "hierarchy_path": "Edit",
+              "value": "STRING()"
+            },
+            "application": "Cursor",
+            "window_title": "lib.rs - terminator - Cursor",
+            "process_id": 17340
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313476171,
+      "event": {
+        "Keyboard": {
+          "key_code": 72,
+          "is_key_down": true,
+          "ctrl_pressed": false,
+          "alt_pressed": false,
+          "shift_pressed": false,
+          "win_pressed": false,
+          "character": "H",
+          "scan_code": null,
+          "metadata": {
+            "ui_element": {
+              "name": "",
+              "automation_id": "",
+              "class_name": "",
+              "control_type": "Edit",
+              "process_id": 17340,
+              "application_name": "Cursor",
+              "window_title": "lib.rs - terminator - Cursor",
+              "bounding_rect": {
+                "x": 2036,
+                "y": 1278,
+                "width": 506,
+                "height": 20
+              },
+              "is_enabled": true,
+              "has_keyboard_focus": true,
+              "hierarchy_path": "Edit",
+              "value": "STRING()"
+            },
+            "application": "Cursor",
+            "window_title": "lib.rs - terminator - Cursor",
+            "process_id": 17340
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313476188,
+      "event": {
+        "Keyboard": {
+          "key_code": 72,
+          "is_key_down": false,
+          "ctrl_pressed": false,
+          "alt_pressed": false,
+          "shift_pressed": false,
+          "win_pressed": false,
+          "character": null,
+          "scan_code": null,
+          "metadata": {
+            "ui_element": {
+              "name": "",
+              "automation_id": "",
+              "class_name": "",
+              "control_type": "Edit",
+              "process_id": 17340,
+              "application_name": "Cursor",
+              "window_title": "lib.rs - terminator - Cursor",
+              "bounding_rect": {
+                "x": 2036,
+                "y": 1278,
+                "width": 506,
+                "height": 20
+              },
+              "is_enabled": true,
+              "has_keyboard_focus": true,
+              "hierarchy_path": "Edit",
+              "value": "STRING()"
+            },
+            "application": "Cursor",
+            "window_title": "lib.rs - terminator - Cursor",
+            "process_id": 17340
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313476202,
+      "event": {
+        "UiPropertyChanged": {
+          "property_name": "ValueValue",
+          "property_id": 30045,
+          "old_value": null,
+          "new_value": "STRING(h)",
+          "metadata": {
+            "ui_element": {
+              "name": "",
+              "automation_id": "",
+              "class_name": "",
+              "control_type": "Edit",
+              "process_id": 17340,
+              "application_name": "Cursor",
+              "window_title": "lib.rs - terminator - Cursor",
+              "bounding_rect": {
+                "x": 2036,
+                "y": 1278,
+                "width": 506,
+                "height": 20
+              },
+              "is_enabled": true,
+              "has_keyboard_focus": true,
+              "hierarchy_path": "Edit",
+              "value": "STRING()"
+            },
+            "application": "Cursor",
+            "window_title": "lib.rs - terminator - Cursor",
+            "process_id": 17340
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313476328,
+      "event": {
+        "Keyboard": {
+          "key_code": 73,
+          "is_key_down": true,
+          "ctrl_pressed": false,
+          "alt_pressed": false,
+          "shift_pressed": false,
+          "win_pressed": false,
+          "character": "I",
+          "scan_code": null,
+          "metadata": {
+            "ui_element": {
+              "name": "",
+              "automation_id": "",
+              "class_name": "",
+              "control_type": "Edit",
+              "process_id": 17340,
+              "application_name": "Cursor",
+              "window_title": "lib.rs - terminator - Cursor",
+              "bounding_rect": {
+                "x": 2036,
+                "y": 1278,
+                "width": 506,
+                "height": 20
+              },
+              "is_enabled": true,
+              "has_keyboard_focus": true,
+              "hierarchy_path": "Edit",
+              "value": "STRING()"
+            },
+            "application": "Cursor",
+            "window_title": "lib.rs - terminator - Cursor",
+            "process_id": 17340
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313476362,
+      "event": {
+        "UiPropertyChanged": {
+          "property_name": "ValueValue",
+          "property_id": 30045,
+          "old_value": null,
+          "new_value": "STRING(hi)",
+          "metadata": {
+            "ui_element": {
+              "name": "",
+              "automation_id": "",
+              "class_name": "",
+              "control_type": "Edit",
+              "process_id": 17340,
+              "application_name": "Cursor",
+              "window_title": "lib.rs - terminator - Cursor",
+              "bounding_rect": {
+                "x": 2036,
+                "y": 1278,
+                "width": 506,
+                "height": 20
+              },
+              "is_enabled": true,
+              "has_keyboard_focus": true,
+              "hierarchy_path": "Edit",
+              "value": "STRING()"
+            },
+            "application": "Cursor",
+            "window_title": "lib.rs - terminator - Cursor",
+            "process_id": 17340
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313476415,
+      "event": {
+        "Keyboard": {
+          "key_code": 73,
+          "is_key_down": false,
+          "ctrl_pressed": false,
+          "alt_pressed": false,
+          "shift_pressed": false,
+          "win_pressed": false,
+          "character": null,
+          "scan_code": null,
+          "metadata": {
+            "ui_element": {
+              "name": "",
+              "automation_id": "",
+              "class_name": "",
+              "control_type": "Edit",
+              "process_id": 17340,
+              "application_name": "Cursor",
+              "window_title": "lib.rs - terminator - Cursor",
+              "bounding_rect": {
+                "x": 2036,
+                "y": 1278,
+                "width": 506,
+                "height": 20
+              },
+              "is_enabled": true,
+              "has_keyboard_focus": true,
+              "hierarchy_path": "Edit",
+              "value": "STRING()"
+            },
+            "application": "Cursor",
+            "window_title": "lib.rs - terminator - Cursor",
+            "process_id": 17340
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313477319,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 2054,
+            "y": 1294
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313478119,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 2053,
+            "y": 1294
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313478175,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 2047,
+            "y": 1288
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313478231,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 2043,
+            "y": 1281
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313478287,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 2034,
+            "y": 1274
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313478343,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1926,
+            "y": 1223
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313478399,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1708,
+            "y": 1157
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313478455,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1598,
+            "y": 1136
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313478511,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1564,
+            "y": 1125
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313478567,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1555,
+            "y": 1125
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313478623,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1538,
+            "y": 1126
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313478679,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1510,
+            "y": 1129
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313478735,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1462,
+            "y": 1122
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313478791,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1408,
+            "y": 1111
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313478847,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1381,
+            "y": 1107
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313478903,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1376,
+            "y": 1105
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313478959,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1371,
+            "y": 1105
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313478974,
+      "event": {
+        "Mouse": {
+          "event_type": "Down",
+          "button": "Left",
+          "position": {
+            "x": 1370,
+            "y": 1105
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": {
+              "name": "",
+              "automation_id": "",
+              "class_name": "",
+              "control_type": "Image",
+              "process_id": 17340,
+              "application_name": "Cursor",
+              "window_title": "lib.rs - terminator - Cursor",
+              "bounding_rect": {
+                "x": 20,
+                "y": 964,
+                "width": 1982,
+                "height": 375
+              },
+              "is_enabled": true,
+              "has_keyboard_focus": false,
+              "hierarchy_path": "Image",
+              "value": "STRING()"
+            },
+            "application": "Cursor",
+            "window_title": "lib.rs - terminator - Cursor",
+            "process_id": 17340
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313479059,
+      "event": {
+        "UiFocusChanged": {
+          "previous_element": null,
+          "metadata": {
+            "ui_element": {
+              "name": "Terminal 1, rustup Run the command: Toggle Screen Reader Accessibility Mode for an optimized screen reader experience Use Alt+F1 for terminal accessibility help",
+              "automation_id": "",
+              "class_name": "",
+              "control_type": "Edit",
+              "process_id": 17340,
+              "application_name": "Cursor",
+              "window_title": "lib.rs - terminator - Cursor",
+              "bounding_rect": {
+                "x": 20,
+                "y": 1321,
+                "width": 8,
+                "height": 18
+              },
+              "is_enabled": true,
+              "has_keyboard_focus": true,
+              "hierarchy_path": "Edit[Terminal 1, rustup Run the command: Toggle Screen Reader Accessibility Mode for an optimized screen reader experience Use Alt+F1 for terminal accessibility help]",
+              "value": "STRING(Terminal 1, rustup Run the command: Toggle Screen Reader Accessibility Mode for an optimized screen reader experience Use Alt+F1 for terminal accessibility help)"
+            },
+            "application": "Cursor",
+            "window_title": "lib.rs - terminator - Cursor",
+            "process_id": 17340
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313479067,
+      "event": {
+        "Mouse": {
+          "event_type": "Up",
+          "button": "Left",
+          "position": {
+            "x": 1369,
+            "y": 1105
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": {
+              "name": "",
+              "automation_id": "",
+              "class_name": "",
+              "control_type": "Image",
+              "process_id": 17340,
+              "application_name": "Cursor",
+              "window_title": "lib.rs - terminator - Cursor",
+              "bounding_rect": {
+                "x": 20,
+                "y": 964,
+                "width": 1982,
+                "height": 375
+              },
+              "is_enabled": true,
+              "has_keyboard_focus": false,
+              "hierarchy_path": "Image",
+              "value": "STRING()"
+            },
+            "application": "Cursor",
+            "window_title": "lib.rs - terminator - Cursor",
+            "process_id": 17340
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313479759,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1367,
+            "y": 1105
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313479823,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1366,
+            "y": 1108
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313479887,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1365,
+            "y": 1110
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313480023,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1364,
+            "y": 1112
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313480030,
+      "event": {
+        "Keyboard": {
+          "key_code": 162,
+          "is_key_down": true,
+          "ctrl_pressed": true,
+          "alt_pressed": false,
+          "shift_pressed": false,
+          "win_pressed": false,
+          "character": null,
+          "scan_code": null,
+          "metadata": {
+            "ui_element": {
+              "name": "Terminal 1, rustup Run the command: Toggle Screen Reader Accessibility Mode for an optimized screen reader experience Use Alt+F1 for terminal accessibility help",
+              "automation_id": "",
+              "class_name": "",
+              "control_type": "Edit",
+              "process_id": 17340,
+              "application_name": "Cursor",
+              "window_title": "lib.rs - terminator - Cursor",
+              "bounding_rect": {
+                "x": 20,
+                "y": 1321,
+                "width": 8,
+                "height": 18
+              },
+              "is_enabled": true,
+              "has_keyboard_focus": true,
+              "hierarchy_path": "Edit[Terminal 1, rustup Run the command: Toggle Screen Reader Accessibility Mode for an optimized screen reader experience Use Alt+F1 for terminal accessibility help]",
+              "value": "STRING(Terminal 1, rustup Run the command: Toggle Screen Reader Accessibility Mode for an optimized screen reader experience Use Alt+F1 for terminal accessibility help)"
+            },
+            "application": "Cursor",
+            "window_title": "lib.rs - terminator - Cursor",
+            "process_id": 17340
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313480143,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1363,
+            "y": 1113
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313480319,
+      "event": {
+        "Mouse": {
+          "event_type": "Move",
+          "button": "Left",
+          "position": {
+            "x": 1362,
+            "y": 1113
+          },
+          "scroll_delta": null,
+          "drag_start": null,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313480327,
+      "event": {
+        "Hotkey": {
+          "combination": "[162, 67]",
+          "action": "Copy",
+          "is_global": true,
+          "metadata": {
+            "ui_element": null,
+            "application": null,
+            "window_title": null,
+            "process_id": null
+          }
+        }
+      }
+    },
+    {
+      "timestamp": 1748313480335,
+      "event": {
+        "Keyboard": {
+          "key_code": 67,
+          "is_key_down": true,
+          "ctrl_pressed": true,
+          "alt_pressed": false,
+          "shift_pressed": false,
+          "win_pressed": false,
+          "character": "C",
+          "scan_code": null,
+          "metadata": {
+            "ui_element": {
+              "name": "Terminal 1, rustup Run the command: Toggle Screen Reader Accessibility Mode for an optimized screen reader experience Use Alt+F1 for terminal accessibility help",
+              "automation_id": "",
+              "class_name": "",
+              "control_type": "Edit",
+              "process_id": 17340,
+              "application_name": "Cursor",
+              "window_title": "lib.rs - terminator - Cursor",
+              "bounding_rect": {
+                "x": 20,
+                "y": 1321,
+                "width": 8,
+                "height": 18
+              },
+              "is_enabled": true,
+              "has_keyboard_focus": true,
+              "hierarchy_path": "Edit[Terminal 1, rustup Run the command: Toggle Screen Reader Accessibility Mode for an optimized screen reader experience Use Alt+F1 for terminal accessibility help]",
+              "value": "STRING(Terminal 1, rustup Run the command: Toggle Screen Reader Accessibility Mode for an optimized screen reader experience Use Alt+F1 for terminal accessibility help)"
+            },
+            "application": "Cursor",
+            "window_title": "lib.rs - terminator - Cursor",
+            "process_id": 17340
+          }
+        }
+      }
+    }
+  ]
+}

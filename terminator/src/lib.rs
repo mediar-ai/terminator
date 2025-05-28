@@ -5,13 +5,14 @@
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use serde::{Deserialize, Serialize};
 use tracing::{info, instrument, warn};
 
-mod element;
-mod errors;
-mod locator;
+pub mod element;
+pub mod errors;
+pub mod locator;
 pub mod platforms;
-mod selector;
+pub mod selector;
 #[cfg(test)]
 mod tests;
 pub mod utils;
@@ -33,6 +34,13 @@ pub struct CommandOutput {
     pub exit_status: Option<i32>,
     pub stdout: String,
     pub stderr: String,
+}
+
+/// Represents a node in the UI tree, containing its attributes and children.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UINode {
+    pub attributes: UIElementAttributes,
+    pub children: Vec<UINode>,
 }
 
 /// Holds the screenshot data
@@ -380,4 +388,64 @@ impl Desktop {
         
         Ok(window)
     }
+
+    #[instrument(skip(self))]
+    pub async fn get_current_window(&self) -> Result<UIElement, AutomationError> {
+        let start = Instant::now();
+        info!("Getting current window");
+
+        let window = self.engine.get_current_window().await?;
+
+        let duration = start.elapsed();
+        info!(
+            duration_ms = duration.as_millis(),
+            window_id = window.id().unwrap_or_default(),
+            "Current window retrieved"
+        );
+
+        Ok(window)
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_current_application(&self) -> Result<UIElement, AutomationError> {
+        let start = Instant::now();
+        info!("Getting current application");
+
+        let application = self.engine.get_current_application().await?;
+
+        let duration = start.elapsed();
+        info!(
+            duration_ms = duration.as_millis(),
+            app_id = application.id().unwrap_or_default(),
+            "Current application retrieved"
+        );
+
+        Ok(application)
+    }
+
+    #[instrument(skip(self, title))]
+    pub fn get_window_tree_by_title(&self, title: &str) -> Result<UINode, AutomationError> {
+        let start = Instant::now();
+        info!(title, "Getting window tree by title");
+
+        let window_tree_root = self.engine.get_window_tree_by_title(title)?;
+
+        let duration = start.elapsed();
+        info!(
+            duration_ms = duration.as_millis(),
+            title = title,
+            "Window tree retrieved"
+        );
+
+        Ok(window_tree_root)
+    }
 }
+
+impl Clone for Desktop {
+    fn clone(&self) -> Self {
+        Self {
+            engine: self.engine.clone(),
+        }
+    }
+}
+

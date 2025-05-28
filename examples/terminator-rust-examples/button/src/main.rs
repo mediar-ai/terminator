@@ -67,7 +67,7 @@ impl App for MyApp {
 
                 if self.is_processing {
                     // When processing, show a spinner in a yellow box instead of the button
-                    let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
+                    let (rect, _) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
 
                     // Draw background (yellow, like the button)
                     let visuals = ui.visuals().widgets.inactive; // Use inactive widget visuals for rounding

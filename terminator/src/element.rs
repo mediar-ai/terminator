@@ -3,9 +3,32 @@ use crate::selector::Selector;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::time::Instant;
+use serde::{Deserialize, Serialize};
 use tracing::{info, instrument, warn};
 
 use super::{ClickResult, Locator};
+
+/// Response structure for exploration result
+#[derive(Debug)]
+pub struct ExploredElementDetail {
+    pub role: String,
+    pub name: Option<String>, // Use 'name' consistently for the primary label/text
+    pub id: Option<String>,
+    pub bounds: Option<(f64, f64, f64, f64)>, // Include bounds for spatial context
+    pub value: Option<String>,
+    pub description: Option<String>,
+    pub text: Option<String>,
+    pub parent_id: Option<String>,
+    pub children_ids: Vec<String>,
+    pub suggested_selector: String,
+}
+
+/// Response structure for exploration result
+#[derive(Debug)]
+pub struct ExploreResponse {
+    pub parent: UIElement, // The parent element explored
+    pub children: Vec<ExploredElementDetail>, // List of direct children details
+}
 
 /// Represents a UI element in a desktop application
 #[derive(Debug)]
@@ -14,7 +37,7 @@ pub struct UIElement {
 }
 
 /// Attributes associated with a UI element
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UIElementAttributes {
     pub role: String,
     pub name: Option<String>,
@@ -65,6 +88,18 @@ pub(crate) trait UIElementImpl: Send + Sync + Debug {
 
     // New method for mouse drag
     fn mouse_drag(&self, start_x: f64, start_y: f64, end_x: f64, end_y: f64) -> Result<(), AutomationError>;
+
+    // New methods for mouse control
+    fn mouse_click_and_hold(&self, x: f64, y: f64) -> Result<(), AutomationError>;
+    fn mouse_move(&self, x: f64, y: f64) -> Result<(), AutomationError>;
+    fn mouse_release(&self) -> Result<(), AutomationError>;
+
+    // New methods to get containing application and window
+    fn application(&self) -> Result<Option<UIElement>, AutomationError>;
+    fn window(&self) -> Result<Option<UIElement>, AutomationError>;
+
+    // New method to highlight the element
+    fn highlight(&self, color: Option<u32>, duration: Option<std::time::Duration>) -> Result<(), AutomationError>;
 }
 
 impl UIElement {
@@ -277,6 +312,71 @@ impl UIElement {
     /// Drag mouse from start to end coordinates
     pub fn mouse_drag(&self, start_x: f64, start_y: f64, end_x: f64, end_y: f64) -> Result<(), AutomationError> {
         self.inner.mouse_drag(start_x, start_y, end_x, end_y)
+    }
+
+    /// Press and hold mouse at (x, y)
+    pub fn mouse_click_and_hold(&self, x: f64, y: f64) -> Result<(), AutomationError> {
+        self.inner.mouse_click_and_hold(x, y)
+    }
+
+    /// Move mouse to (x, y)
+    pub fn mouse_move(&self, x: f64, y: f64) -> Result<(), AutomationError> {
+        self.inner.mouse_move(x, y)
+    }
+
+    /// Release mouse button
+    pub fn mouse_release(&self) -> Result<(), AutomationError> {
+        self.inner.mouse_release()
+    }
+
+    /// Get the containing application element
+    pub fn application(&self) -> Result<Option<UIElement>, AutomationError> {
+        self.inner.application()
+    }
+
+    /// Get the containing window element (e.g., tab, dialog)
+    pub fn window(&self) -> Result<Option<UIElement>, AutomationError> {
+        self.inner.window()
+    }
+
+    /// Highlights the element with a colored border.
+    /// 
+    /// # Arguments
+    /// * `color` - Optional BGR color code (32-bit integer). Default: 0x0000FF (red)
+    /// * `duration` - Optional duration for the highlight.
+    pub fn highlight(&self, color: Option<u32>, duration: Option<std::time::Duration>) -> Result<(), AutomationError> {
+        self.inner.highlight(color, duration)
+    }
+
+    /// Explore this element and its direct children
+    pub fn explore(&self) -> Result<ExploreResponse, AutomationError> {
+        let mut children = Vec::new();
+        for child in self.children()? {
+            let child_id = child.id().unwrap_or_default();
+            let child_bounds = child.bounds().ok();
+            let child_attrs = child.attributes();
+            let child_text = child.text(1).ok();
+
+            let suggested_selector = format!("#{}", child_id);
+
+            children.push(ExploredElementDetail {
+                role: child_attrs.role,
+                name: child_attrs.name,
+                id: Some(child_id),
+                bounds: child_bounds,
+                value: child_attrs.value,
+                description: child_attrs.description,
+                text: child_text,
+                parent_id: self.id(),
+                children_ids: Vec::new(),
+                suggested_selector,
+            });
+        }
+
+        Ok(ExploreResponse {
+            parent: self.clone(),
+            children,
+        })
     }
 }
 

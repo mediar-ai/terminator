@@ -5,6 +5,7 @@ target/
 node_modules
 dist
 
+.venv
 
 # Python stuff 
 __pycache__

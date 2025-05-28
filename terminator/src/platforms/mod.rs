@@ -1,4 +1,4 @@
-use crate::{AutomationError, Selector, UIElement};
+use crate::{AutomationError, Selector, UIElement, UINode};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -84,6 +84,15 @@ pub trait AccessibilityEngine: Send + Sync {
 
     /// Get the currently focused browser window (async)
     async fn get_current_browser_window(&self) -> Result<UIElement, AutomationError>;
+
+    /// Get the currently focused window
+    async fn get_current_window(&self) -> Result<UIElement, AutomationError>;
+
+    /// Get the currently focused application
+    async fn get_current_application(&self) -> Result<UIElement, AutomationError>;
+
+    /// Get the UI tree for a window by its title
+    fn get_window_tree_by_title(&self, title: &str) -> Result<UINode, AutomationError>;
 }
 
 #[cfg(target_os = "linux")]

@@ -29,6 +29,21 @@ struct AppState {
     cache_ttl: Duration,
 }
 
+// Add DetailLevel enum
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum DetailLevel {
+    Minimal,
+    Standard,
+    Full,
+}
+
+impl Default for DetailLevel {
+    fn default() -> Self {
+        DetailLevel::Full
+    }
+}
+
 impl AppState {
     fn new(desktop: Arc<Desktop>) -> Self {
         Self {
@@ -108,8 +123,9 @@ impl AppState {
 #[derive(Deserialize)]
 struct ChainedRequest {
     selector_chain: Vec<String>,
-    timeout_ms: Option<u64>, // Added timeout
+    timeout_ms: Option<u64>, 
     depth: Option<usize>,
+    detail_level: Option<DetailLevel>, // Added detail_level
 }
 
 // Request structure for typing text (with chain)
@@ -237,6 +253,31 @@ struct ScrollRequest {
     timeout_ms: Option<u64>,
 }
 
+// Request structure for mouse_click_and_hold
+#[derive(Deserialize)]
+struct MouseClickAndHoldRequest {
+    selector_chain: Vec<String>,
+    x: f64,
+    y: f64,
+    timeout_ms: Option<u64>,
+}
+
+// Request structure for mouse_move
+#[derive(Deserialize)]
+struct MouseMoveRequest {
+    selector_chain: Vec<String>,
+    x: f64,
+    y: f64,
+    timeout_ms: Option<u64>,
+}
+
+// Request structure for mouse_release
+#[derive(Deserialize)]
+struct MouseReleaseRequest {
+    selector_chain: Vec<String>,
+    timeout_ms: Option<u64>,
+}
+
 // Basic response structure
 #[derive(Serialize)]
 struct BasicResponse {
@@ -259,20 +300,40 @@ struct ElementResponse {
 }
 
 impl ElementResponse {
-    fn from_element(element: &UIElement) -> Self {
-        let attrs = element.attributes();
-        Self {
+    fn from_element(element: &UIElement, detail_level: DetailLevel) -> Self {
+        let mut response = Self {
             id: element.id(),
-            role: attrs.role,
-            label: attrs.label,
-            name: attrs.name,
-            text: element.text(1).ok(),
-            visible: element.is_visible().ok(),
-            enabled: element.is_enabled().ok(),
-            focused: element.is_focused().ok(),
-            is_keyboard_focusable: element.is_keyboard_focusable().ok(),
-            bounds: element.bounds().ok(),
+            role: element.role(),
+            label: None,
+            name: None,
+            text: None,
+            visible: None,
+            enabled: None,
+            focused: None,
+            is_keyboard_focusable: None,
+            bounds: None,
+        };
+
+        if detail_level == DetailLevel::Minimal {
+            return response;
         }
+
+        let attrs = element.attributes();
+        response.name = attrs.name;
+        response.label = attrs.label;
+        response.bounds = element.bounds().ok();
+
+        if detail_level == DetailLevel::Standard {
+            return response;
+        }
+
+        response.text = element.text(1).ok();
+        response.visible = element.is_visible().ok();
+        response.enabled = element.is_enabled().ok();
+        response.focused = element.is_focused().ok();
+        response.is_keyboard_focusable = element.is_keyboard_focusable().ok();
+
+        response
     }
 }
 
@@ -413,16 +474,16 @@ enum ApiError {
 impl From<AutomationError> for ApiError {
     fn from(err: AutomationError) -> Self {
         // Enhance ElementNotFound errors with more context if possible
-        if let AutomationError::ElementNotFound(msg) = &err {
-            // Check if the message already contains context hints
-            if !msg.contains("within parent") && !msg.contains("Found windows:") {
-                // Attempt to provide default context (this is basic, ideally context is added at source)
-                return ApiError::Automation(AutomationError::ElementNotFound(format!(
-                    "{} (context: Root)",
-                    msg
-                )));
-            }
-        }
+        // if let AutomationError::ElementNotFound(msg) = &err {
+        //     // Check if the message already contains context hints
+        //     if !msg.contains("within parent") && !msg.contains("Found windows:") {
+        //         // Attempt to provide default context (this is basic, ideally context is added at source)
+        //         return ApiError::Automation(AutomationError::ElementNotFound(format!(
+        //             "{} (context: Root)",
+        //             msg
+        //         )));
+        //     }
+        // }
         ApiError::Automation(err)
     }
 }
@@ -501,7 +562,7 @@ async fn first(
     // Try to get from cache first
     if let Some(element) = state.get_cached_element(&payload.selector_chain).await {
         info!("Found element in cache");
-        return Ok(Json(ElementResponse::from_element(&element)));
+        return Ok(Json(ElementResponse::from_element(&element, payload.detail_level.unwrap_or_default())));
     }
 
     // If not in cache, find the element
@@ -517,7 +578,7 @@ async fn first(
             }
             
             info!("Element found successfully");
-            Ok(Json(ElementResponse::from_element(&element)))
+            Ok(Json(ElementResponse::from_element(&element, payload.detail_level.unwrap_or_default())))
         }
         Err(e) => {
             error!("Failed to find element: {}", e);
@@ -671,29 +732,46 @@ async fn all(
     Json(payload): Json<ChainedRequest>,
 ) -> Result<Json<ElementsResponse>, ApiError> {
     info!(chain = ?payload.selector_chain, timeout = ?payload.timeout_ms, "Attempting to find all elements");
-    
-    // For 'all' operations, we don't use the cache since we need fresh results
+
+    // For 'all' operations, we don't use the cache for the initial find,
+    // but we will populate it afterwards.
     let locator = create_locator_for_chain(&state, &payload.selector_chain)?;
     let timeout = get_timeout(payload.timeout_ms);
-    
+
     match locator.all(timeout, payload.depth).await {
         Ok(elements) => {
-            info!(count = elements.len(), "Elements found successfully");
-            
-            // Cache each element individually using its ID as the cache key
-            for element in &elements {
-                if let Some(id) = element.id() {
-                    let cache_key = vec![format!("#{}", id)];
-                    state.cache_element(&cache_key, element.clone()).await;
-                }
-            }
-            
-            Ok(Json(ElementsResponse {
+            info!(count = elements.len(), "Elements found successfully. Preparing response.");
+
+            // Prepare the response to be sent to the client immediately
+            let response = Json(ElementsResponse {
                 elements: elements
-                    .into_iter()
-                    .map(|element| ElementResponse::from_element(&element))
+                    .iter() // Iterate over a reference to avoid moving
+                    .map(|element| ElementResponse::from_element(element, payload.detail_level.unwrap_or_default()))
                     .collect(),
-            }))
+            });
+
+            // Clone necessary data for the background caching task
+            let state_clone_for_caching = Arc::clone(&state);
+            let elements_clone_for_caching = elements.clone(); // Clone elements for the background task
+            let selector_chain_for_caching = payload.selector_chain.clone(); // Clone for logging context if needed
+
+            // Spawn a background task to cache the elements
+            tokio::spawn(async move {
+                info!(count = elements_clone_for_caching.len(), chain = ?selector_chain_for_caching, "Starting background caching for elements.");
+                for element in &elements_clone_for_caching {
+                    if let Some(id) = element.id() {
+                        // Use the element's own ID for caching, not the full chain
+                        let cache_key_by_id = vec![format!("#{}", id)];
+                        // It's important to use element.id() for the cache_key to ensure cache_element's logic is consistent
+                        // AppState::get_cache_key expects a selector chain, so providing the ID selector is correct.
+                        state_clone_for_caching.cache_element(&cache_key_by_id, element.clone()).await;
+                    }
+                }
+                info!(count = elements_clone_for_caching.len(), chain = ?selector_chain_for_caching, "Background caching completed for elements.");
+            });
+
+            // Return the prepared response to the client
+            Ok(response)
         }
         Err(e) => {
             error!("Failed to find elements: {}", e);
@@ -715,7 +793,7 @@ async fn get_full_tree(
 
         for child_element in &direct_children_elements {
             // 1. Add the direct child itself (converted to ElementResponse)
-            all_descendants.push(ElementResponse::from_element(child_element));
+            all_descendants.push(ElementResponse::from_element(child_element, DetailLevel::Full));
 
             // 2. Recursively call for this child_element's descendants
             match get_children_recursive(child_element) {
@@ -751,7 +829,7 @@ async fn get_full_tree(
         // Process each application and its children
         for app in applications {
             // Add the application itself
-            all_elements.push(ElementResponse::from_element(&app));
+            all_elements.push(ElementResponse::from_element(&app, DetailLevel::Full));
 
             // Get all descendants of this application
             match get_children_recursive(&app) {
@@ -983,7 +1061,7 @@ async fn find_window_handler(
                 window_element.role(),
                 window_element.attributes().label
             );
-            Ok(Json(ElementResponse::from_element(&window_element)))
+            Ok(Json(ElementResponse::from_element(&window_element, DetailLevel::Full)))
         }
         Err(e) => {
             error!("Failed to find window with criteria {:?}: {}", payload, e);
@@ -1013,7 +1091,7 @@ async fn explore_handler(
     let timeout = get_timeout(payload.timeout_ms);
     let element = locator.first(timeout).await?;
 
-    let parent = ElementResponse::from_element(&element);
+    let parent = ElementResponse::from_element(&element, DetailLevel::Full);
     let mut children = Vec::new();
 
     let children_start = Instant::now();
@@ -1033,9 +1111,8 @@ async fn explore_handler(
         let child_text = child.text(1).ok();
 
         let suggested_selector = format!(
-            "role:{} name:'{}'",
-            child_attrs.role,
-            child_attrs.name.clone().unwrap_or_default()
+            "#{}",
+            child_id
         );
 
         children.push(ExploredElementDetail {
@@ -1271,7 +1348,7 @@ async fn expect_element_visible(
         info!("Found element in cache for visibility check");
         if element.is_visible().unwrap_or(false) {
             info!("Cached element is visible");
-            return Ok(Json(ElementResponse::from_element(&element)));
+            return Ok(Json(ElementResponse::from_element(&element, DetailLevel::Full)));
         }
     }
 
@@ -1286,7 +1363,7 @@ async fn expect_element_visible(
             
             if element.is_visible().unwrap_or(false) {
                 info!("Element is visible");
-                Ok(Json(ElementResponse::from_element(&element)))
+                Ok(Json(ElementResponse::from_element(&element, DetailLevel::Full)))
             } else {
                 error!("Element is not visible");
                 Err(AutomationError::ElementNotFound(format!(
@@ -1313,7 +1390,7 @@ async fn expect_element_enabled(
         info!("Found element in cache for enabled check");
         if element.is_enabled().unwrap_or(false) {
             info!("Cached element is enabled");
-            return Ok(Json(ElementResponse::from_element(&element)));
+            return Ok(Json(ElementResponse::from_element(&element, DetailLevel::Full)));
         }
     }
 
@@ -1328,7 +1405,7 @@ async fn expect_element_enabled(
             
             if element.is_enabled().unwrap_or(false) {
                 info!("Element is enabled");
-                Ok(Json(ElementResponse::from_element(&element)))
+                Ok(Json(ElementResponse::from_element(&element, DetailLevel::Full)))
             } else {
                 error!("Element is not enabled");
                 Err(AutomationError::ElementNotFound(format!(
@@ -1355,7 +1432,7 @@ async fn expect_element_text_equals(
         info!("Found element in cache for text check");
         if element.text(1).unwrap_or_default() == payload.expected_text {
             info!("Cached element text matches");
-            return Ok(Json(ElementResponse::from_element(&element)));
+            return Ok(Json(ElementResponse::from_element(&element, DetailLevel::Full)));
         }
     }
 
@@ -1370,7 +1447,7 @@ async fn expect_element_text_equals(
             
             if element.text(1).unwrap_or_default() == payload.expected_text {
                 info!("Element text matches");
-                Ok(Json(ElementResponse::from_element(&element)))
+                Ok(Json(ElementResponse::from_element(&element, DetailLevel::Full)))
             } else {
                 error!("Element text does not match");
                 Err(AutomationError::ElementNotFound(format!(
@@ -1398,7 +1475,10 @@ async fn activate_app_handler(
     let timeout = get_timeout(payload.timeout_ms);
 
     // 1. Wait for the element
-    let element = locator.wait(timeout).await?; // Assign the result of wait to element
+    let element = locator.wait(timeout).await.map_err(|e| {
+        error!("Failed to find element for activation: {}", e);
+        ApiError::from(e)
+    })?;
 
     // 2. Get the containing application/window from the element (needs core implementation)
     // Example: let app_element = element.containing_application()?; // Needs method on UIElement/Impl
@@ -1435,7 +1515,7 @@ async fn get_current_browser_window_handler(
                 element.attributes().label,
                 element.id()
             );
-            Ok(Json(ElementResponse::from_element(&element)))
+            Ok(Json(ElementResponse::from_element(&element, DetailLevel::Full)))
         }
         Err(e) => {
             error!("Failed to get current browser window: {}", e);
@@ -1505,6 +1585,69 @@ async fn scroll_handler(
     }))
 }
 
+// Handler for mouse_click_and_hold
+async fn mouse_click_and_hold_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<MouseClickAndHoldRequest>,
+) -> Result<Json<BasicResponse>, ApiError> {
+    info!(chain = ?payload.selector_chain, x = payload.x, y = payload.y, timeout = ?payload.timeout_ms, "Attempting to mouse_click_and_hold element");
+    let locator = create_locator_for_chain(&state, &payload.selector_chain)?;
+    let timeout = get_timeout(payload.timeout_ms);
+    let element = locator.wait(timeout).await.map_err(|e| {
+        error!("Failed to find element for mouse_click_and_hold: {}", e);
+        ApiError::from(e)
+    })?;
+    element.mouse_click_and_hold(payload.x, payload.y).map_err(|e| {
+        error!("Failed to mouse_click_and_hold element: {}", e);
+        ApiError::from(e)
+    })?;
+    Ok(Json(BasicResponse {
+        message: "Mouse click and hold performed successfully".to_string(),
+    }))
+}
+
+// Handler for mouse_move
+async fn mouse_move_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<MouseMoveRequest>,
+) -> Result<Json<BasicResponse>, ApiError> {
+    info!(chain = ?payload.selector_chain, x = payload.x, y = payload.y, timeout = ?payload.timeout_ms, "Attempting to mouse_move element");
+    let locator = create_locator_for_chain(&state, &payload.selector_chain)?;
+    let timeout = get_timeout(payload.timeout_ms);
+    let element = locator.wait(timeout).await.map_err(|e| {
+        error!("Failed to find element for mouse_move: {}", e);
+        ApiError::from(e)
+    })?;
+    element.mouse_move(payload.x, payload.y).map_err(|e| {
+        error!("Failed to mouse_move element: {}", e);
+        ApiError::from(e)
+    })?;
+    Ok(Json(BasicResponse {
+        message: "Mouse move performed successfully".to_string(),
+    }))
+}
+
+// Handler for mouse_release
+async fn mouse_release_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<MouseReleaseRequest>,
+) -> Result<Json<BasicResponse>, ApiError> {
+    info!(chain = ?payload.selector_chain, timeout = ?payload.timeout_ms, "Attempting to mouse_release element");
+    let locator = create_locator_for_chain(&state, &payload.selector_chain)?;
+    let timeout = get_timeout(payload.timeout_ms);
+    let element = locator.wait(timeout).await.map_err(|e| {
+        error!("Failed to find element for mouse_release: {}", e);
+        ApiError::from(e)
+    })?;
+    element.mouse_release().map_err(|e| {
+        error!("Failed to mouse_release element: {}", e);
+        ApiError::from(e)
+    })?;
+    Ok(Json(BasicResponse {
+        message: "Mouse release performed successfully".to_string(),
+    }))
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing with timestamps and more detailed formatting
@@ -1568,8 +1711,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         // State and Layers
         .route("/mouse_drag", post(mouse_drag_handler))
+        .route("/mouse_click_and_hold", post(mouse_click_and_hold_handler))
+        .route("/mouse_move", post(mouse_move_handler))
+        .route("/mouse_release", post(mouse_release_handler))
         .route("/scroll", post(scroll_handler))
-        .layer(RequestBodyLimitLayer::new(500000 * 1024 * 1024))
+        .layer(RequestBodyLimitLayer::new(10 * 1024 * 1024)) // Reduced to 10MB
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)

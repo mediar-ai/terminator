@@ -1,46 +1,41 @@
-import logging
-import sys
+import asyncio
+import terminator
 import os
-import time
 
-# Add the python-sdk directory to the path to find the terminator_sdk module
-SDK_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'python-sdk'))
-if SDK_PATH not in sys.path:
-    sys.path.insert(0, SDK_PATH)
-
-# Now we can import the SDK
-from desktop_use import DesktopUseClient, ApiError, ConnectionError, sleep
-
-# Configure logging
-logging.basicConfig(level=logging.INFO,
-                    format='%(levelname)s: %(message)s')
-
-def run_mspaint():
-    client = DesktopUseClient()
+async def run_mspaint():
+    desktop = terminator.Desktop(log_level="error")
     try:
         print("Opening Microsoft Paint...")
-        client.open_application("mspaint.exe")
+        desktop.open_application("mspaint.exe")
+        await asyncio.sleep(2)
 
-        time.sleep(2)  # Wait for Paint to open
+        paint_window = desktop.locator('window:Paint')
+        # The following selectors may need adjustment depending on Paint version
+        # Try to locate the canvas
+        canvas = paint_window.locator('Name:Canvas')
+        canvas_bounds = await canvas.bounds()
+        print(f"Canvas bounds: {canvas_bounds}")
 
-        paint_window = client.locator('window:Paint')
+        # Restore original panel, tool_panel, and shapes_toolbar selectors
         panel = paint_window.locator('Pane:UIRibbonDockTop').locator('Pane:Ribbon').locator('Pane:Ribbon').locator('Pane:Ribbon').locator('Pane:Ribbon')
         tool_panel = panel.locator('Pane:Lower Ribbon')
-
-        # Locate the shapes toolbar
-        print("Locating shapes toolbar...")
         shapes_toolbar = tool_panel.locator('Name:Shapes')
-        shapes_group = shapes_toolbar.locator('Group:Shapes').explore()
 
-        def click_more_shapes_button():
+        # Helper to click the 'More Shapes' button if needed
+        async def click_more_shapes_button():
+            """
+            Click the 'More Shapes' button in the Shapes toolbar if it exists.
+            This may be needed to reveal additional shapes in some Paint versions.
+            """
+            shapes_group = await shapes_toolbar.locator('Group:Shapes').explore()
             for child in shapes_group.children:
-                if child.get('role') == 'Button' and child.get('suggested_selector') and child.get('text') == 'Shapes':
-                    more_shapes_button = shapes_toolbar.locator('Group:Shapes').locator(child['suggested_selector'])
-                    more_shapes_button.click()
+                if child.role == 'Button' and child.suggested_selector and child.name == 'Shapes':
+                    more_shapes_button = shapes_toolbar.locator(child.suggested_selector)
+                    await more_shapes_button.click()
                     break
 
         # Helper to select a shape tool by name
-        def select_shape(shape_name):
+        async def select_shape(shape_name):
             """
             Select a shape tool by its name from the Shapes toolbar.
             Available shapes:
@@ -68,13 +63,15 @@ def run_mspaint():
             - Heart: Heart shape
             - Lightning: Lightning bolt shape
             """
-            click_more_shapes_button()
-            shapes_box = client.locator('window:Shapes').locator('window:Shapes').locator('List:Shapes').locator('Role:Custom')
-            tool = shapes_box.locator(f'Name:{shape_name}')
             print(f"Selecting shape tool: {shape_name}")
-            tool.click()
+            await click_more_shapes_button()
+            await asyncio.sleep(0.2)
+            shapes_box = desktop.locator('window:Shapes').locator('window:Shapes').locator('List:Shapes').locator('Role:Custom')
+            tool = shapes_box.locator(f'Name:{shape_name}')
+            await tool.click()
+            await asyncio.sleep(0.5)
 
-        def select_brush(brush_name):
+        async def select_brush(brush_name):
             """
             Select a brush tool by its name from the Brushes window.
             Available brushes (from exploration):
@@ -88,36 +85,29 @@ def run_mspaint():
             - Natural pencil
             - Watercolour brush
             """
+            print(f"Selecting brush: {brush_name}")
             # Open the Brushes dropdown
-            text_tool = tool_panel.locator('Name:Brushes').locator('Button:Brushes')
-            text_tool.click()
-            time.sleep(0.5)
-            # Locate the brushes window and group
+            brushes_button = tool_panel.locator('Name:Brushes').locator('Button:Brushes')
+            await brushes_button.click()
+            await asyncio.sleep(0.5)
             brushes_group = paint_window.locator('window:Brushes').locator('List:Brushes').locator('Role:Custom').locator('Group:Brushes')
             brush = brushes_group.locator(f'Name:{brush_name}')
-            print(f"Selecting brush: {brush_name}")
-            brush.click()
+            await brush.click()
+            await asyncio.sleep(0.5)
 
-        # locate the canvas
-        canvas = client.locator('Name:Canvas')
+        # Draw shapes
+        await select_shape('Rounded rectangle')
+        await canvas.mouse_drag(200, 200, 450, 450)
+        await asyncio.sleep(1)
 
-        # Get the size of the canvas
-        canvas_size = canvas.get_bounds()
-        print(f"Canvas size: {canvas_size}")
+        await select_shape('Triangle')
+        await canvas.mouse_drag(225, 225, 425, 425)
+        await asyncio.sleep(1)
 
-        select_shape('Rounded rectangle')
-        canvas.mouse_drag(200, 200, 450, 450)
-        time.sleep(1)
+        # Select the pencil tool
+        await tool_panel.locator('Name:Tools').locator('Name:Pencil').click()
 
-        select_shape('Triangle')
-        canvas.mouse_drag(225, 225, 425, 425)
-        time.sleep(1)
-
-        # select the pencil tool
-        # text_tool = tool_panel.locator('Name:Tools').locator('Name:Pencil')
-        # text_tool.click()
-
-        select_brush('Calligraphy brush 1')
+        await select_brush('Calligraphy brush 1')
 
         # Draw the word TERMINATOR in block letters
         start_x = 460
@@ -129,108 +119,110 @@ def run_mspaint():
         y = start_y
 
         # T
-        canvas.mouse_drag(x + 0.0 * letter_width, y, x + 1.0 * letter_width, y)  # top bar
-        canvas.mouse_drag(x + 0.5 * letter_width, y, x + 0.5 * letter_width, y + letter_height)  # vertical
+        await canvas.mouse_drag(x + 0.0 * letter_width, y, x + 1.0 * letter_width, y)
+        await canvas.mouse_drag(x + 0.5 * letter_width, y, x + 0.5 * letter_width, y + letter_height)
         x += letter_width + spacing
 
         # E
-        canvas.mouse_drag(x, y, x, y + letter_height)  # left vertical
-        canvas.mouse_drag(x, y, x + letter_width, y)  # top
-        canvas.mouse_drag(x, y + letter_height / 2, x + letter_width * 0.8, y + letter_height / 2)  # middle
-        canvas.mouse_drag(x, y + letter_height, x + letter_width, y + letter_height)  # bottom
+        await canvas.mouse_drag(x, y, x, y + letter_height)
+        await canvas.mouse_drag(x, y, x + letter_width, y)
+        await canvas.mouse_drag(x, y + letter_height / 2, x + letter_width * 0.8, y + letter_height / 2)
+        await canvas.mouse_drag(x, y + letter_height, x + letter_width, y + letter_height)
         x += letter_width + spacing
 
         # R
-        canvas.mouse_drag(x, y, x, y + letter_height)  # left vertical
-        canvas.mouse_drag(x, y, x + letter_width * 0.7, y)  # top
-        canvas.mouse_drag(x, y + letter_height / 2, x + letter_width * 0.7, y + letter_height / 2)  # middle
-        canvas.mouse_drag(x + letter_width * 0.7, y, x + letter_width * 0.7, y + letter_height / 2)  # right upper
-        canvas.mouse_drag(x, y + letter_height / 2, x + letter_width, y + letter_height)  # diagonal leg
+        await canvas.mouse_drag(x, y, x, y + letter_height)
+        await canvas.mouse_drag(x, y, x + letter_width * 0.7, y)
+        await canvas.mouse_drag(x, y + letter_height / 2, x + letter_width * 0.7, y + letter_height / 2)
+        await canvas.mouse_drag(x + letter_width * 0.7, y, x + letter_width * 0.7, y + letter_height / 2)
+        await canvas.mouse_drag(x, y + letter_height / 2, x + letter_width, y + letter_height)
         x += letter_width + spacing
 
         # M
-        canvas.mouse_drag(x, y + letter_height, x, y)  # left vertical
-        canvas.mouse_drag(x, y, x + letter_width / 2, y + letter_height / 2)  # left diagonal
-        canvas.mouse_drag(x + letter_width / 2, y + letter_height / 2, x + letter_width, y)  # right diagonal
-        canvas.mouse_drag(x + letter_width, y, x + letter_width, y + letter_height)  # right vertical
+        await canvas.mouse_drag(x, y + letter_height, x, y)
+        await canvas.mouse_drag(x, y, x + letter_width / 2, y + letter_height / 2)
+        await canvas.mouse_drag(x + letter_width / 2, y + letter_height / 2, x + letter_width, y)
+        await canvas.mouse_drag(x + letter_width, y, x + letter_width, y + letter_height)
         x += letter_width + spacing
 
         # I
-        canvas.mouse_drag(x + letter_width / 2, y, x + letter_width / 2, y + letter_height)  # vertical
+        await canvas.mouse_drag(x + letter_width / 2, y, x + letter_width / 2, y + letter_height)
         x += letter_width + spacing
 
         # N
-        canvas.mouse_drag(x, y + letter_height, x, y)  # left vertical
-        canvas.mouse_drag(x, y, x + letter_width, y + letter_height)  # diagonal
-        canvas.mouse_drag(x + letter_width, y + letter_height, x + letter_width, y)  # right vertical
+        await canvas.mouse_drag(x, y + letter_height, x, y)
+        await canvas.mouse_drag(x, y, x + letter_width, y + letter_height)
+        await canvas.mouse_drag(x + letter_width, y + letter_height, x + letter_width, y)
         x += letter_width + spacing
 
         # A
-        canvas.mouse_drag(x + letter_width / 2, y, x, y + letter_height)  # left diagonal
-        canvas.mouse_drag(x + letter_width / 2, y, x + letter_width, y + letter_height)  # right diagonal
-        canvas.mouse_drag(x + letter_width * 0.25, y + letter_height * 0.6, x + letter_width * 0.75, y + letter_height * 0.6)  # crossbar
+        await canvas.mouse_drag(x + letter_width / 2, y, x, y + letter_height)
+        await canvas.mouse_drag(x + letter_width / 2, y, x + letter_width, y + letter_height)
+        await canvas.mouse_drag(x + letter_width * 0.25, y + letter_height * 0.6, x + letter_width * 0.75, y + letter_height * 0.6)
         x += letter_width + spacing
 
         # T
-        canvas.mouse_drag(x, y, x + letter_width, y)  # top bar
-        canvas.mouse_drag(x + letter_width / 2, y, x + letter_width / 2, y + letter_height)  # vertical
+        await canvas.mouse_drag(x, y, x + letter_width, y)
+        await canvas.mouse_drag(x + letter_width / 2, y, x + letter_width / 2, y + letter_height)
         x += letter_width + spacing
 
         # O
-        canvas.mouse_drag(x, y, x + letter_width, y)  # top
-        canvas.mouse_drag(x, y + letter_height, x + letter_width, y + letter_height)  # bottom
-        canvas.mouse_drag(x, y, x, y + letter_height)  # left
-        canvas.mouse_drag(x + letter_width, y, x + letter_width, y + letter_height)  # right
+        await canvas.mouse_drag(x, y, x + letter_width, y)
+        await canvas.mouse_drag(x, y + letter_height, x + letter_width, y + letter_height)
+        await canvas.mouse_drag(x, y, x, y + letter_height)
+        await canvas.mouse_drag(x + letter_width, y, x + letter_width, y + letter_height)
         x += letter_width + spacing
 
         # R
-        canvas.mouse_drag(x, y, x, y + letter_height)  # left vertical
-        canvas.mouse_drag(x, y, x + letter_width * 0.7, y)  # top
-        canvas.mouse_drag(x, y + letter_height / 2, x + letter_width * 0.7, y + letter_height / 2)  # middle
-        canvas.mouse_drag(x + letter_width * 0.7, y, x + letter_width * 0.7, y + letter_height / 2)  # right upper
-        canvas.mouse_drag(x, y + letter_height / 2, x + letter_width, y + letter_height)  # diagonal leg
+        await canvas.mouse_drag(x, y, x, y + letter_height)
+        await canvas.mouse_drag(x, y, x + letter_width * 0.7, y)
+        await canvas.mouse_drag(x, y + letter_height / 2, x + letter_width * 0.7, y + letter_height / 2)
+        await canvas.mouse_drag(x + letter_width * 0.7, y, x + letter_width * 0.7, y + letter_height / 2)
+        await canvas.mouse_drag(x, y + letter_height / 2, x + letter_width, y + letter_height)
         x += letter_width + spacing
 
 
         # Open Save As dialog
         print("Opening Save As dialog...")
-        paint_window.press_key('{Ctrl}s')
+        await paint_window.press_key('{Ctrl}s')
+        await asyncio.sleep(1)
 
         # Enter file name
         print("Entering file name...")
-        save_dialog = client.locator('window:Save As').locator('window:Save As')
+        save_dialog = desktop.locator('window:Save As').locator('window:Save As')
         file_name_edit_box = save_dialog.locator('role:Pane').locator('role:ComboBox').locator('role:Edit')
 
         home_dir = os.path.expanduser('~')
         file_path = os.path.join(home_dir, 'terminator_paint_test.png')
-        file_name_edit_box.type_text(file_path)
+        await file_name_edit_box.type_text(file_path)
+        await asyncio.sleep(0.5)
 
         # Find and click the Save button
-        window_elements = save_dialog.explore()
+        window_elements = await save_dialog.explore()
         for child in window_elements.children:
-            if child.get('role') == 'Button' and child.get('suggested_selector') and child.get('text') == 'Save':
-                save_button = save_dialog.locator(child['suggested_selector'])
-                save_button.click()
+            if child.role == 'Button' and child.suggested_selector and child.name == 'Save':
+                save_button = save_dialog.locator(child.suggested_selector)
+                await save_button.click()
                 break
         print("Save button clicked")
 
         # Handle confirmation dialog if file exists
         try:
-            confirm_overwrite = save_dialog.explore()
+            confirm_overwrite = await save_dialog.explore()
             for child in confirm_overwrite.children:
-                if child.get('role') == 'Window' and child.get('suggested_selector') and 'Confirm Save As' in child.get('text'):
-                    save_button = save_dialog.locator(child['suggested_selector'])
-                    save_button.locator('Name:Yes').click()
+                if child.role == 'Window' and child.suggested_selector and 'Confirm Save As' in child.text:
+                    save_button = save_dialog.locator(child.suggested_selector)
+                    await save_button.locator('Name:Yes').click()
                     break
         except:
             pass
 
         print("File saved successfully!")
 
-    except ApiError as e:
-        print(f"API Status: {e}")
+    except terminator.PlatformError as e:
+        print(f"Platform Error: {e}")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
 
 if __name__ == "__main__":
-    run_mspaint()
+    asyncio.run(run_mspaint())

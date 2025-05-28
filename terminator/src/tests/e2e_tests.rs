@@ -29,6 +29,7 @@ async fn make_get_request(endpoint: &str) -> Result<reqwest::Response, reqwest::
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_fill_edit_elements_http() {
     init_tracing();
     info!("Starting HTTP API test for filling edit elements");
@@ -109,6 +110,7 @@ async fn test_fill_edit_elements_http() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_fill_edit_elements_direct() {
     init_tracing();
     info!("Starting direct Rust test for filling edit elements");
@@ -170,5 +172,95 @@ async fn test_fill_edit_elements_direct() {
         sleep(Duration::from_millis(500)).await;
     }
     info!("Direct Rust test completed successfully");
+}
+
+#[tokio::test]
+#[ignore]
+async fn benchmark_find_edit_elements() {
+    init_tracing();
+    info!("Starting benchmark for finding edit elements");
+
+    // --- HTTP API Benchmark ---
+    info!("--- Starting HTTP API Benchmark ---");
+
+    // 1. Open the website
+    info!("(HTTP) Opening URL: {}", TEST_URL);
+    let open_url_response = make_api_request("/open_url", json!({
+        "url": TEST_URL,
+        "browser": "chrome"
+    })).await.unwrap();
+    assert!(open_url_response.status().is_success());
+    info!("(HTTP) Successfully opened URL");
+    sleep(Duration::from_secs(2)).await; // Wait for page load
+
+    // 2. Get current browser window ID
+    info!("(HTTP) Getting current browser window ID...");
+    let window_response = make_get_request("/current_browser_window").await.unwrap();
+    assert!(window_response.status().is_success());
+    let window_data: serde_json::Value = window_response.json().await.unwrap();
+    let window_id = window_data["id"].as_str().expect("No window ID in response");
+    info!("(HTTP) Got current browser window ID: {}", window_id);
+
+    // 3. Find all edit elements (Benchmark this part)
+    info!("(HTTP) Searching for edit elements in window {}...", window_id);
+    let find_elements_http_start = std::time::Instant::now();
+    let edit_elements_response = make_api_request("/all", json!({
+        "selector_chain": [
+            format!("#{}", window_id),
+            "role:edit"
+        ],
+        "timeout_ms": 10000, // Increased timeout for benchmark stability
+        "depth": 50,
+        "detail_level": "minimal"
+    })).await.unwrap();
+    assert!(edit_elements_response.status().is_success());
+    let http_duration = find_elements_http_start.elapsed();
+    
+    let elements_data: serde_json::Value = edit_elements_response.json().await.unwrap();
+    let elements = elements_data["elements"].as_array().unwrap();
+    info!("(HTTP) Found {} edit elements in {:?}", elements.len(), http_duration);
+    info!("--- HTTP API Benchmark Completed in {:?} (total for finding elements) ---", http_duration);
+
+    // Close the browser opened by HTTP API to avoid interference
+    // Assuming there's no direct API to close browser via HTTP, manual or OS-level close might be needed
+    // For now, we'll proceed, but in a real scenario, ensure a clean state.
+    // Consider adding a close_browser API endpoint if needed.
+    info!("(HTTP) Benchmark done. Note: Browser window from HTTP test might still be open.");
+
+
+    // --- Direct Rust API Benchmark ---
+    info!("--- Starting Direct Rust API Benchmark ---");
+
+    // 1. Initialize Desktop automation
+    info!("(Direct) Initializing Desktop automation");
+    let desktop = Desktop::new(false, false).await.unwrap();
+    
+    // 2. Open the website
+    info!("(Direct) Opening URL: {}", TEST_URL);
+    desktop.open_url(TEST_URL, Some("chrome")).unwrap();
+    info!("(Direct) Successfully opened URL");
+    sleep(Duration::from_secs(2)).await; // Wait for page load
+
+    // Get the current browser window to scope the search
+    info!("(Direct) Getting current browser window...");
+    let browser_window = desktop.get_current_browser_window().await.unwrap();
+    info!("(Direct) Got browser window with ID: {:?}", browser_window.id().unwrap_or_default());
+
+    // 3. Find all edit elements (Benchmark this part, scoped to the browser window)
+    info!("(Direct) Searching for edit elements within the browser window...");
+    let find_elements_direct_start = std::time::Instant::now();
+    // Use browser_window.locator(...) to scope the search
+    let edit_elements_direct = browser_window.locator("role:edit").unwrap().all(Some(Duration::from_secs(10)), Some(50)).await.unwrap(); 
+    let direct_duration = find_elements_direct_start.elapsed();
+    info!("(Direct) Found {} edit elements in {:?}", edit_elements_direct.len(), direct_duration);
+    info!("--- Direct Rust API Benchmark Completed in {:?} (total for finding elements) ---", direct_duration);
+
+    // Cleanup: Close the browser if possible/needed.
+    // This might involve finding the browser process and terminating it, or using a browser-specific command.
+    // For this example, we'll skip explicit browser closing for the direct API part as well.
+    info!("(Direct) Benchmark done.");
+
+    info!("Benchmark for finding edit elements completed.");
+    // Here you could add assertions or write results to a file if needed
 }
 

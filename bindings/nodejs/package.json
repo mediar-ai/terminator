@@ -1,0 +1,43 @@
+{
+  "name": "terminator",
+  "description": "Node.js/TypeScript bindings for the Terminator Rust library (via napi-rs)",
+  "main": "wrapper.js",
+  "types": "wrapper.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mediar-ai/terminator"
+  },
+  "napi": {
+    "name": "terminator",
+    "triples": {
+      "additional": [
+        "aarch64-apple-darwin"
+      ]
+    }
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.4"
+  },
+  "engines": {
+    "node": ">= 10"
+  },
+  "scripts": {
+    "artifacts": "napi artifacts",
+    "build": "napi build --platform --release --strip",
+    "build:debug": "napi build --platform",
+    "prepublishOnly": "napi prepublish -t npm"
+  },
+  "keywords": [
+    "napi",
+    "rust",
+    "native",
+    "terminator",
+    "automation"
+  ],
+  "optionalDependencies": {
+    "terminator-win32-x64-msvc": "0.3.3",
+    "terminator-darwin-x64": "0.3.3",
+    "terminator-linux-x64-gnu": "0.3.3",
+    "terminator-darwin-arm64": "0.3.3"
+  }
+}
