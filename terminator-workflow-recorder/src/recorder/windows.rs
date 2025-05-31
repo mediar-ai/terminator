@@ -202,6 +202,10 @@ impl WindowsRecorder {
     }
 
     /// Set up enhanced input event listener
+    ///
+    /// For performance, UIAutomation queries for UI element info are performed asynchronously.
+    /// Events are immediately sent with `ui_element: None`, and a background thread fetches the UI element
+    /// and emits a `UiElementEnriched` event if enrichment is enabled. This prevents UI freezes on click.
     async fn setup_enhanced_input_listener(&mut self) -> Result<()> {
         let event_tx = self.event_tx.clone();
         let last_mouse_pos = Arc::clone(&self.last_mouse_pos);
@@ -348,12 +352,7 @@ impl WindowsRecorder {
                                 _ => return,
                             };
 
-                            let mut ui_element = None;
-                            if capture_ui_elements {
-                                ui_element =
-                                    Self::get_focused_ui_element(automation.as_ref().unwrap());
-                            }
-
+                            // Immediately send event with ui_element: None
                             let mouse_event = MouseEvent {
                                 event_type: MouseEventType::Down,
                                 button: mouse_button,
@@ -361,10 +360,31 @@ impl WindowsRecorder {
                                 scroll_delta: None,
                                 drag_start: None,
                                 metadata: EventMetadata {
-                                    ui_element
+                                    ui_element: None,
                                 },
                             };
-                            let _ = event_tx.send(WorkflowEvent::Mouse(mouse_event));
+                            let _ = event_tx.send(WorkflowEvent::Mouse(mouse_event.clone()));
+
+                            // If UI element capture is enabled, fetch in background
+                            if capture_ui_elements {
+                                if let Some(automation) = automation.as_ref() {
+                                    let event_tx_clone = event_tx.clone();
+                                    let mouse_event_clone = mouse_event.clone();
+                                    std::thread::spawn(move || {
+                                        let start = std::time::Instant::now();
+                                        let ui_element = Self::get_focused_ui_element(automation);
+                                        let duration = start.elapsed();
+                                        debug!("UIAutomation query for click took {:?}", duration);
+                                        if let Some(ui_element) = ui_element {
+                                            let enriched_event = WorkflowEvent::UiElementEnriched {
+                                                original_event: Box::new(WorkflowEvent::Mouse(mouse_event_clone)),
+                                                ui_element,
+                                            };
+                                            let _ = event_tx_clone.send(enriched_event);
+                                        }
+                                    });
+                                }
+                            }
                         }
                     }
                     EventType::ButtonRelease(button) => {
@@ -376,12 +396,7 @@ impl WindowsRecorder {
                                 _ => return,
                             };
 
-                            let mut ui_element = None;
-                            if capture_ui_elements {
-                                ui_element =
-                                    Self::get_focused_ui_element(automation.as_ref().unwrap());
-                            }
-
+                            // Immediately send event with ui_element: None
                             let mouse_event = MouseEvent {
                                 event_type: MouseEventType::Up,
                                 button: mouse_button,
@@ -389,10 +404,31 @@ impl WindowsRecorder {
                                 scroll_delta: None,
                                 drag_start: None,
                                 metadata: EventMetadata {
-                                    ui_element
+                                    ui_element: None,
                                 },
                             };
-                            let _ = event_tx.send(WorkflowEvent::Mouse(mouse_event));
+                            let _ = event_tx.send(WorkflowEvent::Mouse(mouse_event.clone()));
+
+                            // If UI element capture is enabled, fetch in background
+                            if capture_ui_elements {
+                                if let Some(automation) = automation.as_ref() {
+                                    let event_tx_clone = event_tx.clone();
+                                    let mouse_event_clone = mouse_event.clone();
+                                    std::thread::spawn(move || {
+                                        let start = std::time::Instant::now();
+                                        let ui_element = Self::get_focused_ui_element(automation);
+                                        let duration = start.elapsed();
+                                        debug!("UIAutomation query for mouse up took {:?}", duration);
+                                        if let Some(ui_element) = ui_element {
+                                            let enriched_event = WorkflowEvent::UiElementEnriched {
+                                                original_event: Box::new(WorkflowEvent::Mouse(mouse_event_clone)),
+                                                ui_element,
+                                            };
+                                            let _ = event_tx_clone.send(enriched_event);
+                                        }
+                                    });
+                                }
+                            }
                         }
                     }
                     EventType::MouseMove { x, y } => {

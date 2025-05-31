@@ -81,6 +81,7 @@ let config = WorkflowRecorderConfig {
 - `record_clipboard`: Enable/disable clipboard operation recording
 - `record_ui_focus_changes`: Enable/disable UI focus change events
 - `record_ui_property_changes`: Enable/disable UI property change events
+- `capture_ui_elements`: If enabled, UI element info is captured asynchronously and events are enriched in the background. This is now non-blocking and does not cause lag.
 
 #### Noise Reduction
 - `mouse_move_throttle_ms`: Minimum time between mouse move events (default: 50ms)
@@ -165,6 +166,7 @@ The recorder saves workflows as JSON files containing timestamped events:
 
 ## Performance Considerations
 
+- UIAutomation queries for UI element info are now performed asynchronously. Events are immediately sent with `ui_element: None`, and a background thread fetches the UI element and emits a `UiElementEnriched` event if enrichment is enabled. This prevents UI freezes on click and other input events.
 - Use filtering to reduce event volume for better performance
 - Consider disabling UI automation events (`record_ui_*`) if not needed
 - Adjust `mouse_move_throttle_ms` to balance accuracy vs. performance
