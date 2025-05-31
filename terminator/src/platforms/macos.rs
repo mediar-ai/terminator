@@ -1518,6 +1518,12 @@ impl UIElementImpl for MacOSUIElement {
         ))
     }
 
+    fn capture(&self) -> Result<ScreenshotResult, AutomationError> {
+        Err(AutomationError::UnsupportedOperation(
+            "capture is not implemented for macOS yet".to_string(),
+        ))
+    }
+
     fn process_id(&self) -> Result<u32, AutomationError> {
         let pid = get_pid_for_element(&self.element);
         if pid != -1 {

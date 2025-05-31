@@ -691,4 +691,21 @@ impl Locator {
             Ok(())
         })
     }
+
+    #[pyo3(name = "capture", signature = (timeout_ms=None))]
+    #[pyo3(text_signature = "($self, timeout_ms)")]
+    /// (async) Capture a screenshot of the first matching element.
+    /// 
+    /// Args:
+    ///     timeout_ms (Optional[int]): Timeout in milliseconds.
+    /// 
+    /// Returns:
+    ///     ScreenshotResult: The screenshot result containing the image data.
+    pub fn capture<'py>(&self, py: Python<'py>, timeout_ms: Option<u64>) -> PyResult<Bound<'py, PyAny>> {
+        let locator = self.inner.clone();
+        pyo3_tokio::future_into_py_with_locals(py, TaskLocals::with_running_loop(py)?, async move {
+            let screenshot = locator.capture(timeout_ms.map(std::time::Duration::from_millis)).await.map_err(|e| automation_error_to_pyerr(e))?;
+            Ok(crate::types::ScreenshotResult::from(screenshot))
+        })
+    }
 } 

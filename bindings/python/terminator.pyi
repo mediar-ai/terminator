@@ -646,6 +646,16 @@ class Locator:
         Returns:
             None
         """
+    async def capture(self, timeout_ms:typing.Optional[builtins.int]=None) -> ScreenshotResult:
+        r"""
+        (async) Capture a screenshot of the first matching element.
+        
+        Args:
+            timeout_ms (Optional[int]): Timeout in milliseconds.
+        
+        Returns:
+            ScreenshotResult: The screenshot result containing the image data.
+        """
 
 class ScreenshotResult:
     r"""
@@ -925,6 +935,13 @@ class UIElement:
         
         Returns:
             None
+        """
+    def capture(self) -> ScreenshotResult:
+        r"""
+        Capture a screenshot of this element.
+        
+        Returns:
+            ScreenshotResult: The screenshot data containing image data and dimensions.
         """
 
 class UIElementAttributes:

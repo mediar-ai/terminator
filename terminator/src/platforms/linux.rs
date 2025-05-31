@@ -319,4 +319,10 @@ impl UIElementImpl for LinuxUIElement {
             "Linux implementation is not yet available".to_string(),
         ))
     }
+
+    fn capture(&self) -> Result<ScreenshotResult, AutomationError> {
+        Err(AutomationError::UnsupportedPlatform(
+            "Linux implementation is not yet available".to_string(),
+        ))
+    }
 }

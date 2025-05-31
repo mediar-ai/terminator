@@ -1,5 +1,6 @@
 use crate::platforms::AccessibilityEngine;
 use crate::element::{ExploreResponse, UIElement};
+use crate::ScreenshotResult;
 use crate::errors::AutomationError;
 use crate::selector::Selector;
 use crate::UIElementAttributes;
@@ -416,6 +417,12 @@ impl Locator {
     pub async fn highlight(&self, color: Option<u32>, duration: Option<Duration>, timeout: Option<Duration>) -> Result<(), AutomationError> {
         let element = self.wait(timeout).await?;
         element.highlight(color, duration)
+    }
+
+    /// Capture a screenshot of the element
+    pub async fn capture(&self, timeout: Option<Duration>) -> Result<ScreenshotResult, AutomationError> {
+        let element = self.wait(timeout).await?;
+        element.capture()
     }
 
 }

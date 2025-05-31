@@ -4,21 +4,21 @@ version = { workspace = true }
 edition = "2024"
 
 [dependencies]
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.140"
-anyhow = "1.0.97"
-thiserror = "2.0.12"
-tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
-tokio = { version = "1.44.2", features = ["full"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tokio = { workspace = true }
 
 # OCR / Vision
-xcap = "0.5.0"
-image = "0.25.6"
-uni-ocr = { git = "https://github.com/mediar-ai/uniOCR", branch = "main" }
-tempfile = "3.19.1"
-async-trait = "0.1.88"
-base64 = "0.22.1"
+xcap = { workspace = true }
+image = { workspace = true }
+uni-ocr = { workspace = true }
+tempfile = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
 
 [lib]
 name = "terminator"

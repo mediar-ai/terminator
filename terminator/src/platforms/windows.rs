@@ -24,13 +24,35 @@ use uiautomation::patterns;
 use uiautomation::types::{Point, TreeScope, UIProperty};
 use uiautomation::variants::Variant;
 use uni_ocr::{OcrEngine, OcrProvider};
-use windows::core::{Error, HSTRING, HRESULT, PWSTR};
-use windows::Win32::Foundation::{CloseHandle, HANDLE};
-use windows::Win32::System::Com::{CLSCTX_ALL, CoCreateInstance, CoInitializeEx, COINIT_APARTMENTTHREADED};
-use windows::Win32::System::Threading::{CREATE_NEW_CONSOLE, CreateProcessW, PROCESS_INFORMATION, STARTUPINFOW};
-use windows::Win32::UI::Shell::{ACTIVATEOPTIONS, ApplicationActivationManager, IApplicationActivationManager};
-use windows::Win32::System::Diagnostics::ToolHelp::{
-    CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS};
+
+// Windows API imports
+use windows::core::Error;
+use windows::core::HSTRING;
+use windows::core::HRESULT;
+use windows::core::PWSTR;
+
+use windows::Win32::Foundation::CloseHandle;
+use windows::Win32::Foundation::HANDLE;
+
+use windows::Win32::System::Com::CLSCTX_ALL;
+use windows::Win32::System::Com::CoCreateInstance;
+use windows::Win32::System::Com::CoInitializeEx;
+use windows::Win32::System::Com::COINIT_APARTMENTTHREADED;
+
+use windows::Win32::System::Diagnostics::ToolHelp::CreateToolhelp32Snapshot;
+use windows::Win32::System::Diagnostics::ToolHelp::Process32FirstW;
+use windows::Win32::System::Diagnostics::ToolHelp::Process32NextW;
+use windows::Win32::System::Diagnostics::ToolHelp::PROCESSENTRY32W;
+use windows::Win32::System::Diagnostics::ToolHelp::TH32CS_SNAPPROCESS;
+
+use windows::Win32::System::Threading::CREATE_NEW_CONSOLE;
+use windows::Win32::System::Threading::CreateProcessW;
+use windows::Win32::System::Threading::PROCESS_INFORMATION;
+use windows::Win32::System::Threading::STARTUPINFOW;
+
+use windows::Win32::UI::Shell::ACTIVATEOPTIONS;
+use windows::Win32::UI::Shell::ApplicationActivationManager;
+use windows::Win32::UI::Shell::IApplicationActivationManager;
 
 
 // Define a default timeout duration
@@ -2765,6 +2787,83 @@ impl UIElementImpl for WindowsUIElement {
             AutomationError::PlatformError(format!("Failed to get process ID for element: {}", e))
         })
     }
+
+    fn capture(&self) -> Result<ScreenshotResult, AutomationError> {
+        // Get the raw UIAutomation bounds
+        let rect = self.element.0.get_bounding_rectangle()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to get bounding rectangle: {}", e)))?;
+
+        // Get all monitors that intersect with the element
+        let mut intersected_monitors = Vec::new();
+        let monitors = xcap::Monitor::all()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to get monitors: {}", e)))?;
+
+        for monitor in monitors {
+            let monitor_x = monitor.x()
+                .map_err(|e| AutomationError::PlatformError(format!("Failed to get monitor x: {}", e)))? as i32;
+            let monitor_y = monitor.y()
+                .map_err(|e| AutomationError::PlatformError(format!("Failed to get monitor y: {}", e)))? as i32;
+            let monitor_width = monitor.width()
+                .map_err(|e| AutomationError::PlatformError(format!("Failed to get monitor width: {}", e)))? as i32;
+            let monitor_height = monitor.height()
+                .map_err(|e| AutomationError::PlatformError(format!("Failed to get monitor height: {}", e)))? as i32;
+
+            // Check if element intersects with this monitor
+            if rect.get_left() < monitor_x + monitor_width &&
+               rect.get_left() + rect.get_width() as i32 > monitor_x &&
+               rect.get_top() < monitor_y + monitor_height &&
+               rect.get_top() + rect.get_height() as i32 > monitor_y {
+                intersected_monitors.push(monitor);
+            }
+        }
+
+        if intersected_monitors.is_empty() {
+            return Err(AutomationError::PlatformError("Element is not visible on any monitor".to_string()));
+        }
+
+        // If element spans multiple monitors, capture from the primary monitor
+        let monitor = &intersected_monitors[0];
+        let scale_factor = monitor.scale_factor()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to get scale factor: {}", e)))?;
+
+        // Get monitor bounds
+        let monitor_x = monitor.x()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to get monitor x: {}", e)))? as u32;
+        let monitor_y = monitor.y()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to get monitor y: {}", e)))? as u32;
+        let monitor_width = monitor.width()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to get monitor width: {}", e)))? as u32;
+        let monitor_height = monitor.height()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to get monitor height: {}", e)))? as u32;
+
+        // Calculate scaled coordinates
+        let scaled_x = (rect.get_left() as f64 * scale_factor as f64) as u32;
+        let scaled_y = (rect.get_top() as f64 * scale_factor as f64) as u32;
+        let scaled_width = (rect.get_width() as f64 * scale_factor as f64) as u32;
+        let scaled_height = (rect.get_height() as f64 * scale_factor as f64) as u32;
+
+        // Convert to relative coordinates for capture_region
+        let rel_x = if scaled_x >= monitor_x { scaled_x - monitor_x } else { 0 };
+        let rel_y = if scaled_y >= monitor_y { scaled_y - monitor_y } else { 0 };
+        
+        // Ensure width and height don't exceed monitor bounds
+        let rel_width = std::cmp::min(scaled_width, monitor_width - rel_x);
+        let rel_height = std::cmp::min(scaled_height, monitor_height - rel_y);
+
+        // Capture the screen region
+        let capture = monitor.capture_region(
+            rel_x,
+            rel_y,
+            rel_width,
+            rel_height
+        ).map_err(|e| AutomationError::PlatformError(format!("Failed to capture region: {}", e)))?;
+
+        Ok(ScreenshotResult {
+            image_data: capture.to_vec(),
+            width: rel_width,
+            height: rel_height,
+        })
+    } 
 }
 
 #[allow(dead_code)]

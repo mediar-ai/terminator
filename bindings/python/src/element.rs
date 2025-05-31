@@ -405,4 +405,19 @@ impl UIElement {
         let duration = duration_ms.map(std::time::Duration::from_millis);
         self.inner.highlight(color, duration).map_err(|e| automation_error_to_pyerr(e))
     }
+
+    #[pyo3(name = "capture", text_signature = "($self)")]
+    /// Capture a screenshot of this element.
+    /// 
+    /// Returns:
+    ///     ScreenshotResult: The screenshot data containing image data and dimensions.
+    pub fn capture(&self) -> PyResult<crate::types::ScreenshotResult> {
+        self.inner.capture()
+            .map(|result| crate::types::ScreenshotResult {
+                image_data: result.image_data,
+                width: result.width,
+                height: result.height,
+            })
+            .map_err(|e| automation_error_to_pyerr(e))
+    }
 } 
