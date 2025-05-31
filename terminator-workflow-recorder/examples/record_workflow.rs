@@ -82,6 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("");
     info!("💡 Interact with your desktop to see comprehensive event capture...");
     info!("🛑 Press Ctrl+C to stop recording and save the workflow");
+    info!("⚡️ UI element capture is now asynchronous and non-blocking. If enabled, enriched events will be emitted in the background.");
 
     // Process and display events from the stream
     let event_display_task = tokio::spawn(async move {

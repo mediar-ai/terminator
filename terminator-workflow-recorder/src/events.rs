@@ -279,6 +279,12 @@ pub enum WorkflowEvent {
     
     /// A UI Automation focus change event
     UiFocusChanged(UiFocusChangedEvent),
+    
+    /// An asynchronously enriched event with UI element info
+    UiElementEnriched {
+        original_event: Box<WorkflowEvent>,
+        ui_element: UIElement,
+    },
 }
 
 /// Represents a recorded event with timestamp
@@ -735,6 +741,10 @@ pub enum SerializableWorkflowEvent {
     Hotkey(SerializableHotkeyEvent),
     UiPropertyChanged(SerializableUiPropertyChangedEvent),
     UiFocusChanged(SerializableUiFocusChangedEvent),
+    UiElementEnriched {
+        original_event: Box<SerializableWorkflowEvent>,
+        ui_element: SerializableUIElement,
+    },
 }
 
 impl From<&WorkflowEvent> for SerializableWorkflowEvent {
@@ -748,6 +758,10 @@ impl From<&WorkflowEvent> for SerializableWorkflowEvent {
             WorkflowEvent::Hotkey(e) => SerializableWorkflowEvent::Hotkey(e.into()),
             WorkflowEvent::UiPropertyChanged(e) => SerializableWorkflowEvent::UiPropertyChanged(e.into()),
             WorkflowEvent::UiFocusChanged(e) => SerializableWorkflowEvent::UiFocusChanged(e.into()),
+            WorkflowEvent::UiElementEnriched { original_event, ui_element } => SerializableWorkflowEvent::UiElementEnriched {
+                original_event: Box::new((&**original_event).into()),
+                ui_element: ui_element.into(),
+            },
         }
     }
 }
