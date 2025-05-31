@@ -126,6 +126,13 @@ class Desktop:
         Returns:
             CommandOutput: The command output.
         """
+    async def get_active_monitor_name(self) -> str:
+        r"""
+        (async) Get the name of the currently active monitor.
+        
+        Returns:
+            str: The name of the active monitor.
+        """
     async def capture_monitor_by_name(self, name:builtins.str) -> ScreenshotResult:
         r"""
         (async) Capture a screenshot of a specific monitor.

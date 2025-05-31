@@ -121,6 +121,15 @@ impl Desktop {
             .map_err(map_error)
     }
 
+    /// (async) Get the name of the currently active monitor.
+    /// 
+    /// @returns {Promise<string>} The name of the active monitor.
+    #[napi]
+    pub async fn get_active_monitor_name(&self) -> napi::Result<String> {
+        self.inner.get_active_monitor_name().await
+            .map_err(map_error)
+    }
+
     /// (async) Capture a screenshot of a specific monitor.
     /// 
     /// @param {string} name - The name of the monitor to capture.

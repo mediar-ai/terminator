@@ -2932,4 +2932,29 @@ impl AccessibilityEngine for MacOSEngine {
             format!("get_window_tree_by_pid_and_title for PID {} and title {:?} not yet implemented for macOS", pid, title)
         ))
     }
+
+    async fn get_active_monitor_name(&self) -> Result<String, AutomationError> {
+        // Get all windows
+        let windows = xcap::Window::all().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to get windows: {}", e))
+        })?;
+
+        // Find the focused window
+        let focused_window = windows.iter()
+            .find(|w| w.is_focused().unwrap_or(false))
+            .ok_or_else(|| {
+                AutomationError::ElementNotFound("No focused window found".to_string())
+            })?;
+
+        // Get the monitor name for the focused window
+        let monitor = focused_window.current_monitor().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to get current monitor: {}", e))
+        })?;
+
+        let monitor_name = monitor.name().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to get monitor name: {}", e))
+        })?;
+
+        Ok(monitor_name)
+    }
 }

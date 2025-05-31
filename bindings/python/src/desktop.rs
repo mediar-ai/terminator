@@ -154,6 +154,19 @@ impl Desktop {
         })
     }
 
+    #[pyo3(name = "get_active_monitor_name", text_signature = "($self)")]
+    /// (async) Get the name of the currently active monitor.
+    /// 
+    /// Returns:
+    ///     str: The name of the active monitor.
+    pub fn get_active_monitor_name<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let desktop = self.inner.clone();
+        pyo3_tokio::future_into_py_with_locals(py, TaskLocals::with_running_loop(py)?, async move {
+            let result = desktop.get_active_monitor_name().await.map_err(|e| automation_error_to_pyerr(e))?;
+            Ok(result)
+        })
+    }
+
     #[pyo3(name = "capture_monitor_by_name", text_signature = "($self, name)")]
     /// (async) Capture a screenshot of a specific monitor.
     /// 

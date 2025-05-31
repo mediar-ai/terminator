@@ -99,6 +99,9 @@ pub trait AccessibilityEngine: Send + Sync {
     /// If title is provided but no match found, fall back to any window from the process ID
     /// If title is None, use any window from the process ID
     fn get_window_tree_by_pid_and_title(&self, pid: u32, title: Option<&str>) -> Result<UINode, AutomationError>;
+
+    /// Get the name of the currently active monitor
+    async fn get_active_monitor_name(&self) -> Result<String, AutomationError>;
 }
 
 #[cfg(target_os = "linux")]

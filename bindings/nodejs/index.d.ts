@@ -110,6 +110,12 @@ export declare class Desktop {
    */
   runCommand(windowsCommand?: string | undefined | null, unixCommand?: string | undefined | null): Promise<CommandOutput>
   /**
+   * (async) Get the name of the currently active monitor.
+   *
+   * @returns {Promise<string>} The name of the active monitor.
+   */
+  getActiveMonitorName(): Promise<string>
+  /**
    * (async) Capture a screenshot of a specific monitor.
    *
    * @param {string} name - The name of the monitor to capture.
