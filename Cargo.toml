@@ -5,6 +5,7 @@ members = [
     "terminator-workflow-recorder", 
     "examples/terminator-rust-examples/button",   
     "examples/terminator-rust-examples/server", 
+    "examples/terminator-rust-examples/wh-scrapper",
     "examples/terminator-rust-examples/win_automation",
     "bindings/python",
     "bindings/nodejs"
