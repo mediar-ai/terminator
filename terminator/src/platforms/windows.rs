@@ -334,7 +334,7 @@ impl AccessibilityEngine for WindowsEngine {
 
                 let actual_depth = depth.unwrap_or(50) as u32;
 
-                let matcher_builder = self
+                let mut matcher_builder = self
                     .automation
                     .0
                     .create_matcher()
@@ -343,6 +343,11 @@ impl AccessibilityEngine for WindowsEngine {
                     .depth(actual_depth)
                     .timeout(timeout_ms as u64);
    
+                if let Some(name) = name {
+                    // use contains_name, its undetermined right now
+                    // wheather we should use `name` or `contains_name`
+                    matcher_builder = matcher_builder.contains_name(name);
+                }
                 
                 let elements = matcher_builder.find_all().map_err(|e| {
                     AutomationError::ElementNotFound(format!(
@@ -352,6 +357,7 @@ impl AccessibilityEngine for WindowsEngine {
                 })?;
 
                 debug!("found {} elements with role: {} (mapped to {:?}), name_filter: {:?}", elements.len(), role, win_control_type, name);
+
                 return Ok(elements
                     .into_iter()
                     .map(|ele| {
@@ -647,7 +653,7 @@ impl AccessibilityEngine for WindowsEngine {
                     win_control_type, role, name, timeout_ms, root_ele.get_name().unwrap_or_default()
                 );
 
-                let matcher_builder = self
+                let mut matcher_builder = self
                     .automation
                     .0
                     .create_matcher()
@@ -656,6 +662,11 @@ impl AccessibilityEngine for WindowsEngine {
                     .depth(50) // Default depth for find_element
                     .timeout(timeout_ms as u64);
 
+                if let Some(name) = name {
+                    // use contains_name, its undetermined right now
+                    // wheather we should use `name` or `contains_name`
+                    matcher_builder = matcher_builder.contains_name(name);
+                }
 
                 let element = matcher_builder.find_first().map_err(|e| {
                      AutomationError::ElementNotFound(format!(
