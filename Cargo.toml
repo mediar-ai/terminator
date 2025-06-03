@@ -8,7 +8,7 @@ members = [
     "examples/terminator-rust-examples/win_automation",
     "bindings/python",
     "bindings/nodejs"
-]
+, "examples/summarizer"]
 
 # Shared metadata for workspace members
 [workspace.package]
