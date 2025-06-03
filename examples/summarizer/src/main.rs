@@ -11,7 +11,7 @@ use std::{
     time::Duration,
 };
 use terminator::{Desktop, Selector, UIElement};
-use tracing::{info, warn, Level};
+use tracing::{info, warn, error, Level};
 
 /// CLI args
 #[derive(Parser)]
@@ -37,21 +37,29 @@ async fn main() -> Result<()> {
         if let Err(e) = listen(move |event: Event| {
             match event.event_type {
                 EventType::KeyPress(Key::ControlLeft) | EventType::KeyPress(Key::ControlRight) => {
-                    *ctrl_state.lock().unwrap() = true;
+                    if let Ok(mut ctrl) = ctrl_state.lock() {
+                        *ctrl = true;
+                    }
                 }
                 EventType::KeyRelease(Key::ControlLeft) | EventType::KeyRelease(Key::ControlRight) => {
-                    *ctrl_state.lock().unwrap() = false;
+                    if let Ok(mut ctrl) = ctrl_state.lock() {
+                        *ctrl = false;
+                    }
                 }
                 EventType::KeyPress(Key::KeyJ) => {
-                    if *ctrl_state.lock().unwrap() {
-                        println!("🎯 Ctrl+J pressed!");
-                        *trigger_clone.lock().unwrap() = true;
+                    if let Ok(ctrl) = ctrl_state.lock() {
+                        if *ctrl {
+                            info!("🎯 Ctrl+J pressed!");
+                            if let Ok(mut triggered) = trigger_clone.lock() {
+                                *triggered = true;
+                            }
+                        }
                     }
                 }
                 _ => {}
             }
         }) {
-            eprintln!("Error listening to keyboard events: {:?}", e);
+            error!("Error listening to keyboard events: {:?}", e);
         }
     });
 
@@ -61,11 +69,21 @@ async fn main() -> Result<()> {
         .context("Failed to initialize Terminator Desktop")?;
 
     loop {
-        if *is_triggered.lock().unwrap() {
-            if let Err(e) = summarize_all_windows(&desktop, &args.model, Arc::clone(&cache)).await {
-                eprintln!("Error summarizing windows: {}", e);
+        let triggered = {
+            // scope lock
+            let mut flag = is_triggered.lock().unwrap();
+            if *flag {
+                *flag = false;
+                true
+            } else {
+                false
             }
-            *is_triggered.lock().unwrap() = false;
+        };
+
+        if triggered {
+            if let Err(e) = summarize_all_windows(&desktop, &args.model, Arc::clone(&cache)).await {
+                warn!("Error summarizing windows: {}", e);
+            }
         }
         thread::sleep(Duration::from_millis(200));
     }
@@ -76,7 +94,7 @@ async fn summarize_all_windows(
     model: &str,
     cache: Arc<Mutex<HashMap<String, String>>>,
 ) -> Result<()> {
-    println!("⌨ Hotkey triggered — capturing UI context");
+    info!("⌨ Hotkey triggered — capturing UI context");
 
     let windows = resolve_windows(desktop).await?;
     if windows.is_empty() {
@@ -148,11 +166,10 @@ Please provide:
 }
 
 async fn resolve_windows(desktop: &Desktop) -> Result<Vec<UIElement>> {
-let locator = desktop.locator(Selector::Role {
-    role: "window".into(),
-    name: None,
-});
-
+    let locator = desktop.locator(Selector::Role {
+        role: "window".into(),
+        name: None,
+    });
 
     let mut windows = match locator.all(Some(Duration::from_secs(2)), None).await {
         Ok(wins) => wins,
@@ -276,11 +293,15 @@ fn refinement_loop(
                 if let Ok(idx) = n.parse::<usize>() {
                     if idx > 0 && idx <= points.len() {
                         let prompt = format!("Expand on this point:\n{}", points[idx - 1]);
-                        let refined = run_ollama_cached(&prompt, model, Arc::clone(&cache))?;
-                        println!("\n✨ Refined:\n{}", refined);
+                        match run_ollama_cached(&prompt, model, Arc::clone(&cache)) {
+                            Ok(refined) => {
+                                println!("\n✨ Refined:\n{}", refined);
 
-                        if let Err(e) = Clipboard::new()?.set_text(refined) {
-                            eprintln!("Failed to copy to clipboard: {}", e);
+                                if let Err(e) = Clipboard::new()?.set_text(refined) {
+                                    warn!("Failed to copy to clipboard: {}", e);
+                                }
+                            }
+                            Err(e) => warn!("Error refining point: {}", e),
                         }
                     }
                 }
