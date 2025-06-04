@@ -5,7 +5,6 @@ use crate::{
 };
 use arboard::Clipboard;
 use rdev::{Button, EventType, Key};
-use regex::Regex;
 use std::{
     collections::HashMap,
     sync::atomic::{AtomicBool, Ordering},
@@ -17,7 +16,7 @@ use terminator::{convert_uiautomation_element_to_terminator, UIElement};
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 use uiautomation::UIAutomation;
-use windows::Win32::Foundation::{LPARAM, WPARAM};
+use windows::Win32::{Foundation::{LPARAM, WPARAM}, System::Com::COINIT_MULTITHREADED};
 use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -64,7 +63,6 @@ struct ModifierStates {
 
 #[derive(Debug, Clone)]
 struct HotkeyPattern {
-    pattern: Regex,
     action: String,
     keys: Vec<u32>,
 }
@@ -138,47 +136,38 @@ impl WindowsRecorder {
     fn initialize_hotkey_patterns() -> Vec<HotkeyPattern> {
         vec![
             HotkeyPattern {
-                pattern: Regex::new(r"Ctrl\+C").unwrap(),
                 action: "Copy".to_string(),
                 keys: vec![162, 67], // Ctrl + C
             },
             HotkeyPattern {
-                pattern: Regex::new(r"Ctrl\+V").unwrap(),
                 action: "Paste".to_string(),
                 keys: vec![162, 86], // Ctrl + V
             },
             HotkeyPattern {
-                pattern: Regex::new(r"Ctrl\+X").unwrap(),
                 action: "Cut".to_string(),
                 keys: vec![162, 88], // Ctrl + X
             },
             HotkeyPattern {
-                pattern: Regex::new(r"Ctrl\+Z").unwrap(),
                 action: "Undo".to_string(),
                 keys: vec![162, 90], // Ctrl + Z
             },
             HotkeyPattern {
-                pattern: Regex::new(r"Ctrl\+Y").unwrap(),
                 action: "Redo".to_string(),
                 keys: vec![162, 89], // Ctrl + Y
             },
             HotkeyPattern {
-                pattern: Regex::new(r"Ctrl\+S").unwrap(),
                 action: "Save".to_string(),
                 keys: vec![162, 83], // Ctrl + S
             },
             HotkeyPattern {
-                pattern: Regex::new(r"Alt\+Tab").unwrap(),
                 action: "Switch Window".to_string(),
                 keys: vec![164, 9], // Alt + Tab
             },
             HotkeyPattern {
-                pattern: Regex::new(r"Win\+D").unwrap(),
                 action: "Show Desktop".to_string(),
                 keys: vec![91, 68], // Win + D
             },
             HotkeyPattern {
-                pattern: Regex::new(r"Ctrl\+Shift\+Esc").unwrap(),
                 action: "Task Manager".to_string(),
                 keys: vec![162, 160, 27], // Ctrl + Shift + Esc
             },
