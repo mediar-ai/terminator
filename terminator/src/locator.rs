@@ -1,5 +1,5 @@
 use crate::platforms::AccessibilityEngine;
-use crate::element::{ExploreResponse, UIElement};
+use crate::element::{ExploreResponse, UIElement, ExploredElementDetail};
 use crate::ScreenshotResult;
 use crate::errors::AutomationError;
 use crate::selector::Selector;
@@ -118,7 +118,14 @@ impl Locator {
     /// Explore the first matching element and its direct children
     pub async fn explore(&self, timeout: Option<Duration>) -> Result<ExploreResponse, AutomationError> {
         let element = self.wait(timeout).await?;
-        element.explore()
+        let mut children = Vec::new();
+        for child in element.children()? {
+            children.push(ExploredElementDetail::from_element(&child, element.id())?);
+        }
+        Ok(ExploreResponse {
+            parent: element,
+            children,
+        })
     }
 
     // --- Convenience methods for common actions ---
