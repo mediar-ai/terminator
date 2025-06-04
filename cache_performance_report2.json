@@ -1,0 +1,130 @@
+[
+  {
+    "method": "baseline",
+    "duration": {
+      "secs": 1,
+      "nanos": 102974100
+    },
+    "element_count": 45,
+    "max_depth": 6,
+    "success": true,
+    "error_msg": null,
+    "timestamp": {
+      "secs_since_epoch": 1749001486,
+      "nanos_since_epoch": 914169500
+    },
+    "app_name": "Notepad"
+  },
+  {
+    "method": "baseline",
+    "duration": {
+      "secs": 2,
+      "nanos": 618856000
+    },
+    "element_count": 856,
+    "max_depth": 9,
+    "success": true,
+    "error_msg": null,
+    "timestamp": {
+      "secs_since_epoch": 1749001488,
+      "nanos_since_epoch": 68906900
+    },
+    "app_name": "Cursor"
+  },
+  {
+    "method": "cached",
+    "duration": {
+      "secs": 2,
+      "nanos": 376775900
+    },
+    "element_count": 856,
+    "max_depth": 9,
+    "success": true,
+    "error_msg": null,
+    "timestamp": {
+      "secs_since_epoch": 1749001491,
+      "nanos_since_epoch": 573294100
+    },
+    "app_name": "Cursor"
+  },
+  {
+    "method": "cached",
+    "duration": {
+      "secs": 2,
+      "nanos": 511700200
+    },
+    "element_count": 856,
+    "max_depth": 9,
+    "success": true,
+    "error_msg": null,
+    "timestamp": {
+      "secs_since_epoch": 1749001494,
+      "nanos_since_epoch": 32153000
+    },
+    "app_name": "Cursor"
+  },
+  {
+    "method": "cached",
+    "duration": {
+      "secs": 2,
+      "nanos": 424632900
+    },
+    "element_count": 856,
+    "max_depth": 9,
+    "success": true,
+    "error_msg": null,
+    "timestamp": {
+      "secs_since_epoch": 1749001496,
+      "nanos_since_epoch": 566857300
+    },
+    "app_name": "Cursor"
+  },
+  {
+    "method": "baseline",
+    "duration": {
+      "secs": 1,
+      "nanos": 3991200
+    },
+    "element_count": 0,
+    "max_depth": 0,
+    "success": false,
+    "error_msg": "Element not found: Window with title containing 'tauri.localhost' not found. Available windows: [\"Taskbar\", \"\", \"\", \"screenpipe\", \"\", \"cache_tree_performance.rs - terminator - Cursor\", \"\", \"\", \"*Skip to content - Notepad\", \"\", \"\", \"\", \"\", \"\", \"Application Pages | Docs - Google Chrome\", \"\", \"\", \"Parsec\", \"\", \"MINGW64:/c/Users/screenpipe-windows/terminator\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\\u{a0}\", \"workflow_recorder.rs - mediar-app - Cursor\", \"\", \"\", \"Settings\", \"Settings\", \"Settings\", \"\", \"Downloads - File Explorer\", \"\", \"Downloads\", \"\", \"screenpi.pe-siw\", \"\", \"Program Manager\"]",
+    "timestamp": {
+      "secs_since_epoch": 1749001522,
+      "nanos_since_epoch": 796157000
+    },
+    "app_name": "tauri.localhost"
+  },
+  {
+    "method": "baseline",
+    "duration": {
+      "secs": 2,
+      "nanos": 548976800
+    },
+    "element_count": 856,
+    "max_depth": 9,
+    "success": true,
+    "error_msg": null,
+    "timestamp": {
+      "secs_since_epoch": 1749001544,
+      "nanos_since_epoch": 937283500
+    },
+    "app_name": "Cursor"
+  },
+  {
+    "method": "baseline",
+    "duration": {
+      "secs": 1,
+      "nanos": 126015900
+    },
+    "element_count": 57,
+    "max_depth": 12,
+    "success": true,
+    "error_msg": null,
+    "timestamp": {
+      "secs_since_epoch": 1749001557,
+      "nanos_since_epoch": 949218500
+    },
+    "app_name": "Microsoft​ Edge"
+  }
+]

@@ -546,6 +546,152 @@ impl WindowsEngine {
         
         best_match.map(|window| (window, best_score))
     }
+
+    /// Creates a comprehensive cache request for tree building operations
+    /// This significantly improves performance by pre-fetching commonly needed properties
+    fn create_tree_building_cache_request(&self) -> Result<uiautomation::core::UICacheRequest, AutomationError> {
+        let cache_request = self.automation.0.create_cache_request()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to create cache request: {}", e)))?;
+        
+        // Cache essential properties for tree building
+        cache_request.add_property(UIProperty::Name)
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to add Name property to cache: {}", e)))?;
+        cache_request.add_property(UIProperty::ControlType)
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to add ControlType property to cache: {}", e)))?;
+        cache_request.add_property(UIProperty::AutomationId)
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to add AutomationId property to cache: {}", e)))?;
+        cache_request.add_property(UIProperty::ClassName)
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to add ClassName property to cache: {}", e)))?;
+        cache_request.add_property(UIProperty::BoundingRectangle)
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to add BoundingRectangle property to cache: {}", e)))?;
+        cache_request.add_property(UIProperty::IsEnabled)
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to add IsEnabled property to cache: {}", e)))?;
+        cache_request.add_property(UIProperty::IsOffscreen)
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to add IsOffscreen property to cache: {}", e)))?;
+        cache_request.add_property(UIProperty::IsKeyboardFocusable)
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to add IsKeyboardFocusable property to cache: {}", e)))?;
+        cache_request.add_property(UIProperty::HelpText)
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to add HelpText property to cache: {}", e)))?;
+        cache_request.add_property(UIProperty::ProcessId)
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to add ProcessId property to cache: {}", e)))?;
+        
+        // Set scope to cache children
+        cache_request.set_tree_scope(TreeScope::Children)
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to set cache tree scope: {}", e)))?;
+        
+        Ok(cache_request)
+    }
+
+
+
+    /// Optimized tree building with cache-first strategy (Optimization 1)
+    pub fn get_window_tree_cached(&self, title: &str) -> Result<crate::UINode, AutomationError> {
+        info!("Building tree with cache optimization for: {}", title);
+        
+        // Find window using existing method
+        let window_element_raw = self.find_window_for_tree_building(title)?;
+        let window_element = UIElement::new(Box::new(WindowsUIElement {
+            element: ThreadSafeWinUIElement(Arc::new(window_element_raw)),
+        }));
+        
+        // Use optimized tree building with cache requests
+        let mut context = TreeBuildingContext {
+            config: TreeBuildingConfig {
+                timeout_per_operation_ms: 30,  // Slightly faster timeout
+                yield_every_n_elements: 30,    // More frequent yielding
+                batch_size: 20,                // Larger batches for cache efficiency
+            },
+            elements_processed: 0,
+            max_depth_reached: 0,
+            cache_hits: 0,
+            fallback_calls: 0,
+            errors_encountered: 0,
+        };
+        
+        let result = build_ui_node_tree_with_cache_priority(&window_element, 0, &mut context)?;
+        
+        info!("Cache-optimized tree completed: {} elements, depth {}, cache hits: {}, fallbacks: {}", 
+              context.elements_processed, context.max_depth_reached, 
+              context.cache_hits, context.fallback_calls);
+        
+        Ok(result)
+    }
+    
+    /// Optimized tree building with depth limit (Optimization 2)
+    pub fn get_window_tree_fast(&self, title: &str, max_depth: usize) -> Result<crate::UINode, AutomationError> {
+        info!("Building fast tree for: {} (max depth: {})", title, max_depth);
+        
+        // Find window using existing method
+        let window_element_raw = self.find_window_for_tree_building(title)?;
+        let window_element = UIElement::new(Box::new(WindowsUIElement {
+            element: ThreadSafeWinUIElement(Arc::new(window_element_raw)),
+        }));
+        
+        // Use depth-limited building with optimized settings
+        let mut context = TreeBuildingContext {
+            config: TreeBuildingConfig {
+                timeout_per_operation_ms: 20,  // Fast timeout
+                yield_every_n_elements: 40,    // Less frequent yielding for speed
+                batch_size: 25,                // Larger batches
+            },
+            elements_processed: 0,
+            max_depth_reached: 0,
+            cache_hits: 0,
+            fallback_calls: 0,
+            errors_encountered: 0,
+        };
+        
+        let result = build_ui_node_tree_fast_depth_limited(&window_element, 0, max_depth, &mut context)?;
+        
+        info!("Fast tree completed: {} elements, actual depth {}, in optimized mode", 
+              context.elements_processed, context.max_depth_reached);
+        
+        Ok(result)
+    }
+    
+    /// Helper to find window for tree building (reused by optimized methods)
+    fn find_window_for_tree_building(&self, title: &str) -> Result<uiautomation::UIElement, AutomationError> {
+        let root_ele_os = self.automation.0.get_root_element().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to get root element: {}", e))
+        })?;
+        
+        // Efficient window search
+        let window_matcher = self
+            .automation
+            .0
+            .create_matcher()
+            .from_ref(&root_ele_os)
+            .filter(Box::new(OrFilter {
+                left: Box::new(ControlTypeFilter {
+                    control_type: ControlType::Window,
+                }),
+                right: Box::new(ControlTypeFilter {
+                    control_type: ControlType::Pane,
+                }),
+            }))
+            .depth(3)
+            .timeout(3000);
+        
+        let windows = window_matcher.find_all().map_err(|e| {
+            AutomationError::ElementNotFound(format!("Failed to find windows: {}", e))
+        })?;
+        
+        // Find best title match
+        let mut window_info = Vec::new();
+        for window in windows {
+            if let Ok(window_name) = window.get_name() {
+                window_info.push((window, window_name));
+            }
+        }
+        
+        if let Some((window, _)) = self.find_best_title_match(&window_info, title) {
+            Ok(window)
+        } else {
+            Err(AutomationError::ElementNotFound(format!(
+                "No window found with title containing: '{}'", title
+            )))
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -1628,7 +1774,7 @@ impl AccessibilityEngine for WindowsEngine {
     }
 
     async fn get_current_browser_window(&self) -> Result<UIElement, AutomationError> {
-        info!("Attempting to get the current focused browser window.");
+        // info!("Attempting to get the current focused browser window.");
         let focused_element_raw = self
             .automation
             .0
@@ -1724,7 +1870,7 @@ impl AccessibilityEngine for WindowsEngine {
     }
 
     async fn get_current_window(&self) -> Result<UIElement, AutomationError> {
-        info!("Attempting to get the current focused window.");
+        // info!("Attempting to get the current focused window.");
         let focused_element_raw = self
             .automation
             .0
@@ -1778,7 +1924,7 @@ impl AccessibilityEngine for WindowsEngine {
     }
 
     async fn get_current_application(&self) -> Result<UIElement, AutomationError> {
-        info!("Attempting to get the current focused application.");
+        // info!("Attempting to get the current focused application.");
         let focused_element_raw = self
             .automation
             .0
@@ -2358,7 +2504,7 @@ impl UIElementImpl for WindowsUIElement {
                 info!("Found {} cached children.", cached_children.len());
                 cached_children
             }
-            Err(cache_err) => {
+            Err(_) => {
                 // Fallback logic (similar to explore_element_children)
                 match uiautomation::UIAutomation::new() {
                     Ok(temp_automation) => {
@@ -2368,10 +2514,10 @@ impl UIElementImpl for WindowsUIElement {
                                     .0
                                     .find_all(uiautomation::types::TreeScope::Children, &true_condition)
                                     .map_err(|find_err| {
-                                        error!(
-                                            "Failed to get children via find_all fallback: CacheErr={}, FindErr={}",
-                                            cache_err, find_err
-                                        );
+                                        // error!(
+                                        //     "Failed to get children via find_all fallback: CacheErr={}, FindErr={}",
+                                        //     cache_err, find_err
+                                        // );
                                         AutomationError::PlatformError(format!(
                                             "Failed to get children (cached and non-cached): {}",
                                             find_err
@@ -2664,10 +2810,10 @@ impl UIElementImpl for WindowsUIElement {
                                             found_children
                                         }
                                         Err(find_err) => {
-                                            error!(
-                                                "Failed to get children via find_all fallback for text extraction: CacheErr={}, FindErr={}",
-                                                cache_err, find_err
-                                            );
+                                            // error!(
+                                            //     "Failed to get children via find_all fallback for text extraction: CacheErr={}, FindErr={}",
+                                            //     cache_err, find_err
+                                            // );
                                             // Return an empty vec to avoid erroring out the whole text extraction
                                             vec![]
                                         }
@@ -3795,4 +3941,187 @@ pub fn convert_uiautomation_element_to_terminator(element: uiautomation::UIEleme
         element: arc_element,
     }))
 }
+
+/// Cache-priority tree building function (Optimization 1)
+fn build_ui_node_tree_with_cache_priority(
+    element: &UIElement,
+    current_depth: usize,
+    context: &mut TreeBuildingContext,
+) -> Result<crate::UINode, AutomationError> {
+    context.increment_element_count();
+    context.update_max_depth(current_depth);
+    
+    // Yield CPU periodically
+    if context.should_yield() {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    
+    let attributes = element.attributes();
+    let mut children_nodes = Vec::new();
+    
+    // Try to get children with cache-first approach
+    match get_element_children_with_cache_priority(element, context) {
+        Ok(children_elements) => {
+            // Process children in optimized batches
+            for batch in children_elements.chunks(context.config.batch_size) {
+                for child_element in batch {
+                    match build_ui_node_tree_with_cache_priority(child_element, current_depth + 1, context) {
+                        Ok(child_node) => children_nodes.push(child_node),
+                        Err(e) => {
+                            debug!("Failed to process child element: {}. Continuing.", e);
+                            context.increment_errors();
+                        }
+                    }
+                }
+                
+                // Small yield between large batches
+                if batch.len() == context.config.batch_size && children_elements.len() > context.config.batch_size {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+            }
+        }
+        Err(e) => {
+            debug!("Failed to get children: {}. Proceeding with no children.", e);
+            context.increment_errors();
+        }
+    }
+    
+    Ok(crate::UINode {
+        attributes,
+        children: children_nodes,
+    })
+}
+
+/// Fast depth-limited tree building function (Optimization 2)
+fn build_ui_node_tree_fast_depth_limited(
+    element: &UIElement,
+    current_depth: usize,
+    max_depth: usize,
+    context: &mut TreeBuildingContext,
+) -> Result<crate::UINode, AutomationError> {
+    context.increment_element_count();
+    context.update_max_depth(current_depth);
+    
+    // Return early if max depth reached
+    if current_depth >= max_depth {
+        return Ok(crate::UINode {
+            attributes: element.attributes(),
+            children: Vec::new(),
+        });
+    }
+    
+    // Less frequent yielding for speed
+    if context.should_yield() {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    
+    let attributes = element.attributes();
+    let mut children_nodes = Vec::new();
+    
+    // Fast children access with shorter timeout
+    match get_element_children_with_timeout(element, Duration::from_millis(context.config.timeout_per_operation_ms)) {
+        Ok(children_elements) => {
+            context.increment_cache_hit();
+            
+            // Process children in larger batches for speed
+            for batch in children_elements.chunks(context.config.batch_size) {
+                for child_element in batch {
+                    match build_ui_node_tree_fast_depth_limited(child_element, current_depth + 1, max_depth, context) {
+                        Ok(child_node) => children_nodes.push(child_node),
+                        Err(e) => {
+                            debug!("Failed to process child at depth {}: {}", current_depth + 1, e);
+                            context.increment_errors();
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            debug!("Failed to get children at depth {}: {}", current_depth, e);
+            context.increment_fallback();
+        }
+    }
+    
+    Ok(crate::UINode {
+        attributes,
+        children: children_nodes,
+    })
+}
+
+/// Cache-priority children access - NOW ACTUALLY USES WINDOWS CACHE REQUEST SYSTEM
+fn get_element_children_with_cache_priority(element: &UIElement, context: &mut TreeBuildingContext) -> Result<Vec<UIElement>, AutomationError> {
+    // FIRST: Try the REAL Windows UI Automation cache request system
+    if let Some(win_element) = element.as_any().downcast_ref::<WindowsUIElement>() {
+        // Create a temporary engine to access cache request methods (this is the actual Windows caching!)
+        if let Ok(temp_engine) = WindowsEngine::new(false, false) {
+            // Use the REAL Windows cache request system with UICacheRequest
+            if let Ok(cache_request) = temp_engine.create_tree_building_cache_request() {
+                if let Ok(true_condition) = temp_engine.automation.0.create_true_condition() {
+                    match win_element.element.0.find_all_build_cache(TreeScope::Children, &true_condition, &cache_request) {
+                        Ok(cached_children) => {
+                            context.increment_cache_hit();
+                            // info!("🚀 Used REAL Windows cache request system: {} children with pre-cached properties", cached_children.len());
+                            return Ok(cached_children
+                                .into_iter()
+                                .map(|ele| {
+                                    UIElement::new(Box::new(WindowsUIElement {
+                                        element: ThreadSafeWinUIElement(Arc::new(ele)),
+                                    }))
+                                })
+                                .collect());
+                        }
+                        Err(e) => {
+                            debug!("Windows cache request failed: {}, trying fallback", e);
+                            context.increment_fallback();
+                        }
+                    }
+                } else {
+                    debug!("Failed to create true condition for cache request");
+                    context.increment_fallback();
+                }
+            } else {
+                debug!("Failed to create cache request");
+                context.increment_fallback();
+            }
+        } else {
+            debug!("Failed to create temporary engine for cache request");
+            context.increment_fallback();
+        }
+
+        // SECOND: Fallback to get_cached_children (different kind of caching)
+        match win_element.element.0.get_cached_children() {
+            Ok(cached_children) => {
+                context.increment_fallback();
+                debug!("Used get_cached_children fallback: {} children", cached_children.len());
+                return Ok(cached_children
+                    .into_iter()
+                    .map(|ele| {
+                        UIElement::new(Box::new(WindowsUIElement {
+                            element: ThreadSafeWinUIElement(Arc::new(ele)),
+                        }))
+                    })
+                    .collect());
+            }
+            Err(e) => {
+                debug!("get_cached_children failed: {}", e);
+                context.increment_fallback();
+            }
+        }
+    }
+    
+    // FINAL: Fallback to standard children method
+    match element.children() {
+        Ok(children) => {
+            context.increment_fallback();
+            debug!("Used standard children fallback: {} children", children.len());
+            Ok(children)
+        }
+        Err(e) => {
+            context.increment_errors();
+            debug!("All children access methods failed: {}", e);
+            Err(e)
+        }
+    }
+}
+
 

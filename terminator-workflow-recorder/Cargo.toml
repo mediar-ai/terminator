@@ -56,4 +56,8 @@ path = "examples/record_workflow.rs"
 
 [[example]]
 name = "simple_cpu_recorder"
-path = "examples/simple_cpu_recorder.rs" 
+path = "examples/simple_cpu_recorder.rs"
+
+[[example]]
+name = "cache_tree_performance"
+path = "examples/cache_tree_performance.rs" 

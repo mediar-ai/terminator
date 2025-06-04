@@ -1,0 +1,18 @@
+[
+  {
+    "method": "baseline",
+    "duration": {
+      "secs": 26,
+      "nanos": 475126000
+    },
+    "element_count": 8435,
+    "max_depth": 12,
+    "success": true,
+    "error_msg": null,
+    "timestamp": {
+      "secs_since_epoch": 1749001711,
+      "nanos_since_epoch": 697193200
+    },
+    "app_name": "add defaults, utils, make recorder using terminador crate · mediar-ai/terminator@8ef790f — Mozilla Firefox"
+  }
+]
