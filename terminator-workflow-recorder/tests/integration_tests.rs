@@ -70,12 +70,12 @@ fn test_workflow_save_load_roundtrip() {
     let file_path = temp_dir.path().join("test_workflow.json");
     
     // Serialize and save
-    let json = serde_json::to_string_pretty(&workflow).expect("Failed to serialize");
+    let json = workflow.to_json().expect("Failed to serialize");
     fs::write(&file_path, json).expect("Failed to write file");
     
     // Load and deserialize
     let loaded_json = fs::read_to_string(&file_path).expect("Failed to read file");
-    let loaded_workflow: RecordedWorkflow = serde_json::from_str(&loaded_json)
+    let loaded_workflow = RecordedWorkflow::from_json(&loaded_json)
         .expect("Failed to deserialize");
     
     // Verify the data
@@ -93,29 +93,7 @@ fn test_complex_workflow_scenario() {
     // Simulate a complex user interaction workflow
     
     // 1. User clicks in a text field
-    let click_event = MouseEvent {
-        event_type: MouseEventType::Click,
-        button: MouseButton::Left,
-        position: Position { x: 300, y: 150 },
-        scroll_delta: None,
-        drag_start: None,
-        metadata: EventMetadata::from_ui_element(Some(UiElement {
-            name: Some("Email Field".to_string()),
-            control_type: Some("Edit".to_string()),
-            application_name: Some("ContactForm".to_string()),
-            window_title: Some("Contact Us".to_string()),
-            automation_id: None,
-            class_name: None,
-            process_id: None,
-            bounding_rect: None,
-            is_enabled: None,
-            has_keyboard_focus: None,
-            hierarchy_path: None,
-            value: None,
-        })),
-    };
-    workflow.add_event(WorkflowEvent::Mouse(click_event));
-    
+
     // 2. User selects some text
     let text_selection = TextSelectionEvent {
         selected_text: "example.com".to_string(),
@@ -123,7 +101,6 @@ fn test_complex_workflow_scenario() {
         end_position: Position { x: 420, y: 150 },
         selection_method: SelectionMethod::DoubleClick,
         selection_length: 11,
-        is_partial_selection: true,
         metadata: EventMetadata::empty(),
     };
     workflow.add_event(WorkflowEvent::TextSelection(text_selection));
@@ -163,15 +140,15 @@ fn test_complex_workflow_scenario() {
     workflow.finish();
     
     // Verify the workflow
-    assert_eq!(workflow.events.len(), 5);
+    assert_eq!(workflow.events.len(), 4);
     assert!(workflow.end_time.is_some());
     
     // Test serialization of the complex workflow
-    let json = serde_json::to_string_pretty(&workflow).expect("Failed to serialize complex workflow");
+    let json = workflow.to_json().expect("Failed to serialize complex workflow");
     assert!(json.len() > 500); // Should be a substantial JSON object
     
     // Test deserialization
-    let loaded_workflow: RecordedWorkflow = serde_json::from_str(&json)
+    let loaded_workflow = RecordedWorkflow::from_json(&json)
         .expect("Failed to deserialize complex workflow");
-    assert_eq!(loaded_workflow.events.len(), 5);
+    assert_eq!(loaded_workflow.events.len(), 4);
 } 

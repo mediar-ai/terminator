@@ -88,7 +88,7 @@ export declare class Desktop {
    *
    * @param {string} name - The name of the application to open.
    */
-  openApplication(name: string): void
+  openApplication(name: string): Element
   /**
    * Activate an application by name.
    *
@@ -109,6 +109,12 @@ export declare class Desktop {
    * @returns {Promise<CommandOutput>} The command output.
    */
   runCommand(windowsCommand?: string | undefined | null, unixCommand?: string | undefined | null): Promise<CommandOutput>
+  /**
+   * (async) Get the name of the currently active monitor.
+   *
+   * @returns {Promise<string>} The name of the active monitor.
+   */
+  getActiveMonitorName(): Promise<string>
   /**
    * (async) Capture a screenshot of a specific monitor.
    *
@@ -374,6 +380,18 @@ export declare class Element {
    * @returns {void}
    */
   highlight(color?: number | undefined | null, durationMs?: number | undefined | null): void
+  /**
+   * Capture a screenshot of this element.
+   *
+   * @returns {ScreenshotResult} The screenshot data containing image data and dimensions.
+   */
+  capture(): ScreenshotResult
+  /**
+   * Get the process ID of the application containing this element.
+   *
+   * @returns {number} The process ID.
+   */
+  processId(): number
 }
 /** Locator for finding UI elements by selector. */
 export declare class Locator {
@@ -663,4 +681,18 @@ export declare class Locator {
    * @returns {Promise<void>}
    */
   highlight(color?: number | undefined | null, durationMs?: number | undefined | null, timeoutMs?: number | undefined | null): Promise<void>
+  /**
+   * (async) Captures a screenshot of the first matching element.
+   *
+   * @param {number} [timeoutMs] - Timeout in milliseconds.
+   * @returns {Promise<ScreenshotResult>} The screenshot data containing image data and dimensions.
+   */
+  capture(timeoutMs?: number | undefined | null): Promise<ScreenshotResult>
+  /**
+   * (async) Get the process ID of the application containing the first matching element.
+   *
+   * @param {number} [timeoutMs] - Timeout in milliseconds.
+   * @returns {Promise<number>} The process ID of the application.
+   */
+  processId(timeoutMs?: number | undefined | null): Promise<number>
 }

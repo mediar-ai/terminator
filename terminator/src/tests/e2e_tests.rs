@@ -117,7 +117,7 @@ async fn test_fill_edit_elements_direct() {
     
     // 1. Initialize Desktop automation
     info!("Initializing Desktop automation");
-    let desktop = Desktop::new(false, false).await.unwrap();
+    let desktop = Desktop::new(false, false).unwrap();
     
     // 2. Open the website
     info!("Opening URL: {}", TEST_URL);
@@ -233,7 +233,7 @@ async fn benchmark_find_edit_elements() {
 
     // 1. Initialize Desktop automation
     info!("(Direct) Initializing Desktop automation");
-    let desktop = Desktop::new(false, false).await.unwrap();
+    let desktop = Desktop::new(false, false).unwrap();
     
     // 2. Open the website
     info!("(Direct) Opening URL: {}", TEST_URL);

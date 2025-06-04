@@ -672,6 +672,23 @@ impl Locator {
         })
     }
 
+    #[pyo3(name = "process_id", signature = (timeout_ms=None))]
+    #[pyo3(text_signature = "($self, timeout_ms)")]
+    /// (async) Get the process ID of the application containing the first matching element.
+    ///
+    /// Args:
+    ///     timeout_ms (Optional[int]): Timeout in milliseconds.
+    ///
+    /// Returns:
+    ///     int: The process ID of the application.
+    pub fn process_id<'py>(&self, py: Python<'py>, timeout_ms: Option<u64>) -> PyResult<Bound<'py, PyAny>> {
+        let locator = self.inner.clone();
+        pyo3_tokio::future_into_py_with_locals(py, TaskLocals::with_running_loop(py)?, async move {
+            let pid = locator.process_id(timeout_ms.map(std::time::Duration::from_millis)).await.map_err(|e| automation_error_to_pyerr(e))?;
+            Ok(pid)
+        })
+    }
+
     #[pyo3(name = "highlight", signature = (color=None, duration_ms=None, timeout_ms=None))]
     #[pyo3(text_signature = "($self, color, duration_ms, timeout_ms)")]
     /// (async) Highlights the first matching element with a colored border.
@@ -689,6 +706,23 @@ impl Locator {
             let duration = duration_ms.map(std::time::Duration::from_millis);
             locator.highlight(color, duration, timeout_ms.map(std::time::Duration::from_millis)).await.map_err(|e| automation_error_to_pyerr(e))?;
             Ok(())
+        })
+    }
+
+    #[pyo3(name = "capture", signature = (timeout_ms=None))]
+    #[pyo3(text_signature = "($self, timeout_ms)")]
+    /// (async) Capture a screenshot of the first matching element.
+    /// 
+    /// Args:
+    ///     timeout_ms (Optional[int]): Timeout in milliseconds.
+    /// 
+    /// Returns:
+    ///     ScreenshotResult: The screenshot result containing the image data.
+    pub fn capture<'py>(&self, py: Python<'py>, timeout_ms: Option<u64>) -> PyResult<Bound<'py, PyAny>> {
+        let locator = self.inner.clone();
+        pyo3_tokio::future_into_py_with_locals(py, TaskLocals::with_running_loop(py)?, async move {
+            let screenshot = locator.capture(timeout_ms.map(std::time::Duration::from_millis)).await.map_err(|e| automation_error_to_pyerr(e))?;
+            Ok(crate::types::ScreenshotResult::from(screenshot))
         })
     }
 } 

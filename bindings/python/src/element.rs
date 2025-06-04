@@ -30,6 +30,7 @@ impl Serialize for UIElement {
 #[gen_stub_pymethods]
 #[pymethods]
 impl UIElement {
+    #[pyo3(name = "role", text_signature = "($self)")]
     /// Get the element's role (e.g., "button", "textfield").
     /// 
     /// Returns:
@@ -38,6 +39,7 @@ impl UIElement {
         self.inner.role()
     }
 
+    #[pyo3(name = "name", text_signature = "($self)")]
     /// Get the element's name.
     /// 
     /// Returns:
@@ -46,6 +48,7 @@ impl UIElement {
         self.inner.name()
     }
 
+    #[pyo3(name = "id", text_signature = "($self)")]
     /// Get the element's ID.
     /// 
     /// Returns:
@@ -54,6 +57,7 @@ impl UIElement {
         self.inner.id()
     }
 
+    #[pyo3(name = "attributes", text_signature = "($self)")]
     /// Get all attributes of the element.
     /// 
     /// Returns:
@@ -73,6 +77,7 @@ impl UIElement {
         })
     }
 
+    #[pyo3(name = "children", text_signature = "($self)")]
     /// Get child elements.
     /// 
     /// Returns:
@@ -83,6 +88,7 @@ impl UIElement {
             .map_err(|e| automation_error_to_pyerr(e))
     }
 
+    #[pyo3(name = "parent", text_signature = "($self)")]
     /// Get parent element.
     /// 
     /// Returns:
@@ -93,6 +99,7 @@ impl UIElement {
             .map_err(|e| automation_error_to_pyerr(e))
     }
 
+    #[pyo3(name = "bounds", text_signature = "($self)")]
     /// Get element bounds (x, y, width, height).
     /// 
     /// Returns:
@@ -102,6 +109,7 @@ impl UIElement {
         Ok(Bounds { x, y, width, height })
     }
 
+    #[pyo3(name = "click", text_signature = "($self)")]
     /// Click on this element.
     /// 
     /// Returns:
@@ -112,6 +120,7 @@ impl UIElement {
             .map_err(|e| automation_error_to_pyerr(e))
     }
 
+    #[pyo3(name = "double_click", text_signature = "($self)")]
     /// Double click on this element.
     /// 
     /// Returns:
@@ -122,6 +131,7 @@ impl UIElement {
             .map_err(|e| automation_error_to_pyerr(e))
     }
 
+    #[pyo3(name = "right_click", text_signature = "($self)")]
     /// Right click on this element.
     /// 
     /// Returns:
@@ -131,6 +141,7 @@ impl UIElement {
             .map_err(|e| automation_error_to_pyerr(e))
     }
 
+    #[pyo3(name = "hover", text_signature = "($self)")]
     /// Hover over this element.
     /// 
     /// Returns:
@@ -158,6 +169,7 @@ impl UIElement {
         self.inner.is_enabled().map_err(|e| automation_error_to_pyerr(e))
     }
 
+    #[pyo3(name = "focus", text_signature = "($self)")]
     /// Focus this element.
     /// 
     /// Returns:
@@ -166,6 +178,8 @@ impl UIElement {
         self.inner.focus().map_err(|e| automation_error_to_pyerr(e))
     }
 
+    #[pyo3(name = "text", signature = (max_depth=None))]
+    #[pyo3(text_signature = "($self, max_depth)")]
     /// Get text content of this element.
     /// 
     /// Args:
@@ -177,6 +191,8 @@ impl UIElement {
         self.inner.text(max_depth.unwrap_or(1)).map_err(|e| automation_error_to_pyerr(e))
     }
 
+    #[pyo3(name = "type_text", signature = (text, use_clipboard=None))]
+    #[pyo3(text_signature = "($self, text, use_clipboard)")]
     /// Type text into this element.
     /// 
     /// Args:
@@ -189,6 +205,7 @@ impl UIElement {
         self.inner.type_text(text, use_clipboard.unwrap_or(false)).map_err(|e| automation_error_to_pyerr(e))
     }
 
+    #[pyo3(name = "press_key", text_signature = "($self, key)")]
     /// Press a key while this element is focused.
     /// 
     /// Args:
@@ -200,6 +217,7 @@ impl UIElement {
         self.inner.press_key(key).map_err(|e| automation_error_to_pyerr(e))
     }
 
+    #[pyo3(name = "set_value", text_signature = "($self, value)")]
     /// Set value of this element.
     /// 
     /// Args:
@@ -211,6 +229,7 @@ impl UIElement {
         self.inner.set_value(value).map_err(|e| automation_error_to_pyerr(e))
     }
 
+    #[pyo3(name = "perform_action", text_signature = "($self, action)")]
     /// Perform a named action on this element.
     /// 
     /// Args:
@@ -222,6 +241,7 @@ impl UIElement {
         self.inner.perform_action(action).map_err(|e| automation_error_to_pyerr(e))
     }
 
+    #[pyo3(name = "scroll", text_signature = "($self, direction, amount)")]
     /// Scroll the element in a given direction.
     /// 
     /// Args:
@@ -311,6 +331,7 @@ impl UIElement {
         self.inner.mouse_release().map_err(|e| automation_error_to_pyerr(e))
     }
 
+    #[pyo3(name = "application", text_signature = "($self)")]
     /// Get the containing application element.
     /// 
     /// Returns:
@@ -321,6 +342,7 @@ impl UIElement {
             .map_err(|e| automation_error_to_pyerr(e))
     }
 
+    #[pyo3(name = "window", text_signature = "($self)")]
     /// Get the containing window element.
     /// 
     /// Returns:
@@ -331,6 +353,7 @@ impl UIElement {
             .map_err(|e| automation_error_to_pyerr(e))
     }
 
+    #[pyo3(name = "locator", text_signature = "($self, selector)")]
     /// Create a locator from this element.
     /// 
     /// Args:
@@ -343,6 +366,7 @@ impl UIElement {
         Ok(crate::locator::Locator { inner: locator })
     }
 
+    #[pyo3(name = "explore", text_signature = "($self)")]
     /// Explore this element and its direct children.
     /// 
     /// Returns:
@@ -367,6 +391,17 @@ impl UIElement {
             .map_err(|e| automation_error_to_pyerr(e))
     }
 
+    #[pyo3(name = "process_id", text_signature = "($self)")]
+    /// Get the process ID of the application containing this element.
+    /// 
+    /// Returns:
+    ///     int: The process ID.
+    pub fn process_id(&self) -> PyResult<u32> {
+        self.inner.process_id().map_err(|e| automation_error_to_pyerr(e))
+    }
+
+    #[pyo3(name = "highlight", signature = (color=None, duration_ms=None))]
+    #[pyo3(text_signature = "($self, color, duration_ms)")]
     /// Highlights the element with a colored border.
     /// 
     /// Args:
@@ -378,5 +413,20 @@ impl UIElement {
     pub fn highlight(&self, color: Option<u32>, duration_ms: Option<u64>) -> PyResult<()> {
         let duration = duration_ms.map(std::time::Duration::from_millis);
         self.inner.highlight(color, duration).map_err(|e| automation_error_to_pyerr(e))
+    }
+
+    #[pyo3(name = "capture", text_signature = "($self)")]
+    /// Capture a screenshot of this element.
+    /// 
+    /// Returns:
+    ///     ScreenshotResult: The screenshot data containing image data and dimensions.
+    pub fn capture(&self) -> PyResult<crate::types::ScreenshotResult> {
+        self.inner.capture()
+            .map(|result| crate::types::ScreenshotResult {
+                image_data: result.image_data,
+                width: result.width,
+                height: result.height,
+            })
+            .map_err(|e| automation_error_to_pyerr(e))
     }
 } 

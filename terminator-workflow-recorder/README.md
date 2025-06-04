@@ -1,143 +1,160 @@
-# Workflow Recorder
+# Terminator Workflow Recorder
 
-A Rust crate for recording user interactions with the desktop UI, designed for capturing and replaying workflows.
+A comprehensive workflow recording library for Windows that captures user interactions with UI elements, including mouse clicks, keyboard input, clipboard operations, and UI automation events.
 
 ## Features
 
-- Records mouse events (clicks, movements)
-- Records keyboard events
-- Captures UI element information (using Windows UI Automation)
-- Rich contextual metadata for UI elements and applications
-- Intelligent intent grouping to cluster related events
-- Exports recordings to JSON format
-- Cross-platform design (currently Windows-only implementation)
+- **Input Recording**: Mouse movements, clicks, keyboard input
+- **UI Element Capture**: Detailed information about UI elements being interacted with
+- **Clipboard Monitoring**: Track copy/paste operations
+- **Hotkey Detection**: Record keyboard shortcuts and hotkey combinations
+- **UI Automation Events**: Focus changes, property changes, structure changes
+- **Noise Filtering**: Built-in filtering to ignore system UI noise like clock updates
 
 ## Usage
 
-Add this to your `Cargo.toml`:
-
-```toml
-[dependencies]
-workflow-recorder = { path = "path/to/workflow-recorder" }
-```
-
-### Basic Example
+### Basic Recording
 
 ```rust
-use workflow_recorder::{WorkflowRecorder, WorkflowRecorderConfig};
-use std::path::PathBuf;
-use tokio::signal::ctrl_c;
+use terminator_workflow_recorder::{WorkflowRecorder, WorkflowRecorderConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create a default configuration
     let config = WorkflowRecorderConfig::default();
+    let mut recorder = WorkflowRecorder::new("My Workflow".to_string(), config);
     
-    // Create a recorder
-    let mut recorder = WorkflowRecorder::new("Example Workflow".to_string(), config);
-    
-    // Start recording
     recorder.start().await?;
     
-    // Wait for Ctrl+C
-    println!("Recording started. Press Ctrl+C to stop...");
-    ctrl_c().await?;
+    // ... perform your workflow ...
     
-    // Stop recording
     recorder.stop().await?;
-    
-    // Save the recording
-    let output_path = PathBuf::from("workflow_recording.json");
-    recorder.save(&output_path)?;
-    println!("Recording saved to {:?}", output_path);
+    recorder.save("workflow.json")?;
     
     Ok(())
 }
 ```
 
-### Intent Grouping Example
+### Filtering System UI Noise
+
+The recorder includes built-in filtering to ignore noisy system UI elements like the clock, notifications, and other system components. You can customize this filtering:
 
 ```rust
-use workflow_recorder::{WorkflowRecorder, WorkflowRecorderConfig, IntentGroupingConfig};
-use std::path::PathBuf;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create and run recorder (as in basic example)
-    // ...
-
-    // Extract intent groups with default configuration
-    let intent_groups = recorder.extract_intent_groups()?;
-    println!("Extracted {} intent groups", intent_groups.len());
-
-    // Save intent groups to a file
-    let intent_groups_path = PathBuf::from("workflow_intent_groups.json");
-    recorder.save_intent_groups(&intent_groups_path)?;
+let config = WorkflowRecorderConfig {
+    // Enable UI event recording
+    record_ui_focus_changes: true,
+    record_ui_property_changes: true,
     
-    // Use custom grouping configuration
-    let custom_config = IntentGroupingConfig {
-        max_time_gap: 1000,               // 1 second
-        split_on_focus_change: true,
-        split_on_pause: true,
-        min_pause_duration: 2000,         // 2 seconds
-    };
+    // Filter out noisy system elements
+    ignore_focus_patterns: vec![
+        "clock".to_string(),
+        "notification".to_string(),
+        "tooltip".to_string(),
+        "popup".to_string(),
+    ],
+    ignore_property_patterns: vec![
+        "clock".to_string(),
+        "time".to_string(),
+        "pm".to_string(),
+        "am".to_string(),
+    ],
+    ignore_window_titles: vec![
+        "Windows Security".to_string(),
+        "Action Center".to_string(),
+        "Task Manager".to_string(),
+    ],
+    ignore_applications: vec![
+        "explorer.exe".to_string(),
+        "dwm.exe".to_string(),
+        "winlogon.exe".to_string(),
+    ],
     
-    let custom_groups = recorder.extract_intent_groups_with_config(custom_config)?;
-    
-    Ok(())
-}
+    // Other configuration options
+    ..Default::default()
+};
 ```
 
-## Running the Example
+### Configuration Options
 
-```bash
-cargo run --example record_workflow
+#### Recording Controls
+- `record_mouse`: Enable/disable mouse event recording
+- `record_keyboard`: Enable/disable keyboard event recording
+- `record_clipboard`: Enable/disable clipboard operation recording
+- `record_ui_focus_changes`: Enable/disable UI focus change events
+- `record_ui_property_changes`: Enable/disable UI property change events
+
+#### Noise Reduction
+- `mouse_move_throttle_ms`: Minimum time between mouse move events (default: 50ms)
+- `ignore_focus_patterns`: Patterns to ignore in focus change events
+- `ignore_property_patterns`: Patterns to ignore in property change events
+- `ignore_window_titles`: Window titles to ignore for all UI events
+- `ignore_applications`: Application names to ignore for all UI events
+
+#### Content Limits
+- `max_clipboard_content_length`: Maximum clipboard content to record (default: 1KB)
+- `max_text_selection_length`: Maximum text selection length to record (default: 512 chars)
+
+## Common Filtering Patterns
+
+### Clock and Time Elements
+```rust
+ignore_property_patterns: vec![
+    "clock".to_string(),
+    "time".to_string(),
+    "pm".to_string(),
+    "am".to_string(),
+],
 ```
 
-Press `Ctrl+C` to stop recording. The workflow will be saved to:
-- `workflow_recording.json` - Raw event recording
-- `workflow_intent_groups.json` - Extracted intent groups
+### System Notifications
+```rust
+ignore_focus_patterns: vec![
+    "notification".to_string(),
+    "action center".to_string(),
+    "toast".to_string(),
+],
+```
+
+### Taskbar and System Tray
+```rust
+ignore_focus_patterns: vec![
+    "taskbar".to_string(),
+    "system tray".to_string(),
+    "start button".to_string(),
+],
+```
+
+### Windows System Applications
+```rust
+ignore_applications: vec![
+    "dwm.exe".to_string(),           // Desktop Window Manager
+    "explorer.exe".to_string(),      // Windows Explorer
+    "winlogon.exe".to_string(),      // Windows Logon
+    "csrss.exe".to_string(),         // Client Server Runtime
+],
+```
 
 ## Output Format
 
-### Raw Recording
-
-The recorded workflow is saved as a JSON file with the following structure:
+The recorder saves workflows as JSON files containing timestamped events:
 
 ```json
 {
-  "name": "Example Workflow",
-  "start_time": 1621234567890,
-  "end_time": 1621234598765,
+  "name": "My Workflow",
+  "start_time": 1748456891489,
+  "end_time": 1748456956367,
   "events": [
     {
-      "timestamp": 1621234568000,
+      "timestamp": 1748456891524,
       "event": {
-        "Mouse": {
-          "event_type": "Click",
-          "button": "Left",
-          "position": {
-            "x": 100,
-            "y": 200
-          },
-          "ui_element": {
-            "name": "Button",
-            "automation_id": "button1",
-            "class_name": "Button",
-            "control_type": "Button",
-            "process_id": 1234,
-            "application_name": "example.exe",
-            "window_title": "Example Window",
-            "bounding_rect": {
-              "x": 90,
-              "y": 190,
-              "width": 100,
-              "height": 30
-            },
-            "is_enabled": true,
-            "has_keyboard_focus": false,
-            "hierarchy_path": "Window[Example]/Panel[main]/Button[button1]",
-            "value": null
+        "Keyboard": {
+          "key_code": 65,
+          "is_key_down": true,
+          "character": "a",
+          "metadata": {
+            "ui_element": {
+              "role": "textfield",
+              "name": "Search Box"
+            }
           }
         }
       }
@@ -146,35 +163,13 @@ The recorded workflow is saved as a JSON file with the following structure:
 }
 ```
 
-### Intent Groups
+## Performance Considerations
 
-Intent groups are saved as a JSON file with the following structure:
-
-```json
-[
-  {
-    "name": "Text input in notepad.exe",
-    "start_time": 1621234567890,
-    "end_time": 1621234570000,
-    "event_count": 25,
-    "application_context": {
-      "application_name": "notepad.exe",
-      "window_title": "Untitled - Notepad"
-    }
-  },
-  {
-    "name": "Navigation in chrome.exe",
-    "start_time": 1621234571000,
-    "end_time": 1621234580000,
-    "event_count": 12,
-    "application_context": {
-      "application_name": "chrome.exe",
-      "window_title": "Google - Google Chrome"
-    }
-  }
-]
-```
+- Use filtering to reduce event volume for better performance
+- Consider disabling UI automation events (`record_ui_*`) if not needed
+- Adjust `mouse_move_throttle_ms` to balance accuracy vs. performance
+- Set appropriate content length limits for clipboard and text selection
 
 ## Platform Support
 
-Currently, this crate only supports Windows. The architecture is designed to be cross-platform, but implementations for macOS and Linux are not yet available.
+Currently supports Windows only. Requires Windows 10/11 with UI Automation support.

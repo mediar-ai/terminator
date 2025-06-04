@@ -487,4 +487,32 @@ impl Locator {
         let duration = duration_ms.map(|ms| Duration::from_millis(ms as u64));
         self.inner.highlight(color, duration, timeout).await.map_err(map_error)
     }
+
+    /// (async) Captures a screenshot of the first matching element.
+    /// 
+    /// @param {number} [timeoutMs] - Timeout in milliseconds.
+    /// @returns {Promise<ScreenshotResult>} The screenshot data containing image data and dimensions.
+    #[napi]
+    pub async fn capture(&self, timeout_ms: Option<f64>) -> napi::Result<crate::types::ScreenshotResult> {
+        use std::time::Duration;
+        let timeout = timeout_ms.map(|ms| Duration::from_millis(ms as u64));
+        self.inner.capture(timeout).await
+            .map(|r| crate::types::ScreenshotResult {
+                width: r.width,
+                height: r.height,
+                image_data: r.image_data,
+            })
+            .map_err(map_error)
+    }
+
+    /// (async) Get the process ID of the application containing the first matching element.
+    ///
+    /// @param {number} [timeoutMs] - Timeout in milliseconds.
+    /// @returns {Promise<number>} The process ID of the application.
+    #[napi]
+    pub async fn process_id(&self, timeout_ms: Option<f64>) -> napi::Result<u32> {
+        use std::time::Duration;
+        let timeout = timeout_ms.map(|ms| Duration::from_millis(ms as u64));
+        self.inner.process_id(timeout).await.map_err(map_error)
+    }
 } 

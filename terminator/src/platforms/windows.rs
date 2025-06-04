@@ -9,11 +9,15 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 use tracing::debug;
 use tracing::error;
 use tracing::info;
+use tracing::warn;
 use uiautomation::UIAutomation;
 use uiautomation::controls::ControlType;
 use uiautomation::filters::{ClassNameFilter, ControlTypeFilter, NameFilter, OrFilter};
@@ -22,23 +26,47 @@ use uiautomation::patterns;
 use uiautomation::types::{Point, TreeScope, UIProperty};
 use uiautomation::variants::Variant;
 use uni_ocr::{OcrEngine, OcrProvider};
-use arboard::Clipboard;
-use windows::Win32::System::Diagnostics::ToolHelp::{
-    CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
-};
-use windows::Win32::Foundation::{CloseHandle, HANDLE};
-use std::thread
+
+// Windows API imports
+use windows::core::Error;
+use windows::core::HSTRING;
+use windows::core::HRESULT;
+use windows::core::PWSTR;
+
+use windows::Win32::Foundation::CloseHandle;
+use windows::Win32::Foundation::HANDLE;
+
+use windows::Win32::System::Com::CLSCTX_ALL;
+use windows::Win32::System::Com::CoCreateInstance;
+use windows::Win32::System::Com::CoInitializeEx;
+use windows::Win32::System::Com::COINIT_APARTMENTTHREADED;
+
+use windows::Win32::System::Diagnostics::ToolHelp::CreateToolhelp32Snapshot;
+use windows::Win32::System::Diagnostics::ToolHelp::Process32FirstW;
+use windows::Win32::System::Diagnostics::ToolHelp::Process32NextW;
+use windows::Win32::System::Diagnostics::ToolHelp::PROCESSENTRY32W;
+use windows::Win32::System::Diagnostics::ToolHelp::TH32CS_SNAPPROCESS;
+
+use windows::Win32::System::Threading::CREATE_NEW_CONSOLE;
+use windows::Win32::System::Threading::CreateProcessW;
+use windows::Win32::System::Threading::PROCESS_INFORMATION;
+use windows::Win32::System::Threading::STARTUPINFOW;
+
+use windows::Win32::UI::Shell::ACTIVATEOPTIONS;
+use windows::Win32::UI::Shell::ApplicationActivationManager;
+use windows::Win32::UI::Shell::IApplicationActivationManager;
+
 
 // Define a default timeout duration
 const DEFAULT_FIND_TIMEOUT: Duration = Duration::from_millis(5000);
 
 // List of common browser process names (without .exe)
 const KNOWN_BROWSER_PROCESS_NAMES: &[&str] = &[
-    "chrome", "firefox", "msedge", "iexplore", "opera", "brave", "vivaldi", "browser", "arc", "explorer"
+    "chrome", "firefox", "msedge", "edge", "iexplore", "opera", "brave", "vivaldi", "browser", "arc", "explorer"
 ];
 
 // Helper function to get process name by PID using native Windows API
-fn get_process_name_by_pid(pid: i32) -> Result<String, AutomationError> {
+pub fn get_process_name_by_pid(pid: i32) -> Result<String, AutomationError> {
     unsafe {
         // Create a snapshot of all processes
         let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
@@ -118,6 +146,9 @@ pub struct WindowsEngine {
     automation: ThreadSafeWinUIAutomation,
     use_background_apps: bool,
     activate_app: bool,
+    // Cache warming system
+    cache_warmer_enabled: Arc<AtomicBool>,
+    cache_warmer_handle: Arc<Mutex<Option<std::thread::JoinHandle<()>>>>,
 }
 
 impl WindowsEngine {
@@ -129,7 +160,391 @@ impl WindowsEngine {
             automation: arc_automation,
             use_background_apps,
             activate_app,
+            // Cache warming system
+            cache_warmer_enabled: Arc::new(AtomicBool::new(false)),
+            cache_warmer_handle: Arc::new(Mutex::new(None)),
         })
+    }
+
+    /// Enable or disable the background cache warming system
+    /// 
+    /// This spawns a background thread that periodically fetches UI trees for frequently used applications
+    /// to keep the Windows native cache warm, improving performance when applications need to be queried.
+    /// 
+    /// # Arguments
+    /// * `enable` - Whether to enable (true) or disable (false) the cache warmer
+    /// * `interval_seconds` - How often to refresh the cache (default: 30 seconds)
+    /// * `max_apps_to_cache` - Maximum number of recent apps to keep cached (default: 10)
+    pub fn enable_background_cache_warmer(
+        &self, 
+        enable: bool, 
+        interval_seconds: Option<u64>,
+        max_apps_to_cache: Option<usize>
+    ) -> Result<(), AutomationError> {
+        if enable {
+            // Don't start if already running
+            if self.cache_warmer_enabled.load(Ordering::SeqCst) {
+                info!("Cache warmer is already running");
+                return Ok(());
+            }
+
+            let interval = Duration::from_secs(interval_seconds.unwrap_or(30));
+            let max_apps = max_apps_to_cache.unwrap_or(10);
+
+            info!("Starting background cache warmer (interval: {:?}, max apps: {})", interval, max_apps);
+
+            self.cache_warmer_enabled.store(true, Ordering::SeqCst);
+            
+            // Clone necessary data for the background thread
+            let automation_clone = self.automation.clone();
+            let enabled_flag = Arc::clone(&self.cache_warmer_enabled);
+            
+            let handle = thread::spawn(move || {
+                Self::cache_warmer_thread(automation_clone, enabled_flag, interval, max_apps);
+            });
+
+            // Store the thread handle
+            let mut handle_guard = self.cache_warmer_handle.lock().unwrap();
+            *handle_guard = Some(handle);
+            
+            info!("✅ Background cache warmer started");
+        } else {
+            // Stop the cache warmer
+            if !self.cache_warmer_enabled.load(Ordering::SeqCst) {
+                info!("Cache warmer is not running");
+                return Ok(());
+            }
+
+            info!("Stopping background cache warmer...");
+            self.cache_warmer_enabled.store(false, Ordering::SeqCst);
+
+            // Wait for the thread to finish
+            let mut handle_guard = self.cache_warmer_handle.lock().unwrap();
+            if let Some(handle) = handle_guard.take() {
+                drop(handle_guard); // Release the lock before joining
+                if let Err(e) = handle.join() {
+                    warn!("Cache warmer thread panicked: {:?}", e);
+                }
+            }
+            
+            info!("✅ Background cache warmer stopped");
+        }
+
+        Ok(())
+    }
+
+    /// The background thread function that periodically warms the cache
+    fn cache_warmer_thread(
+        automation: ThreadSafeWinUIAutomation,
+        enabled_flag: Arc<AtomicBool>,
+        interval: Duration,
+        max_apps: usize,
+    ) {
+        info!("Cache warmer thread started");
+        
+        while enabled_flag.load(Ordering::SeqCst) {
+            // Sleep for the interval, but check for stop signal every second
+            for _ in 0..interval.as_secs() {
+                if !enabled_flag.load(Ordering::SeqCst) {
+                    info!("Cache warmer thread received stop signal");
+                    return;
+                }
+                thread::sleep(Duration::from_secs(1));
+            }
+
+            if !enabled_flag.load(Ordering::SeqCst) {
+                break;
+            }
+
+            // Perform cache warming
+            debug!("Starting cache warming cycle");
+            let start_time = std::time::Instant::now();
+            
+            match Self::warm_cache_for_recent_apps(&automation, max_apps) {
+                Ok(cached_count) => {
+                    let elapsed = start_time.elapsed();
+                    info!(
+                        "Cache warming completed: {} apps cached in {:?}", 
+                        cached_count, elapsed
+                    );
+                }
+                Err(e) => {
+                    warn!("Cache warming failed: {}", e);
+                }
+            }
+        }
+        
+        info!("Cache warmer thread stopped");
+    }
+
+    /// Warm the cache for recently active applications
+    fn warm_cache_for_recent_apps(
+        automation: &ThreadSafeWinUIAutomation,
+        max_apps: usize,
+    ) -> Result<usize, AutomationError> {
+        debug!("Finding recent applications to cache");
+
+        // Find all windows for applications
+        let root_element = automation.0.get_root_element().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to get root element: {}", e))
+        })?;
+
+        // Use the same sophisticated filtering as the main window detection
+        // Search for both Window and Pane control types since some applications use panes as main containers
+        let window_matcher = automation.0
+            .create_matcher()
+            .from_ref(&root_element)
+            .filter(Box::new(OrFilter {
+                left: Box::new(ControlTypeFilter {
+                    control_type: ControlType::Window,
+                }),
+                right: Box::new(ControlTypeFilter {
+                    control_type: ControlType::Pane,
+                }),
+            }))
+            .depth(1) // Match the depth used in the main functions
+            .timeout(3000);
+
+        let windows = window_matcher.find_all().map_err(|e| {
+            AutomationError::ElementNotFound(format!("Failed to find windows: {}", e))
+        })?;
+
+        // Group windows by process ID to find recent applications
+        let mut app_windows: HashMap<u32, Vec<uiautomation::UIElement>> = HashMap::new();
+        
+        for window in windows {
+            if let Ok(pid) = window.get_process_id() {
+                // Skip system processes and very common ones that don't need caching
+                if Self::should_cache_app_by_pid(pid) {
+                    app_windows.entry(pid).or_insert_with(Vec::new).push(window);
+                }
+            }
+        }
+
+        debug!("Found {} applications to potentially cache", app_windows.len());
+
+        // Limit to the most recent apps (by taking first N PIDs found)
+        let apps_to_cache: Vec<_> = app_windows.into_iter().take(max_apps).collect();
+        let mut cached_count = 0;
+
+        for (pid, windows) in apps_to_cache {
+            debug!("Warming cache for PID: {} ({} windows)", pid, windows.len());
+            
+            // Cache the main window for this app
+            if let Some(main_window) = windows.into_iter().next() {
+                match Self::warm_cache_for_window(main_window) {
+                    Ok(_) => {
+                        cached_count += 1;
+                        debug!("Successfully cached PID: {}", pid);
+                    }
+                    Err(e) => {
+                        debug!("Failed to cache PID {}: {}", pid, e);
+                    }
+                }
+
+                // Small delay between apps to spread CPU load
+                thread::sleep(Duration::from_millis(100));
+            }
+        }
+
+        Ok(cached_count)
+    }
+
+    /// Determine if we should cache this application based on its PID
+    fn should_cache_app_by_pid(pid: u32) -> bool {
+        // Skip system processes
+        if pid <= 4 {
+            return false;
+        }
+
+        // Try to get process name to filter out system processes
+        if let Ok(process_name) = get_process_name_by_pid(pid as i32) {
+            let name_lower = process_name.to_lowercase();
+            
+            // Skip Windows system processes
+            let system_processes = [
+                "explorer", "dwm", "winlogon", "csrss", "wininit", "services",
+                "lsass", "svchost", "audiodg", "conhost", "taskhostw",
+                "backgroundtaskhost", "runtimebroker", "shellexperiencehost",
+                "searchui", "startmenuexperiencehost", "cortana"
+            ];
+            
+            if system_processes.contains(&name_lower.as_str()) {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    /// Warm the cache for a specific window by building its UI tree
+    fn warm_cache_for_window(window: uiautomation::UIElement) -> Result<(), AutomationError> {
+        // Convert to our UIElement wrapper
+        let ui_element = UIElement::new(Box::new(WindowsUIElement {
+            element: ThreadSafeWinUIElement(Arc::new(window)),
+        }));
+
+        // Use cache-first tree building to warm the native cache
+        let mut context = TreeBuildingContext {
+            config: TreeBuildingConfig {
+                timeout_per_operation_ms: 100, // Short timeout for background operation
+                yield_every_n_elements: 20,    // Yield frequently to not block
+                batch_size: 10,               // Smaller batches for background work
+            },
+            elements_processed: 0,
+            max_depth_reached: 0,
+            cache_hits: 0,
+            fallback_calls: 0,
+            errors_encountered: 0,
+        };
+
+        // Build the tree to populate the cache (we don't need the result)
+        match build_ui_node_tree_cached_first(&ui_element, 0, &mut context) {
+            Ok(_) => {
+                debug!(
+                    "Cache warmed: {} elements, {} cache hits", 
+                    context.elements_processed, context.cache_hits
+                );
+                Ok(())
+            }
+            Err(e) => {
+                debug!("Cache warming failed: {}", e);
+                Err(e)
+            }
+        }
+    }
+
+    /// Check if the cache warmer is currently running
+    pub fn is_cache_warmer_enabled(&self) -> bool {
+        self.cache_warmer_enabled.load(Ordering::SeqCst)
+    }
+
+    /// Extract browser-specific information from window titles
+    pub fn extract_browser_info(title: &str) -> (bool, Vec<String>) {
+        let title_lower = title.to_lowercase();
+        let is_browser = KNOWN_BROWSER_PROCESS_NAMES.iter()
+            .any(|&browser| title_lower.contains(browser));
+        
+        if is_browser {
+            let mut parts = Vec::new();
+            
+            // Split by common browser title separators
+            for separator in &[" - ", " — ", " | ", " • "] {
+                if title.contains(separator) {
+                    parts.extend(title.split(separator).map(|s| s.trim().to_string()));
+                    break;
+                }
+            }
+            
+            // If no separators found, use the whole title
+            if parts.is_empty() {
+                parts.push(title.trim().to_string());
+            }
+            
+            (true, parts)
+        } else {
+            (false, vec![title.to_string()])
+        }
+    }
+
+    /// Calculate similarity score between two strings with various matching strategies
+    pub fn calculate_similarity(text1: &str, text2: &str) -> f64 {
+        let text1_lower = text1.to_lowercase();
+        let text2_lower = text2.to_lowercase();
+        
+        // Exact match
+        if text1_lower == text2_lower {
+            return 1.0;
+        }
+        
+        // Contains match - favor longer matches
+        if text1_lower.contains(&text2_lower) || text2_lower.contains(&text1_lower) {
+            let shorter = text1_lower.len().min(text2_lower.len());
+            let longer = text1_lower.len().max(text2_lower.len());
+            return shorter as f64 / longer as f64 * 0.9; // Slight penalty for partial match
+        }
+        
+        // Word-based similarity for longer texts
+        let words1: Vec<&str> = text1_lower.split_whitespace().collect();
+        let words2: Vec<&str> = text2_lower.split_whitespace().collect();
+        
+        if words1.is_empty() || words2.is_empty() {
+            return 0.0;
+        }
+        
+        let mut common_words = 0;
+        for word1 in &words1 {
+            for word2 in &words2 {
+                if word1 == word2 || word1.contains(word2) || word2.contains(word1) {
+                    common_words += 1;
+                    break;
+                }
+            }
+        }
+        
+        // Calculate Jaccard similarity with word overlap
+        let total_unique_words = words1.len() + words2.len() - common_words;
+        if total_unique_words > 0 {
+            common_words as f64 / total_unique_words as f64
+        } else {
+            0.0
+        }
+    }
+
+    /// Enhanced title matching that handles browser windows and fuzzy matching
+    fn find_best_title_match(
+        &self,
+        windows: &[(uiautomation::UIElement, String)], 
+        target_title: &str
+    ) -> Option<(uiautomation::UIElement, f64)> {
+        let title_lower = target_title.to_lowercase();
+        let mut best_match: Option<uiautomation::UIElement> = None;
+        let mut best_score = 0.0f64;
+        
+        for (window, window_name) in windows {
+            // Strategy 1: Direct contains match (highest priority)
+            if window_name.to_lowercase().contains(&title_lower) {
+                info!("Found exact title match: '{}' contains '{}'", window_name, target_title);
+                return Some((window.clone(), 1.0));
+            }
+            
+            // Strategy 2: Browser-aware matching
+            let (is_browser_window, window_parts) = Self::extract_browser_info(window_name);
+            let (is_target_browser, target_parts) = Self::extract_browser_info(target_title);
+            
+            if is_browser_window && is_target_browser {
+                let mut max_part_similarity = 0.0f64;
+                
+                for window_part in &window_parts {
+                    for target_part in &target_parts {
+                        let similarity = Self::calculate_similarity(window_part, target_part);
+                        max_part_similarity = max_part_similarity.max(similarity);
+                        
+                        debug!("Comparing '{}' vs '{}' = {:.2}", window_part, target_part, similarity);
+                    }
+                }
+                
+                if max_part_similarity > 0.6 && max_part_similarity > best_score {
+                    info!("Found browser match: '{}' vs '{}' (similarity: {:.2})", 
+                          window_name, target_title, max_part_similarity);
+                    best_score = max_part_similarity;
+                    best_match = Some(window.clone());
+                }
+            }
+            
+            // Strategy 3: General fuzzy matching as fallback
+            if best_score < 0.6 {
+                let similarity = Self::calculate_similarity(window_name, target_title);
+                if similarity > 0.5 && similarity > best_score {
+                    debug!("Potential fuzzy match: '{}' vs '{}' (similarity: {:.2})", 
+                           window_name, target_title, similarity);
+                    best_score = similarity;
+                    best_match = Some(window.clone());
+                }
+            }
+        }
+        
+        best_match.map(|window| (window, best_score))
     }
 }
 
@@ -260,16 +675,39 @@ impl AccessibilityEngine for WindowsEngine {
         })));
     }
 
-    fn get_application_by_pid(&self, pid: i32) -> Result<UIElement, AutomationError> {
+    fn get_application_by_pid(&self, pid: i32, timeout: Option<Duration>) -> Result<UIElement, AutomationError> {
         let root_ele = self.automation.0.get_root_element().unwrap();
-        let condition = self
+        let timeout_ms = timeout.unwrap_or(DEFAULT_FIND_TIMEOUT).as_millis() as u64;
+        
+        // Create a matcher with timeout
+        let matcher = self
             .automation
             .0
-            .create_property_condition(UIProperty::ProcessId, Variant::from(pid), None)
-            .unwrap();
-        let ele = root_ele
-            .find_first(TreeScope::Subtree, &condition)
-            .map_err(|e| AutomationError::ElementNotFound(e.to_string()))?;
+            .create_matcher()
+            .from_ref(&root_ele)
+            .filter(Box::new(OrFilter {
+                left: Box::new(ControlTypeFilter {
+                    control_type: ControlType::Window,
+                }),
+                right: Box::new(ControlTypeFilter {
+                    control_type: ControlType::Pane,
+                }),
+            }))
+            .filter_fn(Box::new(move |e: &uiautomation::UIElement| {
+                match e.get_process_id() {
+                    Ok(element_pid) => Ok(element_pid == pid as u32),
+                    Err(_) => Ok(false),
+                }
+            }))
+            .timeout(timeout_ms);
+
+        let ele = matcher.find_first().map_err(|e| {
+            AutomationError::ElementNotFound(format!(
+                "Application with PID {} not found within {}ms timeout: {}",
+                pid, timeout_ms, e
+            ))
+        })?;
+        
         let arc_ele = ThreadSafeWinUIElement(Arc::new(ele));
 
         Ok(UIElement::new(Box::new(WindowsUIElement {
@@ -451,6 +889,50 @@ impl AccessibilityEngine for WindowsEngine {
                 return Err(AutomationError::UnsupportedOperation(
                     "`Path` selector not supported".to_string(),
                 ));
+            }
+            Selector::NativeId(automation_id) => {    // for windows passing `UIProperty::AutomationID` as `NativeId`
+                debug!("searching for elements using AutomationId: {}", automation_id);
+
+                let ele_id = automation_id.clone();
+                let matcher = self
+                    .automation
+                    .0
+                    .create_matcher()
+                    .from_ref(root_ele)
+                    .filter_fn(Box::new(move |e: &uiautomation::UIElement| {
+                        match e.get_automation_id() {
+                            Ok(id) => {
+                                let matches = id == ele_id;
+                                if matches {
+                                    debug!("found matching elements with AutomationID : {}", ele_id);
+                                }
+                                Ok(matches)
+                            }
+                            Err(err) => {
+                                debug!("failed to get AutomationId: {}", err);
+                                Ok(false)
+                            }
+                        }
+                    }))
+                    .timeout(timeout_ms as u64);
+
+                debug!("searching elements with timeout: {}ms", timeout_ms);
+                let elements = matcher.find_all().map_err(|e| {
+                    debug!("Elements search failed: {}", e);
+                    AutomationError::ElementNotFound(format!(
+                        "AutomationId: '{}', Err: {}", automation_id, e))
+                })?;
+
+                debug!("found {} elements matching AutomationID: {}", elements.len(), automation_id);
+                let collected_elements: Vec<UIElement> = elements
+                    .into_iter()
+                    .map(|ele| {
+                        UIElement::new(Box::new(WindowsUIElement {
+                            element: ThreadSafeWinUIElement(Arc::new(ele)),
+                        }))
+                    })
+                    .collect();
+                return Ok(collected_elements);
             }
             Selector::Attributes(_attributes) => {
                 return Err(AutomationError::UnsupportedOperation(
@@ -703,6 +1185,45 @@ impl AccessibilityEngine for WindowsEngine {
                     "`Path` selector not supported".to_string(),
                 ));
             }
+            Selector::NativeId(automation_id) => {    // for windows passing `UIProperty::AutomationID` as `NativeId`
+                debug!("searching for element using AutomationId: {}", automation_id);
+
+                let ele_id = automation_id.clone();
+                let matcher = self
+                    .automation
+                    .0
+                    .create_matcher()
+                    .from_ref(root_ele)
+                    .filter_fn(Box::new(move |e: &uiautomation::UIElement| {
+                        match e.get_automation_id() {
+                            Ok(id) => {
+                                let matches = id == ele_id;
+                                if matches {
+                                    debug!("found matching element with AutomationID : {}", ele_id);
+                                }
+                                Ok(matches)
+                            }
+                            Err(err) => {
+                                debug!("failed to get AutomationId: {}", err);
+                                Ok(false)
+                            }
+                        }
+                    }))
+                    .timeout(timeout_ms as u64);
+
+                debug!("searching element with timeout: {}ms", timeout_ms);
+
+                let element = matcher.find_first().map_err(|e| {
+                    debug!("Element search failed: {}", e);
+                    AutomationError::ElementNotFound(format!(
+                        "AutomationId: '{}', Err: {}", automation_id, e))
+                })?;
+
+                let arc_ele = ThreadSafeWinUIElement(Arc::new(element));
+                return Ok(UIElement::new(Box::new(WindowsUIElement {
+                    element: arc_ele,
+                })));
+            }
             Selector::Attributes(_attributes) => {
                 return Err(AutomationError::UnsupportedOperation(
                     "`Attributes` selector not supported".to_string(),
@@ -765,265 +1286,9 @@ impl AccessibilityEngine for WindowsEngine {
     fn open_application(&self, app_name: &str) -> Result<UIElement, AutomationError> {
         // Check if this is a UWP app by looking for the 'uwp:' prefix
         if let Some(uwp_app_name) = app_name.strip_prefix("uwp:") {
-            // Step 1: Find the UWP package and get basic info
-            let command = format!(
-                r#"Get-AppxPackage | Where-Object {{ -not $_.IsFramework }} | Where-Object {{ $_.Name -like "*{}*" }} | ConvertTo-Json -Depth 1"#,
-                uwp_app_name
-            );
-
-            let output = std::process::Command::new("powershell")
-                .args(["-NoProfile", "-WindowStyle", "hidden", "-Command", &command])
-                .output()
-                .map_err(|e| AutomationError::PlatformError(e.to_string()))?;
-
-            if !output.status.success() {
-                let error_msg = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                return Err(AutomationError::PlatformError(format!(
-                    "Failed to find UWP package: {}",
-                    error_msg
-                )));
-            }
-
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            let json_str = output_str.trim();
-            if json_str.is_empty() {
-                return Err(AutomationError::PlatformError(format!(
-                    "No UWP package found matching '{}'. The package may not be installed or the name is incorrect.",
-                    uwp_app_name
-                )));
-            }
-
-            let packages: Value = serde_json::from_str(json_str).map_err(|e| {
-                AutomationError::PlatformError(format!("Failed to parse package info: {}", e))
-            })?;
-
-            let packages = match packages {
-                Value::Array(arr) => arr,
-                Value::Object(obj) => vec![Value::Object(obj)],
-                Value::Null => {
-                    return Err(AutomationError::PlatformError(format!(
-                        "No UWP package found matching '{}'. The package may not be installed or the name is incorrect.",
-                        uwp_app_name
-                    )));
-                }
-                _ => {
-                    return Err(AutomationError::PlatformError(
-                        "Invalid package info format".to_string(),
-                    ));
-                }
-            };
-
-            if packages.is_empty() {
-                return Err(AutomationError::PlatformError(format!(
-                    "No UWP package found matching '{}'. The package may not be installed or the name is incorrect.",
-                    uwp_app_name
-                )));
-            }
-
-            if packages.len() > 1 {
-                let package_names = packages
-                    .iter()
-                    .map(|p| p.get("Name").unwrap_or(&Value::Null).to_string())
-                    .collect::<Vec<String>>()
-                    .join("\n    • ");
-
-                return Err(AutomationError::PlatformError(format!(
-                    "Multiple UWP packages found matching '{}'.\nPlease be more specific. Found:\n    • {}",
-                    uwp_app_name, package_names
-                )));
-            }
-
-            let package = &packages[0];
-            let package_full_name = package
-                .get("PackageFullName")
-                .and_then(|n| n.as_str())
-                .ok_or_else(|| {
-                    AutomationError::PlatformError("Failed to get package full name".to_string())
-                })?;
-
-            let install_location = package
-                .get("InstallLocation")
-                .and_then(|n| n.as_str())
-                .ok_or_else(|| {
-                    AutomationError::PlatformError("Failed to get install location".to_string())
-                })?;
-
-            let package_family_name = package
-                .get("PackageFamilyName")
-                .and_then(|n| n.as_str())
-                .ok_or_else(|| {
-                    AutomationError::PlatformError("Failed to get package family name".to_string())
-                })?;
-
-            // Step 2: Get the app ID and executable name
-            let command = format!(
-                r#"$manifest = Get-AppxPackageManifest -Package "{}"
-$manifest.Package.Applications.Application.Id
-$manifest.Package.Applications.Application.Executable
-$manifest.Package.Properties.DisplayName"#,
-                package_full_name
-            );
-
-            let output = std::process::Command::new("powershell")
-                .args(["-NoProfile", "-WindowStyle", "hidden", "-Command", &command])
-                .output()
-                .map_err(|e| AutomationError::PlatformError(e.to_string()))?;
-
-            if !output.status.success() {
-                let error_msg = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                return Err(AutomationError::PlatformError(format!(
-                    "Failed to get UWP app info: {}",
-                    error_msg
-                )));
-            }
-
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            let mut lines = output_str.lines();
-
-            let app_id = lines.next().ok_or_else(|| {
-                AutomationError::PlatformError("Failed to get application ID".to_string())
-            })?;
-
-            let executable_name = lines.next().ok_or_else(|| {
-                AutomationError::PlatformError("Failed to get executable name".to_string())
-            })?;
-
-            let display_name = lines.next().ok_or_else(|| {
-                AutomationError::PlatformError("Failed to get display name".to_string())
-            })?;
-
-            // Step 3: Launch the UWP app
-            let command = format!(
-                r#"$appsFolderPath = "shell:appsFolder\{}!{}"
-explorer $appsFolderPath"#,
-                package_family_name.trim(),
-                app_id.trim()
-            );
-
-            let output = std::process::Command::new("powershell")
-                .args(["-NoProfile", "-WindowStyle", "hidden", "-Command", &command])
-                .output()
-                .map_err(|e| AutomationError::PlatformError(e.to_string()))?;
-
-            if !output.status.success() {
-                let error_msg = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                return Err(AutomationError::PlatformError(format!(
-                    "Failed to launch UWP application: {}",
-                    error_msg
-                )));
-            }
-
-            // Wait for the app to start
-            std::thread::sleep(std::time::Duration::from_millis(2000));
-
-            // Step 4: Get the process ID
-            let command = format!(
-                r#"$executablePath = "{}\{}"
-$processes = Get-WmiObject Win32_Process | Where-Object {{ $_.ExecutablePath -like "$executablePath" }}
-$latestProcess = $processes | Sort-Object CreationDate -Descending | Select-Object -First 1
-if (-not $latestProcess) {{
-    Write-Error "Failed to find process for UWP application"
-    exit 1
-}}
-$latestProcess.ProcessId"#,
-                install_location.trim(),
-                executable_name.trim()
-            );
-
-            let output = match std::process::Command::new("powershell")
-                .args(["-NoProfile", "-WindowStyle", "hidden", "-Command", &command])
-                .output()
-            {
-                Ok(output) => output,
-                Err(_) => {
-                    // Fallback to finding by name when process ID lookup fails
-                    let app = self.get_application_by_name(display_name)?;
-                    app.activate_window()?;
-                    return Ok(app);
-                }
-            };
-
-            let pid_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if pid_str.is_empty() {
-                // Fallback to finding by name when no PID is returned
-                let app = self.get_application_by_name(display_name)?;
-                app.activate_window()?;
-                return Ok(app);
-            }
-
-            let pid = match pid_str.parse::<i32>() {
-                Ok(pid) => pid,
-                Err(_) => {
-                    // Fallback to finding by name when PID parsing fails
-                    let app = self.get_application_by_name(display_name)?;
-                    app.activate_window()?;
-                    return Ok(app);
-                }
-            };
-
-            // Get the application using the PID, with fallback to name
-            let app = match self.get_application_by_pid(pid) {
-                Ok(app) => app,
-                Err(_) => {
-                    // Fallback to finding by name
-                    self.get_application_by_name(display_name)?
-                }
-            };
-            app.activate_window()?;
-            Ok(app)
+            launch_uwp_app(self, uwp_app_name)
         } else {
-            // Handle regular application
-            let output = std::process::Command::new("powershell")
-                .args([
-                    "-NoProfile",
-                    "-WindowStyle",
-                    "hidden",
-                    "-Command",
-                    &format!(
-                        "Start-Process '{}' -PassThru | Select-Object -ExpandProperty Id",
-                        app_name
-                    ),
-                ])
-                .output()
-                .map_err(|e| AutomationError::PlatformError(e.to_string()))?;
-
-            if !output.status.success() {
-                return Err(AutomationError::PlatformError(
-                    "Failed to open application".to_string(),
-                ));
-            }
-
-            let pid_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if pid_str.is_empty() {
-                // Fallback to finding by name when no PID is returned
-                let app = self.get_application_by_name(app_name)?;
-                app.activate_window()?;
-                return Ok(app);
-            }
-
-            let pid = match pid_str.parse::<i32>() {
-                Ok(pid) => pid,
-                Err(_) => {
-                    // Fallback to finding by name when PID parsing fails
-                    let app = self.get_application_by_name(app_name)?;
-                    app.activate_window()?;
-                    return Ok(app);
-                }
-            };
-
-            // Wait a bit for the application to start
-            std::thread::sleep(std::time::Duration::from_millis(200));
-
-            // Get the application using the PID, with fallback to name
-            let app = match self.get_application_by_pid(pid) {
-                Ok(app) => app,
-                Err(_) => {
-                    // Fallback to finding by name
-                    self.get_application_by_name(app_name)?
-                }
-            };
-            app.activate_window()?;
-            Ok(app)
+            launch_regular_application(self, app_name)
         }
     }
 
@@ -1149,6 +1414,31 @@ $latestProcess.ProcessId"#,
             width: image.width(),
             height: image.height(),
         })
+    }
+
+    async fn get_active_monitor_name(&self) -> Result<String, AutomationError> {
+        // Get all windows
+        let windows = xcap::Window::all().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to get windows: {}", e))
+        })?;
+
+        // Find the focused window
+        let focused_window = windows.iter()
+            .find(|w| w.is_focused().unwrap_or(false))
+            .ok_or_else(|| {
+                AutomationError::ElementNotFound("No focused window found".to_string())
+            })?;
+
+        // Get the monitor name for the focused window
+        let monitor = focused_window.current_monitor().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to get current monitor: {}", e))
+        })?;
+
+        let monitor_name = monitor.name().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to get monitor name: {}", e))
+        })?;
+
+        Ok(monitor_name)
     }
 
     async fn capture_monitor_by_name(
@@ -1386,7 +1676,7 @@ $latestProcess.ProcessId"#,
             } else {
                 // If no tab found, fall back to the main window
                 info!("No tab found in parent chain, falling back to main window");
-                match self.get_application_by_pid(pid as i32) {
+                match self.get_application_by_pid(pid as i32, Some(DEFAULT_FIND_TIMEOUT)) {
                     Ok(app_window_element) => {
                         info!("Successfully fetched main application window for browser");
                         Ok(app_window_element)
@@ -1499,7 +1789,7 @@ $latestProcess.ProcessId"#,
             .get_process_id()
             .map_err(|e| AutomationError::PlatformError(format!("Failed to get PID for focused element: {}", e)))?;
 
-        self.get_application_by_pid(pid as i32)
+        self.get_application_by_pid(pid as i32, Some(DEFAULT_FIND_TIMEOUT))
     }
 
     fn get_window_tree_by_title(&self, title: &str) -> Result<crate::UINode, AutomationError> {
@@ -1508,14 +1798,22 @@ $latestProcess.ProcessId"#,
             error!("Failed to get root element: {}", e);
             AutomationError::PlatformError(format!("Failed to get root element: {}", e))
         })?;
-
+        
         // Use a more efficient approach: first find windows by control type, then filter by name
+        // Search for both Window and Pane control types since some applications use panes as main containers
         let window_matcher = self
             .automation
             .0
             .create_matcher()
             .from_ref(&root_ele_os)
-            .control_type(ControlType::Window)
+            .filter(Box::new(OrFilter {
+                left: Box::new(ControlTypeFilter {
+                    control_type: ControlType::Window,
+                }),
+                right: Box::new(ControlTypeFilter {
+                    control_type: ControlType::Pane,
+                }),
+            }))
             .depth(3) // Limit search depth for performance
             .timeout(3000); // Reduce timeout to 3 seconds
 
@@ -1526,20 +1824,15 @@ $latestProcess.ProcessId"#,
 
         info!("Found {} windows to search through", windows.len());
 
-        // Filter windows by title after retrieval (more efficient than filter_fn)
-        let title_lower = title.to_lowercase();
-        let mut matching_window = None;
+        // Collect window information for matching
+        let mut window_info = Vec::new();
         let mut window_names = Vec::new(); // For debugging
         
         for window in windows {
             match window.get_name() {
                 Ok(window_name) => {
                     window_names.push(window_name.clone());
-                    if window_name.to_lowercase().contains(&title_lower) {
-                        info!("Found matching window: '{}' for title: '{}'", window_name, title);
-                        matching_window = Some(window);
-                        break;
-                    }
+                    window_info.push((window, window_name));
                 }
                 Err(e) => {
                     debug!("Failed to get name for window: {}", e);
@@ -1547,14 +1840,48 @@ $latestProcess.ProcessId"#,
             }
         }
 
-        let window_element_raw = matching_window.ok_or_else(|| {
-            error!("No window found with title containing: '{}'", title);
-            debug!("Available window names: {:?}", window_names);
-            AutomationError::ElementNotFound(format!(
-                "Window with title containing '{}' not found. Available windows: {:?}",
-                title, window_names
-            ))
-        })?;
+        // Use the enhanced title matching helper
+        let (window_element_raw, best_match_score) = self.find_best_title_match(&window_info, title)
+            .ok_or_else(|| {
+                error!("No window found with title containing: '{}'", title);
+                debug!("Available window names: {:?}", window_names);
+                
+                // Enhanced error message with suggestions
+                let mut error_msg = format!(
+                    "Window with title containing '{}' not found. Available windows: {:?}",
+                    title, window_names
+                );
+                
+                // Try to suggest similar windows for browsers
+                let (is_target_browser, _) = Self::extract_browser_info(title);
+                if is_target_browser {
+                    let browser_windows: Vec<&String> = window_names.iter()
+                        .filter(|name| {
+                            let (is_browser, _) = Self::extract_browser_info(name);
+                            is_browser
+                        })
+                        .collect();
+                    
+                    if !browser_windows.is_empty() {
+                        error_msg.push_str(&format!(
+                            "\n\nFound these browser windows: {:?}\n\
+                            Tip: Browser tab titles are often truncated in window titles. \
+                            Try using just the domain name or shorter title.",
+                            browser_windows
+                        ));
+                    }
+                }
+                
+                AutomationError::ElementNotFound(error_msg)
+            })?;
+
+        if best_match_score > 0.0 && best_match_score < 1.0 {
+            info!(
+                "Using best match with similarity {:.2}: '{}'",
+                best_match_score,
+                window_element_raw.get_name().unwrap_or_default()
+            );
+        }
 
         info!(
             "Found window with title '{}', ID: {:?}",
@@ -1567,77 +1894,333 @@ $latestProcess.ProcessId"#,
             element: ThreadSafeWinUIElement(Arc::new(window_element_raw)),
         }));
 
-        // Build the FULL UI tree with optimized performance
-        info!("Building FULL UI tree with performance optimizations");
-        build_full_ui_node_tree_optimized(&window_element_wrapper)
+        // Build the FULL UI tree with cache-first performance optimizations
+        info!("Building FULL UI tree with cache-first performance optimizations");
+        
+        // Use cached tree building approach for better performance
+        let mut context = TreeBuildingContext {
+            config: TreeBuildingConfig {
+                timeout_per_operation_ms: 50,  // Much shorter timeout for faster operations
+                yield_every_n_elements: 50,    // Yield more frequently for responsiveness
+                batch_size: 50,                // Larger batches for efficiency
+            },
+            elements_processed: 0,
+            max_depth_reached: 0,
+            cache_hits: 0,
+            fallback_calls: 0,
+            errors_encountered: 0,
+        };
+        
+        info!("Starting FULL tree building (no limits) with cache-first optimization");
+        let result = build_ui_node_tree_cached_first(&window_element_wrapper, 0, &mut context)?;
+        
+        info!("FULL tree building completed. Stats: elements={}, depth={}, cache_hits={}, fallbacks={}, errors={}", 
+              context.elements_processed, context.max_depth_reached, 
+              context.cache_hits, context.fallback_calls, context.errors_encountered);
+        
+        // Log cache effectiveness
+        let cache_hit_rate = if context.elements_processed > 0 {
+            (context.cache_hits as f64 / context.elements_processed as f64) * 100.0
+        } else {
+            0.0
+        };
+        
+        info!("Cache hit rate: {:.1}%", cache_hit_rate);
+        
+        Ok(result)
+    }
+
+    fn get_window_tree_by_pid_and_title(&self, pid: u32, title: Option<&str>) -> Result<crate::UINode, AutomationError> {
+        info!("Attempting to get FULL window tree by PID: {} and title: {:?}", pid, title);
+        let root_ele_os = self.automation.0.get_root_element().map_err(|e| {
+            error!("Failed to get root element: {}", e);
+            AutomationError::PlatformError(format!("Failed to get root element: {}", e))
+        })?;
+
+        // First, find all windows for the given process ID
+        // Search for both Window and Pane control types since some applications use panes as main containers
+        let window_matcher = self
+            .automation
+            .0
+            .create_matcher()
+            .from_ref(&root_ele_os)
+            .filter(Box::new(OrFilter {
+                left: Box::new(ControlTypeFilter {
+                    control_type: ControlType::Window,
+                }),
+                right: Box::new(ControlTypeFilter {
+                    control_type: ControlType::Pane,
+                }),
+            }))
+            .depth(3)
+            .timeout(3000);
+
+        let windows = window_matcher.find_all().map_err(|e| {
+            error!("Failed to find windows: {}", e);
+            AutomationError::ElementNotFound(format!("Failed to find windows: {}", e))
+        })?;
+
+        info!("Found {} total windows, filtering by PID: {}", windows.len(), pid);
+
+        // Filter windows by process ID first
+        let mut pid_matching_windows = Vec::new();
+        let mut window_debug_info = Vec::new(); // For debugging
+
+        for window in windows {
+            match window.get_process_id() {
+                Ok(window_pid) => {
+                    let window_name = window.get_name().unwrap_or_else(|_| "Unknown".to_string());
+                    window_debug_info.push(format!("PID: {}, Name: {}", window_pid, window_name));
+                    
+                    if window_pid == pid {
+                        pid_matching_windows.push((window, window_name));
+                    }
+                }
+                Err(e) => {
+                    debug!("Failed to get process ID for window: {}", e);
+                }
+            }
+        }
+
+        if pid_matching_windows.is_empty() {
+            error!("No windows found for PID: {}", pid);
+            debug!("Available windows: {:?}", window_debug_info);
+            return Err(AutomationError::ElementNotFound(format!(
+                "No windows found for process ID {}. Available windows: {:?}",
+                pid, window_debug_info
+            )));
+        }
+
+        info!("Found {} windows for PID: {}", pid_matching_windows.len(), pid);
+
+        // Enhanced title matching logic for PID-based search
+        let selected_window = if let Some(title) = title {
+            info!("Filtering {} windows by title: '{}'", pid_matching_windows.len(), title);
+            
+            // Use the enhanced title matching helper
+            match self.find_best_title_match(&pid_matching_windows, title) {
+                Some((window, score)) => {
+                    if score < 1.0 {
+                        info!("Using best match with similarity {:.2} for PID {}: '{}'", 
+                              score, pid, window.get_name().unwrap_or_default());
+                    }
+                    window
+                }
+                None => {
+                    let window_names: Vec<&String> = pid_matching_windows.iter().map(|(_, name)| name).collect();
+                    warn!("No good title match found for '{}' in PID {}, falling back to first window. Available: {:?}", 
+                          title, pid, window_names);
+                    pid_matching_windows[0].0.clone()
+                }
+            }
+        } else {
+            info!("No title filter provided, using first window with PID {}", pid);
+            pid_matching_windows[0].0.clone()
+        };
+            
+        let selected_window_name = selected_window.get_name().unwrap_or_else(|_| "Unknown".to_string());
+        info!("Selected window: '{}' for PID: {} (title filter: {:?})", 
+              selected_window_name, pid, title);
+
+        // Wrap the raw OS element into our UIElement
+        let window_element_wrapper = UIElement::new(Box::new(WindowsUIElement {
+            element: ThreadSafeWinUIElement(Arc::new(selected_window)),
+        }));
+
+        // Build the FULL UI tree with cache-first performance optimizations
+        info!("Building FULL UI tree with cache-first performance optimizations for PID: {}", pid);
+        
+        // Use cached tree building approach for better performance
+        let mut context = TreeBuildingContext {
+            config: TreeBuildingConfig {
+                timeout_per_operation_ms: 50,  // Much shorter timeout for faster operations
+                yield_every_n_elements: 50,    // Yield more frequently for responsiveness
+                batch_size: 50,                // Larger batches for efficiency
+            },
+            elements_processed: 0,
+            max_depth_reached: 0,
+            cache_hits: 0,
+            fallback_calls: 0,
+            errors_encountered: 0,
+        };
+        
+        let result = build_ui_node_tree_cached_first(&window_element_wrapper, 0, &mut context)?;
+        
+        info!("FULL tree building completed for PID: {}. Stats: elements={}, depth={}, cache_hits={}, fallbacks={}, errors={}", 
+              pid, context.elements_processed, context.max_depth_reached, 
+              context.cache_hits, context.fallback_calls, context.errors_encountered);
+        
+        // Log cache effectiveness
+        let cache_hit_rate = if context.elements_processed > 0 {
+            (context.cache_hits as f64 / context.elements_processed as f64) * 100.0
+        } else {
+            0.0
+        };
+        
+        info!("Cache hit rate: {:.1}%", cache_hit_rate);
+        
+        Ok(result)
+    }
+
+    /// Enable downcasting to concrete engine types
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    /// Enable or disable background cache warming for improved performance (Windows implementation)
+    fn enable_background_cache_warmer(
+        &self,
+        enable: bool,
+        interval_seconds: Option<u64>,
+        max_apps_to_cache: Option<usize>,
+    ) -> Result<(), AutomationError> {
+        self.enable_background_cache_warmer(enable, interval_seconds, max_apps_to_cache)
+    }
+
+    /// Check if the background cache warmer is currently running (Windows implementation)
+    fn is_cache_warmer_enabled(&self) -> bool {
+        self.is_cache_warmer_enabled()
     }
 }
 
 
-// Optimized function to build the FULL UI tree with performance improvements
-fn build_full_ui_node_tree_optimized(element: &UIElement) -> Result<crate::UINode, AutomationError> {
-    use std::time::Instant;
-    
-    let start_time = Instant::now();
-    let attributes = element.attributes();
-    let mut children_nodes = Vec::new();
+// Streamlined configuration focused on performance, not limits
+struct TreeBuildingConfig {
+    timeout_per_operation_ms: u64,
+    yield_every_n_elements: usize,
+    batch_size: usize,
+}
 
-    // Get children of the current element
-    match element.children() {
+// Context to track tree building progress (no limits)
+struct TreeBuildingContext {
+    config: TreeBuildingConfig,
+    elements_processed: usize,
+    max_depth_reached: usize,
+    cache_hits: usize,
+    fallback_calls: usize,
+    errors_encountered: usize,
+}
+
+impl TreeBuildingContext {
+    fn should_yield(&self) -> bool {
+        self.elements_processed % self.config.yield_every_n_elements == 0 && self.elements_processed > 0
+    }
+    
+    fn increment_element_count(&mut self) {
+        self.elements_processed += 1;
+    }
+    
+    fn update_max_depth(&mut self, depth: usize) {
+        self.max_depth_reached = self.max_depth_reached.max(depth);
+    }
+    
+    fn increment_cache_hit(&mut self) {
+        self.cache_hits += 1;
+    }
+    
+    fn increment_fallback(&mut self) {
+        self.fallback_calls += 1;
+    }
+    
+    fn increment_errors(&mut self) {
+        self.errors_encountered += 1;
+    }
+}
+
+fn build_ui_node_tree_cached_first(
+    element: &UIElement,
+    current_depth: usize,
+    context: &mut TreeBuildingContext,
+) -> Result<crate::UINode, AutomationError> {
+    context.increment_element_count();
+    context.update_max_depth(current_depth);
+    
+    // Yield CPU periodically to prevent freezing while processing everything
+    if context.should_yield() {
+        debug!("Yielding CPU after processing {} elements at depth {}", context.elements_processed, current_depth);
+        thread::sleep(Duration::from_millis(1));
+    }
+    
+    // Get element attributes - use standard method for safety
+    let attributes = element.attributes();
+    
+    let mut children_nodes = Vec::new();
+    
+    // Get children with safe strategy
+    match get_element_children_safe(element, context) {
         Ok(children_elements) => {
-            // info!("Processing {} children for element ID: {:?}", children_elements.len(), element.id());
+            debug!("Processing {} children at depth {} (using safe strategy)", children_elements.len(), current_depth);
             
-            // Process children in batches to prevent memory spikes and allow yielding
-            const BATCH_SIZE: usize = 50;
-            for (batch_idx, batch) in children_elements.chunks(BATCH_SIZE).enumerate() {
-                // debug!("Processing batch {} of {} children", batch_idx + 1, (children_elements.len() + BATCH_SIZE - 1) / BATCH_SIZE);
-                
+            // Process children in efficient batches
+            for batch in children_elements.chunks(context.config.batch_size) {
                 for child_element in batch {
-                    // Safety valve: if we're taking too long, log and continue
-                    if start_time.elapsed().as_secs() > 30 {
-                        error!("Tree building taking too long (>30s) for element, continuing with partial tree");
-                        break;
-                    }
-                    
-                    // Recursively build child nodes
-                    match build_full_ui_node_tree_optimized(child_element) {
+                    match build_ui_node_tree_cached_first(child_element, current_depth + 1, context) {
                         Ok(child_node) => children_nodes.push(child_node),
                         Err(e) => {
-                            // Log the error but continue processing other children
-                            debug!(
-                                "Failed to build UINode for child (ID: {:?}): {}. Skipping this child.",
-                                child_element.id(),
-                                e
-                            );
+                            debug!("Failed to process child element: {}. Continuing with next child.", e);
+                            context.increment_errors();
+                            // Continue processing - we want the full tree
                         }
                     }
                 }
                 
-                // Small yield every 10 batches to prevent UI freezing during large tree processing
-                if batch_idx % 10 == 0 && batch_idx > 0 {
-                    std::thread::sleep(std::time::Duration::from_millis(1));
+                // Small yield between large batches to maintain responsiveness
+                if batch.len() == context.config.batch_size && children_elements.len() > context.config.batch_size {
+                    thread::sleep(Duration::from_millis(1));
                 }
             }
         }
         Err(e) => {
-            // If getting children fails, log it and continue with an empty children list for this node
-            debug!(
-                "Failed to get children for element (ID: {:?}): {}. Proceeding with no children for this node.",
-                element.id(),
-                e
-            );
+            debug!("Failed to get children for element: {}. Proceeding with no children.", e);
+            context.increment_errors();
         }
     }
-
-    let elapsed = start_time.elapsed();
-    if elapsed.as_millis() > 100 {
-        debug!("Tree building for element took {}ms", elapsed.as_millis());
-    }
-
+    
     Ok(crate::UINode {
         attributes,
         children: children_nodes,
     })
+}
+
+// Safe element children access
+fn get_element_children_safe(element: &UIElement, context: &mut TreeBuildingContext) -> Result<Vec<UIElement>, AutomationError> {
+    // Primarily use the standard children method
+    match element.children() {
+        Ok(children) => {
+            context.increment_cache_hit(); // Count this as successful
+            Ok(children)
+        },
+        Err(_) => {
+            context.increment_fallback();
+            // Only use timeout version if regular call fails
+            get_element_children_with_timeout(element, Duration::from_millis(context.config.timeout_per_operation_ms))
+        }
+    }
+}
+
+// Helper function to get element children with timeout
+fn get_element_children_with_timeout(element: &UIElement, timeout: Duration) -> Result<Vec<UIElement>, AutomationError> {
+    use std::sync::mpsc;
+    use std::thread;
+    
+    let (sender, receiver) = mpsc::channel();
+    let element_clone = element.clone();
+    
+    // Spawn a thread to get children
+    thread::spawn(move || {
+        let children_result = element_clone.children();
+        let _ = sender.send(children_result);
+    });
+    
+    // Wait for result with timeout
+    match receiver.recv_timeout(timeout) {
+        Ok(Ok(children)) => Ok(children),
+        Ok(Err(e)) => Err(e),
+        Err(_) => {
+            debug!("Timeout getting element children after {:?}", timeout);
+            Err(AutomationError::PlatformError("Timeout getting element children".to_string()))
+        }
+    }
 }
 
 // thread-safety
@@ -1669,7 +2252,9 @@ impl UIElementImpl for WindowsUIElement {
     }
 
     fn role(&self) -> String {
-        self.element.0.get_control_type().unwrap().to_string()
+        self.element.0.get_control_type()
+            .map(|ct| ct.to_string())
+            .unwrap_or_else(|_| "unknown".to_string())
     }
 
     fn attributes(&self) -> UIElementAttributes {
@@ -1680,33 +2265,87 @@ impl UIElementImpl for WindowsUIElement {
             UIProperty::HelpText,
             UIProperty::AutomationId,
         ];
+        
+        // Helper function to format property values properly
+        fn format_property_value(value: &Variant) -> Option<serde_json::Value> {
+            // First try to get as string
+            if let Ok(s) = value.get_string() {
+                if !s.is_empty() {
+                    return Some(serde_json::Value::String(s));
+                } else {
+                    return None; // Empty string - don't include
+                }
+            }
+            
+            // If string conversion fails, we'll just skip this property
+            // to avoid the STRING() issue
+            None
+        }
+        
+        // Use standard property access (not mixed cached/live)
         for property in property_list {
             if let Ok(value) = self.element.0.get_property_value(property) {
-                properties.insert(
-                    format!("{:?}", property),
-                    Some(serde_json::to_value(value.to_string()).unwrap_or_default()),
-                );
-            } else {
-                properties.insert(format!("{:?}", property), None);
+                if let Some(formatted_value) = format_property_value(&value) {
+                    properties.insert(format!("{:?}", property), Some(formatted_value));
+                }
             }
         }
+        
+        // Helper function to filter empty strings
+        fn filter_empty_string(s: Option<String>) -> Option<String> {
+            s.filter(|s| !s.is_empty())
+        }
+        
+        // Get role
+        let role = self.element.0.get_control_type()
+            .map(|ct| ct.to_string())
+            .unwrap_or_else(|_| "unknown".to_string());
+        
+        // Get name
+        let name = filter_empty_string(
+            self.element.0.get_name().ok()
+        );
+        
+        // Get label
+        let label = self.element.0.get_labeled_by()
+            .ok()
+            .and_then(|e| filter_empty_string(e.get_name().ok()));
+        
+        // Get value
+        let value = self.element.0.get_property_value(UIProperty::ValueValue)
+            .ok()
+            .and_then(|v| filter_empty_string(v.get_string().ok()));
+        
+        // Get description
+        let description = filter_empty_string(
+            self.element.0.get_help_text().ok()
+        );
+        
+        // Get keyboard focusable
+        let is_keyboard_focusable = self.element.0.get_property_value(UIProperty::IsKeyboardFocusable)
+            .ok()
+            .and_then(|v| v.try_into().ok());
+        
+        // Add automation ID to properties if available
+        if let Ok(aid) = self.element.0.get_automation_id() {
+            if !aid.is_empty() {
+                properties.insert("AutomationId".to_string(), Some(serde_json::Value::String(aid)));
+            }
+        }
+        
+        // Add help text to properties if available  
+        if let Some(ref ht) = description {
+            properties.insert("HelpText".to_string(), Some(serde_json::Value::String(ht.clone())));
+        }
+        
         UIElementAttributes {
-            role: self.role(),
-            name: self.element.0.get_name().ok(),
-            label: self
-                .element
-                .0
-                .get_labeled_by()
-                .ok().map(|e| e.get_name().unwrap_or_default()),
-            value: self
-                .element
-                .0
-                .get_property_value(UIProperty::ValueValue)
-                .ok()
-                .and_then(|v| v.get_string().ok()),
-            description: self.element.0.get_help_text().ok(),
+            role,
+            name,
+            label,
+            value,
+            description,
             properties,
-            is_keyboard_focusable: self.is_keyboard_focusable().ok(), // Added field
+            is_keyboard_focusable,
         }
     }
 
@@ -1790,10 +2429,7 @@ impl UIElementImpl for WindowsUIElement {
     }
 
     fn bounds(&self) -> Result<(f64, f64, f64, f64), AutomationError> {
-        let rect = self
-            .element
-            .0
-            .get_bounding_rectangle()
+        let rect = self.element.0.get_bounding_rectangle()
             .map_err(|e| AutomationError::ElementNotFound(e.to_string()))?;
         Ok((
             rect.get_left() as f64,
@@ -1939,42 +2575,10 @@ impl UIElementImpl for WindowsUIElement {
         debug!("typing text with control_type: {:#?}, use_clipboard: {}", control_type, use_clipboard);
 
         if use_clipboard {
-            // Save current clipboard content
-            let original_clipboard = match Clipboard::new()
-                .map_err(|e| AutomationError::PlatformError(format!("Failed to access clipboard: {}", e)))?
-                .get_text()
-            {
-                Ok(text) => Some(text),
-                Err(_) => None, // Handle case where clipboard is empty or contains non-text content
-            };
-
-            // Set new text to clipboard
-            Clipboard::new()
-                .map_err(|e| AutomationError::PlatformError(format!("Failed to access clipboard: {}", e)))?
-                .set_text(text)
-                .map_err(|e| AutomationError::PlatformError(format!("Failed to set clipboard content: {}", e)))?;
-
-            // Focus the element
-            self.focus()?;
-
-            // Send Ctrl+V to paste
-            self.press_key("{ctrl}v")?;
-
-            // Restore original clipboard content if we had any
-            if let Some(original) = original_clipboard {
-                Clipboard::new()
-                    .map_err(|e| AutomationError::PlatformError(format!("Failed to access clipboard: {}", e)))?
-                    .set_text(&original)
-                    .map_err(|e| AutomationError::PlatformError(format!("Failed to restore clipboard content: {}", e)))?;
-            } else {
-                // Clear clipboard if it was empty originally
-                Clipboard::new()
-                    .map_err(|e| AutomationError::PlatformError(format!("Failed to access clipboard: {}", e)))?
-                    .clear()
-                    .map_err(|e| AutomationError::PlatformError(format!("Failed to clear clipboard: {}", e)))?;
-            }
-
-            Ok(())
+            self.element
+                .0
+                .send_text_by_clipboard(text)
+                .map_err(|e| AutomationError::PlatformError(e.to_string()))
         } else {
             // Use standard typing method
             self.element
@@ -2012,16 +2616,6 @@ impl UIElementImpl for WindowsUIElement {
                 return Ok(());
             }
 
-            // Check Name property 
-            // TOdo: i dont think we should include the name in text
-            // if let Ok(name) = element.get_property_value(UIProperty::Name) {
-            //     if let Ok(name_text) = name.get_string() {
-            //         if !name_text.is_empty() {
-            //             debug!("found text in name property: {:?}", &name_text);
-            //             texts.push(name_text);
-            //         }
-            //     }
-            // }
 
             // Check Value property
             if let Ok(value) = element.get_property_value(UIProperty::ValueValue) {
@@ -2045,7 +2639,7 @@ impl UIElementImpl for WindowsUIElement {
                     cached_children
                 }
                 Err(cache_err) => {
-                    info!(
+                    debug!(
                         "Failed to get cached children for text extraction ({}), falling back to non-cached TreeScope::Children search.",
                         cache_err
                     );
@@ -2063,7 +2657,7 @@ impl UIElementImpl for WindowsUIElement {
                                         &true_condition,
                                     ) {
                                         Ok(found_children) => {
-                                            info!(
+                                            debug!(
                                                 "Found {} non-cached children for text extraction via fallback.",
                                                 found_children.len()
                                             );
@@ -2136,26 +2730,19 @@ impl UIElementImpl for WindowsUIElement {
     }
 
     fn is_enabled(&self) -> Result<bool, AutomationError> {
-        self.element
-            .0
-            .is_enabled()
+        self.element.0.is_enabled()
             .map_err(|e| AutomationError::ElementNotFound(e.to_string()))
     }
 
     fn is_visible(&self) -> Result<bool, AutomationError> {
-        // offscreen means invisible, right?
-        self.element
-            .0
-            .is_offscreen()
+        self.element.0.is_offscreen()
+            .map(|is_offscreen| !is_offscreen)
             .map_err(|e| AutomationError::ElementNotFound(e.to_string()))
     }
 
     fn is_focused(&self) -> Result<bool, AutomationError> {
-        // The original implementation was inefficient:
-        // It created a new WindowsEngine and compared the focused element's Arc pointer,
-        // which is not reliable and very slow.
-        // The uiautomation::UIElement provides a direct has_keyboard_focus() method.
-        self.element.0.has_keyboard_focus().map_err(|e| AutomationError::PlatformError(format!("Failed to get keyboard focus state: {}", e)))
+        self.element.0.has_keyboard_focus()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to get keyboard focus state: {}", e)))
     }
 
     fn perform_action(&self, action: &str) -> Result<(), AutomationError> {
@@ -2252,109 +2839,11 @@ impl UIElementImpl for WindowsUIElement {
                 "Only 'up' and 'down' scroll directions are supported".to_string(),
             )),
         }
-
-        /* Original implementation commented out
-        // Try to get the scroll pattern first
-        let scroll_pattern = self.element.0.get_pattern::<patterns::UIScrollPattern>();
-        let scroll_item_pattern = self.element.0.get_pattern::<patterns::UIScrollItemPattern>();
-        
-        if let Ok(scroll_pattern) = scroll_pattern {
-            // If we have a scroll pattern, use it
-            let scroll_amount = if amount > 0.0 {
-                ScrollAmount::SmallIncrement
-            } else if amount < 0.0 {
-                ScrollAmount::SmallDecrement
-            } else {
-                ScrollAmount::NoAmount
-            };
-
-            let times = amount.abs() as usize;
-            for _ in 0..times {
-                match direction {
-                    "up" => scroll_pattern
-                        .scroll(ScrollAmount::NoAmount, scroll_amount)
-                        .map_err(|e| AutomationError::PlatformError(format!("Failed to scroll up: {:?}", e))),
-                    "down" => scroll_pattern
-                        .scroll(ScrollAmount::NoAmount, scroll_amount)
-                        .map_err(|e| AutomationError::PlatformError(format!("Failed to scroll down: {:?}", e))),
-                    "left" => scroll_pattern
-                        .scroll(scroll_amount, ScrollAmount::NoAmount)
-                        .map_err(|e| AutomationError::PlatformError(format!("Failed to scroll left: {:?}", e))),
-                    "right" => scroll_pattern
-                        .scroll(scroll_amount, ScrollAmount::NoAmount)
-                        .map_err(|e| AutomationError::PlatformError(format!("Failed to scroll right: {:?}", e))),
-                    _ => Err(AutomationError::UnsupportedOperation(
-                        "Invalid scroll direction".to_string(),
-                    )),
-                }?;
-            }
-        } else if let Ok(scroll_item_pattern) = scroll_item_pattern {
-            // If we have a scroll item pattern, use it
-            let times = amount.abs() as usize;
-            for _ in 0..times {
-                match direction {
-                    "up" => scroll_item_pattern
-                        .scroll_into_view()
-                        .map_err(|e| AutomationError::PlatformError(format!("Failed to scroll item up: {:?}", e))),
-                    "down" => scroll_item_pattern
-                        .scroll_into_view()
-                        .map_err(|e| AutomationError::PlatformError(format!("Failed to scroll item down: {:?}", e))),
-                    "left" => scroll_item_pattern
-                        .scroll_into_view()
-                        .map_err(|e| AutomationError::PlatformError(format!("Failed to scroll item left: {:?}", e))),
-                    "right" => scroll_item_pattern
-                        .scroll_into_view()
-                        .map_err(|e| AutomationError::PlatformError(format!("Failed to scroll item right: {:?}", e))),
-                    _ => Err(AutomationError::UnsupportedOperation(
-                        "Invalid scroll direction".to_string(),
-                    )),
-                }?;
-            }
-        } else {
-            // If no scroll patterns available, fall back to mouse wheel simulation
-            use windows::Win32::UI::Input::KeyboardAndMouse::{
-                INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_WHEEL, MOUSEINPUT, SendInput,
-            };
-            use std::thread::sleep;
-            use std::time::Duration;
-
-            // Get the element's bounds to calculate center point
-            let rect = self.element.0.get_bounding_rectangle()
-                .map_err(|e| AutomationError::PlatformError(format!("Failed to get element bounds: {:?}", e)))?;
-            
-            let center_x = rect.get_left() + rect.get_width() / 2;
-            let center_y = rect.get_top() + rect.get_height() / 2;
-
-            // Move mouse to center of element
-            let mi = MOUSEINPUT {
-                dx: center_x,
-                dy: center_y,
-                mouseData: if amount > 0.0 { 120u32 } else { 0xFFFF_FF88u32 }, // 120 for up, -120 (as unsigned) for down
-                dwFlags: MOUSEEVENTF_WHEEL,
-                time: 0,
-                dwExtraInfo: 0,
-            };
-            let input = INPUT {
-                r#type: INPUT_MOUSE,
-                Anonymous: INPUT_0 { mi },
-            };
-
-            let times = amount.abs() as usize;
-            // Simulate wheel clicks
-            for _ in 0..times {
-                unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) };
-                sleep(Duration::from_millis(50)); // Small delay between wheel events
-            }
-        }
-        */
         Ok(())
     }
 
     fn is_keyboard_focusable(&self) -> Result<bool, AutomationError> {
-        let variant = self
-            .element
-            .0
-            .get_property_value(UIProperty::IsKeyboardFocusable)
+        let variant = self.element.0.get_property_value(UIProperty::IsKeyboardFocusable)
             .map_err(|e| AutomationError::PlatformError(e.to_string()))?;
         variant.try_into().map_err(|e| AutomationError::PlatformError(format!("Failed to convert IsKeyboardFocusable to bool: {:?}", e)))
     }
@@ -2471,6 +2960,7 @@ impl UIElementImpl for WindowsUIElement {
         Ok(())
     }
 
+
     fn application(&self) -> Result<Option<UIElement>, AutomationError> {
         // Get the process ID of the current element
         let pid = self.element.0.get_process_id().map_err(|e| {
@@ -2484,7 +2974,7 @@ impl UIElementImpl for WindowsUIElement {
         })?;
 
         // Get the application element by PID
-        match engine.get_application_by_pid(pid as i32) { // Cast pid to i32
+        match engine.get_application_by_pid(pid as i32, Some(DEFAULT_FIND_TIMEOUT)) { // Cast pid to i32
             Ok(app_element) => Ok(Some(app_element)),
             Err(AutomationError::ElementNotFound(_)) => {
                 // If the specific application element is not found by PID, return None.
@@ -2657,6 +3147,485 @@ impl UIElementImpl for WindowsUIElement {
 
         Ok(())
     }
+    fn process_id(&self) -> Result<u32, AutomationError> {
+        self.element.0.get_process_id().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to get process ID for element: {}", e))
+        })
+    }
+
+    fn capture(&self) -> Result<ScreenshotResult, AutomationError> {
+        // Get the raw UIAutomation bounds
+        let rect = self.element.0.get_bounding_rectangle()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to get bounding rectangle: {}", e)))?;
+
+        // Get all monitors that intersect with the element
+        let mut intersected_monitors = Vec::new();
+        let monitors = xcap::Monitor::all()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to get monitors: {}", e)))?;
+
+        for monitor in monitors {
+            let monitor_x = monitor.x()
+                .map_err(|e| AutomationError::PlatformError(format!("Failed to get monitor x: {}", e)))? as i32;
+            let monitor_y = monitor.y()
+                .map_err(|e| AutomationError::PlatformError(format!("Failed to get monitor y: {}", e)))? as i32;
+            let monitor_width = monitor.width()
+                .map_err(|e| AutomationError::PlatformError(format!("Failed to get monitor width: {}", e)))? as i32;
+            let monitor_height = monitor.height()
+                .map_err(|e| AutomationError::PlatformError(format!("Failed to get monitor height: {}", e)))? as i32;
+
+            // Check if element intersects with this monitor
+            if rect.get_left() < monitor_x + monitor_width &&
+               rect.get_left() + rect.get_width() as i32 > monitor_x &&
+               rect.get_top() < monitor_y + monitor_height &&
+               rect.get_top() + rect.get_height() as i32 > monitor_y {
+                intersected_monitors.push(monitor);
+            }
+        }
+
+        if intersected_monitors.is_empty() {
+            return Err(AutomationError::PlatformError("Element is not visible on any monitor".to_string()));
+        }
+
+        // If element spans multiple monitors, capture from the primary monitor
+        let monitor = &intersected_monitors[0];
+        let scale_factor = monitor.scale_factor()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to get scale factor: {}", e)))?;
+
+        // Get monitor bounds
+        let monitor_x = monitor.x()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to get monitor x: {}", e)))? as u32;
+        let monitor_y = monitor.y()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to get monitor y: {}", e)))? as u32;
+        let monitor_width = monitor.width()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to get monitor width: {}", e)))? as u32;
+        let monitor_height = monitor.height()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to get monitor height: {}", e)))? as u32;
+
+        // Calculate scaled coordinates
+        let scaled_x = (rect.get_left() as f64 * scale_factor as f64) as u32;
+        let scaled_y = (rect.get_top() as f64 * scale_factor as f64) as u32;
+        let scaled_width = (rect.get_width() as f64 * scale_factor as f64) as u32;
+        let scaled_height = (rect.get_height() as f64 * scale_factor as f64) as u32;
+
+        // Convert to relative coordinates for capture_region
+        let rel_x = if scaled_x >= monitor_x { scaled_x - monitor_x } else { 0 };
+        let rel_y = if scaled_y >= monitor_y { scaled_y - monitor_y } else { 0 };
+        
+        // Ensure width and height don't exceed monitor bounds
+        let rel_width = std::cmp::min(scaled_width, monitor_width - rel_x);
+        let rel_height = std::cmp::min(scaled_height, monitor_height - rel_y);
+
+        // Capture the screen region
+        let capture = monitor.capture_region(
+            rel_x,
+            rel_y,
+            rel_width,
+            rel_height
+        ).map_err(|e| AutomationError::PlatformError(format!("Failed to capture region: {}", e)))?;
+
+        Ok(ScreenshotResult {
+            image_data: capture.to_vec(),
+            width: rel_width,
+            height: rel_height,
+        })
+    } 
+}
+
+#[allow(dead_code)]
+#[repr(i32)]
+pub enum ActivateOptions {
+    None = 0x00000000,
+    DesignMode = 0x00000001,
+    NoErrorUI = 0x00000002,
+    NoSplashScreen = 0x00000004,
+}
+
+impl From<windows::core::Error> for AutomationError {
+    fn from(error: windows::core::Error) -> Self {
+        AutomationError::PlatformError(error.to_string())
+    }
+}
+
+// Launches a UWP application and returns its UIElement
+fn launch_uwp_app(engine: &WindowsEngine, uwp_app_name: &str) -> Result<UIElement, AutomationError> {
+    // First try to get app info using Get-StartApps
+    let (app_user_model_id, display_name) = match get_uwp_app_info_from_startapps(uwp_app_name) {
+        Ok(info) => info,
+        Err(_) => {
+            // Fallback to AppX package approach
+            debug!("Failed to find app in Get-StartApps, falling back to AppX package search");
+            let package = get_uwp_package_info(uwp_app_name)?;
+    
+    // Get package full name and family name
+            let (package_full_name, package_family_name) = get_package_info(&package)?;
+    
+    // Get the app ID and display name
+            let (app_id, display_name) = get_uwp_info(&package_full_name)?;
+
+    // Construct the app user model ID
+            let app_user_model_id = format!(
+                "{}!{}",
+                package_family_name.trim(),
+                app_id.trim()
+            );
+            (app_user_model_id, display_name)
+        }
+    };
+
+    // Launch the UWP app using Windows API
+    let pid = unsafe {
+        // Initialize COM with proper error handling
+        let hr = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        if hr.is_err() && hr != HRESULT(0x80010106u32 as i32) {
+            // Only return error if it's not the "already initialized" case
+            return Err(AutomationError::PlatformError(format!("Failed to initialize COM: {}", hr)));
+        }
+        // If we get here, either initialization succeeded or it was already initialized
+        if hr == HRESULT(0x80010106u32 as i32) {
+            debug!("COM already initialized in this thread");
+        }
+
+        // Create the ApplicationActivationManager COM object
+        let manager: IApplicationActivationManager = CoCreateInstance(&ApplicationActivationManager, None, CLSCTX_ALL)
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to create ApplicationActivationManager: {}", e)))?;
+
+        // Set options (e.g., NoSplashScreen)
+        let options = ACTIVATEOPTIONS(ActivateOptions::None as i32);
+
+        manager.ActivateApplication(
+            &HSTRING::from(&app_user_model_id),
+            &HSTRING::from(""), // no arguments
+            options,
+        ).map_err(|e| AutomationError::PlatformError(format!("Failed to launch UWP app: {}", e)))?
+    };
+
+    if pid > 0 {
+        get_application_pid(engine, pid as i32, &display_name)
+    } else {
+        Err(Error::new(
+            HRESULT(0x80004005u32 as i32),
+            "Failed to launch the application"
+        ).into())
+    }
+}
+
+// Gets UWP app information using Get-StartApps
+fn get_uwp_app_info_from_startapps(uwp_app_name: &str) -> Result<(String, String), AutomationError> {
+    let command = format!(
+        r#"Get-StartApps | Where-Object {{ $_.AppID -match '^[\w\.]+_[\w]+![\w\.]+$' }} | Select-Object Name, AppID | ConvertTo-Json"#
+    );
+
+    let output = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-WindowStyle", "hidden", "-Command", &command])
+        .output()
+        .map_err(|e| AutomationError::PlatformError(e.to_string()))?;
+
+    if !output.status.success() {
+        let error_msg = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(AutomationError::PlatformError(format!(
+            "Failed to get UWP apps list: {}",
+            error_msg
+        )));
+    }
+
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    let apps: Vec<Value> = serde_json::from_str(&output_str).map_err(|e| {
+        AutomationError::PlatformError(format!("Failed to parse UWP apps list: {}", e))
+    })?;
+
+    // Search for matching app by name or AppID
+    let search_term = uwp_app_name.to_lowercase();
+    let matching_app = apps.iter().find(|app| {
+        let name = app.get("Name").and_then(|n| n.as_str()).unwrap_or("").to_lowercase();
+        let app_id = app.get("AppID").and_then(|id| id.as_str()).unwrap_or("").to_lowercase();
+        name.contains(&search_term) || app_id.contains(&search_term)
+    });
+
+    match matching_app {
+        Some(app) => {
+            let display_name = app.get("Name")
+                .and_then(|n| n.as_str())
+                .ok_or_else(|| AutomationError::PlatformError("Failed to get app name".to_string()))?;
+            let app_id = app.get("AppID")
+                .and_then(|id| id.as_str())
+                .ok_or_else(|| AutomationError::PlatformError("Failed to get app ID".to_string()))?;
+            Ok((app_id.to_string(), display_name.to_string()))
+        }
+        None => Err(AutomationError::PlatformError(format!(
+            "No UWP app found matching '{}' in Get-StartApps list",
+            uwp_app_name
+        )))
+    }
+}
+
+// Gets UWP package information by name
+fn get_uwp_package_info(uwp_app_name: &str) -> Result<Value, AutomationError> {
+    let command = format!(
+        r#"Get-AppxPackage | Where-Object {{ -not $_.IsFramework }} | Where-Object {{ $_.Name -like "*{}*" }} | ConvertTo-Json -Depth 1"#,
+        uwp_app_name
+    );
+
+    let output = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-WindowStyle", "hidden", "-Command", &command])
+        .output()
+        .map_err(|e| AutomationError::PlatformError(e.to_string()))?;
+
+    if !output.status.success() {
+        let error_msg = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(AutomationError::PlatformError(format!(
+            "Failed to find UWP package: {}",
+            error_msg
+        )));
+    }
+
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    let json_str = output_str.trim();
+    if json_str.is_empty() {
+        return Err(AutomationError::PlatformError(format!(
+            "No UWP package found matching '{}'. The package may not be installed or the name is incorrect.",
+            uwp_app_name
+        )));
+    }
+
+    let packages: Value = serde_json::from_str(json_str).map_err(|e| {
+        AutomationError::PlatformError(format!("Failed to parse package info: {}", e))
+    })?;
+
+    match packages {
+        Value::Array(arr) => {
+            if arr.is_empty() {
+                return Err(AutomationError::PlatformError(format!(
+                    "No UWP package found matching '{}'. The package may not be installed or the name is incorrect.",
+                    uwp_app_name
+                )));
+            }
+            if arr.len() > 1 {
+                let package_names = arr
+                    .iter()
+                    .map(|p| p.get("Name").unwrap_or(&Value::Null).to_string())
+                    .collect::<Vec<String>>()
+                    .join("\n    • ");
+
+                return Err(AutomationError::PlatformError(format!(
+                    "Multiple UWP packages found matching '{}'.\nPlease be more specific. Found:\n    • {}",
+                    uwp_app_name, package_names
+                )));
+            }
+            Ok(arr[0].clone())
+        }
+        Value::Object(obj) => Ok(Value::Object(obj)),
+        Value::Null => Err(AutomationError::PlatformError(format!(
+            "No UWP package found matching '{}'. The package may not be installed or the name is incorrect.",
+            uwp_app_name
+        ))),
+        _ => Err(AutomationError::PlatformError(
+            "Invalid package info format".to_string(),
+        )),
+    }
+}
+
+// Gets the application ID for a UWP package
+fn get_uwp_info(package_full_name: &str) -> Result<(String, String), AutomationError> {
+    let command = format!(
+        r#"$manifest = Get-AppxPackageManifest -Package "{}"
+$manifest.Package.Applications.Application.Id
+$manifest.Package.Properties.DisplayName"#,
+        package_full_name
+    );
+
+    let output = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-WindowStyle", "hidden", "-Command", &command])
+        .output()
+        .map_err(|e| AutomationError::PlatformError(e.to_string()))?;
+
+    if !output.status.success() {
+        let error_msg = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(AutomationError::PlatformError(format!(
+            "Failed to get UWP app info: {}",
+            error_msg
+        )));
+    }
+
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    let mut lines = output_str.lines();
+
+    let app_id = lines.next().ok_or_else(|| {
+        AutomationError::PlatformError("Failed to get application ID".to_string())
+    })?;
+
+    let display_name = lines.next().ok_or_else(|| {
+        AutomationError::PlatformError("Failed to get display name".to_string())
+    })?;
+
+    Ok((app_id.to_string(), display_name.to_string()))
+}
+
+// Gets package information from a UWP package value
+fn get_package_info(package: &Value) -> Result<(String, String), AutomationError> {
+    let package_full_name = package
+        .get("PackageFullName")
+        .and_then(|n| n.as_str())
+        .ok_or_else(|| {
+            AutomationError::PlatformError("Failed to get package full name".to_string())
+        })?;
+
+    let package_family_name = package
+        .get("PackageFamilyName")
+        .and_then(|n| n.as_str())
+        .ok_or_else(|| {
+            AutomationError::PlatformError("Failed to get package family name".to_string())
+        })?;
+
+    Ok((package_full_name.to_string(), package_family_name.to_string()))
+}
+
+
+// Helper function to get application by PID with fallback to child process and name
+fn get_application_pid(engine: &WindowsEngine, pid: i32, app_name: &str) -> Result<UIElement, AutomationError> {
+    unsafe {
+        // Check if the process with this PID exists
+        let mut pid_exists = false;
+        let snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
+            Ok(handle) => handle,
+            Err(_) => {
+                debug!("Failed to create process snapshot for PID existence check, falling back to name");
+                let app = engine.get_application_by_name(app_name)?;
+                app.activate_window()?;
+                return Ok(app);
+            }
+        };
+        if !snapshot.is_invalid() {
+            let _guard = HandleGuard(snapshot);
+            let mut process_entry = PROCESSENTRY32W {
+                dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+                ..Default::default()
+            };
+            if Process32FirstW(snapshot, &mut process_entry).is_ok() {
+                loop {
+                    if process_entry.th32ProcessID == pid as u32 {
+                        pid_exists = true;
+                        break;
+                    }
+                    if Process32NextW(snapshot, &mut process_entry).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+
+        if pid_exists {
+            match engine.get_application_by_pid(pid, Some(DEFAULT_FIND_TIMEOUT)) {
+                Ok(app) => {
+                    app.activate_window()?;
+                    return Ok(app);
+                }
+                Err(_) => {
+                    debug!("Failed to get application by PID, will try child PID logic");
+                }
+            }
+        }
+
+        // If PID does not exist or get_application_by_pid failed, try to find a child process with this as parent
+        let parent_pid = pid as u32;
+        let snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
+            Ok(handle) => handle,
+            Err(_) => {
+                debug!("Failed to create process snapshot for child search, falling back to name");
+                let app = engine.get_application_by_name(app_name)?;
+                app.activate_window()?;
+                return Ok(app);
+            }
+        };
+        if snapshot.is_invalid() {
+            debug!("Invalid snapshot handle for child search, falling back to name");
+            let app = engine.get_application_by_name(app_name)?;
+            app.activate_window()?;
+            return Ok(app);
+        }
+        let _guard = HandleGuard(snapshot);
+        let mut process_entry = PROCESSENTRY32W {
+            dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+            ..Default::default()
+        };
+        let mut found_child_pid: Option<u32> = None;
+        if Process32FirstW(snapshot, &mut process_entry).is_ok() {
+            loop {
+                if process_entry.th32ParentProcessID == parent_pid {
+                    found_child_pid = Some(process_entry.th32ProcessID);
+                    break;
+                }
+                if Process32NextW(snapshot, &mut process_entry).is_err() {
+                    break;
+                }
+            }
+        }
+        if let Some(child_pid) = found_child_pid {
+            match engine.get_application_by_pid(child_pid as i32, Some(DEFAULT_FIND_TIMEOUT)) {
+                Ok(app) => {
+                    app.activate_window()?;
+                    return Ok(app);
+                }
+                Err(_) => {
+                    debug!("Failed to get application by child PID, falling back to name");
+                }
+            }
+        }
+        // If all else fails, try to find the application by name
+        debug!("Failed to get application by PID and child PID, trying by name: {}", app_name);
+        let app = engine.get_application_by_name(app_name)?;
+        app.activate_window()?;
+        Ok(app)
+    }
+}
+
+
+// Launches a regular (non-UWP) Windows application
+fn launch_regular_application(engine: &WindowsEngine, app_name: &str) -> Result<UIElement, AutomationError> {
+    unsafe {
+        // Convert app_name to wide string
+        let mut app_name_wide: Vec<u16> = app_name.encode_utf16().chain(std::iter::once(0)).collect();
+        
+        // Prepare process startup info
+        let mut startup_info = STARTUPINFOW::default();
+        startup_info.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+        
+        // Prepare process info
+        let mut process_info = PROCESS_INFORMATION::default();
+        
+        // Create the process
+        let result = CreateProcessW(
+            None, // Application name (null means use command line)
+            Some(PWSTR::from_raw(app_name_wide.as_mut_ptr())), // Command line
+            None, // Process security attributes
+            None, // Thread security attributes
+            false, // Inherit handles
+            CREATE_NEW_CONSOLE, // Creation flags
+            None, // Environment
+            None, // Current directory
+            &startup_info,
+            &mut process_info,
+        );
+
+        if result.is_err() {
+            return Err(AutomationError::PlatformError(
+                format!("Failed to launch application '{}'", app_name)
+            ));
+        }
+
+        // Close thread handle as we don't need it
+        let _ = CloseHandle(process_info.hThread);
+        
+        // Store process handle in a guard to ensure it's closed
+        let _process_handle = HandleGuard(process_info.hProcess);
+        
+        // Get the PID
+        let pid = process_info.dwProcessId as i32;
+
+        // Wait a bit for the application to start
+        std::thread::sleep(std::time::Duration::from_millis(200));
+
+        get_application_pid(engine, pid, app_name)
+    }
 }
 
 // make easier to pass roles
@@ -2815,235 +3784,15 @@ fn generate_element_id(element: &uiautomation::UIElement) -> Result<usize, Autom
     id_string.hash(&mut hasher);
     let hash = hasher.finish() as usize;
     
-    // debug!(
-    //     "Generated element ID: hash={}, control_type={}, name={}, automation_id={}, class_name={}, bounds=({},{},{},{}), help_text={}",
-    //     hash,
-    //     control_type,
-    //     name,
-    //     automation_id,
-    //     class_name,
-    //     bounds.get_left(),
-    //     bounds.get_top(),
-    //     bounds.get_width(),
-    //     bounds.get_height(),
-    //     help_text
-    // );
-    
     Ok(hash)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::process;
-
-    #[test]
-    fn test_get_process_name_by_pid_current_process() {
-        // Test with the current process PID
-        let current_pid = process::id() as i32;
-        let result = get_process_name_by_pid(current_pid);
-        
-        assert!(result.is_ok(), "Should be able to get current process name");
-        let process_name = result.unwrap();
-        
-        // The process name should be a valid non-empty string
-        assert!(!process_name.is_empty(), "Process name should not be empty");
-        
-        // Should not contain .exe extension
-        assert!(!process_name.ends_with(".exe"), "Process name should not contain .exe extension");
-        assert!(!process_name.ends_with(".EXE"), "Process name should not contain .EXE extension");
-        
-        // Should be a reasonable process name (alphanumeric, hyphens, underscores)
-        assert!(process_name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_'), 
-               "Process name should contain only alphanumeric characters, hyphens, and underscores: {}", process_name);
-        
-        println!("Current process name: {}", process_name);
-    }
-
-    #[test]
-    fn test_get_process_name_by_pid_invalid_pid() {
-        // Test with an invalid PID (very high number unlikely to exist)
-        let invalid_pid = 999999;
-        let result = get_process_name_by_pid(invalid_pid);
-        
-        assert!(result.is_err(), "Should fail for invalid PID");
-        let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("Process with PID"), "Error should mention the PID");
-    }
-
-    #[test]
-    fn test_get_process_name_by_pid_system_process() {
-        // Test with a known system process (PID 4 is usually System on Windows)
-        let system_pid = 4;
-        let result = get_process_name_by_pid(system_pid);
-        
-        // This might succeed or fail depending on permissions, but shouldn't panic
-        match result {
-            Ok(name) => {
-                assert!(!name.is_empty(), "Process name should not be empty");
-                println!("System process name: {}", name);
-            }
-            Err(e) => {
-                println!("Expected: Could not access system process: {}", e);
-            }
-        }
-    }
-
-    #[test]
-    fn test_get_pid_by_name_current_process() {
-        // First get the current process name
-        let current_pid = process::id() as i32;
-        let current_name_result = get_process_name_by_pid(current_pid);
-        
-        if let Ok(current_name) = current_name_result {
-            // Now try to find a PID by that name
-            let found_pid = get_pid_by_name(&current_name);
-            
-            // Should find at least one process with this name
-            assert!(found_pid.is_some(), "Should find a PID for current process name: {}", current_name);
-            
-            let found_pid = found_pid.unwrap();
-            assert!(found_pid > 0, "PID should be positive");
-            
-            // The found PID might not be exactly the same as current PID if there are multiple
-            // processes with the same name, but it should be valid
-            println!("Current PID: {}, Found PID for '{}': {}", current_pid, current_name, found_pid);
-        }
-    }
-
-    #[test]
-    fn test_get_pid_by_name_nonexistent_process() {
-        // Test with a process name that definitely doesn't exist
-        let nonexistent_name = "definitely_nonexistent_process_12345";
-        let result = get_pid_by_name(nonexistent_name);
-        
-        assert!(result.is_none(), "Should return None for nonexistent process");
-    }
-
-    #[test]
-    fn test_get_pid_by_name_partial_match() {
-        // Test partial matching - try to find any process containing "win"
-        // This should match Windows system processes like "winlogon", "wininit", etc.
-        let partial_name = "win";
-        let result = get_pid_by_name(partial_name);
-        
-        // This might or might not find something, but shouldn't panic
-        match result {
-            Some(pid) => {
-                assert!(pid > 0, "Found PID should be positive");
-                println!("Found process with 'win' in name: PID {}", pid);
-                
-                // Verify we can get the name back
-                if let Ok(name) = get_process_name_by_pid(pid) {
-                    assert!(name.to_lowercase().contains("win"), 
-                           "Found process name '{}' should contain 'win'", name);
-                }
-            }
-            None => {
-                println!("No process found containing 'win' - this is possible but unusual on Windows");
-            }
-        }
-    }
-
-    #[test]
-    fn test_handle_guard_cleanup() {
-        // Test that HandleGuard properly cleans up handles
-        use windows::Win32::System::Diagnostics::ToolHelp::CreateToolhelp32Snapshot;
-        
-        unsafe {
-            let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).unwrap();
-            assert!(!snapshot.is_invalid(), "Snapshot should be valid");
-            
-            // Create and immediately drop the guard
-            {
-                let _guard = HandleGuard(snapshot);
-                // Guard should be alive here
-            }
-            // Guard should be dropped and handle closed here
-            
-            // We can't easily test that the handle was actually closed without
-            // potentially causing issues, but the test verifies the code compiles
-            // and the guard can be created/dropped without panicking
-        }
-    }
-
-    #[test]
-    fn test_process_name_extension_stripping() {
-        // Test the extension stripping logic by checking current process
-        let current_pid = process::id() as i32;
-        let result = get_process_name_by_pid(current_pid);
-        
-        if let Ok(process_name) = result {
-            // Verify no .exe extension
-            assert!(!process_name.ends_with(".exe"), "Process name should not end with .exe");
-            assert!(!process_name.ends_with(".EXE"), "Process name should not end with .EXE");
-            
-            // Verify it's not empty after stripping
-            assert!(!process_name.is_empty(), "Process name should not be empty after extension stripping");
-        }
-    }
-
-    #[test]
-    fn test_multiple_process_enumeration() {
-        // Test that we can enumerate multiple processes without issues
-        let current_pid = process::id() as i32;
-        
-        // Try to get names for a range of PIDs around the current one
-        let mut successful_lookups = 0;
-        let mut failed_lookups = 0;
-        
-        for offset in -10..=10 {
-            let test_pid = current_pid + offset;
-            if test_pid > 0 {
-                match get_process_name_by_pid(test_pid) {
-                    Ok(name) => {
-                        successful_lookups += 1;
-                        assert!(!name.is_empty(), "Process name should not be empty");
-                        println!("PID {}: {}", test_pid, name);
-                    }
-                    Err(_) => {
-                        failed_lookups += 1;
-                    }
-                }
-            }
-        }
-        
-        // We should have at least found the current process
-        assert!(successful_lookups >= 1, "Should find at least the current process");
-        println!("Successful lookups: {}, Failed lookups: {}", successful_lookups, failed_lookups);
-    }
-
-    #[cfg(test)]
-    mod integration_tests {
-        use super::*;
-
-        #[test]
-        fn test_round_trip_pid_name_lookup() {
-            // Test the round trip: PID -> Name -> PID
-            let original_pid = process::id() as i32;
-            
-            // Get the process name
-            let process_name = match get_process_name_by_pid(original_pid) {
-                Ok(name) => name,
-                Err(_) => {
-                    println!("Could not get current process name, skipping round-trip test");
-                    return;
-                }
-            };
-            
-            // Find a PID by that name
-            let found_pid = get_pid_by_name(&process_name);
-            
-            assert!(found_pid.is_some(), "Should find a PID for process name: {}", process_name);
-            let found_pid = found_pid.unwrap();
-            
-            // Verify the found PID corresponds to the same process name
-            let verified_name = get_process_name_by_pid(found_pid).unwrap();
-            assert_eq!(process_name, verified_name, 
-                      "Round-trip should yield the same process name");
-            
-            println!("Round-trip successful: {} -> {} -> {}", 
-                    original_pid, process_name, found_pid);
-        }
-    }
+// Add this function after the generate_element_id function and before the tests module
+/// Converts a raw uiautomation::UIElement to a terminator UIElement
+pub fn convert_uiautomation_element_to_terminator(element: uiautomation::UIElement) -> UIElement {
+    let arc_element = ThreadSafeWinUIElement(Arc::new(element));
+    UIElement::new(Box::new(WindowsUIElement {
+        element: arc_element,
+    }))
 }
+

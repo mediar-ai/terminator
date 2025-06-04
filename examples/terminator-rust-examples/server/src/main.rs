@@ -1665,7 +1665,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting Terminator server");
     let start = Instant::now();
 
-    let desktop = Arc::new(Desktop::new(false, false).await?);
+    let desktop = Arc::new(Desktop::new(false, false)?);
     let app_state = Arc::new(AppState::new(desktop));
 
     let app = Router::new()

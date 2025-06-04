@@ -10,6 +10,7 @@ use crate::{
     Locator,
     map_error,
     types::{ExploreResponse, ExploredElementDetail},
+    ScreenshotResult,
 };
 
 /// A UI element in the accessibility tree.
@@ -336,5 +337,27 @@ impl Element {
     pub fn highlight(&self, color: Option<u32>, duration_ms: Option<f64>) -> napi::Result<()> {
         let duration = duration_ms.map(|ms| std::time::Duration::from_millis(ms as u64));
         self.inner.highlight(color, duration).map_err(map_error)
+    }
+
+    /// Capture a screenshot of this element.
+    /// 
+    /// @returns {ScreenshotResult} The screenshot data containing image data and dimensions.
+    #[napi]
+    pub fn capture(&self) -> napi::Result<ScreenshotResult> {
+        self.inner.capture()
+            .map(|result| ScreenshotResult {
+                image_data: result.image_data,
+                width: result.width,
+                height: result.height,
+            })
+            .map_err(map_error)
+    }
+
+    /// Get the process ID of the application containing this element.
+    /// 
+    /// @returns {number} The process ID.
+    #[napi]
+    pub fn process_id(&self) -> napi::Result<u32> {
+        self.inner.process_id().map_err(map_error)
     }
 } 

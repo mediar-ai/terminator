@@ -16,7 +16,7 @@ https://github.com/user-attachments/assets/00329105-8875-48cb-8970-a62a85a9ebd0
     </a>
 </p>
 
->Automate desktop apps like a browser. AI-native GUI automation for Windows. Fast, reliable, agent-ready.
+>Automate desktop apps like a browser. AI-native GUI automation for Windows, MacOS, Linux. Fast, reliable, agent-ready.
 
 ## ⚡ TL;DR — Hello World Example
 

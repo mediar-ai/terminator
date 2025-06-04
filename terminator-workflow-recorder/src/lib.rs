@@ -11,7 +11,7 @@ pub mod recorder;
 pub mod error;
 
 pub use events::{
-    Position, UiElement, Rect, MouseButton, MouseEventType, KeyboardEvent, MouseEvent,
+    Position, Rect, MouseButton, MouseEventType, KeyboardEvent, MouseEvent,
     ClipboardAction, ClipboardEvent, TextSelectionEvent, SelectionMethod, DragDropEvent,
     HotkeyEvent, WorkflowEvent, RecordedEvent, RecordedWorkflow, StructureChangeType,
     UiStructureChangedEvent, UiPropertyChangedEvent, UiFocusChangedEvent, EventMetadata,

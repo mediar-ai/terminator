@@ -97,7 +97,7 @@ async fn main() -> Result<(), AutomationError> {
     // Or, just open notepad blank first, then finding the edit area and setting its value.
     // Let's try opening notepad blank first, then finding the edit area and setting its value.
     // let notepad_app = engine.open_application("notepad")?;
-    let desktop = Desktop::new(false, true).await.unwrap();
+    let desktop = Desktop::new(false, true).unwrap();
     // desktop.activate_browser_window_by_title("Excel")?;
     // let window = desktop.get_current_browser_window().await.unwrap();
     // println!("window: {:?}", window.attributes());

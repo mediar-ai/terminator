@@ -4,21 +4,21 @@ version = { workspace = true }
 edition = "2024"
 
 [dependencies]
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.140"
-anyhow = "1.0.97"
-thiserror = "2.0.12"
-tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
-tokio = { version = "1.44.2", features = ["full"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tokio = { workspace = true }
 
 # OCR / Vision
-xcap = "0.5.0"
-image = "0.25.6"
-uni-ocr = { git = "https://github.com/mediar-ai/uniOCR", branch = "main" }
-tempfile = "3.19.1"
-async-trait = "0.1.88"
-base64 = "0.22.1"
+xcap = { workspace = true }
+image = { workspace = true }
+uni-ocr = { workspace = true }
+tempfile = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
 
 [lib]
 name = "terminator"
@@ -30,26 +30,41 @@ accessibility = { git = "https://github.com/eiz/accessibility.git", branch = "ma
 objc = "0.2.7"
 objc-foundation = "0.1.1"
 
-core-foundation = "=0.10.0"
+core-foundation = "0.10.1"
 core-graphics = { version = "0.24.0", features = ["highsierra"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.61.1", features = [
     "Win32_Foundation",
     "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Com",
+    "Win32_UI_Shell",
+    "Win32_Security"
 ] }
-uiautomation = { version = "0.18.0" }
+uiautomation = { version = "0.19.0" }
 sysinfo = "0.34.2"
-arboard = "3.3.0"
 
 [[example]]
 name = "server"
 path = "../examples/terminator-rust-examples/server/src/main.rs"
 
+[[example]]
+name = "benchmark_example"
+path = "examples/benchmark_example.rs"
+
 [dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
 axum = "0.8.3"
 tower-http = { version = "0.6.2", features = ["cors", "limit"] }
 reqwest = { version = "0.12.5", features = ["json", "blocking"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[[bench]]
+name = "element_tree_benchmarks"
+harness = false
+
+[[bench]]
+name = "tree_performance_benchmarks"
+harness = false
 
