@@ -51,7 +51,7 @@ pub struct CommandOutput {
 /// UI Element attributes
 #[gen_stub_pyclass]
 #[pyclass(name = "UIElementAttributes")]
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct UIElementAttributes {
     #[pyo3(get)]
     pub role: String,
@@ -133,6 +133,55 @@ pub struct ExploreResponse {
     pub children: Vec<ExploredElementDetail>,
 }
 
+/// UI Node representing a tree structure of UI elements
+#[gen_stub_pyclass]
+#[pyclass(name = "UINode")]
+#[derive(Clone, Serialize)]
+pub struct UINode {
+    #[pyo3(get)]
+    pub attributes: UIElementAttributes,
+    #[pyo3(get)]
+    pub children: Vec<UINode>,
+}
+
+/// Property loading strategy for tree building
+#[gen_stub_pyclass]
+#[pyclass(name = "PropertyLoadingMode")]
+#[derive(Clone, Serialize)]
+pub struct PropertyLoadingMode {
+    #[pyo3(get)]
+    pub mode: String,
+}
+
+impl PropertyLoadingMode {
+    pub fn fast() -> Self {
+        PropertyLoadingMode { mode: "Fast".to_string() }
+    }
+    
+    pub fn complete() -> Self {
+        PropertyLoadingMode { mode: "Complete".to_string() }
+    }
+    
+    pub fn smart() -> Self {
+        PropertyLoadingMode { mode: "Smart".to_string() }
+    }
+}
+
+/// Configuration for tree building performance and completeness
+#[gen_stub_pyclass]
+#[pyclass(name = "TreeBuildConfig")]
+#[derive(Clone, Serialize)]
+pub struct TreeBuildConfig {
+    #[pyo3(get)]
+    pub property_mode: PropertyLoadingMode,
+    #[pyo3(get)]
+    pub timeout_per_operation_ms: Option<u64>,
+    #[pyo3(get)]
+    pub yield_every_n_elements: Option<usize>,
+    #[pyo3(get)]
+    pub batch_size: Option<usize>,
+}
+
 impl From<CoreScreenshotResult> for ScreenshotResult {
     fn from(r: CoreScreenshotResult) -> Self {
         ScreenshotResult {
@@ -159,6 +208,52 @@ impl From<CoreCommandOutput> for CommandOutput {
             exit_status: r.exit_status,
             stdout: r.stdout,
             stderr: r.stderr,
+        }
+    }
+}
+
+impl From<::terminator_core::UINode> for UINode {
+    fn from(node: ::terminator_core::UINode) -> Self {
+        UINode {
+            attributes: UIElementAttributes::from(node.attributes),
+            children: node.children.into_iter().map(UINode::from).collect(),
+        }
+    }
+}
+
+impl From<::terminator_core::UIElementAttributes> for UIElementAttributes {
+    fn from(attrs: ::terminator_core::UIElementAttributes) -> Self {
+        // Convert HashMap<String, Option<serde_json::Value>> to HashMap<String, Option<String>>
+        let properties = attrs.properties.into_iter()
+            .map(|(k, v)| (k, v.map(|val| val.to_string())))
+            .collect();
+
+        UIElementAttributes {
+            role: attrs.role,
+            name: attrs.name,
+            label: attrs.label,
+            value: attrs.value,
+            description: attrs.description,
+            properties,
+            is_keyboard_focusable: attrs.is_keyboard_focusable,
+        }
+    }
+}
+
+impl From<TreeBuildConfig> for ::terminator_core::platforms::TreeBuildConfig {
+    fn from(config: TreeBuildConfig) -> Self {
+        let property_mode = match config.property_mode.mode.as_str() {
+            "Fast" => ::terminator_core::platforms::PropertyLoadingMode::Fast,
+            "Complete" => ::terminator_core::platforms::PropertyLoadingMode::Complete,
+            "Smart" => ::terminator_core::platforms::PropertyLoadingMode::Smart,
+            _ => ::terminator_core::platforms::PropertyLoadingMode::Fast, // default
+        };
+        
+        ::terminator_core::platforms::TreeBuildConfig {
+            property_mode,
+            timeout_per_operation_ms: config.timeout_per_operation_ms,
+            yield_every_n_elements: config.yield_every_n_elements,
+            batch_size: config.batch_size,
         }
     }
 }
@@ -257,6 +352,45 @@ impl Bounds {
 #[gen_stub_pymethods]
 #[pymethods]
 impl ExploredElementDetail {
+    fn __repr__(&self) -> PyResult<String> {
+        serde_json::to_string(self)
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+    }
+    fn __str__(&self) -> PyResult<String> {
+        serde_json::to_string_pretty(self)
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+    }
+}
+
+#[gen_stub_pymethods]
+#[pymethods]
+impl UINode {
+    fn __repr__(&self) -> PyResult<String> {
+        serde_json::to_string(self)
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+    }
+    fn __str__(&self) -> PyResult<String> {
+        serde_json::to_string_pretty(self)
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+    }
+}
+
+#[gen_stub_pymethods]
+#[pymethods]
+impl PropertyLoadingMode {
+    fn __repr__(&self) -> PyResult<String> {
+        serde_json::to_string(self)
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+    }
+    fn __str__(&self) -> PyResult<String> {
+        serde_json::to_string_pretty(self)
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+    }
+}
+
+#[gen_stub_pymethods]
+#[pymethods]
+impl TreeBuildConfig {
     fn __repr__(&self) -> PyResult<String> {
         serde_json::to_string(self)
             .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))

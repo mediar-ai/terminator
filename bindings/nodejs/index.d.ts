@@ -53,6 +53,28 @@ export interface ExploreResponse {
   parent: Element
   children: Array<ExploredElementDetail>
 }
+export interface UINode {
+  attributes: UIElementAttributes
+  children: Array<UINode>
+}
+export const enum PropertyLoadingMode {
+  /** Only load essential properties (role + name) - fastest */
+  Fast = 'Fast',
+  /** Load all properties for complete element data - slower but comprehensive */
+  Complete = 'Complete',
+  /** Load specific properties based on element type - balanced approach */
+  Smart = 'Smart'
+}
+export interface TreeBuildConfig {
+  /** Property loading strategy */
+  propertyMode: PropertyLoadingMode
+  /** Optional timeout per operation in milliseconds */
+  timeoutPerOperationMs?: number
+  /** Optional yield frequency for responsiveness */
+  yieldEveryNElements?: number
+  /** Optional batch size for processing elements */
+  batchSize?: number
+}
 /** Main entry point for desktop automation. */
 export declare class Desktop {
   /**
@@ -137,14 +159,6 @@ export declare class Desktop {
    */
   ocrScreenshot(screenshot: ScreenshotResult): Promise<string>
   /**
-   * (async) Find a window by criteria.
-   *
-   * @param {string} [titleContains] - Text that should be in the window title.
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<Element>} The found window element.
-   */
-  findWindowByCriteria(titleContains?: string | undefined | null, timeoutMs?: number | undefined | null): Promise<Element>
-  /**
    * (async) Get the currently focused browser window.
    *
    * @returns {Promise<Element>} The current browser window element.
@@ -194,6 +208,15 @@ export declare class Desktop {
    * @param {string} title - The window title to match.
    */
   activateBrowserWindowByTitle(title: string): void
+  /**
+   * Get the UI tree for a window identified by process ID and optional title.
+   *
+   * @param {number} pid - Process ID of the target application.
+   * @param {string} [title] - Optional window title filter.
+   * @param {TreeBuildConfig} [config] - Optional configuration for tree building.
+   * @returns {UINode} Complete UI tree starting from the identified window.
+   */
+  getWindowTree(pid: number, title?: string | undefined | null, config?: TreeBuildConfig | undefined | null): UINode
 }
 /** A UI element in the accessibility tree. */
 export declare class Element {
@@ -437,262 +460,4 @@ export declare class Locator {
    * @returns {Locator} A new locator with the chained selector.
    */
   locator(selector: string): Locator
-  /**
-   * (async) Click on the first matching element.
-   *
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<ClickResult>} Result of the click operation.
-   */
-  click(timeoutMs?: number | undefined | null): Promise<ClickResult>
-  /**
-   * (async) Type text into the first matching element.
-   *
-   * @param {string} text - The text to type.
-   * @param {boolean} [useClipboard] - Whether to use clipboard for pasting.
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<void>}
-   */
-  typeText(text: string, useClipboard?: boolean | undefined | null, timeoutMs?: number | undefined | null): Promise<void>
-  /**
-   * (async) Press a key on the first matching element.
-   *
-   * @param {string} key - The key to press.
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<void>}
-   */
-  pressKey(key: string, timeoutMs?: number | undefined | null): Promise<void>
-  /**
-   * (async) Get text from the first matching element.
-   *
-   * @param {number} [maxDepth] - Maximum depth to search for text.
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<string>} The element's text content.
-   */
-  text(maxDepth?: number | undefined | null, timeoutMs?: number | undefined | null): Promise<string>
-  /**
-   * (async) Get attributes from the first matching element.
-   *
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<UIElementAttributes>} The element's attributes.
-   */
-  attributes(timeoutMs?: number | undefined | null): Promise<UIElementAttributes>
-  /**
-   * (async) Get bounds from the first matching element.
-   *
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<Bounds>} The element's bounds.
-   */
-  bounds(timeoutMs?: number | undefined | null): Promise<Bounds>
-  /**
-   * (async) Check if the element is visible.
-   *
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<boolean>} True if the element is visible.
-   */
-  isVisible(timeoutMs?: number | undefined | null): Promise<boolean>
-  /**
-   * (async) Wait for the element to be enabled.
-   *
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<Element>} The enabled element.
-   */
-  expectEnabled(timeoutMs?: number | undefined | null): Promise<Element>
-  /**
-   * (async) Wait for the element to be visible.
-   *
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<Element>} The visible element.
-   */
-  expectVisible(timeoutMs?: number | undefined | null): Promise<Element>
-  /**
-   * (async) Wait for the element's text to equal the expected text.
-   *
-   * @param {string} expectedText - The expected text.
-   * @param {number} [maxDepth] - Maximum depth to search for text.
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<Element>} The element with matching text.
-   */
-  expectTextEquals(expectedText: string, maxDepth?: number | undefined | null, timeoutMs?: number | undefined | null): Promise<Element>
-  /**
-   * (async) Double click on the first matching element.
-   *
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<ClickResult>} Result of the click operation.
-   */
-  doubleClick(timeoutMs?: number | undefined | null): Promise<ClickResult>
-  /**
-   * (async) Right click on the first matching element.
-   *
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<void>}
-   */
-  rightClick(timeoutMs?: number | undefined | null): Promise<void>
-  /**
-   * (async) Hover over the first matching element.
-   *
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<void>}
-   */
-  hover(timeoutMs?: number | undefined | null): Promise<void>
-  /**
-   * (async) Explore the first matching element and its direct children.
-   *
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<ExploreResponse>} Details about the element and its children.
-   */
-  explore(timeoutMs?: number | undefined | null): Promise<ExploreResponse>
-  /**
-   * (async) Get the id of the first matching element.
-   *
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<?string>} The element's id, or null if not present.
-   */
-  id(timeoutMs?: number | undefined | null): Promise<string | null>
-  /**
-   * (async) Get the role of the first matching element.
-   *
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<string>} The element's role.
-   */
-  role(timeoutMs?: number | undefined | null): Promise<string>
-  /**
-   * (async) Get the children of the first matching element.
-   *
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<Array<Element>>} The element's children.
-   */
-  children(timeoutMs?: number | undefined | null): Promise<Array<Element>>
-  /**
-   * (async) Get the parent of the first matching element.
-   *
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<?Element>} The element's parent, or null if not present.
-   */
-  parent(timeoutMs?: number | undefined | null): Promise<Element | null>
-  /**
-   * (async) Set value of the first matching element.
-   *
-   * @param {string} value - The value to set.
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<void>}
-   */
-  setValue(value: string, timeoutMs?: number | undefined | null): Promise<void>
-  /**
-   * (async) Check if the first matching element is focused.
-   *
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<boolean>} True if the element is focused.
-   */
-  isFocused(timeoutMs?: number | undefined | null): Promise<boolean>
-  /**
-   * (async) Perform a named action on the first matching element.
-   *
-   * @param {string} action - The action name.
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<void>}
-   */
-  performAction(action: string, timeoutMs?: number | undefined | null): Promise<void>
-  /**
-   * (async) Scroll the first matching element in a given direction.
-   *
-   * @param {string} direction - The scroll direction (e.g., "up", "down").
-   * @param {number} amount - The amount to scroll.
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<void>}
-   */
-  scroll(direction: string, amount: number, timeoutMs?: number | undefined | null): Promise<void>
-  /**
-   * (async) Activate the window containing the first matching element.
-   *
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<void>}
-   */
-  activateWindow(timeoutMs?: number | undefined | null): Promise<void>
-  /**
-   * (async) Get the name of the first matching element.
-   *
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<?string>} The element's name, or null if not present.
-   */
-  name(timeoutMs?: number | undefined | null): Promise<string | null>
-  /**
-   * (async) Check if the first matching element is keyboard focusable.
-   *
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<boolean>} True if the element is keyboard focusable.
-   */
-  isKeyboardFocusable(timeoutMs?: number | undefined | null): Promise<boolean>
-  /**
-   * (async) Drag mouse from start to end coordinates on the first matching element.
-   *
-   * @param {number} startX - Starting x coordinate.
-   * @param {number} startY - Starting y coordinate.
-   * @param {number} endX - Ending x coordinate.
-   * @param {number} endY - Ending y coordinate.
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<void>}
-   */
-  mouseDrag(startX: number, startY: number, endX: number, endY: number, timeoutMs?: number | undefined | null): Promise<void>
-  /**
-   * (async) Press and hold mouse at (x, y) on the first matching element.
-   *
-   * @param {number} x - X coordinate.
-   * @param {number} y - Y coordinate.
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<void>}
-   */
-  mouseClickAndHold(x: number, y: number, timeoutMs?: number | undefined | null): Promise<void>
-  /**
-   * (async) Move mouse to (x, y) on the first matching element.
-   *
-   * @param {number} x - X coordinate.
-   * @param {number} y - Y coordinate.
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<void>}
-   */
-  mouseMove(x: number, y: number, timeoutMs?: number | undefined | null): Promise<void>
-  /**
-   * (async) Release mouse button on the first matching element.
-   *
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<void>}
-   */
-  mouseRelease(timeoutMs?: number | undefined | null): Promise<void>
-  /**
-   * (async) Get the containing application element of the first matching element.
-   *
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<?Element>} The application element, or null if not present.
-   */
-  application(timeoutMs?: number | undefined | null): Promise<Element | null>
-  /**
-   * (async) Get the containing window element of the first matching element.
-   *
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<?Element>} The window element, or null if not present.
-   */
-  window(timeoutMs?: number | undefined | null): Promise<Element | null>
-  /**
-   * (async) Highlights the first matching element with a colored border.
-   *
-   * @param {number} [color] - Optional BGR color code (32-bit integer). Default: 0x0000FF (red)
-   * @param {number} [durationMs] - Optional duration in milliseconds.
-   * @param {number} [timeoutMs] - Optional timeout in milliseconds.
-   * @returns {Promise<void>}
-   */
-  highlight(color?: number | undefined | null, durationMs?: number | undefined | null, timeoutMs?: number | undefined | null): Promise<void>
-  /**
-   * (async) Captures a screenshot of the first matching element.
-   *
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<ScreenshotResult>} The screenshot data containing image data and dimensions.
-   */
-  capture(timeoutMs?: number | undefined | null): Promise<ScreenshotResult>
-  /**
-   * (async) Get the process ID of the application containing the first matching element.
-   *
-   * @param {number} [timeoutMs] - Timeout in milliseconds.
-   * @returns {Promise<number>} The process ID of the application.
-   */
-  processId(timeoutMs?: number | undefined | null): Promise<number>
 }

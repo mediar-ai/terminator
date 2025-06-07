@@ -4,10 +4,10 @@
 //! through accessibility APIs, inspired by Playwright's web automation model.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Instant};
 use std::fmt;
 use serde::{Deserialize, Serialize};
-use tracing::{info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 pub mod element;
 pub mod errors;
@@ -153,61 +153,19 @@ impl Desktop {
         })
     }
 
-    /// Enable or disable background cache warming for improved performance
-    /// 
-    /// This feature spawns a background thread that periodically builds UI trees for
-    /// frequently used applications, keeping the native platform cache warm.
-    /// This can significantly improve performance when your recorder needs to fetch
-    /// full UI trees for applications.
-    /// 
-    /// # Arguments
-    /// * `enable` - Whether to enable (true) or disable (false) the cache warmer
-    /// * `interval_seconds` - How often to refresh the cache (default: 30 seconds)
-    /// * `max_apps_to_cache` - Maximum number of recent apps to keep cached (default: 10)
-    /// 
-    /// # Example
-    /// ```no_run
-    /// use terminator::Desktop;
-    /// 
-    /// let desktop = Desktop::new(false, false)?;
-    /// 
-    /// // Enable cache warming every 60 seconds for up to 15 apps
-    /// desktop.enable_background_cache_warmer(true, Some(60), Some(15))?;
-    /// 
-    /// // Later, disable cache warming
-    /// desktop.enable_background_cache_warmer(false, None, None)?;
-    /// # Ok::<(), terminator::AutomationError>(())
-    /// ```
-    pub fn enable_background_cache_warmer(
-        &self,
-        enable: bool,
-        interval_seconds: Option<u64>,
-        max_apps_to_cache: Option<usize>,
-    ) -> Result<(), AutomationError> {
-        self.engine.enable_background_cache_warmer(enable, interval_seconds, max_apps_to_cache)
-    }
-
-    /// Check if the background cache warmer is currently running
-    /// 
-    /// # Returns
-    /// `true` if the cache warmer is active, `false` otherwise
-    pub fn is_cache_warmer_enabled(&self) -> bool {
-        self.engine.is_cache_warmer_enabled()
-    }
-
-    /// Returns the root element of the desktop
-    /// 
-    /// The root element represents the desktop and provides access to all UI elements
-    /// currently visible on the screen.
-    /// 
+    /// Gets the root element representing the entire desktop.
+    ///
+    /// This is the top-level element that contains all applications, windows,
+    /// and UI elements on the desktop. You can use it as a starting point for
+    /// element searches.
+    ///
     /// # Examples
-    /// 
-    /// ```no_run
+    ///
+    /// ```
     /// use terminator::Desktop;
-    /// 
     /// let desktop = Desktop::new(false, false)?;
     /// let root = desktop.root();
-    /// println!("Desktop root: {:?}", root.role());
+    /// println!("Root element ID: {:?}", root.id());
     /// # Ok::<(), terminator::AutomationError>(())
     /// ```
     pub fn root(&self) -> UIElement {
@@ -503,27 +461,6 @@ impl Desktop {
         Ok(())
     }
 
-    #[instrument(skip(self, title_contains, timeout))]
-    pub async fn find_window_by_criteria(
-        &self,
-        title_contains: Option<&str>,
-        timeout: Option<Duration>,
-    ) -> Result<UIElement, AutomationError> {
-        let start = Instant::now();
-        info!(?title_contains, ?timeout, "Finding window by criteria");
-        
-        let window = self.engine.find_window_by_criteria(title_contains, timeout).await?;
-        
-        let duration = start.elapsed();
-        info!(
-            duration_ms = duration.as_millis(),
-            window_id = window.id().unwrap_or_default(),
-            "Window found"
-        );
-        
-        Ok(window)
-    }
-
     #[instrument(skip(self))]
     pub async fn get_current_browser_window(&self) -> Result<UIElement, AutomationError> {
         let start = Instant::now();
@@ -575,39 +512,110 @@ impl Desktop {
         Ok(application)
     }
 
-    #[instrument(skip(self, title))]
-    pub fn get_window_tree_by_title(&self, title: &str) -> Result<UINode, AutomationError> {
+    #[instrument(skip(self, pid, title, config))]
+    pub fn get_window_tree(&self, pid: u32, title: Option<&str>, config: Option<crate::platforms::TreeBuildConfig>) -> Result<UINode, AutomationError> {
         let start = Instant::now();
-        info!(title, "Getting window tree by title");
+        info!(pid, ?title, "Getting window tree with config");
 
-        let window_tree_root = self.engine.get_window_tree_by_title(title)?;
-
-        let duration = start.elapsed();
-        info!(
-            duration_ms = duration.as_millis(),
-            title = title,
-            "Window tree retrieved"
-        );
-
-        Ok(window_tree_root)
-    }
-
-    #[instrument(skip(self, pid, title))]
-    pub fn get_window_tree_by_pid_and_title(&self, pid: u32, title: Option<&str>) -> Result<UINode, AutomationError> {
-        let start = Instant::now();
-        info!(pid, ?title, "Getting window tree by PID and title");
-
-        let window_tree_root = self.engine.get_window_tree_by_pid_and_title(pid, title)?;
+        let tree_config = config.unwrap_or_default();
+        let window_tree_root = self.engine.get_window_tree(pid, title, tree_config)?;
 
         let duration = start.elapsed();
         info!(
             duration_ms = duration.as_millis(),
             pid = pid,
             ?title,
-            "Window tree retrieved by PID and title"
+            "Window tree retrieved"
         );
 
         Ok(window_tree_root)
+    }
+
+    /// Convenience method: Get window tree by title only (assumes you have the PID)
+    /// For backward compatibility - you should prefer get_window_tree() with PID
+    #[instrument(skip(self, title))]
+    pub fn get_window_tree_by_title(&self, title: &str) -> Result<UINode, AutomationError> {
+        // This is a legacy method - in practice you should always use get_window_tree() with PID
+        // We'll try to find a window by title and extract its PID, but this is less reliable
+        
+        warn!("get_window_tree_by_title is deprecated - use get_window_tree() with PID for better reliability");
+        
+        // Try to find a window with this title to get its PID  
+        // This is a best-effort fallback for backward compatibility
+        let applications = self.engine.get_applications()?;
+        
+        for app in applications {
+            if let Ok(pid) = app.process_id() {
+                // Try this PID with the title
+                if let Ok(tree) = self.get_window_tree(pid, Some(title), None) {
+                    return Ok(tree);
+                }
+            }
+        }
+        
+        Err(AutomationError::ElementNotFound(
+            format!("Could not find window with title '{}' - consider using get_window_tree() with PID", title)
+        ))
+    }
+
+    /// Get window tree by PID and optional title (main recommended method)
+    #[instrument(skip(self, pid, title))]
+    pub fn get_window_tree_by_pid_and_title(&self, pid: u32, title: Option<&str>) -> Result<UINode, AutomationError> {
+        // This is now just a wrapper around the main get_window_tree method
+        self.get_window_tree(pid, title, None)
+    }
+
+    /// Get all window elements for a given application by name
+    #[instrument(skip(self, app_name))]
+    pub async fn windows_for_application(&self, app_name: &str) -> Result<Vec<UIElement>, AutomationError> {
+        let start = Instant::now();
+        debug!(app_name, "Getting windows for application");
+
+        // 1. Find the application element
+        let app_element = match self.application(app_name) {
+            Ok(app) => app,
+            Err(e) => {
+                error!("Application '{}' not found: {}", app_name, e);
+                return Err(e);
+            }
+        };
+        debug!("Found application element for '{}'", app_name);
+
+        // 2. Get children of the application element
+        let children = match app_element.children() {
+            Ok(ch) => ch,
+            Err(e) => {
+                error!("Failed to get children for application '{}': {}", app_name, e);
+                return Err(e);
+            }
+        };
+        debug!(child_count = children.len(), "Found children for application '{}" , app_name);
+
+        // 3. Filter children to find windows (cross-platform)
+        let windows: Vec<UIElement> = children
+            .into_iter()
+            .filter(|el| {
+                let role = el.role().to_lowercase();
+                #[cfg(target_os = "macos")]
+                {
+                    role == "axwindow" || role == "window"
+                }
+                #[cfg(target_os = "windows")]
+                {
+                    role == "window"
+                }
+                #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+                {
+                    // Fallback: just look for 'window' role
+                    role == "window"
+                }
+            })
+            .collect();
+
+            debug!(window_count = windows.len(), "Found windows for application '{}'", app_name);
+        let duration = start.elapsed();
+        debug!(duration_ms = duration.as_millis(), "windows_for_application complete");
+        Ok(windows)
     }
 }
 

@@ -1,5 +1,5 @@
 {
-  "name": "terminator",
+  "name": "terminator.js",
   "description": "Node.js/TypeScript bindings for the Terminator Rust library (via napi-rs)",
   "main": "wrapper.js",
   "types": "wrapper.d.ts",
@@ -7,6 +7,11 @@
     "type": "git",
     "url": "https://github.com/mediar-ai/terminator"
   },
+  "homepage": "https://github.com/mediar-ai/terminator",
+  "bugs": {
+    "url": "https://github.com/mediar-ai/terminator/issues"
+  },
+  "author": "mediar-ai",
   "napi": {
     "name": "terminator",
     "triples": {
@@ -22,22 +27,33 @@
     "node": ">= 10"
   },
   "scripts": {
-    "artifacts": "napi artifacts",
-    "build": "napi build --platform --release --strip",
-    "build:debug": "napi build --platform",
-    "prepublishOnly": "napi prepublish -t npm"
+    "sync-version": "node sync-version.js",
+    "artifacts": "npx napi artifacts",
+    "build": "npm run sync-version && npx napi build --platform --release --strip",
+    "build:debug": "npm run sync-version && npx napi build --platform",
+    "prepublishOnly": "npm run sync-version && npx napi prepublish -t npm",
+    "test": "node node_example.js",
+    "test-hook": "powershell.exe -ExecutionPolicy Bypass -File \"../../.git/hooks/pre-push.ps1\""
   },
   "keywords": [
     "napi",
     "rust",
     "native",
     "terminator",
-    "automation"
+    "automation",
+    "desktop",
+    "gui",
+    "ui",
+    "testing",
+    "windows",
+    "macos",
+    "linux"
   ],
   "optionalDependencies": {
-    "terminator-win32-x64-msvc": "0.3.3",
-    "terminator-darwin-x64": "0.3.3",
-    "terminator-linux-x64-gnu": "0.3.3",
-    "terminator-darwin-arm64": "0.3.3"
-  }
+    "terminator.js-darwin-arm64": "0.4.7",
+    "terminator.js-darwin-x64": "0.4.7",
+    "terminator.js-linux-x64-gnu": "0.4.7",
+    "terminator.js-win32-x64-msvc": "0.4.7"
+  },
+  "version": "0.4.7"
 }

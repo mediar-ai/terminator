@@ -45,10 +45,6 @@ uiautomation = { version = "0.19.0" }
 sysinfo = "0.34.2"
 
 [[example]]
-name = "server"
-path = "../examples/terminator-rust-examples/server/src/main.rs"
-
-[[example]]
 name = "benchmark_example"
 path = "examples/benchmark_example.rs"
 

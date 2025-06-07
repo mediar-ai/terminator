@@ -1,9 +1,0 @@
-[package]
-name = "button"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-egui = "0.27"
-eframe = { version = "0.27", features = ["default_fonts"] }
-rand = "0.8"

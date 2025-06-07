@@ -101,7 +101,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let monitor_task = tokio::spawn(async move {
         let mut interval = interval(Duration::from_millis(500));
         let mut system = System::new_all();
-        let mut apps_seen = std::collections::HashSet::new();
         
         while running_monitor.load(Ordering::Relaxed) {
             interval.tick().await;
@@ -123,20 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut processes: Vec<_> = system.processes().iter().collect();
             processes.sort_by(|a, b| b.1.cpu_usage().partial_cmp(&a.1.cpu_usage()).unwrap());
             
-            let active_processes: Vec<ProcessInfo> = processes.iter()
-                .take(10) // Top 10 processes
-                .filter(|(_, process)| process.cpu_usage() > 0.1 || process.memory() > 50 * 1024 * 1024) // >0.1% CPU or >50MB RAM
-                .map(|(pid, process)| {
-                    let name = process.name().to_string();
-                    apps_seen.insert(name.clone());
-                    ProcessInfo {
-                        name,
-                        pid: pid.as_u32(),
-                        cpu_usage: process.cpu_usage(),
-                        memory_mb: process.memory() / 1024 / 1024,
-                    }
-                })
-                .collect();
+
             
             
             // Get current process name for filtering

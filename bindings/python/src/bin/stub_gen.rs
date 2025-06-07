@@ -135,7 +135,7 @@ fn main() -> Result<()> {
         .init();
     
     info!("Starting stub generation");
-    let stub = terminator::stub_info()?;
+    let stub = terminator_py::stub_info()?;
     stub.generate()?;
     info!("Stub generation completed");
     

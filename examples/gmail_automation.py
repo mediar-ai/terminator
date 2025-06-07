@@ -30,43 +30,43 @@ async def open_gmail_compose(desktop: terminator.Desktop, recipient: str, subjec
         document = gmail_window.locator('role:Document')
         
         # Find and fill recipient field
-        recipient_field = document.locator('name:To recipients')
-        await recipient_field.highlight(color=0x00FF00, duration_ms=2000)  # Green highlight
-        await recipient_field.type_text(recipient)
+        recipient_field = await document.locator('name:To recipients').first()
+        recipient_field.highlight(color=0x00FF00, duration_ms=2000)  # Green highlight
+        recipient_field.type_text(recipient)
         await asyncio.sleep(1)
         
         # Find and fill subject field
-        subject_field = document.locator('name:Subject')
-        await subject_field.highlight(color=0x0000FF, duration_ms=2000)  # Blue highlight
-        await subject_field.type_text(subject)
+        subject_field = await document.locator('name:Subject').first()
+        subject_field.highlight(color=0x0000FF, duration_ms=2000)  # Blue highlight
+        subject_field.type_text(subject)
         await asyncio.sleep(1)
         
         # Find and fill body field
-        body_field = document.locator('name:Message Body')
-        await body_field.highlight(color=0xFF00FF, duration_ms=2000)  # Magenta highlight
-        await body_field.type_text(body)
+        body_field = await document.locator('name:Message Body').first()
+        body_field.highlight(color=0xFF00FF, duration_ms=2000)  # Magenta highlight
+        body_field.type_text(body)
         await asyncio.sleep(1)
         
         logging.info("Email composed successfully!")
 
         # Find and click the Send button
-        send_button = document.locator('name:(Ctrl-Enter)')
-        await send_button.highlight(color=0xFFFF00, duration_ms=2000)  # Yellow highlight
-        await send_button.click()
+        send_button = await document.locator('name:(Ctrl-Enter)').first()
+        send_button.highlight(color=0xFFFF00, duration_ms=2000)  # Yellow highlight
+        send_button.click()
         await asyncio.sleep(1)
 
         logging.info("Email sent successfully!")
 
         # Navigate to Sent folder
-        sent_button = document.locator('name:Labels').locator('name:Sent')
-        await sent_button.highlight(color=0x00FFFF, duration_ms=2000)  # Cyan highlight
-        await sent_button.click()
+        sent_button = await document.locator('name:Labels').locator('name:Sent').first()
+        sent_button.highlight(color=0x00FFFF, duration_ms=2000)  # Cyan highlight
+        sent_button.click()
         await asyncio.sleep(2)
 
         # Open the sent email
-        grid_item = document.locator('role:DataGrid').locator('role:DataItem')
-        await grid_item.highlight(color=0xFFA500, duration_ms=2000)  # Orange highlight
-        await grid_item.click()
+        grid_item = await document.locator('role:DataGrid').locator('role:DataItem').first()
+        grid_item.highlight(color=0xFFA500, duration_ms=2000)  # Orange highlight
+        grid_item.click()
 
         logging.info("Email opened successfully!")
         

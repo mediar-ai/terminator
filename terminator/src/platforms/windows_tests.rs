@@ -63,9 +63,11 @@ fn test_tree_building_performance_stress_test() {
     let start_time = Instant::now();
     
     // Try to get a window tree first to see what we're dealing with
-    match engine.get_window_tree_by_pid_and_title(
+    let config = crate::platforms::TreeBuildConfig::default();
+    match engine.get_window_tree(
         app.process_id().unwrap_or(0), 
-        app.attributes().name.as_deref()
+        app.attributes().name.as_deref(),
+        config
     ) {
         Ok(tree) => {
             let total_time = start_time.elapsed();
@@ -358,4 +360,87 @@ fn test_enhanced_error_messages() {
     // Verify the specific windows we expect
     assert!(browser_windows.iter().any(|w| w.contains("Chrome")), "Should find Chrome window");
     assert!(browser_windows.iter().any(|w| w.contains("Firefox")), "Should find Firefox window");
+}
+
+#[test]
+fn test_unified_tree_api_with_config() {
+    let engine = match WindowsEngine::new(false, false) {
+        Ok(engine) => engine,
+        Err(_) => {
+            println!("Cannot create WindowsEngine, skipping unified API test");
+            return;
+        }
+    };
+
+    // Open Calculator for testing
+    let app = match engine.open_application("calc") {
+        Ok(app) => app,
+        Err(e) => {
+            println!("Cannot open Calculator: {}, skipping test", e);
+            return;
+        }
+    };
+
+    let pid = app.process_id().unwrap_or(0);
+    let title_string = app.attributes().name;
+    let title = title_string.as_deref();
+
+    // Test with Fast property loading mode
+    let fast_config = crate::platforms::TreeBuildConfig {
+        property_mode: crate::platforms::PropertyLoadingMode::Fast,
+        timeout_per_operation_ms: Some(50),
+        yield_every_n_elements: Some(50),
+        batch_size: Some(50),
+    };
+
+    let start_fast = std::time::Instant::now();
+    let fast_result = engine.get_window_tree(pid, title, fast_config);
+    let fast_duration = start_fast.elapsed();
+
+    // Test with Full property loading mode
+    let full_config = crate::platforms::TreeBuildConfig {
+        property_mode: crate::platforms::PropertyLoadingMode::Complete,
+        timeout_per_operation_ms: Some(100),
+        yield_every_n_elements: Some(25),
+        batch_size: Some(25),
+    };
+
+    let start_full = std::time::Instant::now();
+    let full_result = engine.get_window_tree(pid, title, full_config);
+    let full_duration = start_full.elapsed();
+
+    // Test with default config
+    let default_config = crate::platforms::TreeBuildConfig::default();
+    let start_default = std::time::Instant::now();
+    let default_result = engine.get_window_tree(pid, title, default_config);
+    let default_duration = start_default.elapsed();
+
+    // Verify all configurations work
+    assert!(fast_result.is_ok(), "Fast config should work: {:?}", fast_result.err());
+    assert!(full_result.is_ok(), "Full config should work: {:?}", full_result.err());
+    assert!(default_result.is_ok(), "Default config should work: {:?}", default_result.err());
+
+    // Fast mode should generally be faster than full mode
+    println!("Fast mode: {:?}", fast_duration);
+    println!("Full mode: {:?}", full_duration);
+    println!("Default mode: {:?}", default_duration);
+
+    // Count elements to ensure we get reasonable results
+    if let (Ok(fast_tree), Ok(full_tree), Ok(default_tree)) = (&fast_result, &full_result, &default_result) {
+        let fast_count = count_tree_elements(fast_tree);
+        let full_count = count_tree_elements(full_tree);
+        let default_count = count_tree_elements(default_tree);
+
+        println!("Fast mode elements: {}", fast_count);
+        println!("Full mode elements: {}", full_count);
+        println!("Default mode elements: {}", default_count);
+
+        // All modes should find the same number of elements
+        assert_eq!(fast_count, full_count, "Fast and full modes should find same number of elements");
+        assert_eq!(fast_count, default_count, "Fast and default modes should find same number of elements");
+        assert!(fast_count > 0, "Should find at least some elements");
+    }
+
+    // Clean up
+    let _ = app.close();
 } 

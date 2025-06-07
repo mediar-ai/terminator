@@ -7,6 +7,8 @@ use crate::{
     Locator,
     ScreenshotResult,
     CommandOutput,
+    UINode,
+    TreeBuildConfig,
     map_error,
 };
 
@@ -16,6 +18,7 @@ pub struct Desktop {
     inner: TerminatorDesktop,
 }
 
+#[allow(clippy::needless_pass_by_value)]
 #[napi]
 impl Desktop {
     /// Create a new Desktop automation instance with configurable options.
@@ -168,20 +171,6 @@ impl Desktop {
             .map_err(map_error)
     }
 
-    /// (async) Find a window by criteria.
-    /// 
-    /// @param {string} [titleContains] - Text that should be in the window title.
-    /// @param {number} [timeoutMs] - Timeout in milliseconds.
-    /// @returns {Promise<Element>} The found window element.
-    #[napi]
-    pub async fn find_window_by_criteria(&self, title_contains: Option<String>, timeout_ms: Option<f64>) -> napi::Result<Element> {
-        use std::time::Duration;
-        let timeout = timeout_ms.map(|ms| Duration::from_millis(ms as u64));
-        self.inner.find_window_by_criteria(title_contains.as_deref(), timeout).await
-            .map(Element::from)
-            .map_err(map_error)
-    }
-
     /// (async) Get the currently focused browser window.
     /// 
     /// @returns {Promise<Element>} The current browser window element.
@@ -258,6 +247,20 @@ impl Desktop {
     #[napi]
     pub fn activate_browser_window_by_title(&self, title: String) -> napi::Result<()> {
         self.inner.activate_browser_window_by_title(&title)
+            .map_err(map_error)
+    }
+
+    /// Get the UI tree for a window identified by process ID and optional title.
+    /// 
+    /// @param {number} pid - Process ID of the target application.
+    /// @param {string} [title] - Optional window title filter.
+    /// @param {TreeBuildConfig} [config] - Optional configuration for tree building.
+    /// @returns {UINode} Complete UI tree starting from the identified window.
+    #[napi]
+    pub fn get_window_tree(&self, pid: u32, title: Option<String>, config: Option<TreeBuildConfig>) -> napi::Result<UINode> {
+        let rust_config = config.map(|c| c.into());
+        self.inner.get_window_tree(pid, title.as_deref(), rust_config)
+            .map(UINode::from)
             .map_err(map_error)
     }
 } 

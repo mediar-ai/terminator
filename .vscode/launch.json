@@ -1,0 +1,70 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Debug MCP Server (tsx)",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "runtimeExecutable": "${workspaceFolder}/mcp/node_modules/.bin/tsx",
+            "args": [
+                "src/index.ts"
+            ],
+            "cwd": "${workspaceFolder}/mcp",
+            "envFile": "${workspaceFolder}/mcp/.env"
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Debug MCP Server Inspector",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "runtimeExecutable": "npx",
+            "runtimeArgs": [
+                "@modelcontextprotocol/inspector",
+                "tsx",
+                "--inspect=0.0.0.0:9239",
+                "src/index.ts"
+            ],
+            "cwd": "${workspaceFolder}/mcp",
+            "envFile": "${workspaceFolder}/mcp/.env"
+        },
+        {
+            "name": "Attach to Inspector's MCP Server",
+            "type": "node",
+            "request": "attach",
+            "port": 9239,
+            "cwd": "${workspaceFolder}/mcp",
+            "skipFiles": [
+                "<node_internals>/**"
+            ]
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug Rust List Processes and Windows",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--example=list_processes_and_windows"
+                ],
+                 "filter": {
+                    "name": "list_processes_and_windows",
+                    "kind": "example"
+                 }
+            },
+            "args": [],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "RUST_LOG": "debug"
+            }
+        },
+    ]
+}

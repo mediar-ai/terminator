@@ -118,16 +118,6 @@ impl AccessibilityEngine for LinuxEngine {
         ))
     }
 
-    async fn find_window_by_criteria(
-        &self,
-        title_contains: Option<&str>,
-        timeout: Option<Duration>,
-    ) -> Result<UIElement, AutomationError> {
-        Err(AutomationError::UnsupportedPlatform(
-            "find_window_by_criteria not yet implemented for Linux".to_string(),
-        ))
-    }
-
     async fn get_current_browser_window(&self) -> Result<UIElement, AutomationError> {
         Err(AutomationError::UnsupportedOperation(
             "get_current_browser_window not yet implemented for Linux".to_string(),
@@ -146,9 +136,14 @@ impl AccessibilityEngine for LinuxEngine {
         ))
     }
 
-    fn get_window_tree_by_title(&self, title: &str) -> Result<crate::UINode, AutomationError> {
+    fn get_window_tree(
+        &self, 
+        pid: u32, 
+        title: Option<&str>, 
+        _config: crate::platforms::TreeBuildConfig
+    ) -> Result<crate::UINode, AutomationError> {
         Err(AutomationError::UnsupportedPlatform(
-            format!("get_window_tree_by_title for '{}' not yet implemented for Linux", title)
+            format!("get_window_tree for PID {} and title {:?} not yet implemented for Linux", pid, title)
         ))
     }
 
@@ -182,12 +177,6 @@ impl AccessibilityEngine for LinuxEngine {
         _timeout: Option<Duration>,
         _depth: Option<usize>,
     ) -> Result<Vec<UIElement>, AutomationError> {
-        Err(AutomationError::UnsupportedPlatform(
-            "Linux implementation is not yet available".to_string(),
-        ))
-    }
-
-    fn get_window_tree_by_pid_and_title(&self, _pid: u32, _title: Option<&str>) -> Result<crate::UINode, AutomationError> {
         Err(AutomationError::UnsupportedPlatform(
             "Linux implementation is not yet available".to_string(),
         ))
@@ -229,21 +218,6 @@ impl AccessibilityEngine for LinuxEngine {
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
-    }
-
-    fn enable_background_cache_warmer(
-        &self,
-        _enable: bool,
-        _interval_seconds: Option<u64>,
-        _max_apps_to_cache: Option<usize>,
-    ) -> Result<(), AutomationError> {
-        Err(AutomationError::UnsupportedOperation(
-            "Background cache warming is not yet implemented for Linux".to_string()
-        ))
-    }
-
-    fn is_cache_warmer_enabled(&self) -> bool {
-        false
     }
 }
 
@@ -411,6 +385,58 @@ impl UIElementImpl for LinuxUIElement {
     }
 
     fn capture(&self) -> Result<ScreenshotResult, AutomationError> {
+        Err(AutomationError::UnsupportedPlatform(
+            "Linux implementation is not yet available".to_string(),
+        ))
+    }
+
+    fn activate_window(&self) -> Result<(), AutomationError> {
+        Err(AutomationError::UnsupportedPlatform(
+            "Linux implementation is not yet available".to_string(),
+        ))
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn is_keyboard_focusable(&self) -> Result<bool, AutomationError> {
+        Err(AutomationError::UnsupportedPlatform(
+            "Linux implementation is not yet available".to_string(),
+        ))
+    }
+
+    fn mouse_drag(&self, _start_x: f64, _start_y: f64, _end_x: f64, _end_y: f64) -> Result<(), AutomationError> {
+        Err(AutomationError::UnsupportedPlatform(
+            "Linux implementation is not yet available".to_string(),
+        ))
+    }
+
+    fn mouse_click_and_hold(&self, _x: f64, _y: f64) -> Result<(), AutomationError> {
+        Err(AutomationError::UnsupportedPlatform(
+            "Linux implementation is not yet available".to_string(),
+        ))
+    }
+
+    fn mouse_move(&self, _x: f64, _y: f64) -> Result<(), AutomationError> {
+        Err(AutomationError::UnsupportedPlatform(
+            "Linux implementation is not yet available".to_string(),
+        ))
+    }
+
+    fn mouse_release(&self) -> Result<(), AutomationError> {
+        Err(AutomationError::UnsupportedPlatform(
+            "Linux implementation is not yet available".to_string(),
+        ))
+    }
+
+    fn process_id(&self) -> Result<u32, AutomationError> {
+        Err(AutomationError::UnsupportedPlatform(
+            "Linux implementation is not yet available".to_string(),
+        ))
+    }
+
+    fn close(&self) -> Result<(), AutomationError> {
         Err(AutomationError::UnsupportedPlatform(
             "Linux implementation is not yet available".to_string(),
         ))

@@ -1,12 +1,15 @@
 use std::collections::HashMap;
 use terminator::{Desktop, AutomationError};
 use tracing::{info, warn};
+use tracing_subscriber::EnvFilter;
+
+const UNKNOWN_APP_NAME: &str = "Unknown";
 
 #[tokio::main]
 async fn main() -> Result<(), AutomationError> {
     // Initialize tracing
     tracing_subscriber::fmt()
-        .with_env_filter("info")
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .init();
 
     info!("Starting process and window enumeration...");
@@ -70,6 +73,62 @@ async fn main() -> Result<(), AutomationError> {
     // Demonstrate browser tab detection
     println!("\n=== Browser Tab Detection Example ===");
     detect_browser_tabs(&desktop).await?;
+
+    // List all window names for each application/process using the new windows_for_application method
+    println!("\n=== Windows for Each Application/Process (via windows_for_application) ===");
+    for (_, app) in applications.iter().enumerate() {
+        let pid = match app.process_id() {
+            Ok(pid) => pid,
+            Err(_) => continue,
+        };
+        // Get application accessible name/title if available
+        let app_attrs = app.attributes();
+        
+        // Get fallback process name if needed
+        #[cfg(target_os = "windows")]
+        let fallback_process_name = {
+            use terminator::platforms::windows::get_process_name_by_pid;
+            get_process_name_by_pid(pid as i32).unwrap_or_else(|_| UNKNOWN_APP_NAME.to_string())
+        };
+        #[cfg(not(target_os = "windows"))]
+        let fallback_process_name = UNKNOWN_APP_NAME.to_string();
+        
+        let app_title = app_attrs.name.as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or(&fallback_process_name);
+
+        // Skip unknown apps
+        if app_title == UNKNOWN_APP_NAME {
+            continue;
+        }
+
+        // Use the new windows_for_application method
+        let windows_result = desktop.windows_for_application(app_title).await;
+        let mut window_titles = Vec::new();
+        match windows_result {
+            Ok(windows) => {
+                for window in windows {
+                    let attrs = window.attributes();
+                    let window_title = attrs.name.unwrap_or_else(|| "<Unnamed Window>".to_string());
+                    window_titles.push(window_title);
+                }
+            }
+            Err(e) => {
+                #[cfg(debug_assertions)]
+                eprintln!("[DEBUG] Failed to get windows for app '{}': {}", app_title, e);
+            }
+        }
+
+        println!("Application: {} (PID: {})", app_title, pid);
+        if window_titles.is_empty() {
+            println!("  (No windows found)");
+        } else {
+            for (i, title) in window_titles.iter().enumerate() {
+                println!("  {}. {}", i + 1, title);
+            }
+        }
+        println!("");
+    }
 
     Ok(())
 }

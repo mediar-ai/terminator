@@ -15,6 +15,9 @@ pub use types::{
     CommandOutput,
     ScreenshotResult,
     UIElementAttributes,
+    UINode,
+    TreeBuildConfig,
+    PropertyLoadingMode,
 };
 
 // Error handling - see exceptions.rs for detailed architecture

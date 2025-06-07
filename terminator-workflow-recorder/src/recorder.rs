@@ -257,6 +257,9 @@ impl Default for WorkflowRecorderConfig {
                 // "googledrivesync.exe".to_string(),
                 // "skype.exe".to_string(),
                 // "zoom.exe".to_string(),
+
+                // Snipping Tool application.
+                "SnippingTool.exe".to_string(),
             ],
         }
     }

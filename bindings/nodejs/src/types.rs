@@ -68,6 +68,34 @@ pub struct ExploreResponse {
     pub children: Vec<ExploredElementDetail>,
 }
 
+#[napi(object, js_name = "UINode")]
+pub struct UINode {
+    pub attributes: UIElementAttributes,
+    pub children: Vec<UINode>,
+}
+
+#[napi(string_enum)]
+pub enum PropertyLoadingMode {
+    /// Only load essential properties (role + name) - fastest
+    Fast,
+    /// Load all properties for complete element data - slower but comprehensive
+    Complete,
+    /// Load specific properties based on element type - balanced approach
+    Smart,
+}
+
+#[napi(object, js_name = "TreeBuildConfig")]
+pub struct TreeBuildConfig {
+    /// Property loading strategy
+    pub property_mode: PropertyLoadingMode,
+    /// Optional timeout per operation in milliseconds
+    pub timeout_per_operation_ms: Option<i64>,
+    /// Optional yield frequency for responsiveness
+    pub yield_every_n_elements: Option<i32>,
+    /// Optional batch size for processing elements
+    pub batch_size: Option<i32>,
+}
+
 impl From<(f64, f64, f64, f64)> for Bounds {
     fn from(t: (f64, f64, f64, f64)) -> Self {
         Bounds { x: t.0, y: t.1, width: t.2, height: t.3 }
@@ -86,6 +114,49 @@ impl From<terminator::ClickResult> for ClickResult {
             method: r.method,
             coordinates: r.coordinates.map(Coordinates::from),
             details: r.details,
+        }
+    }
+}
+
+impl From<terminator::UINode> for UINode {
+    fn from(node: terminator::UINode) -> Self {
+        UINode {
+            attributes: UIElementAttributes::from(node.attributes),
+            children: node.children.into_iter().map(UINode::from).collect(),
+        }
+    }
+}
+
+impl From<terminator::UIElementAttributes> for UIElementAttributes {
+    fn from(attrs: terminator::UIElementAttributes) -> Self {
+        // Convert HashMap<String, Option<serde_json::Value>> to HashMap<String, Option<String>>
+        let properties = attrs.properties.into_iter()
+            .map(|(k, v)| (k, v.map(|val| val.to_string())))
+            .collect();
+
+        UIElementAttributes {
+            role: attrs.role,
+            name: attrs.name,
+            label: attrs.label,
+            value: attrs.value,
+            description: attrs.description,
+            properties,
+            is_keyboard_focusable: attrs.is_keyboard_focusable,
+        }
+    }
+}
+
+impl From<TreeBuildConfig> for terminator::platforms::TreeBuildConfig {
+    fn from(config: TreeBuildConfig) -> Self {
+        terminator::platforms::TreeBuildConfig {
+            property_mode: match config.property_mode {
+                PropertyLoadingMode::Fast => terminator::platforms::PropertyLoadingMode::Fast,
+                PropertyLoadingMode::Complete => terminator::platforms::PropertyLoadingMode::Complete,
+                PropertyLoadingMode::Smart => terminator::platforms::PropertyLoadingMode::Smart,
+            },
+            timeout_per_operation_ms: config.timeout_per_operation_ms.map(|x| x as u64),
+            yield_every_n_elements: config.yield_every_n_elements.map(|x| x as usize),
+            batch_size: config.batch_size.map(|x| x as usize),
         }
     }
 } 

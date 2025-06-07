@@ -9,8 +9,6 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -39,7 +37,7 @@ use windows::Win32::Foundation::HANDLE;
 use windows::Win32::System::Com::CLSCTX_ALL;
 use windows::Win32::System::Com::CoCreateInstance;
 use windows::Win32::System::Com::CoInitializeEx;
-use windows::Win32::System::Com::COINIT_APARTMENTTHREADED;
+use windows::Win32::System::Com::COINIT_MULTITHREADED;
 
 use windows::Win32::System::Diagnostics::ToolHelp::CreateToolhelp32Snapshot;
 use windows::Win32::System::Diagnostics::ToolHelp::Process32FirstW;
@@ -146,277 +144,33 @@ pub struct WindowsEngine {
     automation: ThreadSafeWinUIAutomation,
     use_background_apps: bool,
     activate_app: bool,
-    // Cache warming system
-    cache_warmer_enabled: Arc<AtomicBool>,
-    cache_warmer_handle: Arc<Mutex<Option<std::thread::JoinHandle<()>>>>,
 }
 
 impl WindowsEngine {
     pub fn new(use_background_apps: bool, activate_app: bool) -> Result<Self, AutomationError> {
+        // Initialize COM in multithreaded mode for thread safety
+        unsafe {
+            let hr = CoInitializeEx(None, COINIT_MULTITHREADED);
+            if hr.is_err() && hr != HRESULT(0x80010106u32 as i32) {
+                // Only return error if it's not the "already initialized" case
+                return Err(AutomationError::PlatformError(format!("Failed to initialize COM in multithreaded mode: {}", hr)));
+            }
+            // If we get here, either initialization succeeded or it was already initialized
+            if hr == HRESULT(0x80010106u32 as i32) {
+                debug!("COM already initialized in this thread");
+            } else {
+                debug!("Successfully initialized COM in multithreaded mode");
+            }
+        }
+
         let automation =
-            UIAutomation::new().map_err(|e| AutomationError::PlatformError(e.to_string()))?;
+            UIAutomation::new_direct().map_err(|e| AutomationError::PlatformError(e.to_string()))?;
         let arc_automation = ThreadSafeWinUIAutomation(Arc::new(automation));
         Ok(Self {
             automation: arc_automation,
             use_background_apps,
             activate_app,
-            // Cache warming system
-            cache_warmer_enabled: Arc::new(AtomicBool::new(false)),
-            cache_warmer_handle: Arc::new(Mutex::new(None)),
         })
-    }
-
-    /// Enable or disable the background cache warming system
-    /// 
-    /// This spawns a background thread that periodically fetches UI trees for frequently used applications
-    /// to keep the Windows native cache warm, improving performance when applications need to be queried.
-    /// 
-    /// # Arguments
-    /// * `enable` - Whether to enable (true) or disable (false) the cache warmer
-    /// * `interval_seconds` - How often to refresh the cache (default: 30 seconds)
-    /// * `max_apps_to_cache` - Maximum number of recent apps to keep cached (default: 10)
-    pub fn enable_background_cache_warmer(
-        &self, 
-        enable: bool, 
-        interval_seconds: Option<u64>,
-        max_apps_to_cache: Option<usize>
-    ) -> Result<(), AutomationError> {
-        if enable {
-            // Don't start if already running
-            if self.cache_warmer_enabled.load(Ordering::SeqCst) {
-                info!("Cache warmer is already running");
-                return Ok(());
-            }
-
-            let interval = Duration::from_secs(interval_seconds.unwrap_or(30));
-            let max_apps = max_apps_to_cache.unwrap_or(10);
-
-            info!("Starting background cache warmer (interval: {:?}, max apps: {})", interval, max_apps);
-
-            self.cache_warmer_enabled.store(true, Ordering::SeqCst);
-            
-            // Clone necessary data for the background thread
-            let automation_clone = self.automation.clone();
-            let enabled_flag = Arc::clone(&self.cache_warmer_enabled);
-            
-            let handle = thread::spawn(move || {
-                Self::cache_warmer_thread(automation_clone, enabled_flag, interval, max_apps);
-            });
-
-            // Store the thread handle
-            let mut handle_guard = self.cache_warmer_handle.lock().unwrap();
-            *handle_guard = Some(handle);
-            
-            info!("✅ Background cache warmer started");
-        } else {
-            // Stop the cache warmer
-            if !self.cache_warmer_enabled.load(Ordering::SeqCst) {
-                info!("Cache warmer is not running");
-                return Ok(());
-            }
-
-            info!("Stopping background cache warmer...");
-            self.cache_warmer_enabled.store(false, Ordering::SeqCst);
-
-            // Wait for the thread to finish
-            let mut handle_guard = self.cache_warmer_handle.lock().unwrap();
-            if let Some(handle) = handle_guard.take() {
-                drop(handle_guard); // Release the lock before joining
-                if let Err(e) = handle.join() {
-                    warn!("Cache warmer thread panicked: {:?}", e);
-                }
-            }
-            
-            info!("✅ Background cache warmer stopped");
-        }
-
-        Ok(())
-    }
-
-    /// The background thread function that periodically warms the cache
-    fn cache_warmer_thread(
-        automation: ThreadSafeWinUIAutomation,
-        enabled_flag: Arc<AtomicBool>,
-        interval: Duration,
-        max_apps: usize,
-    ) {
-        info!("Cache warmer thread started");
-        
-        while enabled_flag.load(Ordering::SeqCst) {
-            // Sleep for the interval, but check for stop signal every second
-            for _ in 0..interval.as_secs() {
-                if !enabled_flag.load(Ordering::SeqCst) {
-                    info!("Cache warmer thread received stop signal");
-                    return;
-                }
-                thread::sleep(Duration::from_secs(1));
-            }
-
-            if !enabled_flag.load(Ordering::SeqCst) {
-                break;
-            }
-
-            // Perform cache warming
-            debug!("Starting cache warming cycle");
-            let start_time = std::time::Instant::now();
-            
-            match Self::warm_cache_for_recent_apps(&automation, max_apps) {
-                Ok(cached_count) => {
-                    let elapsed = start_time.elapsed();
-                    info!(
-                        "Cache warming completed: {} apps cached in {:?}", 
-                        cached_count, elapsed
-                    );
-                }
-                Err(e) => {
-                    warn!("Cache warming failed: {}", e);
-                }
-            }
-        }
-        
-        info!("Cache warmer thread stopped");
-    }
-
-    /// Warm the cache for recently active applications
-    fn warm_cache_for_recent_apps(
-        automation: &ThreadSafeWinUIAutomation,
-        max_apps: usize,
-    ) -> Result<usize, AutomationError> {
-        debug!("Finding recent applications to cache");
-
-        // Find all windows for applications
-        let root_element = automation.0.get_root_element().map_err(|e| {
-            AutomationError::PlatformError(format!("Failed to get root element: {}", e))
-        })?;
-
-        // Use the same sophisticated filtering as the main window detection
-        // Search for both Window and Pane control types since some applications use panes as main containers
-        let window_matcher = automation.0
-            .create_matcher()
-            .from_ref(&root_element)
-            .filter(Box::new(OrFilter {
-                left: Box::new(ControlTypeFilter {
-                    control_type: ControlType::Window,
-                }),
-                right: Box::new(ControlTypeFilter {
-                    control_type: ControlType::Pane,
-                }),
-            }))
-            .depth(1) // Match the depth used in the main functions
-            .timeout(3000);
-
-        let windows = window_matcher.find_all().map_err(|e| {
-            AutomationError::ElementNotFound(format!("Failed to find windows: {}", e))
-        })?;
-
-        // Group windows by process ID to find recent applications
-        let mut app_windows: HashMap<u32, Vec<uiautomation::UIElement>> = HashMap::new();
-        
-        for window in windows {
-            if let Ok(pid) = window.get_process_id() {
-                // Skip system processes and very common ones that don't need caching
-                if Self::should_cache_app_by_pid(pid) {
-                    app_windows.entry(pid).or_insert_with(Vec::new).push(window);
-                }
-            }
-        }
-
-        debug!("Found {} applications to potentially cache", app_windows.len());
-
-        // Limit to the most recent apps (by taking first N PIDs found)
-        let apps_to_cache: Vec<_> = app_windows.into_iter().take(max_apps).collect();
-        let mut cached_count = 0;
-
-        for (pid, windows) in apps_to_cache {
-            debug!("Warming cache for PID: {} ({} windows)", pid, windows.len());
-            
-            // Cache the main window for this app
-            if let Some(main_window) = windows.into_iter().next() {
-                match Self::warm_cache_for_window(main_window) {
-                    Ok(_) => {
-                        cached_count += 1;
-                        debug!("Successfully cached PID: {}", pid);
-                    }
-                    Err(e) => {
-                        debug!("Failed to cache PID {}: {}", pid, e);
-                    }
-                }
-
-                // Small delay between apps to spread CPU load
-                thread::sleep(Duration::from_millis(100));
-            }
-        }
-
-        Ok(cached_count)
-    }
-
-    /// Determine if we should cache this application based on its PID
-    fn should_cache_app_by_pid(pid: u32) -> bool {
-        // Skip system processes
-        if pid <= 4 {
-            return false;
-        }
-
-        // Try to get process name to filter out system processes
-        if let Ok(process_name) = get_process_name_by_pid(pid as i32) {
-            let name_lower = process_name.to_lowercase();
-            
-            // Skip Windows system processes
-            let system_processes = [
-                "explorer", "dwm", "winlogon", "csrss", "wininit", "services",
-                "lsass", "svchost", "audiodg", "conhost", "taskhostw",
-                "backgroundtaskhost", "runtimebroker", "shellexperiencehost",
-                "searchui", "startmenuexperiencehost", "cortana"
-            ];
-            
-            if system_processes.contains(&name_lower.as_str()) {
-                return false;
-            }
-        }
-
-        true
-    }
-
-    /// Warm the cache for a specific window by building its UI tree
-    fn warm_cache_for_window(window: uiautomation::UIElement) -> Result<(), AutomationError> {
-        // Convert to our UIElement wrapper
-        let ui_element = UIElement::new(Box::new(WindowsUIElement {
-            element: ThreadSafeWinUIElement(Arc::new(window)),
-        }));
-
-        // Use cache-first tree building to warm the native cache
-        let mut context = TreeBuildingContext {
-            config: TreeBuildingConfig {
-                timeout_per_operation_ms: 100, // Short timeout for background operation
-                yield_every_n_elements: 20,    // Yield frequently to not block
-                batch_size: 10,               // Smaller batches for background work
-            },
-            elements_processed: 0,
-            max_depth_reached: 0,
-            cache_hits: 0,
-            fallback_calls: 0,
-            errors_encountered: 0,
-        };
-
-        // Build the tree to populate the cache (we don't need the result)
-        match build_ui_node_tree_cached_first(&ui_element, 0, &mut context) {
-            Ok(_) => {
-                debug!(
-                    "Cache warmed: {} elements, {} cache hits", 
-                    context.elements_processed, context.cache_hits
-                );
-                Ok(())
-            }
-            Err(e) => {
-                debug!("Cache warming failed: {}", e);
-                Err(e)
-            }
-        }
-    }
-
-    /// Check if the cache warmer is currently running
-    pub fn is_cache_warmer_enabled(&self) -> bool {
-        self.cache_warmer_enabled.load(Ordering::SeqCst)
     }
 
     /// Extract browser-specific information from window titles
@@ -753,7 +507,6 @@ impl AccessibilityEngine for WindowsEngine {
                     .control_type(win_control_type)
                     .depth(actual_depth)
                     .timeout(timeout_ms as u64);
-   
                 
                 let elements = matcher_builder.find_all().map_err(|e| {
                     AutomationError::ElementNotFound(format!(
@@ -763,6 +516,7 @@ impl AccessibilityEngine for WindowsEngine {
                 })?;
 
                 debug!("found {} elements with role: {} (mapped to {:?}), name_filter: {:?}", elements.len(), role, win_control_type, name);
+
                 return Ok(elements
                     .into_iter()
                     .map(|ele| {
@@ -1066,7 +820,6 @@ impl AccessibilityEngine for WindowsEngine {
                     .control_type(win_control_type)
                     .depth(50) // Default depth for find_element
                     .timeout(timeout_ms as u64);
-
 
                 let element = matcher_builder.find_first().map_err(|e| {
                      AutomationError::ElementNotFound(format!(
@@ -1575,58 +1328,6 @@ impl AccessibilityEngine for WindowsEngine {
         Ok(()) // If focus succeeds, return Ok
     }
 
-    async fn find_window_by_criteria(
-        &self,
-        title_contains: Option<&str>,
-        timeout: Option<Duration>,
-    ) -> Result<UIElement, AutomationError> {
-        let timeout_duration = timeout.unwrap_or(DEFAULT_FIND_TIMEOUT);
-        info!(
-            "Searching for window: title_contains={:?}, timeout={:?}",
-            title_contains, timeout_duration
-        );
-
-        let title_contains = title_contains.unwrap_or_default();
-
-        // first find element by matcher
-        let root_ele = self.automation.0.get_root_element().unwrap();
-        let automation_engine_instance = WindowsEngine::new(false, false) 
-            .map_err(|e| AutomationError::PlatformError(e.to_string()))?;
-        let matcher = automation_engine_instance 
-            .automation
-            .0
-            .create_matcher()
-            // content type window or pane
-            .filter(Box::new(OrFilter {
-                left: Box::new(ControlTypeFilter {
-                    control_type: ControlType::Window,
-                }),
-                right: Box::new(ControlTypeFilter {
-                    control_type: ControlType::Pane,
-                }),
-            }))
-            .filter(Box::new(OrFilter {
-                left: Box::new(NameFilter {
-                    value: String::from(title_contains),
-                    casesensitive: false,
-                    partial: true,
-                }),
-                right: Box::new(ClassNameFilter {
-                    classname: String::from(title_contains),
-                }),
-            }))
-            .from_ref(&root_ele)
-            .depth(3)
-            .timeout(timeout_duration.as_millis() as u64);
-        let ele_res = matcher
-            .find_first()
-            .map_err(|e| AutomationError::ElementNotFound(e.to_string()));
-
-        return Ok(UIElement::new(Box::new(WindowsUIElement {
-            element: ThreadSafeWinUIElement(Arc::new(ele_res.unwrap())),
-        })));
-    }
-
     async fn get_current_browser_window(&self) -> Result<UIElement, AutomationError> {
         info!("Attempting to get the current focused browser window.");
         let focused_element_raw = self
@@ -1792,152 +1493,19 @@ impl AccessibilityEngine for WindowsEngine {
         self.get_application_by_pid(pid as i32, Some(DEFAULT_FIND_TIMEOUT))
     }
 
-    fn get_window_tree_by_title(&self, title: &str) -> Result<crate::UINode, AutomationError> {
-        info!("Attempting to get FULL window tree by title: {}", title);
-        let root_ele_os = self.automation.0.get_root_element().map_err(|e| {
-            error!("Failed to get root element: {}", e);
-            AutomationError::PlatformError(format!("Failed to get root element: {}", e))
-        })?;
-        
-        // Use a more efficient approach: first find windows by control type, then filter by name
-        // Search for both Window and Pane control types since some applications use panes as main containers
-        let window_matcher = self
-            .automation
-            .0
-            .create_matcher()
-            .from_ref(&root_ele_os)
-            .filter(Box::new(OrFilter {
-                left: Box::new(ControlTypeFilter {
-                    control_type: ControlType::Window,
-                }),
-                right: Box::new(ControlTypeFilter {
-                    control_type: ControlType::Pane,
-                }),
-            }))
-            .depth(3) // Limit search depth for performance
-            .timeout(3000); // Reduce timeout to 3 seconds
-
-        let windows = window_matcher.find_all().map_err(|e| {
-            error!("Failed to find windows: {}", e);
-            AutomationError::ElementNotFound(format!("Failed to find windows: {}", e))
-        })?;
-
-        info!("Found {} windows to search through", windows.len());
-
-        // Collect window information for matching
-        let mut window_info = Vec::new();
-        let mut window_names = Vec::new(); // For debugging
-        
-        for window in windows {
-            match window.get_name() {
-                Ok(window_name) => {
-                    window_names.push(window_name.clone());
-                    window_info.push((window, window_name));
-                }
-                Err(e) => {
-                    debug!("Failed to get name for window: {}", e);
-                }
-            }
-        }
-
-        // Use the enhanced title matching helper
-        let (window_element_raw, best_match_score) = self.find_best_title_match(&window_info, title)
-            .ok_or_else(|| {
-                error!("No window found with title containing: '{}'", title);
-                debug!("Available window names: {:?}", window_names);
-                
-                // Enhanced error message with suggestions
-                let mut error_msg = format!(
-                    "Window with title containing '{}' not found. Available windows: {:?}",
-                    title, window_names
-                );
-                
-                // Try to suggest similar windows for browsers
-                let (is_target_browser, _) = Self::extract_browser_info(title);
-                if is_target_browser {
-                    let browser_windows: Vec<&String> = window_names.iter()
-                        .filter(|name| {
-                            let (is_browser, _) = Self::extract_browser_info(name);
-                            is_browser
-                        })
-                        .collect();
-                    
-                    if !browser_windows.is_empty() {
-                        error_msg.push_str(&format!(
-                            "\n\nFound these browser windows: {:?}\n\
-                            Tip: Browser tab titles are often truncated in window titles. \
-                            Try using just the domain name or shorter title.",
-                            browser_windows
-                        ));
-                    }
-                }
-                
-                AutomationError::ElementNotFound(error_msg)
-            })?;
-
-        if best_match_score > 0.0 && best_match_score < 1.0 {
-            info!(
-                "Using best match with similarity {:.2}: '{}'",
-                best_match_score,
-                window_element_raw.get_name().unwrap_or_default()
-            );
-        }
-
-        info!(
-            "Found window with title '{}', ID: {:?}",
-            title,
-            window_element_raw.get_runtime_id().ok()
-        );
-
-        // Wrap the raw OS element into our UIElement
-        let window_element_wrapper = UIElement::new(Box::new(WindowsUIElement {
-            element: ThreadSafeWinUIElement(Arc::new(window_element_raw)),
-        }));
-
-        // Build the FULL UI tree with cache-first performance optimizations
-        info!("Building FULL UI tree with cache-first performance optimizations");
-        
-        // Use cached tree building approach for better performance
-        let mut context = TreeBuildingContext {
-            config: TreeBuildingConfig {
-                timeout_per_operation_ms: 50,  // Much shorter timeout for faster operations
-                yield_every_n_elements: 50,    // Yield more frequently for responsiveness
-                batch_size: 50,                // Larger batches for efficiency
-            },
-            elements_processed: 0,
-            max_depth_reached: 0,
-            cache_hits: 0,
-            fallback_calls: 0,
-            errors_encountered: 0,
-        };
-        
-        info!("Starting FULL tree building (no limits) with cache-first optimization");
-        let result = build_ui_node_tree_cached_first(&window_element_wrapper, 0, &mut context)?;
-        
-        info!("FULL tree building completed. Stats: elements={}, depth={}, cache_hits={}, fallbacks={}, errors={}", 
-              context.elements_processed, context.max_depth_reached, 
-              context.cache_hits, context.fallback_calls, context.errors_encountered);
-        
-        // Log cache effectiveness
-        let cache_hit_rate = if context.elements_processed > 0 {
-            (context.cache_hits as f64 / context.elements_processed as f64) * 100.0
-        } else {
-            0.0
-        };
-        
-        info!("Cache hit rate: {:.1}%", cache_hit_rate);
-        
-        Ok(result)
-    }
-
-    fn get_window_tree_by_pid_and_title(&self, pid: u32, title: Option<&str>) -> Result<crate::UINode, AutomationError> {
-        info!("Attempting to get FULL window tree by PID: {} and title: {:?}", pid, title);
+    fn get_window_tree(
+        &self, 
+        pid: u32, 
+        title: Option<&str>, 
+        config: crate::platforms::TreeBuildConfig
+    ) -> Result<crate::UINode, AutomationError> {
+        info!("Getting window tree for PID: {} and title: {:?} with config: {:?}", pid, title, config);
         let root_ele_os = self.automation.0.get_root_element().map_err(|e| {
             error!("Failed to get root element: {}", e);
             AutomationError::PlatformError(format!("Failed to get root element: {}", e))
         })?;
 
-        // First, find all windows for the given process ID
+        // Find all windows for the given process ID
         // Search for both Window and Pane control types since some applications use panes as main containers
         let window_matcher = self
             .automation
@@ -2027,16 +1595,17 @@ impl AccessibilityEngine for WindowsEngine {
             element: ThreadSafeWinUIElement(Arc::new(selected_window)),
         }));
 
-        // Build the FULL UI tree with cache-first performance optimizations
-        info!("Building FULL UI tree with cache-first performance optimizations for PID: {}", pid);
+        // Build the UI tree with configurable performance optimizations
+        info!("Building UI tree with config: {:?}", config);
         
-        // Use cached tree building approach for better performance
+        // Use configured tree building approach
         let mut context = TreeBuildingContext {
             config: TreeBuildingConfig {
-                timeout_per_operation_ms: 50,  // Much shorter timeout for faster operations
-                yield_every_n_elements: 50,    // Yield more frequently for responsiveness
-                batch_size: 50,                // Larger batches for efficiency
+                timeout_per_operation_ms: config.timeout_per_operation_ms.unwrap_or(50),
+                yield_every_n_elements: config.yield_every_n_elements.unwrap_or(50),
+                batch_size: config.batch_size.unwrap_or(50),
             },
+            property_mode: config.property_mode.clone(),
             elements_processed: 0,
             max_depth_reached: 0,
             cache_hits: 0,
@@ -2044,9 +1613,9 @@ impl AccessibilityEngine for WindowsEngine {
             errors_encountered: 0,
         };
         
-        let result = build_ui_node_tree_cached_first(&window_element_wrapper, 0, &mut context)?;
+        let result = build_ui_node_tree_configurable(&window_element_wrapper, 0, &mut context)?;
         
-        info!("FULL tree building completed for PID: {}. Stats: elements={}, depth={}, cache_hits={}, fallbacks={}, errors={}", 
+        info!("Tree building completed for PID: {}. Stats: elements={}, depth={}, cache_hits={}, fallbacks={}, errors={}", 
               pid, context.elements_processed, context.max_depth_reached, 
               context.cache_hits, context.fallback_calls, context.errors_encountered);
         
@@ -2066,21 +1635,6 @@ impl AccessibilityEngine for WindowsEngine {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-
-    /// Enable or disable background cache warming for improved performance (Windows implementation)
-    fn enable_background_cache_warmer(
-        &self,
-        enable: bool,
-        interval_seconds: Option<u64>,
-        max_apps_to_cache: Option<usize>,
-    ) -> Result<(), AutomationError> {
-        self.enable_background_cache_warmer(enable, interval_seconds, max_apps_to_cache)
-    }
-
-    /// Check if the background cache warmer is currently running (Windows implementation)
-    fn is_cache_warmer_enabled(&self) -> bool {
-        self.is_cache_warmer_enabled()
-    }
 }
 
 
@@ -2094,6 +1648,7 @@ struct TreeBuildingConfig {
 // Context to track tree building progress (no limits)
 struct TreeBuildingContext {
     config: TreeBuildingConfig,
+    property_mode: crate::platforms::PropertyLoadingMode,
     elements_processed: usize,
     max_depth_reached: usize,
     cache_hits: usize,
@@ -2127,60 +1682,6 @@ impl TreeBuildingContext {
     }
 }
 
-fn build_ui_node_tree_cached_first(
-    element: &UIElement,
-    current_depth: usize,
-    context: &mut TreeBuildingContext,
-) -> Result<crate::UINode, AutomationError> {
-    context.increment_element_count();
-    context.update_max_depth(current_depth);
-    
-    // Yield CPU periodically to prevent freezing while processing everything
-    if context.should_yield() {
-        debug!("Yielding CPU after processing {} elements at depth {}", context.elements_processed, current_depth);
-        thread::sleep(Duration::from_millis(1));
-    }
-    
-    // Get element attributes - use standard method for safety
-    let attributes = element.attributes();
-    
-    let mut children_nodes = Vec::new();
-    
-    // Get children with safe strategy
-    match get_element_children_safe(element, context) {
-        Ok(children_elements) => {
-            debug!("Processing {} children at depth {} (using safe strategy)", children_elements.len(), current_depth);
-            
-            // Process children in efficient batches
-            for batch in children_elements.chunks(context.config.batch_size) {
-                for child_element in batch {
-                    match build_ui_node_tree_cached_first(child_element, current_depth + 1, context) {
-                        Ok(child_node) => children_nodes.push(child_node),
-                        Err(e) => {
-                            debug!("Failed to process child element: {}. Continuing with next child.", e);
-                            context.increment_errors();
-                            // Continue processing - we want the full tree
-                        }
-                    }
-                }
-                
-                // Small yield between large batches to maintain responsiveness
-                if batch.len() == context.config.batch_size && children_elements.len() > context.config.batch_size {
-                    thread::sleep(Duration::from_millis(1));
-                }
-            }
-        }
-        Err(e) => {
-            debug!("Failed to get children for element: {}. Proceeding with no children.", e);
-            context.increment_errors();
-        }
-    }
-    
-    Ok(crate::UINode {
-        attributes,
-        children: children_nodes,
-    })
-}
 
 // Safe element children access
 fn get_element_children_safe(element: &UIElement, context: &mut TreeBuildingContext) -> Result<Vec<UIElement>, AutomationError> {
@@ -2202,6 +1703,7 @@ fn get_element_children_safe(element: &UIElement, context: &mut TreeBuildingCont
 fn get_element_children_with_timeout(element: &UIElement, timeout: Duration) -> Result<Vec<UIElement>, AutomationError> {
     use std::sync::mpsc;
     use std::thread;
+    
     
     let (sender, receiver) = mpsc::channel();
     let element_clone = element.clone();
@@ -2258,94 +1760,61 @@ impl UIElementImpl for WindowsUIElement {
     }
 
     fn attributes(&self) -> UIElementAttributes {
+        // On-demand property loading: Only load essential properties immediately
+        // This reduces CPU usage and improves speed by avoiding expensive property lookups
+        
         let mut properties = HashMap::new();
-        // there are alot of properties, including neccessary ones
-        // ref: https://docs.rs/uiautomation/0.16.1/uiautomation/types/enum.UIProperty.html
-        let property_list = vec![
-            UIProperty::HelpText,
-            UIProperty::AutomationId,
-        ];
         
-        // Helper function to format property values properly
-        fn format_property_value(value: &Variant) -> Option<serde_json::Value> {
-            // First try to get as string
-            if let Ok(s) = value.get_string() {
-                if !s.is_empty() {
-                    return Some(serde_json::Value::String(s));
-                } else {
-                    return None; // Empty string - don't include
-                }
-            }
-            
-            // If string conversion fails, we'll just skip this property
-            // to avoid the STRING() issue
-            None
-        }
-        
-        // Use standard property access (not mixed cached/live)
-        for property in property_list {
-            if let Ok(value) = self.element.0.get_property_value(property) {
-                if let Some(formatted_value) = format_property_value(&value) {
-                    properties.insert(format!("{:?}", property), Some(formatted_value));
-                }
-            }
-        }
+        // Essential properties only - load role and name immediately as they're most commonly needed
+        let role = self.element.0.get_control_type()
+            .map(|ct| ct.to_string())
+            .unwrap_or_else(|_| "unknown".to_string());
         
         // Helper function to filter empty strings
         fn filter_empty_string(s: Option<String>) -> Option<String> {
             s.filter(|s| !s.is_empty())
         }
         
-        // Get role
-        let role = self.element.0.get_control_type()
-            .map(|ct| ct.to_string())
-            .unwrap_or_else(|_| "unknown".to_string());
-        
-        // Get name
+        // Load name immediately as it's frequently accessed
         let name = filter_empty_string(
             self.element.0.get_name().ok()
         );
         
-        // Get label
-        let label = self.element.0.get_labeled_by()
-            .ok()
-            .and_then(|e| filter_empty_string(e.get_name().ok()));
+        // Defer expensive property loading - only load when really needed
+        // For benchmark purposes, we'll skip most properties to measure impact
         
-        // Get value
-        let value = self.element.0.get_property_value(UIProperty::ValueValue)
-            .ok()
-            .and_then(|v| filter_empty_string(v.get_string().ok()));
+        // Only load automation ID if name is empty (fallback identifier)
+        let automation_id_for_properties = if name.is_none() {
+            self.element.0.get_automation_id().ok()
+                .and_then(|aid| if !aid.is_empty() { 
+                    Some(serde_json::Value::String(aid.clone()))
+                } else { 
+                    None 
+                })
+        } else {
+            None
+        };
         
-        // Get description
-        let description = filter_empty_string(
-            self.element.0.get_help_text().ok()
-        );
-        
-        // Get keyboard focusable
-        let is_keyboard_focusable = self.element.0.get_property_value(UIProperty::IsKeyboardFocusable)
-            .ok()
-            .and_then(|v| v.try_into().ok());
-        
-        // Add automation ID to properties if available
-        if let Ok(aid) = self.element.0.get_automation_id() {
-            if !aid.is_empty() {
-                properties.insert("AutomationId".to_string(), Some(serde_json::Value::String(aid)));
-            }
+        if let Some(aid_value) = automation_id_for_properties {
+            properties.insert("AutomationId".to_string(), Some(aid_value));
         }
         
-        // Add help text to properties if available  
-        if let Some(ref ht) = description {
-            properties.insert("HelpText".to_string(), Some(serde_json::Value::String(ht.clone())));
-        }
+        // Defer all other expensive properties:
+        // - Skip label lookup (get_labeled_by + get_name chain)
+        // - Skip value lookup (UIProperty::ValueValue)  
+        // - Skip description lookup (get_help_text)
+        // - Skip keyboard focusable lookup (UIProperty::IsKeyboardFocusable)
+        // - Skip additional property enumeration
         
+        // Return minimal attribute set for performance
         UIElementAttributes {
             role,
             name,
-            label,
-            value,
-            description,
-            properties,
-            is_keyboard_focusable,
+            label: None,           // Deferred
+            value: None,           // Deferred  
+            description: None,     // Deferred
+            properties,            // Minimal properties only
+            is_keyboard_focusable: None, // Deferred
         }
     }
 
@@ -2358,9 +1827,9 @@ impl UIElementImpl for WindowsUIElement {
                 info!("Found {} cached children.", cached_children.len());
                 cached_children
             }
-            Err(cache_err) => {
+            Err(_) => {
                 // Fallback logic (similar to explore_element_children)
-                match uiautomation::UIAutomation::new() {
+                match create_ui_automation_with_com_init() {
                     Ok(temp_automation) => {
                         match temp_automation.create_true_condition() {
                             Ok(true_condition) => {
@@ -2368,10 +1837,10 @@ impl UIElementImpl for WindowsUIElement {
                                     .0
                                     .find_all(uiautomation::types::TreeScope::Children, &true_condition)
                                     .map_err(|find_err| {
-                                        error!(
-                                            "Failed to get children via find_all fallback: CacheErr={}, FindErr={}",
-                                            cache_err, find_err
-                                        );
+                                        // error!(
+                                        //     "Failed to get children via find_all fallback: CacheErr={}, FindErr={}",
+                                        //     cache_err, find_err
+                                        // );
                                         AutomationError::PlatformError(format!(
                                             "Failed to get children (cached and non-cached): {}",
                                             find_err
@@ -2647,7 +2116,7 @@ impl UIElementImpl for WindowsUIElement {
                     // Create a temporary instance here for the fallback.
                     // Note: Creating a new UIAutomation instance here might be inefficient.
                     // Consider passing it down or finding another way if performance is critical.
-                    match uiautomation::UIAutomation::new() {
+                    match create_ui_automation_with_com_init() {
                         Ok(temp_automation) => {
                             match temp_automation.create_true_condition() {
                                 Ok(true_condition) => {
@@ -2663,11 +2132,11 @@ impl UIElementImpl for WindowsUIElement {
                                             );
                                             found_children
                                         }
-                                        Err(find_err) => {
-                                            error!(
-                                                "Failed to get children via find_all fallback for text extraction: CacheErr={}, FindErr={}",
-                                                cache_err, find_err
-                                            );
+                                        Err(_) => {
+                                            // error!(
+                                            //     "Failed to get children via find_all fallback for text extraction: CacheErr={}, FindErr={}",
+                                            //     cache_err, find_err
+                                            // );
                                             // Return an empty vec to avoid erroring out the whole text extraction
                                             vec![]
                                         }
@@ -3153,6 +2622,48 @@ impl UIElementImpl for WindowsUIElement {
         })
     }
 
+    fn close(&self) -> Result<(), AutomationError> {
+        // Check the control type to determine if this element is closable
+        let control_type = self.element.0.get_control_type()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to get control type: {}", e)))?;
+            
+        match control_type {
+            ControlType::Window | ControlType::Pane => {
+                // For windows and panes, try to close them
+                
+                // First try using the WindowPattern to close the window
+                if let Ok(window_pattern) = self.element.0.get_pattern::<patterns::UIWindowPattern>() {
+                    debug!("Attempting to close window using WindowPattern");
+                    return window_pattern.close()
+                        .map_err(|e| AutomationError::PlatformError(format!("Failed to close window: {}", e)));
+                }
+                
+                // Fallback: try to send Alt+F4 to close the window
+                debug!("WindowPattern not available, trying Alt+F4 as fallback");
+                self.element.0.try_focus(); // Focus first
+                self.element.0.send_keys("%{F4}", 10) // Alt+F4
+                    .map_err(|e| AutomationError::PlatformError(format!("Failed to send Alt+F4: {}", e)))
+            },
+            ControlType::Button => {
+                // For buttons, check if it's a close button by name/text
+                let name = self.element.0.get_name().unwrap_or_default().to_lowercase();
+                if name.contains("close") || name.contains("×") || name.contains("✕") {
+                    debug!("Clicking close button: {}", name);
+                    self.click().map(|_| ())
+                } else {
+                    // Regular button - do nothing
+                    debug!("Button '{}' is not a close button, doing nothing", name);
+                    Ok(())
+                }
+            },
+            _ => {
+                // For other control types (text, edit, etc.), do nothing
+                debug!("Element type {:?} is not closable, doing nothing", control_type);
+                Ok(())
+            }
+        }
+    }
+
     fn capture(&self) -> Result<ScreenshotResult, AutomationError> {
         // Get the raw UIAutomation bounds
         let rect = self.element.0.get_bounding_rectangle()
@@ -3275,7 +2786,7 @@ fn launch_uwp_app(engine: &WindowsEngine, uwp_app_name: &str) -> Result<UIElemen
     // Launch the UWP app using Windows API
     let pid = unsafe {
         // Initialize COM with proper error handling
-        let hr = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let hr = CoInitializeEx(None, COINIT_MULTITHREADED);
         if hr.is_err() && hr != HRESULT(0x80010106u32 as i32) {
             // Only return error if it's not the "already initialized" case
             return Err(AutomationError::PlatformError(format!("Failed to initialize COM: {}", hr)));
@@ -3794,5 +3305,124 @@ pub fn convert_uiautomation_element_to_terminator(element: uiautomation::UIEleme
     UIElement::new(Box::new(WindowsUIElement {
         element: arc_element,
     }))
+}
+
+// Helper function to create UIAutomation instance with proper COM initialization
+fn create_ui_automation_with_com_init() -> Result<UIAutomation, AutomationError> {
+    unsafe {
+        let hr = CoInitializeEx(None, COINIT_MULTITHREADED);
+        if hr.is_err() && hr != HRESULT(0x80010106u32 as i32) {
+            // Only return error if it's not the "already initialized" case
+            return Err(AutomationError::PlatformError(format!("Failed to initialize COM: {}", hr)));
+        }
+    }
+    
+    UIAutomation::new_direct().map_err(|e| AutomationError::PlatformError(e.to_string()))
+}
+
+fn build_ui_node_tree_configurable(
+    element: &UIElement,
+    current_depth: usize,
+    context: &mut TreeBuildingContext,
+) -> Result<crate::UINode, AutomationError> {
+    context.increment_element_count();
+    context.update_max_depth(current_depth);
+    
+    // Yield CPU periodically to prevent freezing while processing everything
+    if context.should_yield() {
+        debug!("Yielding CPU after processing {} elements at depth {}", context.elements_processed, current_depth);
+        thread::sleep(Duration::from_millis(1));
+    }
+    
+    // Get element attributes with configurable property loading
+    let attributes = get_configurable_attributes(element, &context.property_mode);
+    
+    let mut children_nodes = Vec::new();
+    
+    // Get children with safe strategy
+    match get_element_children_safe(element, context) {
+        Ok(children_elements) => {
+            debug!("Processing {} children at depth {} (using safe strategy)", children_elements.len(), current_depth);
+            
+            // Process children in efficient batches
+            for batch in children_elements.chunks(context.config.batch_size) {
+                for child_element in batch {
+                    match build_ui_node_tree_configurable(child_element, current_depth + 1, context) {
+                        Ok(child_node) => children_nodes.push(child_node),
+                        Err(e) => {
+                            debug!("Failed to process child element: {}. Continuing with next child.", e);
+                            context.increment_errors();
+                            // Continue processing - we want the full tree
+                        }
+                    }
+                }
+                
+                // Small yield between large batches to maintain responsiveness
+                if batch.len() == context.config.batch_size && children_elements.len() > context.config.batch_size {
+                    thread::sleep(Duration::from_millis(1));
+                }
+            }
+        }
+        Err(e) => {
+            debug!("Failed to get children for element: {}. Proceeding with no children.", e);
+            context.increment_errors();
+        }
+    }
+    
+    Ok(crate::UINode {
+        attributes,
+        children: children_nodes,
+    })
+}
+
+/// Get element attributes based on the configured property loading mode
+fn get_configurable_attributes(element: &UIElement, property_mode: &crate::platforms::PropertyLoadingMode) -> UIElementAttributes {
+    match property_mode {
+        crate::platforms::PropertyLoadingMode::Fast => {
+            // Only essential properties - current optimized version
+            element.attributes()
+        },
+        crate::platforms::PropertyLoadingMode::Complete => {
+            // Get full attributes by temporarily bypassing optimization
+            get_complete_attributes(element)
+        },
+        crate::platforms::PropertyLoadingMode::Smart => {
+            // Load properties based on element type
+            get_smart_attributes(element)
+        }
+    }
+}
+
+/// Get complete attributes for an element (all properties)
+fn get_complete_attributes(element: &UIElement) -> UIElementAttributes {
+    // This would be the original attributes() implementation
+    // For now, just use the current optimized one
+    // TODO: Implement full property loading when needed
+    element.attributes()
+}
+
+/// Get smart attributes based on element type
+fn get_smart_attributes(element: &UIElement) -> UIElementAttributes {
+    let role = element.role();
+    
+    // Load different properties based on element type
+    match role.as_str() {
+        "Button" | "MenuItem" => {
+            // For interactive elements, load name and enabled state
+            element.attributes()
+        },
+        "Edit" | "Text" => {
+            // For text elements, load value and text content
+            element.attributes()
+        },
+        "Window" | "Dialog" => {
+            // For containers, load name and description
+            element.attributes()
+        },
+        _ => {
+            // Default to fast loading for unknown types
+            element.attributes()
+        }
+    }
 }
 

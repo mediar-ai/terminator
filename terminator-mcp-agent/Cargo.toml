@@ -1,0 +1,16 @@
+[package]
+name = "terminator-mcp-agent"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+terminator = { workspace = true }
+serde_json = { workspace = true }
+typed-builder = "0.20"
+tracing-subscriber = { workspace = true }
+rmcp = { version = "0.1.5", features = ["server", "transport-sse-server", "transport-io"] }

@@ -25,6 +25,9 @@ fn terminator(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ClickResult>()?;
     m.add_class::<CommandOutput>()?;
     m.add_class::<UIElementAttributes>()?;
+    m.add_class::<UINode>()?;
+    m.add_class::<TreeBuildConfig>()?;
+    m.add_class::<PropertyLoadingMode>()?;
     m.add_class::<Coordinates>()?;
     m.add_class::<Bounds>()?;
     m.add_class::<ExploreResponse>()?;

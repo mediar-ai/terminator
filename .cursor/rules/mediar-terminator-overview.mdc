@@ -1,90 +1,54 @@
 ---
 description: 
 globs: 
-alwaysApply: false
+alwaysApply: true
 ---
-# Mediar Terminator Project Overview
+# Terminator Project Overview
 
-Mediar Terminator is an AI-first, cross-platform UI automation engine written in Rust, designed to provide fast and reliable desktop automation capabilities.
+## What is Terminator?
+Terminator is a Playwright-style SDK for automating Windows GUI applications, designed specifically for AI agents. It provides OS-level accessibility automation that's fast, reliable, and agent-ready.
 
-## Core Architecture
+## Key Features
+- 🪟 Built for Windows, works on macOS (partial support)
+- 🧠 Designed for AI agents, not humans
+- ⚡ Uses OS-level accessibility APIs (not vision-based)
+- 🧩 Multi-language support: TypeScript, Python, and Rust
+- 📈 80ms UI scans with 10000x speedup via compiled workflows
 
-### Server Component
-- Written in Rust
-- Provides the core automation engine
-- Handles OS-level accessibility API interactions
-- Built with async capabilities for efficient operation
+## Project Structure
 
-### SDK Components
-1. **TypeScript SDK**
-   - Main client library
-   - Playwright-style API
-   - Located in `ts-sdk/`
-   - Published to npm
+### Core Components
+- **[terminator/](mdc:terminator)** - Main Rust library with core automation logic
+- **[bindings/](mdc:bindings)** - Language bindings directory
+  - **[bindings/nodejs/](mdc:bindings/nodejs)** - TypeScript/Node.js bindings
+  - **[bindings/python/](mdc:bindings/python)** - Python bindings
+- **[examples/](mdc:examples)** - Example implementations and demos
+- **[terminator-workflow-recorder/](mdc:terminator-workflow-recorder)** - Workflow recording tool
 
-2. **Python SDK**
-   - Alternative client library
-   - Located in `python-sdk/`
-   - Published to PyPI
+### Configuration Files
+- **[Cargo.toml](mdc:Cargo.toml)** - Workspace configuration with all members
+- **[README.md](mdc:README.md)** - Project documentation and quick start
 
-## Platform Support
+## Core Concepts
 
-| Platform | Status | Notes |
-|----------|---------|-------|
-| Windows | ✅ Primary | Full features, best performance |
-| macOS | 🟡 Secondary | Core functionality available |
-| Linux | ❌ Not Supported | No current plans |
+### Desktop Automation
+The main entry point is through a `Desktop` class that provides:
+- Application launching (`open_application`)
+- Element location (`locator`) 
+- UI interaction (click, type, etc.)
 
-## Key Technical Features
+### Locators
+Elements are found using accessibility properties like:
+- `name:ElementName` - Find by accessible name
+- Other accessibility attributes
 
-### Core Capabilities
-- **Accessibility API Integration:** Uses OS-level accessibility APIs instead of computer vision
-- **Background App Control:** Can interact with applications even when not in focus
-- **Deep UI Introspection:** Detailed understanding of UI elements and their properties
-- **Cross-Platform Design:** Unified API across supported platforms
+### Multi-Platform Support
+- **Windows**: Full support using UIAutomation
+- **Linux**: Partial support  
+- **macOS**: Partial support using accessibility APIs
 
-### Performance Characteristics
-- **Speed:** Optimized for fast execution
-- **Reliability:** Stable and consistent behavior
-- **Resource Efficiency:** Low overhead operation
+## Development Workflow
+This is a Rust workspace with multiple crates. The core library is in `terminator/` and language bindings are generated in `bindings/`. Examples demonstrate usage patterns for different scenarios.
 
-### Integration Points
-- **AI Agent Integration:** Designed for seamless LLM agent integration
-- **External SDK Support:** Compatible with frameworks like Vercel AI
-- **API Design:** Playwright-inspired interface for familiarity
-
-## Development Guidelines
-
-### Code Organization
-- **Modular Structure:** Clear separation of concerns
-- **SDK Independence:** Separate packages for different languages
-- **Server-First Design:** Core functionality in Rust server
-
-### Testing & Debugging
-- **Windows Tools:**
-  - Accessibility Insights for Windows
-  - FlaUInspect for UI element inspection
-- **Debug Mode:** Available via `--debug` flag
-
-### Release Process
-- Automated server releases via GitHub Actions
-- Manual SDK releases to respective package registries
-- Version tagging for coordinated releases
-
-## Use Cases
-1. PDF-to-form autofill automation
-2. End-to-end application testing
-3. AI-driven desktop copilots
-4. Business process automation
-5. Legacy application integration
-
-## Technical Dependencies
-- **Windows:** uiautomation-rs
-- **macOS:** Native Accessibility API
-- **Build Tools:** Rust/Cargo, npm, pip
-
-## Project Status
-- **Development Stage:** Experimental
-- **Primary Focus:** Windows platform
-- **Community:** Active Discord community
-- **Documentation:** Available at docs.screenpi.pe/terminator
+## AI Agent Integration
+Terminator is specifically designed for AI agents to automate desktop applications programmatically, making it ideal for workflow automation and testing scenarios.

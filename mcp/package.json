@@ -6,7 +6,8 @@
     "scripts": {
         "build": "tsc",
         "start": "node dist/index.js",
-        "dev": "ts-node src/index.ts"
+        "dev": "ts-node src/index.ts",
+        "inspect": "npx @modelcontextprotocol/inspector node dist/index.js"
     },
     "keywords": [
         "mcp",
@@ -18,13 +19,14 @@
         "@clack/prompts": "^0.7.0",
         "@modelcontextprotocol/sdk": "^1.8.0",
         "dotenv": "^16.4.5",
-        "zod": "^3.23.8",
+        "terminator.js": "^0.3.7",
         "yargs": "^17.7.2",
-        "desktop-use": "latest"
+        "zod": "^3.23.8"
     },
     "devDependencies": {
         "@types/node": "^20.14.2",
         "@types/yargs": "^17.0.32",
+        "tsx": "^4.19.4",
         "ts-node": "^10.9.2",
         "typescript": "^5.4.5"
     }

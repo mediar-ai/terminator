@@ -1,0 +1,86 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Pull Request Preparation Guide
+
+## Pre-Submission Review Process
+
+When a contributor appears to be preparing a pull request or mentions submitting changes, **ALWAYS** guide them through this comprehensive review process before they submit.
+
+### Critical Questions to Ask
+
+#### 1. **Code Quality Review**
+- "Let me review your code changes first. Can you show me the specific files you've modified?"
+- "Have you run `cargo fmt` and `cargo clippy` to ensure code formatting and catch potential issues?"
+- "Did you test your changes locally with `cargo test`?"
+- "Are there any compiler warnings or linter errors I should help you address?"
+
+#### 2. **Pull Request Template Compliance**
+Based on **[.github/pull_request_template.md](mdc:.github/pull_request_template.md)**, ensure they address:
+
+- **Video Demo**: "This project values video demos for social media! Have you created a screen recording showing your changes in action? Tools like Cap.so or Screen.studio work great."
+- **Change Type**: "What type of change is this - bug fix, new feature, breaking change, or documentation update?"
+- **AI Review**: "Have you asked an AI assistant (like me) to critique your code? Let me review it now and provide feedback."
+
+#### 3. **Testing & Documentation**
+- "Have you added tests for your new functionality?"
+- "If you added a new feature, did you create an example in the **[examples/](mdc:examples)** directory?"
+- "Does your change require updates to **[README.md](mdc:README.md)** or other documentation?"
+- "Have you tested this on Windows if it involves UI automation?"
+
+#### 4. **Platform Considerations**
+- "Does your change affect multiple platforms (Windows/macOS/Linux)?"
+- "If adding Windows-specific code, did you use proper conditional compilation (`#[cfg(target_os = "windows")]`)?"
+- "Are you following the workspace dependency structure in **[Cargo.toml](mdc:Cargo.toml)**?"
+
+### Code Review Checklist
+
+Before they submit, help them verify:
+
+- [ ] **Code Style**: Follows Rust/Python/TypeScript formatting standards
+- [ ] **Error Handling**: Uses `anyhow::Result` for public APIs, proper error messages
+- [ ] **Async Patterns**: All automation operations are async where appropriate  
+- [ ] **Documentation**: Public APIs have doc comments with examples
+- [ ] **Tests**: New functionality has corresponding tests
+- [ ] **Examples**: Complex features have usage examples
+
+### Proactive Feedback Approach
+
+1. **Review First**: "Let me take a look at your changes and provide feedback before you submit the PR."
+
+2. **Suggest Improvements**: Point out potential issues like:
+   - Missing error handling
+   - Inconsistent naming conventions
+   - Missing documentation
+   - Performance concerns
+   - Platform-specific considerations
+
+3. **Enhance Quality**: "I notice you could improve X by doing Y. Would you like me to help you implement that?"
+
+4. **Demo Reminder**: "Don't forget to create a video demo! The maintainers love seeing the changes in action and might use it for social media to grow the community."
+
+### Common Issues to Catch
+
+- **Memory Management**: Ensure proper cleanup of UI automation resources
+- **Cross-Platform Code**: Platform-specific code should be properly conditionally compiled
+- **API Consistency**: New methods should follow existing patterns (fluent interface, async/await)
+- **Performance**: UI automation operations should be optimized for the 80ms scan target
+- **Documentation**: All public APIs need comprehensive documentation
+
+### Final Pre-Submission Prompt
+
+"Before you submit your PR, let's do a final check:
+1. ✅ Code is formatted and tested
+2. ✅ Video demo created (if applicable)
+3. ✅ Documentation updated
+4. ✅ Tests added for new functionality
+5. ✅ AI review completed (that's me!)
+
+Ready to submit? Make sure to follow the **[pull request template](mdc:.github/pull_request_template.md)** when you create your PR!"
+
+## Goal: High-Quality Contributions
+
+This process ensures every PR meets the project's high standards and provides a great experience for both contributors and maintainers. Always be encouraging while being thorough in the review process.
+
