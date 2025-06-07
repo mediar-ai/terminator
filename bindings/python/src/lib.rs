@@ -17,7 +17,7 @@ use locator::Locator;
 use desktop::Desktop;
 
 #[pymodule]
-fn terminator(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn terminator_py(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Desktop>()?;
     m.add_class::<UIElement>()?;
     m.add_class::<Locator>()?;

@@ -2,7 +2,7 @@
 # or `maturin develop`
 
 import asyncio
-import terminator
+import terminator_py as terminator
 
 async def main():
     desktop = terminator.Desktop()

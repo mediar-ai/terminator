@@ -108,14 +108,14 @@ class Desktop:
         Returns:
             Locator: A locator for finding elements.
         """
-    def capture_screen(self) -> typing.Any:
+    async def capture_screen(self) -> ScreenshotResult:
         r"""
         (async) Capture a screenshot of the primary monitor.
         
         Returns:
             ScreenshotResult: The screenshot data.
         """
-    def run_command(self, windows_command:typing.Optional[builtins.str]=None, unix_command:typing.Optional[builtins.str]=None) -> typing.Any:
+    async def run_command(self, windows_command:typing.Optional[builtins.str]=None, unix_command:typing.Optional[builtins.str]=None) -> CommandOutput:
         r"""
         (async) Run a shell command.
         
@@ -126,14 +126,14 @@ class Desktop:
         Returns:
             CommandOutput: The command output.
         """
-    def get_active_monitor_name(self) -> typing.Any:
+    async def get_active_monitor_name(self) -> str:
         r"""
         (async) Get the name of the currently active monitor.
         
         Returns:
             str: The name of the active monitor.
         """
-    def capture_monitor_by_name(self, name:builtins.str) -> typing.Any:
+    async def capture_monitor_by_name(self, name:builtins.str) -> ScreenshotResult:
         r"""
         (async) Capture a screenshot of a specific monitor.
         
@@ -143,7 +143,7 @@ class Desktop:
         Returns:
             ScreenshotResult: The screenshot data.
         """
-    def ocr_image_path(self, image_path:builtins.str) -> typing.Any:
+    async def ocr_image_path(self, image_path:builtins.str) -> str:
         r"""
         (async) Perform OCR on an image file.
         
@@ -153,7 +153,7 @@ class Desktop:
         Returns:
             str: The extracted text.
         """
-    def ocr_screenshot(self, screenshot:ScreenshotResult) -> typing.Any:
+    async def ocr_screenshot(self, screenshot:ScreenshotResult) -> str:
         r"""
         (async) Perform OCR on a screenshot.
         
@@ -163,21 +163,21 @@ class Desktop:
         Returns:
             str: The extracted text.
         """
-    def get_current_browser_window(self) -> typing.Any:
+    async def get_current_browser_window(self) -> UIElement:
         r"""
         (async) Get the currently focused browser window.
         
         Returns:
             UIElement: The current browser window element.
         """
-    def get_current_window(self) -> typing.Any:
+    async def get_current_window(self) -> UIElement:
         r"""
         (async) Get the currently focused window.
         
         Returns:
             UIElement: The current window element.
         """
-    def get_current_application(self) -> typing.Any:
+    async def get_current_application(self) -> UIElement:
         r"""
         (async) Get the currently focused application.
         
@@ -256,14 +256,14 @@ class Locator:
     r"""
     Locator for finding UI elements by selector.
     """
-    def first(self) -> typing.Any:
+    async def first(self) -> UIElement:
         r"""
         (async) Get the first matching element.
         
         Returns:
             UIElement: The first matching element.
         """
-    def all(self, timeout_ms:typing.Optional[builtins.int]=None, depth:typing.Optional[builtins.int]=None) -> typing.Any:
+    async def all(self, timeout_ms:typing.Optional[builtins.int]=None, depth:typing.Optional[builtins.int]=None) -> typing.List[UIElement]:
         r"""
         (async) Get all matching elements.
         
@@ -274,7 +274,7 @@ class Locator:
         Returns:
             List[UIElement]: List of matching elements.
         """
-    def wait(self, timeout_ms:typing.Optional[builtins.int]=None) -> typing.Any:
+    async def wait(self, timeout_ms:typing.Optional[builtins.int]=None) -> UIElement:
         r"""
         (async) Wait for the first matching element.
         
@@ -651,3 +651,18 @@ class UINode:
     def __repr__(self) -> builtins.str: ...
     def __str__(self) -> builtins.str: ...
 
+class ElementNotFoundError(RuntimeError): ...
+
+class InternalError(RuntimeError): ...
+
+class InvalidArgumentError(RuntimeError): ...
+
+class PermissionDeniedError(RuntimeError): ...
+
+class PlatformError(RuntimeError): ...
+
+class TimeoutError(RuntimeError): ...
+
+class UnsupportedOperationError(RuntimeError): ...
+
+class UnsupportedPlatformError(RuntimeError): ...

@@ -140,7 +140,7 @@ fn main() -> Result<()> {
     info!("Stub generation completed");
     
     // Get the path to the stub file that was just generated
-    let stub_path = Path::new("terminator.pyi");
+    let stub_path = Path::new("terminator_py.pyi");
     info!("Fixing async functions in {}", stub_path.display());
     if let Err(e) = fix_async_functions(stub_path) {
         error!("Failed to fix async functions: {}", e);

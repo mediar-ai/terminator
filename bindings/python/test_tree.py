@@ -7,7 +7,7 @@ if os.path.exists(target_dir):
     sys.path.insert(0, target_dir)
 
 try:
-    import terminator
+    import terminator_py as terminator
 except ImportError as e:
     print(f"Could not import terminator: {e}")
     print("Please build the Python bindings first using: maturin develop")
