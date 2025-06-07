@@ -1,14 +1,14 @@
 use pyo3_stub_gen::create_exception;
 
 // Custom Python exceptions for advanced error mapping
-create_exception!(terminator, ElementNotFoundError, pyo3::exceptions::PyRuntimeError);
-create_exception!(terminator, TimeoutError, pyo3::exceptions::PyRuntimeError);
-create_exception!(terminator, PermissionDeniedError, pyo3::exceptions::PyRuntimeError);
-create_exception!(terminator, PlatformError, pyo3::exceptions::PyRuntimeError);
-create_exception!(terminator, UnsupportedOperationError, pyo3::exceptions::PyRuntimeError);
-create_exception!(terminator, UnsupportedPlatformError, pyo3::exceptions::PyRuntimeError);
-create_exception!(terminator, InvalidArgumentError, pyo3::exceptions::PyRuntimeError);
-create_exception!(terminator, InternalError, pyo3::exceptions::PyRuntimeError);
+create_exception!(terminator_py, ElementNotFoundError, pyo3::exceptions::PyRuntimeError);
+create_exception!(terminator_py, TimeoutError, pyo3::exceptions::PyRuntimeError);
+create_exception!(terminator_py, PermissionDeniedError, pyo3::exceptions::PyRuntimeError);
+create_exception!(terminator_py, PlatformError, pyo3::exceptions::PyRuntimeError);
+create_exception!(terminator_py, UnsupportedOperationError, pyo3::exceptions::PyRuntimeError);
+create_exception!(terminator_py, UnsupportedPlatformError, pyo3::exceptions::PyRuntimeError);
+create_exception!(terminator_py, InvalidArgumentError, pyo3::exceptions::PyRuntimeError);
+create_exception!(terminator_py, InternalError, pyo3::exceptions::PyRuntimeError);
 
 use ::terminator_core::errors::AutomationError;
 

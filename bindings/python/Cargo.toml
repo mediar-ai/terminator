@@ -1,5 +1,5 @@
 [package]
-name = "terminator-py-bindings"
+name = "terminator_py"
 version.workspace = true
 edition.workspace = true
 
