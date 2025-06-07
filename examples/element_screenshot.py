@@ -1,6 +1,6 @@
 import asyncio
 from PIL import Image
-import terminator
+import terminator_py as terminator
 
 async def main():
     desktop = terminator.Desktop()

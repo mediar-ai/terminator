@@ -1,7 +1,7 @@
 # examples/win_calculator.py
 # Import necessary modules
 import asyncio
-import terminator
+import terminator_py as terminator
 
 async def run_calculator():
     # Create a Desktop instance (main entry point for automation)

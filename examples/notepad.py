@@ -1,5 +1,5 @@
 import asyncio
-import terminator
+import terminator_py as terminator
 import os
 import platform
 

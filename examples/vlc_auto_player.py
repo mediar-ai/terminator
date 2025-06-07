@@ -15,7 +15,7 @@ To play a local video file:
 
 """
 import asyncio
-import terminator
+import terminator_py as terminator
 
 async def play_livestream_youtube_video(youtube_link):
     """
