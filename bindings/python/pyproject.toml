@@ -3,7 +3,7 @@ requires = ["maturin>=1.8,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "terminator-py"
+name = "terminator"
 requires-python = ">=3.11"
 authors = [
   { name="mediar-ai", email="louis@mediar.ai" },
