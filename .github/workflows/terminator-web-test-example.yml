@@ -1,0 +1,244 @@
+name: 'Website Testing with Terminator SDK'
+
+on:
+  workflow_dispatch:
+    inputs:
+      test-url:
+        description: 'Website URL to test'
+        required: false
+        default: 'https://www.google.com'
+      search-term:
+        description: 'Search term to use in tests'
+        required: false
+        default: 'Terminator SDK automation'
+  pull_request:
+    paths:
+      - 'examples/website-tests/**'
+      - '.github/actions/terminator-web-test/**'
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  SEARCH_TERM: ${{ github.event.inputs.search-term || 'Terminator SDK automation' }}
+
+jobs:
+  test-google-python-ubuntu:
+    name: 'Test Google (Python/Ubuntu)'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Run Google Search Test (Python)
+        uses: ./.github/actions/terminator-web-test
+        with:
+          language: python
+          website-url: ${{ github.event.inputs.test-url || 'https://www.google.com' }}
+          test-script: 'examples/website-tests/test_google_search.py'
+          browser: chrome
+          timeout: 180
+          python-version: '3.11'
+
+  test-wikipedia-typescript-ubuntu:
+    name: 'Test Wikipedia (TypeScript/Ubuntu)'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Run Wikipedia Search Test (TypeScript)
+        uses: ./.github/actions/terminator-web-test
+        with:
+          language: typescript
+          website-url: 'https://en.wikipedia.org'
+          test-script: 'examples/website-tests/test_wikipedia_search.ts'
+          browser: firefox
+          timeout: 180
+          node-version: '20'
+
+  test-google-python-windows:
+    name: 'Test Google (Python/Windows)'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Run Google Search Test (Python)
+        uses: ./.github/actions/terminator-web-test
+        with:
+          language: python
+          website-url: ${{ github.event.inputs.test-url || 'https://www.google.com' }}
+          test-script: 'examples/website-tests/test_google_search.py'
+          browser: edge
+          timeout: 180
+          python-version: '3.11'
+
+  test-wikipedia-typescript-windows:
+    name: 'Test Wikipedia (TypeScript/Windows)'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Run Wikipedia Search Test (TypeScript)
+        uses: ./.github/actions/terminator-web-test
+        with:
+          language: typescript
+          website-url: 'https://en.wikipedia.org'
+          test-script: 'examples/website-tests/test_wikipedia_search.ts'
+          browser: chrome
+          timeout: 180
+          node-version: '20'
+
+  # Example of testing custom websites
+  test-custom-website:
+    name: 'Test Custom Website'
+    runs-on: ubuntu-latest
+    if: github.event.inputs.test-url != ''
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Create Custom Test Script
+        run: |
+          mkdir -p custom-tests
+          cat > custom-tests/test_custom_site.py << 'EOF'
+          #!/usr/bin/env python3
+          import asyncio
+          import terminator
+          import logging
+          import os
+          import sys
+
+          logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
+          async def test_custom_website():
+              url = os.getenv('TERMINATOR_URL', 'https://example.com')
+              logging.info(f"Testing custom website: {url}")
+              
+              desktop = terminator.Desktop(log_level="info")
+              
+              try:
+                  # Open the website
+                  logging.info(f"Opening {url}...")
+                  desktop.open_url(url)
+                  await asyncio.sleep(5)
+                  
+                  # Try to find any window with the website
+                  window = desktop.locator('role:Window')
+                  document = window.locator('role:Document')
+                  
+                  # Check if page loaded by looking for basic elements
+                  try:
+                      links = await document.locator('role:Link').count()
+                      logging.info(f"Found {links} links on the page")
+                      
+                      if links > 0:
+                          logging.info("✅ Website appears to have loaded successfully")
+                          return True
+                      else:
+                          logging.warning("⚠️ No links found - page may not have loaded properly")
+                          return False
+                  except Exception as e:
+                      logging.error(f"Error checking page content: {e}")
+                      return False
+                      
+              except Exception as e:
+                  logging.error(f"Test failed: {e}")
+                  return False
+
+          async def main():
+              try:
+                  success = await test_custom_website()
+                  if success:
+                      logging.info("Custom website test passed! ✅")
+                      sys.exit(0)
+                  else:
+                      logging.error("Custom website test failed! ❌")
+                      sys.exit(1)
+              except Exception as e:
+                  logging.error(f"Test execution failed: {e}")
+                  sys.exit(1)
+
+          if __name__ == "__main__":
+              asyncio.run(main())
+          EOF
+
+      - name: Run Custom Website Test
+        uses: ./.github/actions/terminator-web-test
+        with:
+          language: python
+          website-url: ${{ github.event.inputs.test-url }}
+          test-script: 'custom-tests/test_custom_site.py'
+          browser: chrome
+          timeout: 120
+
+  # Parallel testing matrix
+  cross-platform-matrix:
+    name: 'Cross-Platform Matrix Test'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        language: [python, typescript]
+        browser: [chrome, firefox]
+        exclude:
+          # Exclude some combinations to reduce test time
+          - os: windows-latest
+            browser: firefox
+          - language: typescript
+            browser: firefox
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Run Matrix Test
+        uses: ./.github/actions/terminator-web-test
+        with:
+          language: ${{ matrix.language }}
+          website-url: 'https://www.google.com'
+          test-script: ${{ matrix.language == 'python' && 'examples/website-tests/test_google_search.py' || 'examples/website-tests/test_wikipedia_search.ts' }}
+          browser: ${{ matrix.browser }}
+          timeout: 150
+
+  # Summary job that depends on all test jobs
+  test-summary:
+    name: 'Test Summary'
+    needs: [test-google-python-ubuntu, test-wikipedia-typescript-ubuntu, test-google-python-windows, test-wikipedia-typescript-windows]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check Test Results
+        run: |
+          echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check each job result
+          if [ "${{ needs.test-google-python-ubuntu.result }}" = "success" ]; then
+            echo "✅ Google (Python/Ubuntu): Passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Google (Python/Ubuntu): Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ needs.test-wikipedia-typescript-ubuntu.result }}" = "success" ]; then
+            echo "✅ Wikipedia (TypeScript/Ubuntu): Passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Wikipedia (TypeScript/Ubuntu): Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ needs.test-google-python-windows.result }}" = "success" ]; then
+            echo "✅ Google (Python/Windows): Passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Google (Python/Windows): Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ needs.test-wikipedia-typescript-windows.result }}" = "success" ]; then
+            echo "✅ Wikipedia (TypeScript/Windows): Passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Wikipedia (TypeScript/Windows): Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📊 **Overall Status**: All core tests completed" >> $GITHUB_STEP_SUMMARY
