@@ -1,0 +1,259 @@
+name: Cursor Automation Test
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  cursor-automation-test:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        
+      - name: Build Terminator workspace
+        run: |
+          cargo build --workspace --verbose
+          
+      - name: Install Python dependencies
+        run: |
+          pip install terminator-py pillow pyautogui requests
+          
+      - name: Create required directories
+        run: |
+          mkdir -p screenshots
+          mkdir -p test-results
+        shell: bash
+          
+      - name: Download and Install Cursor
+        run: |
+          # Download Cursor installer
+          $url = "https://downloader.cursor.sh/windows/nsis/x64"
+          $installer = "cursor-installer.exe"
+          Write-Host "Downloading Cursor from $url"
+          Invoke-WebRequest -Uri $url -OutFile $installer
+          
+          # Install Cursor silently
+          Write-Host "Installing Cursor..."
+          Start-Process -FilePath $installer -ArgumentList "/S" -Wait -PassThru
+          
+          # Wait for installation to complete
+          Start-Sleep -Seconds 15
+          
+          # Find Cursor executable with more thorough search
+          $searchPaths = @(
+            "$env:USERPROFILE\AppData\Local\Programs\cursor",
+            "$env:USERPROFILE\AppData\Roaming\Cursor", 
+            "C:\Program Files\Cursor",
+            "C:\Program Files (x86)\Cursor",
+            "$env:LOCALAPPDATA\Programs\cursor"
+          )
+          
+          $cursorFound = $false
+          foreach ($searchPath in $searchPaths) {
+            if (Test-Path $searchPath) {
+              $cursorExe = Get-ChildItem -Path $searchPath -Name "Cursor.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($cursorExe) {
+                $fullPath = Join-Path $searchPath $cursorExe
+                Write-Host "✓ Cursor found at: $fullPath"
+                echo "CURSOR_PATH=$fullPath" >> $env:GITHUB_ENV
+                $cursorFound = $true
+                break
+              }
+            }
+          }
+          
+          if (-not $cursorFound) {
+            Write-Host "⚠️ Cursor executable not found in standard locations"
+            Write-Host "Attempting to use 'cursor' command directly"
+            echo "CURSOR_PATH=cursor" >> $env:GITHUB_ENV
+          }
+        shell: powershell
+        
+      - name: Verify Cursor installation
+        run: |
+          echo "Verifying Cursor installation..."
+          echo "CURSOR_PATH is set to: $env:CURSOR_PATH"
+          if (Test-Path $env:CURSOR_PATH) {
+            Write-Host "✓ Cursor executable found and accessible"
+            # Try to get version info
+            try {
+              $version = & $env:CURSOR_PATH --version 2>$null
+              Write-Host "Cursor version: $version"
+            } catch {
+              Write-Host "Could not get version, but executable exists"
+            }
+          } else {
+            Write-Host "⚠️ Cursor executable not found at specified path"
+          }
+        shell: powershell
+        
+      - name: Setup Windows for automation
+        run: |
+          # Disable Windows Defender real-time protection for testing
+          # This helps prevent interference with automation
+          try {
+            Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
+            Write-Host "✓ Disabled Windows Defender real-time monitoring"
+          } catch {
+            Write-Host "⚠️ Could not disable Windows Defender (non-critical)"
+          }
+          
+          # Set high DPI awareness to prevent scaling issues
+          try {
+            Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "DpiScalingVer" -Value 0x00000000 -ErrorAction SilentlyContinue
+            Write-Host "✓ Configured DPI scaling"
+          } catch {
+            Write-Host "⚠️ Could not configure DPI scaling (non-critical)"
+          }
+          
+          # Ensure PowerShell execution policy allows our scripts
+          Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+          Write-Host "✓ Set PowerShell execution policy"
+        shell: powershell
+        
+      - name: Run enhanced Cursor automation test
+        run: |
+          echo "Starting enhanced Cursor automation test..."
+          echo "Working directory: $(pwd)"
+          echo "Python version: $(python --version)"
+          echo "Cursor path: $env:CURSOR_PATH"
+          
+          # Run the enhanced test script
+          python scripts/cursor_automation_enhanced.py
+        timeout-minutes: 30
+        continue-on-error: true
+        shell: powershell
+        
+      - name: Collect test artifacts and create summary
+        run: |
+          echo "=== COLLECTING TEST ARTIFACTS ===" 
+          echo ""
+          
+          # Create comprehensive summary
+          echo "# Cursor Automation Test Summary" > test-results/summary.md
+          echo "" >> test-results/summary.md
+          echo "**Date:** $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')" >> test-results/summary.md
+          echo "**Workflow:** ${{ github.workflow }}" >> test-results/summary.md  
+          echo "**Run ID:** ${{ github.run_id }}" >> test-results/summary.md
+          echo "**Repository:** ${{ github.repository }}" >> test-results/summary.md
+          echo "**Commit:** ${{ github.sha }}" >> test-results/summary.md
+          echo "" >> test-results/summary.md
+          
+          # Environment info
+          echo "## Environment Information" >> test-results/summary.md
+          echo "- **OS:** Windows Server (GitHub Actions)" >> test-results/summary.md
+          echo "- **Python:** $(python --version)" >> test-results/summary.md
+          echo "- **Rust:** $(rustc --version)" >> test-results/summary.md
+          echo "- **PowerShell:** $($PSVersionTable.PSVersion)" >> test-results/summary.md
+          echo "" >> test-results/summary.md
+          
+          # Test artifacts
+          $screenshotCount = (Get-ChildItem screenshots -Filter "*.png" -ErrorAction SilentlyContinue | Measure-Object).Count
+          echo "## Test Artifacts Generated" >> test-results/summary.md
+          echo "- **Screenshots:** $screenshotCount files" >> test-results/summary.md
+          echo "- **Test Results:** Available in automation_report.md and automation_report.json" >> test-results/summary.md
+          echo "" >> test-results/summary.md
+          
+          # Screenshot listing
+          if ($screenshotCount -gt 0) {
+            echo "## Screenshots Captured" >> test-results/summary.md
+            Get-ChildItem screenshots -Filter "*.png" | Sort-Object Name | ForEach-Object {
+              echo "- [$($_.Name)](./$($_.Name)) ($('{0:N0}' -f ($_.Length/1KB)) KB)" >> test-results/summary.md
+            }
+            echo "" >> test-results/summary.md
+          }
+          
+          # Test status
+          if (Test-Path "test-results/automation_report.json") {
+            $report = Get-Content "test-results/automation_report.json" | ConvertFrom-Json
+            $successRate = $report.summary.success_rate
+            $testsRun = $report.summary.tests_run
+            $testsPassed = $report.summary.tests_passed
+            
+            echo "## Test Results Summary" >> test-results/summary.md
+            echo "- **Tests Run:** $testsRun" >> test-results/summary.md
+            echo "- **Tests Passed:** $testsPassed" >> test-results/summary.md
+            echo "- **Success Rate:** $successRate%" >> test-results/summary.md
+            echo "- **Total Runtime:** $($report.summary.total_runtime) seconds" >> test-results/summary.md
+            echo "" >> test-results/summary.md
+            
+            if ($successRate -ge 80) {
+              echo "✅ **Status:** EXCELLENT - Terminator automation working very well" >> test-results/summary.md
+            } elseif ($successRate -ge 60) {
+              echo "⚠️ **Status:** GOOD - Terminator automation mostly working" >> test-results/summary.md  
+            } elseif ($successRate -ge 40) {
+              echo "⚠️ **Status:** PARTIAL - Some Terminator automation issues detected" >> test-results/summary.md
+            } else {
+              echo "❌ **Status:** ISSUES - Significant automation problems found" >> test-results/summary.md
+            }
+          } else {
+            echo "## Test Results Summary" >> test-results/summary.md
+            echo "❌ **Status:** No test report generated - check for critical errors" >> test-results/summary.md
+          }
+          
+          echo "" >> test-results/summary.md
+          echo "## Notes" >> test-results/summary.md
+          echo "This automated test validates Terminator's ability to:" >> test-results/summary.md
+          echo "1. Control desktop applications (Cursor)" >> test-results/summary.md
+          echo "2. Interact with AI interfaces" >> test-results/summary.md  
+          echo "3. Perform complex UI automation tasks" >> test-results/summary.md
+          echo "4. Capture automation process via screenshots" >> test-results/summary.md
+          echo "5. Generate comprehensive test reports" >> test-results/summary.md
+          
+          Write-Host "Test artifacts collection completed"
+        shell: powershell
+        
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cursor-automation-screenshots-${{ github.run_id }}
+          path: screenshots/
+          retention-days: 30
+          
+      - name: Upload test results  
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cursor-automation-test-results-${{ github.run_id }}
+          path: test-results/
+          retention-days: 30
+          
+      - name: Display final test summary
+        if: always()
+        run: |
+          echo ""
+          echo "=============================================="
+          echo "    CURSOR AUTOMATION TEST COMPLETED"
+          echo "=============================================="
+          echo ""
+          
+          if (Test-Path "test-results/summary.md") {
+            Write-Host "📋 Test Summary:"
+            Get-Content "test-results/summary.md" | Write-Host
+          } else {
+            Write-Host "❌ No summary file generated - check previous steps for errors"
+          }
+          
+          echo ""
+          echo "📁 Artifacts uploaded:"
+          echo "   • Screenshots: cursor-automation-screenshots-${{ github.run_id }}"
+          echo "   • Test Results: cursor-automation-test-results-${{ github.run_id }}"
+          echo ""
+          echo "📊 View results in the 'Summary' tab of this workflow run"
+          echo "=============================================="
+        shell: powershell
