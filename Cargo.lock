@@ -2306,6 +2306,7 @@ name = "mcp-client-example"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "rmcp",
  "serde_json",
  "tokio",

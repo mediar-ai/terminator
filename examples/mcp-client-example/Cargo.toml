@@ -22,5 +22,8 @@ tracing-subscriber = { workspace = true }
 # JSON handling
 serde_json = { workspace = true }
 
+# Time handling for automation timestamps
+chrono = { version = "0.4", features = ["serde"] }
+
 # MCP SDK - using the same version as terminator-mcp-agent
 rmcp = { version = "0.1.5", features = ["client", "transport-child-process"] }
