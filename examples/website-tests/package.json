@@ -1,0 +1,32 @@
+{
+  "name": "terminator-website-tests",
+  "version": "1.0.0",
+  "description": "Example website tests using Terminator SDK",
+  "main": "index.js",
+  "scripts": {
+    "test:google": "python test_google_search.py",
+    "test:wikipedia": "ts-node test_wikipedia_search.ts",
+    "test:all": "npm run test:google && npm run test:wikipedia"
+  },
+  "dependencies": {
+    "terminator.js": "^0.4.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "ts-node": "^10.9.0"
+  },
+  "keywords": [
+    "terminator",
+    "automation",
+    "testing",
+    "web",
+    "gui",
+    "accessibility"
+  ],
+  "author": "Terminator SDK",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
