@@ -1,0 +1,26 @@
+[package]
+name = "mcp-client-example"
+version = "0.1.0"
+edition = "2021"
+description = "Example demonstrating MCP client usage with terminator-mcp-agent"
+
+[[bin]]
+name = "mcp_client_example"
+path = "../mcp_client_example.rs"
+
+[dependencies]
+# Core async runtime
+tokio = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# JSON handling
+serde_json = { workspace = true }
+
+# MCP SDK - using the same version as terminator-mcp-agent
+rmcp = { version = "0.1.5", features = ["client", "transport-child-process"] }
