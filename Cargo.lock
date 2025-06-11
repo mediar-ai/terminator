@@ -2308,6 +2308,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "rmcp",
+ "serde",
  "serde_json",
  "tokio",
  "tracing",

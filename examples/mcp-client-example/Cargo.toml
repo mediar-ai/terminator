@@ -21,6 +21,7 @@ tracing-subscriber = { workspace = true }
 
 # JSON handling
 serde_json = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 
 # Time handling for automation timestamps
 chrono = { version = "0.4", features = ["serde"] }
