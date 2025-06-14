@@ -13,16 +13,49 @@
                     "build",
                     "--example=list_processes_and_windows"
                 ],
-                 "filter": {
+                "filter": {
                     "name": "list_processes_and_windows",
                     "kind": "example"
-                 }
+                }
             },
             "args": [],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "env": {
                 "RUST_LOG": "debug"
+            }
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug Rust Cursor Example",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--example=cursor_example"
+                ],
+                "filter": {
+                    "name": "cursor_example",
+                    "kind": "example"
+                }
+            },
+            "args": [],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "RUST_LOG": "debug"
+            }
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Debug cursor_example.js",
+            "program": "${workspaceFolder}/bindings/nodejs/cursor_example.js",
+            "cwd": "${workspaceFolder}/bindings/nodejs",
+            "console": "integratedTerminal",
+            "runtimeExecutable": "node",
+            "env": {
+                "NODE_ENV": "development"
             }
         },
     ]

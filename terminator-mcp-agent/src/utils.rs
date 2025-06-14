@@ -3,7 +3,7 @@ use rmcp::{schemars, schemars::JsonSchema};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::time::Duration;
-use terminator::{Desktop};
+use terminator::Desktop;
 use tracing::Level;
 use tracing_subscriber::EnvFilter;
 

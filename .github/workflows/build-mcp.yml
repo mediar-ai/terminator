@@ -1,0 +1,73 @@
+name: Build & Release MCP
+
+on:
+  push:
+    tags:
+      - 'v*.*.*' # Trigger on version tags like v1.0.0
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  build-release:
+    name: Build & Release MCP
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          # - os: macos-latest
+          #   target: x86_64-apple-darwin
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+
+      - name: Build Terminator MCP
+        run: cargo build -p terminator-mcp-agent --release --target ${{ matrix.target }}
+        env:
+          CARGO_TERM_COLOR: always
+
+      - name: Package executable (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $exePath = "target/x86_64-pc-windows-msvc/release/terminator-mcp-agent.exe"
+          $zipPath = "terminator-mcp-windows-x86_64.zip"
+          Compress-Archive -Path $exePath -DestinationPath $zipPath
+          echo "ASSET_PATH_X86=$zipPath" >> $env:GITHUB_ENV
+          echo "ASSET_NAME_X86=$zipPath" >> $env:GITHUB_ENV
+
+      # - name: Package executable (macOS)
+      #   if: matrix.os == 'macos-latest'
+      #   shell: bash
+      #   run: |
+      #     exePath="target/x86_64-apple-darwin/release/terminator-mcp-agent"
+      #     zipPath="terminator-mcp-macos-x86_64.tar.gz"
+      #     tar -czf $zipPath -C $(dirname $exePath) $(basename $exePath)
+      #     echo "ASSET_PATH_X86=$zipPath" >> $GITHUB_ENV
+      #     echo "ASSET_NAME_X86=$zipPath" >> $GITHUB_ENV
+
+      - name: Upload Artifacts (Manual Trigger)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ASSET_NAME_X86 }}
+          path: ${{ env.ASSET_PATH_X86 }}
+
+      - name: Create Release and Upload Assets (Tag Trigger)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.ASSET_PATH_X86 }}
+          name: Release ${{ github.ref_name }}
+          generate_release_notes: true

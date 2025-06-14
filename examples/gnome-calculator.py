@@ -1,7 +1,5 @@
 import asyncio
-import terminator_py as terminator
-import os
-import platform
+import terminator
 
 async def run_calculator():
     desktop = terminator.Desktop(log_level="error")  # log_level="error" is used to suppress the info logs
@@ -43,7 +41,11 @@ async def run_calculator():
         button_labels = [button_7, button_plus, button_8, button_minus, button_4, button_multiply, button_2, button_plus, button_6, button_divide, button_3, button_equals]
         for label in button_labels:
             button = await calc_window.locator(f'button:{label}').first()
-            button.click()
+            # Note: Using perform_action() instead of click() for cross-platform compatibility
+            # - click() requires exact coordinates which are only available on X11
+            # - On Wayland, ATSPI coordinates are invalid due to security restrictions
+            # - perform_action() uses platform-agnostic ATSPI actions that work reliably
+            button.perform_action("click")
             print(f'Clicked {label}')
 
         print('Retrieving result...')

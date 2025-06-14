@@ -1,9 +1,9 @@
-use anyhow::Result;
-use rmcp::{ServiceExt, transport::stdio};
 use crate::utils::{init_logging, DesktopWrapper};
+use anyhow::Result;
+use rmcp::{transport::stdio, ServiceExt};
 
-pub mod utils;
 pub mod server;
+pub mod utils;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -22,4 +22,3 @@ async fn main() -> Result<()> {
     service.waiting().await?;
     Ok(())
 }
-

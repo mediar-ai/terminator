@@ -39,4 +39,4 @@ pub enum WorkflowRecorderError {
 }
 
 /// Result type for workflow recorder operations
-pub type Result<T> = std::result::Result<T, WorkflowRecorderError>; 
+pub type Result<T> = std::result::Result<T, WorkflowRecorderError>;

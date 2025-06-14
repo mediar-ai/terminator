@@ -7,18 +7,21 @@ pub fn map_error(err: AutomationError) -> napi::Error {
         AutomationError::ElementNotFound(msg) => {
             napi::Error::new(Status::InvalidArg, format!("ELEMENT_NOT_FOUND: {}", msg))
         }
-        AutomationError::Timeout(msg) => {
-            napi::Error::new(Status::GenericFailure, format!("OPERATION_TIMED_OUT: {}", msg))
-        }
-        AutomationError::PermissionDenied(msg) => {
-            napi::Error::new(Status::GenericFailure, format!("PERMISSION_DENIED: {}", msg))
-        }
+        AutomationError::Timeout(msg) => napi::Error::new(
+            Status::GenericFailure,
+            format!("OPERATION_TIMED_OUT: {}", msg),
+        ),
+        AutomationError::PermissionDenied(msg) => napi::Error::new(
+            Status::GenericFailure,
+            format!("PERMISSION_DENIED: {}", msg),
+        ),
         AutomationError::PlatformError(e) => {
             napi::Error::new(Status::GenericFailure, format!("PLATFORM_ERROR: {}", e))
         }
-        AutomationError::UnsupportedOperation(msg) => {
-            napi::Error::new(Status::InvalidArg, format!("UNSUPPORTED_OPERATION: {}", msg))
-        }
+        AutomationError::UnsupportedOperation(msg) => napi::Error::new(
+            Status::InvalidArg,
+            format!("UNSUPPORTED_OPERATION: {}", msg),
+        ),
         AutomationError::UnsupportedPlatform(msg) => {
             napi::Error::new(Status::InvalidArg, format!("UNSUPPORTED_PLATFORM: {}", msg))
         }
@@ -29,4 +32,4 @@ pub fn map_error(err: AutomationError) -> napi::Error {
             napi::Error::new(Status::GenericFailure, format!("INTERNAL_ERROR: {}", e))
         }
     }
-} 
+}

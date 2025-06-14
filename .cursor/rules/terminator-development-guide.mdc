@@ -3,88 +3,90 @@ description:
 globs: 
 alwaysApply: true
 ---
-# Terminator Development Guide
+# Terminator Development Standards
 
-## Architecture Principles
-
-### Rust Core + Language Bindings
-- **Core Logic**: All automation logic lives in the Rust crate at **[terminator/src/](mdc:terminator/src)**
-- **Language Bindings**: Python and Node.js bindings wrap the Rust core
-- **FFI Pattern**: Use safe FFI patterns for cross-language communication
-
-### Platform Abstraction
-- Use conditional compilation for platform-specific code
-- Windows: UIAutomation APIs
-- macOS: Accessibility framework
-- Abstract common patterns into traits
-
-## Code Organization
-
-### Workspace Structure
-The project uses Cargo workspace defined in **[Cargo.toml](mdc:Cargo.toml)**:
-- `terminator/` - Core library
-- `bindings/python/` - Python wrapper
-- `bindings/nodejs/` - Node.js wrapper  
-- `terminator-workflow-recorder/` - Recording tool
-- `examples/` - Usage examples
-
-### Dependency Management
-- Use workspace dependencies defined in root **[Cargo.toml](mdc:Cargo.toml)**
-- Platform-specific dependencies should use cfg conditions
-- Keep external dependencies minimal and well-justified
-
-## API Design Patterns
-
-### Fluent Interface
-Design APIs to be chainable and intuitive:
-```rust
-desktop.locator("name:Button").click().wait_for_enabled()
+## Code Quality (Non-Negotiable)
+```bash
+cargo fmt --check    # Must pass - zero tolerance for unformatted code
+cargo clippy         # Fix ALL warnings - use #[allow] only with justification  
+cargo test           # All tests must pass
 ```
 
-### Error Handling
-- Use `anyhow::Result` for public APIs
-- Use `thiserror` for custom error types
-- Provide clear error messages for automation failures
+## Architecture
+- **Core**: Rust in **[terminator/src/](mdc:terminator/src)** with platform traits in **[platforms/mod.rs](mdc:terminator/src/platforms/mod.rs)**
+- **Bindings**: Python (**[bindings/python/](mdc:bindings/python)**) and Node.js (**[bindings/nodejs/](mdc:bindings/nodejs)**) wrap Rust core
+- **Examples**: **[examples/](mdc:examples)** serve as integration tests - keep simple, one concept each
 
-### Async by Default
-- All automation operations should be async
-- Use `tokio` runtime consistently
-- Provide sync wrappers only when necessary
+## API Design
+```rust
+// ✅ Good: Async, chainable, type-safe
+let monitor = desktop.get_primary_monitor().await?;
+let screenshot = desktop.capture_monitor(&monitor).await?;
 
-## Testing Strategy
+// ✅ Good: Rich error context
+.map_err(|e| AutomationError::PlatformError(format!("Failed to capture {}: {}", id, e)))
 
-### Integration Tests
-- Test against real applications when possible
-- Use Windows built-in apps (Calculator, Notepad) for CI
-- Mock platform APIs for unit tests
+// ✅ Good: Full documentation
+/// Capture monitor screenshot
+/// 
+/// # Examples
+/// ```rust
+/// let desktop = Desktop::new_default()?;
+/// let screenshot = desktop.capture_monitor(&monitor).await?;
+/// ```
+#[instrument(skip(self))]
+pub async fn capture_monitor(&self, monitor: &Monitor) -> Result<ScreenshotResult, AutomationError>
+```
 
-### Examples as Tests
-- Examples in **[examples/](mdc:examples)** serve as integration tests
-- Keep examples simple and well-documented
-- Each example should demonstrate one core concept
+## Platform Code
+```rust
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::Accessibility::*;
 
-## Performance Considerations
+#[cfg(target_os = "macos")]  
+use accessibility::*;
 
-### Caching
-- Cache UI element references when safe
-- Invalidate caches on UI changes
-- Measure and optimize common operations
+#[cfg(target_os = "linux")]
+use atspi::*;
+```
 
-### Compiled Workflows
-- Support pre-compiled automation workflows
-- Optimize for 80ms UI scans as mentioned in **[README.md](mdc:README.md)**
-- Profile critical paths regularly
+## Development Loop
+```bash
+# Fast iteration
+cargo check && cargo clippy && cargo test
 
-## Documentation Standards
+# With bindings  
+TERMINATOR_BUILD_BINDINGS=1 cargo build --release
 
-### Code Comments
-- Document public APIs thoroughly
-- Explain platform-specific behavior
-- Include usage examples in doc comments
+# Before PR
+cargo fmt && cargo clippy -- -D warnings && cargo test
+```
 
-### README Updates
-Keep **[README.md](mdc:README.md)** current with:
-- Installation instructions
-- Quick start examples
-- Links to full documentation
+## Performance Targets
+- UI scans: <80ms
+- Screenshots: <200ms  
+- Memory: <50MB baseline
+- Use `Arc<dyn Trait>`, `#[instrument]`, profile with `criterion`
+
+## Dependencies
+- Use `workspace = true` in **[Cargo.toml](mdc:Cargo.toml)**
+- Platform deps: `optional = true` + `#[cfg]`
+- Minimize external deps, justify additions
+
+## Testing
+- Unit tests (80%): Fast, isolated
+- Integration tests (15%): Component interaction
+- Examples (5%): Real-world scenarios
+- Test error cases, not just happy paths
+
+## PR Requirements
+- Video demo for UI changes (Cap.so/Screen.studio)
+- Tests pass on all platforms
+- Documentation updated
+- Example added for new features
+- Breaking changes documented
+
+## Language Bindings
+- **Python**: PyO3, snake_case, type stubs, docstrings
+- **Node.js**: napi-rs, camelCase, TypeScript defs, JSDoc
 

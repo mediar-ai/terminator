@@ -1,13 +1,33 @@
 use pyo3_stub_gen::create_exception;
 
 // Custom Python exceptions for advanced error mapping
-create_exception!(terminator, ElementNotFoundError, pyo3::exceptions::PyRuntimeError);
+create_exception!(
+    terminator,
+    ElementNotFoundError,
+    pyo3::exceptions::PyRuntimeError
+);
 create_exception!(terminator, TimeoutError, pyo3::exceptions::PyRuntimeError);
-create_exception!(terminator, PermissionDeniedError, pyo3::exceptions::PyRuntimeError);
+create_exception!(
+    terminator,
+    PermissionDeniedError,
+    pyo3::exceptions::PyRuntimeError
+);
 create_exception!(terminator, PlatformError, pyo3::exceptions::PyRuntimeError);
-create_exception!(terminator, UnsupportedOperationError, pyo3::exceptions::PyRuntimeError);
-create_exception!(terminator, UnsupportedPlatformError, pyo3::exceptions::PyRuntimeError);
-create_exception!(terminator, InvalidArgumentError, pyo3::exceptions::PyRuntimeError);
+create_exception!(
+    terminator,
+    UnsupportedOperationError,
+    pyo3::exceptions::PyRuntimeError
+);
+create_exception!(
+    terminator,
+    UnsupportedPlatformError,
+    pyo3::exceptions::PyRuntimeError
+);
+create_exception!(
+    terminator,
+    InvalidArgumentError,
+    pyo3::exceptions::PyRuntimeError
+);
 create_exception!(terminator, InternalError, pyo3::exceptions::PyRuntimeError);
 
 use ::terminator_core::errors::AutomationError;
@@ -25,4 +45,4 @@ pub fn automation_error_to_pyerr(e: AutomationError) -> pyo3::PyErr {
         AutomationError::InvalidArgument(_) => InvalidArgumentError::new_err(msg),
         AutomationError::Internal(_) => InternalError::new_err(msg),
     }
-} 
+}

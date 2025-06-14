@@ -76,7 +76,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    println!("Tree traversal ({} nodes): {:?}", visited_count, start.elapsed());
+    println!(
+        "Tree traversal ({} nodes): {:?}",
+        visited_count,
+        start.elapsed()
+    );
 
     // Benchmark serialization
     let start = Instant::now();
@@ -93,4 +97,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  cargo bench --bench tree_performance_benchmarks");
 
     Ok(())
-} 
+}

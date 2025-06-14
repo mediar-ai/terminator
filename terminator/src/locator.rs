@@ -1,8 +1,8 @@
 use tracing::{debug, instrument};
 
-use crate::platforms::AccessibilityEngine;
 use crate::element::UIElement;
 use crate::errors::AutomationError;
+use crate::platforms::AccessibilityEngine;
 use crate::selector::Selector;
 use std::sync::Arc;
 use std::time::Duration;
@@ -45,11 +45,19 @@ impl Locator {
 
     /// Get all elements matching this locator, waiting up to the specified timeout.
     /// If no timeout is provided, uses the locator's default timeout.
-    pub async fn all(&self, timeout: Option<Duration>, depth: Option<usize>) -> Result<Vec<UIElement>, AutomationError> {
+    pub async fn all(
+        &self,
+        timeout: Option<Duration>,
+        depth: Option<usize>,
+    ) -> Result<Vec<UIElement>, AutomationError> {
         let effective_timeout = timeout.unwrap_or(self.timeout);
         // find_elements itself handles the timeout now
-        self.engine
-            .find_elements(&self.selector, self.root.as_ref(), Some(effective_timeout), depth)
+        self.engine.find_elements(
+            &self.selector,
+            self.root.as_ref(),
+            Some(effective_timeout),
+            depth,
+        )
     }
 
     pub async fn first(&self, timeout: Option<Duration>) -> Result<UIElement, AutomationError> {
@@ -72,7 +80,10 @@ impl Locator {
             } else {
                 effective_timeout - start.elapsed()
             };
-            debug!("New wait loop iteration, remaining_time: {:?}", remaining_time);
+            debug!(
+                "New wait loop iteration, remaining_time: {:?}",
+                remaining_time
+            );
 
             // Directly use find_element with the calculated (or zero) remaining timeout
             match self.engine.find_element(
@@ -84,16 +95,16 @@ impl Locator {
                 Err(AutomationError::ElementNotFound(_)) => {
                     // Continue looping if not found yet
                     if start.elapsed() >= effective_timeout {
-                         // Use the original error message format if possible, or create a new one
-                         return Err(AutomationError::Timeout(format!(
+                        // Use the original error message format if possible, or create a new one
+                        return Err(AutomationError::Timeout(format!(
                             "Timed out after {:?} waiting for element {:?}",
                             effective_timeout, self.selector
                         )));
                     }
                     tokio::time::sleep(Duration::from_millis(100)).await; // Small delay before retry
                 }
-                 // Propagate other errors immediately
-                 Err(e) => return Err(e),
+                // Propagate other errors immediately
+                Err(e) => return Err(e),
             }
             // Redundant check, loop condition handles timeout
             // if start.elapsed() >= effective_timeout { ... }
@@ -104,23 +115,26 @@ impl Locator {
     pub fn locator(&self, selector: impl Into<Selector>) -> Locator {
         let next_selector = selector.into();
         let new_chain = match self.selector.clone() {
-             // If the current selector is already a chain, append to it
-             Selector::Chain(mut existing_chain) => {
-                 existing_chain.push(next_selector);
-                 existing_chain
-             }
-             // If the current selector is not a chain, create a new chain
-             current_selector => {
-                 vec![current_selector, next_selector]
-             }
-         };
+            // If the current selector is already a chain, append to it
+            Selector::Chain(mut existing_chain) => {
+                existing_chain.push(next_selector);
+                existing_chain
+            }
+            // If the current selector is not a chain, create a new chain
+            current_selector => {
+                vec![current_selector, next_selector]
+            }
+        };
 
         Locator {
             engine: self.engine.clone(),
             selector: Selector::Chain(new_chain), // Create the chain variant
-            timeout: self.timeout, // Inherit timeout
-            root: self.root.clone(), // Inherit root
+            timeout: self.timeout,                // Inherit timeout
+            root: self.root.clone(),              // Inherit root
         }
     }
 
+    pub fn selector_string(&self) -> String {
+        format!("{:?}", self.selector)
+    }
 }

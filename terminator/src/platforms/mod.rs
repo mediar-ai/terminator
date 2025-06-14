@@ -55,7 +55,11 @@ pub trait AccessibilityEngine: Send + Sync {
     fn get_application_by_name(&self, name: &str) -> Result<UIElement, AutomationError>;
 
     /// Get application by process ID
-    fn get_application_by_pid(&self, pid: i32, timeout: Option<Duration>) -> Result<UIElement, AutomationError>;
+    fn get_application_by_pid(
+        &self,
+        pid: i32,
+        timeout: Option<Duration>,
+    ) -> Result<UIElement, AutomationError>;
 
     /// Find elements using a selector
     fn find_element(
@@ -95,14 +99,62 @@ pub trait AccessibilityEngine: Send + Sync {
         unix_command: Option<&str>,
     ) -> Result<crate::CommandOutput, AutomationError>;
 
-    /// Capture screenshot
-    async fn capture_screen(&self) -> Result<crate::ScreenshotResult, AutomationError>;
+    // ============== NEW MONITOR ABSTRACTIONS ==============
 
-    /// Capture screenshot by monitor name
+    /// List all available monitors/displays
+    async fn list_monitors(&self) -> Result<Vec<crate::Monitor>, AutomationError>;
+
+    /// Get the primary monitor
+    async fn get_primary_monitor(&self) -> Result<crate::Monitor, AutomationError>;
+
+    /// Get the monitor containing the currently focused window
+    async fn get_active_monitor(&self) -> Result<crate::Monitor, AutomationError>;
+
+    /// Get a monitor by its ID
+    async fn get_monitor_by_id(&self, id: &str) -> Result<crate::Monitor, AutomationError>;
+
+    /// Get a monitor by its name
+    async fn get_monitor_by_name(&self, name: &str) -> Result<crate::Monitor, AutomationError>;
+
+    /// Capture a screenshot of a monitor by its ID
+    async fn capture_monitor_by_id(
+        &self,
+        id: &str,
+    ) -> Result<crate::ScreenshotResult, AutomationError>;
+
+    // ============== DEPRECATED METHODS ==============
+
+    /// Capture screenshot (deprecated - use monitor-specific methods)
+    #[deprecated(
+        since = "0.4.9",
+        note = "Use get_primary_monitor() and capture_monitor_by_id() instead"
+    )]
+    async fn capture_screen(&self) -> Result<crate::ScreenshotResult, AutomationError> {
+        let primary = self.get_primary_monitor().await?;
+        self.capture_monitor_by_id(&primary.id).await
+    }
+
+    /// Capture screenshot by monitor name (deprecated)
+    #[deprecated(
+        since = "0.4.9",
+        note = "Use get_monitor_by_name() and capture_monitor_by_id() instead"
+    )]
     async fn capture_monitor_by_name(
         &self,
         name: &str,
-    ) -> Result<crate::ScreenshotResult, AutomationError>;
+    ) -> Result<crate::ScreenshotResult, AutomationError> {
+        let monitor = self.get_monitor_by_name(name).await?;
+        self.capture_monitor_by_id(&monitor.id).await
+    }
+
+    /// Get the name of the currently active monitor (deprecated)
+    #[deprecated(since = "0.4.9", note = "Use get_active_monitor() instead")]
+    async fn get_active_monitor_name(&self) -> Result<String, AutomationError> {
+        let monitor = self.get_active_monitor().await?;
+        Ok(monitor.name)
+    }
+
+    // ============== END DEPRECATED METHODS ==============
 
     /// OCR on image path
     async fn ocr_image_path(&self, image_path: &str) -> Result<String, AutomationError>;
@@ -127,23 +179,20 @@ pub trait AccessibilityEngine: Send + Sync {
 
     /// Get the complete UI tree for a window identified by process ID and optional title
     /// This is the single tree building function - replaces get_window_tree_by_title and get_window_tree_by_pid_and_title
-    /// 
+    ///
     /// # Arguments
     /// * `pid` - Process ID of the target application
     /// * `title` - Optional window title filter (if None, uses any window from the PID)
     /// * `config` - Configuration for tree building performance and completeness
-    /// 
+    ///
     /// # Returns
     /// Complete UI tree starting from the identified window
     fn get_window_tree(
-        &self, 
-        pid: u32, 
-        title: Option<&str>, 
-        config: TreeBuildConfig
+        &self,
+        pid: u32,
+        title: Option<&str>,
+        config: TreeBuildConfig,
     ) -> Result<UINode, AutomationError>;
-
-    /// Get the name of the currently active monitor
-    async fn get_active_monitor_name(&self) -> Result<String, AutomationError>;
 
     /// Enable downcasting to concrete engine types
     fn as_any(&self) -> &dyn std::any::Any;

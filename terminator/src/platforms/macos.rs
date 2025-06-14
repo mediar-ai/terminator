@@ -6,6 +6,7 @@ use crate::{ClickResult, ScreenshotResult};
 
 use accessibility::AXUIElementAttributes;
 use accessibility::{AXAttribute, AXUIElement};
+use accessibility_sys::{AXError, AXValueType, error_string};
 use anyhow::Result;
 use core_foundation::array::{
     __CFArray, CFArrayGetCount, CFArrayGetTypeID, CFArrayGetValueAtIndex,
@@ -151,22 +152,66 @@ impl MacOSEngine {
     }
 
     // Helper to convert ThreadSafeAXUIElement to our UIElement
+    #[instrument(skip(self, ax_element))]
     fn wrap_element(&self, ax_element: ThreadSafeAXUIElement) -> UIElement {
-        // Try to check element validity
-        let is_valid = match ax_element.0.role() {
-            Ok(_) => true,
-            Err(e) => {
-                if let accessibility::Error::Ax(code) = e {
-                    if code != -25204 {
-                        // kAXErrorNoValue
-                        debug!("Warning: Potentially invalid AXUIElement: {:?}", e);
+        debug!("[macOS][wrap_element] ax_element: {:?}", ax_element);
+
+        // Try to check element validity by first checking if "AXRole" is present in attribute names
+        let mut is_valid = false;
+        // println!("[macOS][wrap_element] ax_element: {:?}", ax_element);
+        // println!("[macOS][wrap_element] ax_element.0: {:?}", ax_element.0);
+        match ax_element.0.attribute_names() {
+            Ok(attr_names) => {
+                // ItemRef<CFString> does not have as_str(), so compare using .to_string()
+                let has_role = attr_names.iter().any(|attr| attr.to_string() == "AXRole");
+                // println!("[macOS][wrap_element] attr_names: {:?}", attr_names);
+                if has_role {
+                    // Try to get the role if the attribute exists
+                    match ax_element.0.role() {
+                        Ok(_) => {
+                            is_valid = true;
+                        }
+                        Err(e) => {
+                            if let accessibility::Error::Ax(code) = e {
+                                if code != -25204 {
+                                    // kAXErrorNoValue
+                                    let err_str = unsafe { error_string(code) };
+                                    debug!(
+                                        "Warning: Potentially invalid AXUIElement: {:?} (error: {})",
+                                        e, err_str
+                                    );
+                                }
+                            } else {
+                                debug!("Warning: Potentially invalid AXUIElement: {:?}", e);
+                            }
+                            is_valid = false;
+                        }
                     }
                 } else {
-                    debug!("Warning: Potentially invalid AXUIElement: {:?}", e);
+                    debug!(
+                        "AXUIElement does not have 'AXRole' attribute. Attributes: {:?}",
+                        attr_names
+                    );
+                    // If it doesn't have AXRole, we still consider it valid for wrapping,
+                    // but log for debugging.
+                    is_valid = false;
                 }
-                false
             }
-        };
+            Err(e) => {
+                let err_str = if let accessibility::Error::Ax(code) = e {
+                    unsafe { error_string(code) }
+                } else {
+                    "<not an AX error>"
+                };
+                debug!(
+                    "Failed to get attribute names for AXUIElement: {:?} (error: {}). Wrapping anyway.",
+                    e, err_str
+                );
+                // If we can't get attribute names, be conservative and allow wrapping,
+                // but log for debugging.
+                is_valid = false;
+            }
+        }
 
         if !is_valid {
             debug!("Warning: Wrapping possibly invalid AXUIElement");
@@ -703,19 +748,18 @@ impl UIElementImpl for MacOSUIElement {
         let _span = tracing::span!(tracing::Level::DEBUG, "attributes").entered();
         let start = std::time::Instant::now();
 
-        debug!(
-            "Getting attributes for element: {:?}",
-            self.element.0.role()
-        );
+        let role = self
+            .element
+            .0
+            .role()
+            .map(|r| r.to_string())
+            .unwrap_or_default();
+        debug!("Getting attributes for element: {:?}", role);
 
         let properties = HashMap::new();
 
         // Check if this is a window element first
-        let is_window = self
-            .element
-            .0
-            .role()
-            .map_or(false, |r| r.to_string() == "AXWindow");
+        let is_window = role == "AXWindow";
 
         debug!("Element is_window: {}", is_window);
 
@@ -797,12 +841,13 @@ impl UIElementImpl for MacOSUIElement {
                 if attr_names.iter().any(|n| n.to_string() == attr_name) {
                     let attr = AXAttribute::new(&CFString::new(attr_name));
                     if let Ok(value) = self.element.0.attribute(&attr) {
+                        let attr_name_str = attr_name.to_string();
                         if let Some(cf_bool) = value.downcast_into::<CFBoolean>() {
-                            attrs.properties.insert(
-                                attr_name.to_string(),
-                                Some(Value::String(format!("{:?}", cf_bool))),
-                            );
-                            debug!("Added window attribute {}: {:?}", attr_name, cf_bool);
+                            let bool_val = cf_bool == CFBoolean::true_value();
+                            attrs
+                                .properties
+                                .insert(attr_name_str.clone(), Some(Value::Bool(bool_val)));
+                            debug!("Added window attribute {}: {:?}", attr_name_str, bool_val);
                         }
                     }
                 }
@@ -921,9 +966,9 @@ impl UIElementImpl for MacOSUIElement {
         debug!("Attribute names for element: {:?}", attr_names_vec);
 
         for (index, name) in attr_names.iter().enumerate() {
-            if index % 10 == 0 {
-                debug!("Processing attribute {} of {}", index + 1, attr_names.len());
-            }
+            // if index % 10 == 0 {
+            debug!("Processing attribute {} of {}", index + 1, attr_names.len());
+            // }
             // Only attempt to fetch attribute if it's in attr_names (guaranteed by loop)
             let attr = AXAttribute::new(&name);
             match self.element.0.attribute(&attr) {
@@ -1647,6 +1692,12 @@ impl UIElementImpl for MacOSUIElement {
         ))
     }
 
+    fn set_transparency(&self, percentage: u8) -> Result<(), AutomationError> {
+        Err(AutomationError::UnsupportedOperation(
+            "set_transparency is not implemented for macOS yet".to_string(),
+        ))
+    }
+
     fn process_id(&self) -> Result<u32, AutomationError> {
         let pid = get_pid_for_element(&self.element);
         if pid != -1 {
@@ -1972,7 +2023,7 @@ fn map_generic_role_to_macos_roles(role: &str) -> Vec<String> {
 fn macos_role_to_generic_role(role: &str) -> Vec<String> {
     match role.to_lowercase().as_str() {
         "AXWindow" => vec!["window".to_string()],
-        "AXButton" | "AXMenuItem" | "AXMenuBarItem" => vec!["button".to_string()],
+        "AXButton" | "AXMenuItem" | "AXMenuBarItem" | "AXPopUpButton" => vec!["button".to_string()],
         "AXTextField" | "AXTextArea" | "AXTextEdit" | "AXSearchField" | "AXURIField"
         | "AXAddressField" => vec![
             "textfield".to_string(),
@@ -1990,6 +2041,11 @@ fn macos_role_to_generic_role(role: &str) -> Vec<String> {
         _ => vec![role.to_string()],
     }
 }
+
+// List of application localized names to exclude.
+// These are known to consistently fail to retrieve role
+// and take an unusually long time to do so.
+const EXCLUDED_APPLICATION_NAMES: &[&str] = &["Raycast Web Content", "superwhisper Web Content"];
 
 #[async_trait::async_trait]
 impl AccessibilityEngine for MacOSEngine {
@@ -2043,6 +2099,7 @@ impl AccessibilityEngine for MacOSEngine {
         let mut apps = Vec::new();
         unsafe {
             use objc::{class, msg_send, sel, sel_impl};
+            use std::time::Instant;
 
             let workspace_class = class!(NSWorkspace);
             let shared_workspace: *mut objc::runtime::Object =
@@ -2052,10 +2109,168 @@ impl AccessibilityEngine for MacOSEngine {
             let count: usize = msg_send![running_apps, count];
 
             for i in 0..count {
+                debug!("================================");
+                debug!("[macOS][get_applications] i: {}", i);
+                let iter_start = Instant::now();
+
                 let app: *mut objc::runtime::Object = msg_send![running_apps, objectAtIndex:i];
                 let pid: i32 = msg_send![app, processIdentifier];
+                let elapsed_so_far = iter_start.elapsed();
+                debug!(
+                    "[macOS][get_applications] i: {}, pid: {}, elapsed so far: {} ms",
+                    i,
+                    pid,
+                    elapsed_so_far.as_millis()
+                );
+
                 let ax_element = ThreadSafeAXUIElement::application(pid);
-                apps.push(self.wrap_element(ax_element));
+                // Log after creating AXUIElement
+                let elapsed_after_ax = iter_start.elapsed();
+                debug!(
+                    "[macOS][get_applications] i: {}, after AXUIElement::application, elapsed so far: {} ms",
+                    i,
+                    elapsed_after_ax.as_millis()
+                );
+
+                // Get the localized name of the application (for debugging/logging)
+                let localized_name: Option<String> = {
+                    let nsstring: *mut objc::runtime::Object = msg_send![app, localizedName];
+                    if !nsstring.is_null() {
+                        let cstr: *const std::os::raw::c_char = msg_send![nsstring, UTF8String];
+                        if !cstr.is_null() {
+                            let cstr = std::ffi::CStr::from_ptr(cstr);
+                            cstr.to_str().ok().map(|s| s.to_string())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                };
+
+                // Skip excluded applications by localized name
+                if let Some(ref name) = localized_name {
+                    if EXCLUDED_APPLICATION_NAMES
+                        .iter()
+                        .any(|&excluded| excluded == name)
+                    {
+                        debug!(
+                            "[macOS][get_applications] Skipping excluded application: {:?}",
+                            name
+                        );
+                        continue;
+                    }
+                }
+
+                let elapsed_localized_name = iter_start.elapsed();
+                debug!(
+                    "[macOS][get_applications] i: {}, pid: {}, localized_name: {:?}, elapsed so far: {} ms",
+                    i,
+                    pid,
+                    localized_name,
+                    elapsed_localized_name.as_millis()
+                );
+
+                // Filter: Only include if .role() == "AXApplication"
+                // This is a reliable accessibility filter based on runtime introspection
+                match ax_element.0.role() {
+                    Ok(role_cfstring) => {
+                        let elapsed_after_role = iter_start.elapsed();
+                        debug!(
+                            "[macOS][get_applications] i: {}, after role() fetch, role: {}, elapsed so far: {} ms",
+                            i,
+                            role_cfstring.to_string(),
+                            elapsed_after_role.as_millis()
+                        );
+                        if role_cfstring.to_string() == "AXApplication" {
+                            let elapsed_before_push = iter_start.elapsed();
+                            debug!(
+                                "[macOS][get_applications] i: {}, pushing AXApplication, elapsed so far: {} ms",
+                                i,
+                                elapsed_before_push.as_millis()
+                            );
+
+                            apps.push(self.wrap_element(ax_element));
+
+                            let elapsed_after_push = iter_start.elapsed();
+                            debug!(
+                                "[macOS][get_applications] i: {}, after push, elapsed so far: {} ms",
+                                i,
+                                elapsed_after_push.as_millis()
+                            );
+                        } else {
+                            // did not match AXApplication
+                            let elapsed_non_match = iter_start.elapsed();
+                            debug!(
+                                "[macOS][get_applications] i: {}, did not match AXApplication, elapsed so far: {} ms",
+                                i,
+                                elapsed_non_match.as_millis()
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        // failed to get role
+                        let elapsed_error = iter_start.elapsed();
+                        debug!(
+                            "⚠️ [macOS][get_applications] i: {}, failed to get role: {:?}, elapsed so far: {} ms",
+                            i,
+                            e,
+                            elapsed_error.as_millis()
+                        );
+
+                        // Get and print list of attr_names for debugging
+                        // match ax_element.0.attribute_names() {
+                        //     Ok(attr_names) => {
+                        //         debug!(
+                        //             "[macOS][get_applications] i: {}, failed to get role, attribute names: {:?}",
+                        //             i,
+                        //             attr_names.iter().map(|a| a.to_string()).collect::<Vec<_>>()
+                        //         );
+                        //     }
+                        //     Err(attr_err) => {
+                        //         debug!(
+                        //             "[macOS][get_applications] i: {}, failed to get role, and failed to get attribute names: {:?}",
+                        //             i,
+                        //             attr_err
+                        //         );
+                        //     }
+                        // }
+                    }
+                }
+
+                let iter_duration = iter_start.elapsed();
+                debug!(
+                    "[macOS][get_applications] Iteration {} duration: {} ms",
+                    i,
+                    iter_duration.as_millis()
+                );
+                if iter_duration > std::time::Duration::from_millis(100) {
+                    debug!(
+                        "⚠️ [macOS][get_applications] Iteration {} unusually long: took {:?} (>100ms) for pid: {}",
+                        i, iter_duration, pid
+                    );
+                    // Get the last application in the apps vector (if any)
+                    // if let Some(last_app) = apps.last() {
+                    //     debug!("[macOS][get_applications] Getting last app attributes...");
+                    //     // Print all attributes of the last application element
+                    //     let attrs = last_app.attributes();
+                    //     debug!("[macOS][get_applications] Last app attributes:");
+                    //     debug!("  role: {:?}", attrs.role);
+                    //     debug!("  name: {:?}", attrs.name);
+                    //     debug!("  label: {:?}", attrs.label);
+                    //     debug!("  value: {:?}", attrs.value);
+                    //     debug!("  description: {:?}", attrs.description);
+                    //     debug!("  properties: {:?}", attrs.properties);
+                    //     debug!("  is_keyboard_focusable: {:?}", attrs.is_keyboard_focusable);
+
+                    //     // Print debug! using .role() too, but handle error carefully
+                    //     // Note: last_app.role() returns a String, not a Result
+                    //     // debug!(
+                    //     //     "[macOS][get_applications] Last app .role(): {:?}",
+                    //     //     last_app.element.0.role()
+                    //     // );
+                    // }
+                }
             }
         }
         Ok(apps)
@@ -2075,6 +2290,9 @@ impl AccessibilityEngine for MacOSEngine {
             let apps: *mut objc::runtime::Object = msg_send![shared_workspace, runningApplications];
             let count: usize = msg_send![apps, count];
 
+            // First, collect all (i, pid, localized_name) tuples
+            let mut candidates: Vec<(usize, i32, String)> = Vec::with_capacity(count);
+
             for i in 0..count {
                 let app: *mut objc::runtime::Object = msg_send![apps, objectAtIndex:i];
                 let app_name_obj: *mut objc::runtime::Object = msg_send![app, localizedName];
@@ -2087,20 +2305,41 @@ impl AccessibilityEngine for MacOSEngine {
                         let bytes_slice = std::slice::from_raw_parts(bytes as *const u8, len);
                         std::str::from_utf8_unchecked(bytes_slice)
                     };
-
                     let pid: i32 = msg_send![app, processIdentifier];
-                    let ax_element = ThreadSafeAXUIElement::application(pid);
-                    let ui_element = self.wrap_element(ax_element);
+                    // Print i of total count and localized name while checking
+                    debug!(
+                        "[macOS][get_application_by_name] i: {}/{} localized_name: {:?}",
+                        i + 1,
+                        count,
+                        app_name_str
+                    );
+                    candidates.push((i, pid, app_name_str.to_string()));
+                }
+            }
 
-                    // Try to get the short name from the AX element's attributes
-                    let short_name = ui_element.attributes().name.unwrap_or_default();
+            // Try to match by localized name (case-insensitive)
+            if let Some((_, pid, _)) = candidates
+                .iter()
+                .find(|(_, _, app_name)| app_name.to_lowercase() == name.to_lowercase())
+            {
+                let ax_element = ThreadSafeAXUIElement::application(*pid);
+                let ui_element = self.wrap_element(ax_element);
+                return Ok(ui_element);
+            }
 
-                    // Match if either the display name or the short name matches (case-insensitive)
-                    if app_name_str.to_lowercase() == name.to_lowercase()
-                        || short_name.to_lowercase() == name.to_lowercase()
-                    {
-                        return Ok(ui_element);
-                    }
+            // If no match, try matching by AXUIElement's .name attribute (expensive)
+            for (i, pid, app_name) in &candidates {
+                let ax_element = ThreadSafeAXUIElement::application(*pid);
+                let ui_element = self.wrap_element(ax_element);
+                let short_name = ui_element.attributes().name.unwrap_or_default();
+                debug!(
+                    "[macOS][get_application_by_name] i: {}/{} AXUIElement name: {:?}",
+                    i + 1,
+                    count,
+                    short_name
+                );
+                if short_name.to_lowercase() == name.to_lowercase() {
+                    return Ok(ui_element);
                 }
             }
         }
@@ -2518,8 +2757,18 @@ impl AccessibilityEngine for MacOSEngine {
                         Err(_) => false,
                     }); // Add None for implicit_wait
 
-                // Find all matching elements and return the first one found
-                match collector.find_all().into_iter().next() {
+                // Find all matching elements and print their roles, then return the first one found
+                let found_elements = collector.with_max_results(Some(1)).find_all();
+                // let found_elements = collector.find_all();
+
+                for elem in &found_elements {
+                    match elem.role() {
+                        Ok(r) => println!("Found element with role: {}", r),
+                        Err(e) => println!("Failed to get role for element: {:?}", e),
+                    }
+                }
+
+                match found_elements.into_iter().next() {
                     Some(e) => Ok(self.wrap_element(ThreadSafeAXUIElement::new(e))),
                     None => Err(AutomationError::ElementNotFound(format!(
                         "Element with role '{}'{} not found",
@@ -2804,9 +3053,195 @@ impl AccessibilityEngine for MacOSEngine {
             image_data: image.to_vec(),
             width: image.width(),
             height: image.height(),
+            monitor: None,
         })
     }
 
+    // ============== NEW MONITOR ABSTRACTIONS ==============
+
+    async fn list_monitors(&self) -> Result<Vec<crate::Monitor>, AutomationError> {
+        let monitors = xcap::Monitor::all().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to get monitors: {}", e))
+        })?;
+
+        let mut result = Vec::new();
+        for (index, monitor) in monitors.iter().enumerate() {
+            let name = monitor.name().map_err(|e| {
+                AutomationError::PlatformError(format!("Failed to get monitor name: {}", e))
+            })?;
+
+            let is_primary = monitor.is_primary().map_err(|e| {
+                AutomationError::PlatformError(format!("Failed to check primary status: {}", e))
+            })?;
+
+            let width = monitor.width().map_err(|e| {
+                AutomationError::PlatformError(format!("Failed to get monitor width: {}", e))
+            })?;
+
+            let height = monitor.height().map_err(|e| {
+                AutomationError::PlatformError(format!("Failed to get monitor height: {}", e))
+            })?;
+
+            let x = monitor.x().map_err(|e| {
+                AutomationError::PlatformError(format!("Failed to get monitor x position: {}", e))
+            })?;
+
+            let y = monitor.y().map_err(|e| {
+                AutomationError::PlatformError(format!("Failed to get monitor y position: {}", e))
+            })?;
+
+            let scale_factor = monitor.scale_factor().map_err(|e| {
+                AutomationError::PlatformError(format!("Failed to get monitor scale factor: {}", e))
+            })? as f64;
+
+            result.push(crate::Monitor {
+                id: format!("monitor_{}", index),
+                name,
+                is_primary,
+                width,
+                height,
+                x,
+                y,
+                scale_factor,
+            });
+        }
+
+        Ok(result)
+    }
+
+    async fn get_primary_monitor(&self) -> Result<crate::Monitor, AutomationError> {
+        let monitors = self.list_monitors().await?;
+        monitors
+            .into_iter()
+            .find(|m| m.is_primary)
+            .ok_or_else(|| AutomationError::PlatformError("No primary monitor found".to_string()))
+    }
+
+    async fn get_active_monitor(&self) -> Result<crate::Monitor, AutomationError> {
+        // Get all windows
+        let windows = xcap::Window::all()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to get windows: {}", e)))?;
+
+        // Find the focused window
+        let focused_window = windows
+            .iter()
+            .find(|w| w.is_focused().unwrap_or(false))
+            .ok_or_else(|| {
+                AutomationError::ElementNotFound("No focused window found".to_string())
+            })?;
+
+        // Get the monitor for the focused window
+        let xcap_monitor = focused_window.current_monitor().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to get current monitor: {}", e))
+        })?;
+
+        // Convert to our Monitor struct
+        let name = xcap_monitor.name().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to get monitor name: {}", e))
+        })?;
+
+        let is_primary = xcap_monitor.is_primary().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to check primary status: {}", e))
+        })?;
+
+        // Find the monitor index for ID generation
+        let monitors = xcap::Monitor::all().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to get monitors: {}", e))
+        })?;
+
+        let monitor_index = monitors
+            .iter()
+            .position(|m| m.name().map(|n| n == name).unwrap_or(false))
+            .unwrap_or(0);
+
+        let width = xcap_monitor.width().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to get monitor width: {}", e))
+        })?;
+
+        let height = xcap_monitor.height().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to get monitor height: {}", e))
+        })?;
+
+        let x = xcap_monitor.x().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to get monitor x position: {}", e))
+        })?;
+
+        let y = xcap_monitor.y().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to get monitor y position: {}", e))
+        })?;
+
+        let scale_factor = xcap_monitor.scale_factor().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to get monitor scale factor: {}", e))
+        })? as f64;
+
+        Ok(crate::Monitor {
+            id: format!("monitor_{}", monitor_index),
+            name,
+            is_primary,
+            width,
+            height,
+            x,
+            y,
+            scale_factor,
+        })
+    }
+
+    async fn get_monitor_by_id(&self, id: &str) -> Result<crate::Monitor, AutomationError> {
+        let monitors = self.list_monitors().await?;
+        monitors.into_iter().find(|m| m.id == id).ok_or_else(|| {
+            AutomationError::ElementNotFound(format!("Monitor with ID '{}' not found", id))
+        })
+    }
+
+    async fn get_monitor_by_name(&self, name: &str) -> Result<crate::Monitor, AutomationError> {
+        let monitors = self.list_monitors().await?;
+        monitors
+            .into_iter()
+            .find(|m| m.name == name)
+            .ok_or_else(|| {
+                AutomationError::ElementNotFound(format!("Monitor '{}' not found", name))
+            })
+    }
+
+    async fn capture_monitor_by_id(
+        &self,
+        id: &str,
+    ) -> Result<crate::ScreenshotResult, AutomationError> {
+        let monitor = self.get_monitor_by_id(id).await?;
+
+        // Find the xcap monitor by name
+        let monitors = xcap::Monitor::all().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to get monitors: {}", e))
+        })?;
+
+        let xcap_monitor = monitors
+            .into_iter()
+            .find(|m| m.name().map(|n| n == monitor.name).unwrap_or(false))
+            .ok_or_else(|| {
+                AutomationError::ElementNotFound(format!("Monitor '{}' not found", monitor.name))
+            })?;
+
+        let image = xcap_monitor.capture_image().map_err(|e| {
+            AutomationError::PlatformError(format!(
+                "Failed to capture monitor '{}': {}",
+                monitor.name, e
+            ))
+        })?;
+
+        Ok(ScreenshotResult {
+            image_data: image.to_vec(),
+            width: image.width(),
+            height: image.height(),
+            monitor: Some(monitor),
+        })
+    }
+
+    // ============== DEPRECATED METHODS ==============
+
+    #[deprecated(
+        since = "0.4.9",
+        note = "Use get_monitor_by_name() and capture_monitor_by_id() instead"
+    )]
     async fn capture_monitor_by_name(
         &self,
         name: &str,
@@ -2843,6 +3278,7 @@ impl AccessibilityEngine for MacOSEngine {
             image_data: image.to_vec(),
             width: image.width(),
             height: image.height(),
+            monitor: None,
         })
     }
 
@@ -3194,37 +3630,162 @@ impl AccessibilityEngine for MacOSEngine {
         &self,
         pid: u32,
         title: Option<&str>,
-        _config: crate::platforms::TreeBuildConfig,
+        config: crate::platforms::TreeBuildConfig,
     ) -> Result<crate::UINode, AutomationError> {
-        Err(AutomationError::UnsupportedOperation(format!(
-            "get_window_tree for PID {} and title {:?} not yet implemented for macOS",
-            pid, title
-        )))
+        use crate::UINode;
+        use crate::platforms::{PropertyLoadingMode, TreeBuildConfig};
+        use std::time::Instant;
+        use tracing::{debug, info, warn};
+
+        info!(
+            "[macOS] get_window_tree: pid={}, title={:?}, config={:?}",
+            pid, title, config
+        );
+
+        // 1. Get the application element by PID
+        let app_element = self.get_application_by_pid(pid as i32, None)?;
+        let app_ax_element =
+            if let Some(macos_el) = app_element.as_any().downcast_ref::<MacOSUIElement>() {
+                macos_el.element.0.clone()
+            } else {
+                return Err(AutomationError::PlatformError(
+                    "Failed to downcast to MacOSUIElement".to_string(),
+                ));
+            };
+
+        // 2. Collect all AXWindow elements for this application
+        let windows_collector = ElementsCollectorWithWindows::new(&app_ax_element, |e| {
+            e.role().map_or(false, |r| r.to_string() == "AXWindow")
+        });
+        let mut windows = windows_collector.find_all();
+        debug!(
+            "[macOS] Found {} AXWindow elements for PID {}",
+            windows.len(),
+            pid
+        );
+        if windows.is_empty() {
+            return Err(AutomationError::ElementNotFound(format!(
+                "No windows found for process ID {}.",
+                pid
+            )));
+        }
+
+        // 3. Filter by title if provided
+        let mut window_candidates: Vec<(AXUIElement, String)> = Vec::new();
+        for win in &windows {
+            let title_str = win.title().ok().map(|t| t.to_string()).unwrap_or_default();
+            window_candidates.push((win.clone(), title_str));
+        }
+
+        let selected_window = if let Some(title_filter) = title {
+            let title_filter = title_filter.to_lowercase();
+            // Try to find the best match (case-insensitive substring)
+            let mut best: Option<(AXUIElement, String)> = None;
+            for (win, win_title) in &window_candidates {
+                if win_title.to_lowercase().contains(&title_filter) {
+                    best = Some((win.clone(), win_title.clone()));
+                    break;
+                }
+            }
+            if let Some((win, _)) = best {
+                win
+            } else {
+                warn!(
+                    "[macOS] No window title matched '{}', falling back to first window.",
+                    title_filter
+                );
+                window_candidates[0].0.clone()
+            }
+        } else {
+            // No title filter, use the first window
+            window_candidates[0].0.clone()
+        };
+
+        let window_element = self.wrap_element(ThreadSafeAXUIElement::new(selected_window));
+
+        // 4. Build the UI tree recursively using the config
+        struct TreeBuildingContext {
+            config: TreeBuildConfig,
+            property_mode: PropertyLoadingMode,
+            elements_processed: usize,
+            max_depth_reached: usize,
+            errors_encountered: usize,
+        }
+
+        fn build_ui_node_tree_configurable(
+            element: &UIElement,
+            current_depth: usize,
+            context: &mut TreeBuildingContext,
+        ) -> Result<UINode, AutomationError> {
+            context.elements_processed += 1;
+            context.max_depth_reached = context.max_depth_reached.max(current_depth);
+            if context.elements_processed % context.config.yield_every_n_elements.unwrap_or(50) == 0
+            {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            // Get attributes based on property mode
+            let attributes = match &context.property_mode {
+                PropertyLoadingMode::Fast => element.attributes(),
+                PropertyLoadingMode::Complete => element.attributes(), // TODO: implement full
+                PropertyLoadingMode::Smart => element.attributes(),    // TODO: implement smart
+            };
+            let mut children_nodes = Vec::new();
+            match element.children() {
+                Ok(children) => {
+                    for batch in children.chunks(context.config.batch_size.unwrap_or(50)) {
+                        for child in batch {
+                            match build_ui_node_tree_configurable(child, current_depth + 1, context)
+                            {
+                                Ok(child_node) => children_nodes.push(child_node),
+                                Err(e) => {
+                                    context.errors_encountered += 1;
+                                    debug!("[macOS] Failed to process child: {}", e);
+                                }
+                            }
+                        }
+                        if batch.len() == context.config.batch_size.unwrap_or(50)
+                            && children.len() > context.config.batch_size.unwrap_or(50)
+                        {
+                            std::thread::sleep(std::time::Duration::from_millis(1));
+                        }
+                    }
+                }
+                Err(e) => {
+                    context.errors_encountered += 1;
+                    debug!("[macOS] Failed to get children: {}", e);
+                }
+            }
+            Ok(UINode {
+                id: element.id(),
+                attributes,
+                children: children_nodes,
+            })
+        }
+
+        let mut context = TreeBuildingContext {
+            config: config.clone(),
+            property_mode: config.property_mode.clone(),
+            elements_processed: 0,
+            max_depth_reached: 0,
+            errors_encountered: 0,
+        };
+        let start = Instant::now();
+        let result = build_ui_node_tree_configurable(&window_element, 0, &mut context)?;
+        let elapsed = start.elapsed();
+        info!(
+            "[macOS] Tree built: elements={}, depth={}, errors={}, elapsed_ms={}",
+            context.elements_processed,
+            context.max_depth_reached,
+            context.errors_encountered,
+            elapsed.as_millis()
+        );
+        Ok(result)
     }
 
+    #[deprecated(since = "0.4.9", note = "Use get_active_monitor() instead")]
     async fn get_active_monitor_name(&self) -> Result<String, AutomationError> {
-        // Get all windows
-        let windows = xcap::Window::all()
-            .map_err(|e| AutomationError::PlatformError(format!("Failed to get windows: {}", e)))?;
-
-        // Find the focused window
-        let focused_window = windows
-            .iter()
-            .find(|w| w.is_focused().unwrap_or(false))
-            .ok_or_else(|| {
-                AutomationError::ElementNotFound("No focused window found".to_string())
-            })?;
-
-        // Get the monitor name for the focused window
-        let monitor = focused_window.current_monitor().map_err(|e| {
-            AutomationError::PlatformError(format!("Failed to get current monitor: {}", e))
-        })?;
-
-        let monitor_name = monitor.name().map_err(|e| {
-            AutomationError::PlatformError(format!("Failed to get monitor name: {}", e))
-        })?;
-
-        Ok(monitor_name)
+        let monitor = self.get_active_monitor().await?;
+        Ok(monitor.name)
     }
 
     /// Enable downcasting to concrete engine types

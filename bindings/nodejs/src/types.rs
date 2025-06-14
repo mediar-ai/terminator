@@ -1,6 +1,6 @@
+use crate::Element;
 use napi_derive::napi;
 use std::collections::HashMap;
-use crate::Element;
 
 #[napi(object, js_name = "Bounds")]
 pub struct Bounds {
@@ -31,10 +31,29 @@ pub struct CommandOutput {
 }
 
 #[napi(object)]
+pub struct Monitor {
+    pub id: String,
+    pub name: String,
+    pub is_primary: bool,
+    pub width: u32,
+    pub height: u32,
+    pub x: i32,
+    pub y: i32,
+    pub scale_factor: f64,
+}
+
+#[napi(object)]
+pub struct MonitorScreenshotPair {
+    pub monitor: Monitor,
+    pub screenshot: ScreenshotResult,
+}
+
+#[napi(object)]
 pub struct ScreenshotResult {
     pub width: u32,
     pub height: u32,
     pub image_data: Vec<u8>,
+    pub monitor: Option<Monitor>,
 }
 
 #[napi(object, js_name = "UIElementAttributes")]
@@ -99,7 +118,12 @@ pub struct TreeBuildConfig {
 
 impl From<(f64, f64, f64, f64)> for Bounds {
     fn from(t: (f64, f64, f64, f64)) -> Self {
-        Bounds { x: t.0, y: t.1, width: t.2, height: t.3 }
+        Bounds {
+            x: t.0,
+            y: t.1,
+            width: t.2,
+            height: t.3,
+        }
     }
 }
 
@@ -119,6 +143,21 @@ impl From<terminator::ClickResult> for ClickResult {
     }
 }
 
+impl From<terminator::Monitor> for Monitor {
+    fn from(m: terminator::Monitor) -> Self {
+        Monitor {
+            id: m.id,
+            name: m.name,
+            is_primary: m.is_primary,
+            width: m.width,
+            height: m.height,
+            x: m.x,
+            y: m.y,
+            scale_factor: m.scale_factor,
+        }
+    }
+}
+
 impl From<terminator::UINode> for UINode {
     fn from(node: terminator::UINode) -> Self {
         UINode {
@@ -132,7 +171,9 @@ impl From<terminator::UINode> for UINode {
 impl From<terminator::UIElementAttributes> for UIElementAttributes {
     fn from(attrs: terminator::UIElementAttributes) -> Self {
         // Convert HashMap<String, Option<serde_json::Value>> to HashMap<String, Option<String>>
-        let properties = attrs.properties.into_iter()
+        let properties = attrs
+            .properties
+            .into_iter()
             .map(|(k, v)| (k, v.map(|val| val.to_string())))
             .collect();
 
@@ -153,7 +194,9 @@ impl From<TreeBuildConfig> for terminator::platforms::TreeBuildConfig {
         terminator::platforms::TreeBuildConfig {
             property_mode: match config.property_mode {
                 PropertyLoadingMode::Fast => terminator::platforms::PropertyLoadingMode::Fast,
-                PropertyLoadingMode::Complete => terminator::platforms::PropertyLoadingMode::Complete,
+                PropertyLoadingMode::Complete => {
+                    terminator::platforms::PropertyLoadingMode::Complete
+                }
                 PropertyLoadingMode::Smart => terminator::platforms::PropertyLoadingMode::Smart,
             },
             timeout_per_operation_ms: config.timeout_per_operation_ms.map(|x| x as u64),
@@ -161,4 +204,4 @@ impl From<TreeBuildConfig> for terminator::platforms::TreeBuildConfig {
             batch_size: config.batch_size.map(|x| x as usize),
         }
     }
-} 
+}

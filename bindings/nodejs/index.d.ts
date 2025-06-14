@@ -196,7 +196,7 @@ export declare class Desktop {
    * @param {string} url - The URL to open.
    * @param {string} [browser] - The browser to use.
    */
-  openUrl(url: string, browser?: string | undefined | null): void
+  openUrl(url: string, browser?: string | undefined | null): Element
   /**
    * Open a file with its default application.
    *
@@ -416,6 +416,21 @@ export declare class Element {
    * @returns {number} The process ID.
    */
   processId(): number
+  toString(): string
+  /**
+   * Sets the transparency of the window.
+   *
+   * @param {number} percentage - The transparency percentage from 0 (completely transparent) to 100 (completely opaque).
+   * @returns {void}
+   */
+  setTransparency(percentage: number): void
+  /**
+   * Close the element if it's closable (like windows, applications).
+   * Does nothing for non-closable elements (like buttons, text, etc.).
+   *
+   * @returns {void}
+   */
+  close(): void
 }
 /** Locator for finding UI elements by selector. */
 export declare class Locator {
@@ -461,4 +476,5 @@ export declare class Locator {
    * @returns {Locator} A new locator with the chained selector.
    */
   locator(selector: string): Locator
+  toString(): string
 }

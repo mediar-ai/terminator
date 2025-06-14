@@ -1,4 +1,4 @@
-use terminator::{Desktop, AutomationError};
+use terminator::{AutomationError, Desktop};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -6,7 +6,9 @@ use tracing_subscriber::EnvFilter;
 async fn main() -> Result<(), AutomationError> {
     // Initialize tracing (optional, for debug)
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .init();
 
     // Hardcoded application name
@@ -30,4 +32,4 @@ async fn main() -> Result<(), AutomationError> {
     }
 
     Ok(())
-} 
+}

@@ -6,16 +6,17 @@
 
 #![cfg_attr(not(target_os = "windows"), allow(unused))]
 
+pub mod error;
 pub mod events;
 pub mod recorder;
-pub mod error;
 
+pub use error::*;
 pub use events::{
-    Position, Rect, MouseButton, MouseEventType, KeyboardEvent, MouseEvent,
-    ClipboardAction, ClipboardEvent, TextSelectionEvent, SelectionMethod, DragDropEvent,
-    HotkeyEvent, WorkflowEvent, RecordedEvent, RecordedWorkflow, StructureChangeType,
-    UiStructureChangedEvent, UiPropertyChangedEvent, UiFocusChangedEvent, EventMetadata,
+    ApplicationSwitchEvent, ApplicationSwitchMethod, BrowserTabNavigationEvent, ButtonClickEvent,
+    ButtonInteractionType, ClipboardAction, ClipboardEvent, DragDropEvent, DropdownEvent,
+    EventMetadata, FormSubmitEvent, HotkeyEvent, KeyboardEvent, LinkClickEvent, MouseButton,
+    MouseEvent, MouseEventType, Position, RecordedEvent, RecordedWorkflow, Rect, SelectionMethod,
+    TabAction, TabNavigationMethod, TextInputCompletedEvent, TextInputMethod, TextSelectionEvent,
+    WorkflowEvent,
 };
 pub use recorder::*;
-pub use error::*;
-

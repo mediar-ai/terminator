@@ -3,9 +3,9 @@
 //! This module contains performance tests that measure the execution time
 //! of various SDK functions against real applications.
 
-use std::time::{Duration, Instant};
-use crate::{Desktop, AutomationError};
+use crate::{AutomationError, Desktop};
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 /// Helper struct to measure and report performance
 struct PerfMeasurement {
@@ -59,7 +59,7 @@ where
     F: FnMut() -> Result<(), AutomationError>,
 {
     let mut perf = PerfMeasurement::new(name);
-    
+
     for _ in 0..iterations {
         let start = Instant::now();
         match f() {
@@ -72,7 +72,7 @@ where
             }
         }
     }
-    
+
     perf
 }
 
@@ -81,9 +81,9 @@ where
 fn test_real_app_performance() {
     println!("\n🚀 Real Application Performance Test Suite");
     println!("==========================================\n");
-    
+
     let desktop = Desktop::new(false, false).expect("Failed to create Desktop");
-    
+
     // Test 1: Application enumeration
     println!("📱 Testing Application Enumeration...");
     let apps_perf = measure_performance("Desktop::applications()", 5, || {
@@ -92,11 +92,11 @@ fn test_real_app_performance() {
         Ok(())
     });
     apps_perf.report();
-    
+
     // Test 2: Find specific applications
     println!("\n🔍 Testing Application Lookup...");
     let mut app_lookup_perfs = HashMap::new();
-    
+
     for (app_name, _) in TEST_APPS {
         let perf = measure_performance(&format!("Find {}", app_name), 3, || {
             match desktop.application(app_name) {
@@ -109,7 +109,7 @@ fn test_real_app_performance() {
         });
         app_lookup_perfs.insert(*app_name, perf);
     }
-    
+
     for (app_name, perf) in app_lookup_perfs {
         println!("\n  Application: {}", app_name);
         perf.report();
@@ -121,14 +121,14 @@ fn test_real_app_performance() {
 fn test_notepad_interaction_performance() {
     println!("\n📝 Notepad Interaction Performance Test");
     println!("=======================================\n");
-    
+
     let desktop = Desktop::new(false, false).expect("Failed to create Desktop");
-    
+
     // Check if Notepad is running
     match desktop.application("Notepad") {
         Ok(notepad) => {
             println!("✅ Found Notepad, testing interactions...");
-            
+
             // Test 1: Get all children
             let children_perf = measure_performance("Get Notepad children", 5, || {
                 let children = notepad.children()?;
@@ -136,7 +136,7 @@ fn test_notepad_interaction_performance() {
                 Ok(())
             });
             children_perf.report();
-            
+
             // Test 2: Get element attributes
             let attr_perf = measure_performance("Get Notepad attributes", 10, || {
                 let _ = notepad.name();
@@ -145,7 +145,6 @@ fn test_notepad_interaction_performance() {
                 Ok(())
             });
             attr_perf.report();
-            
         }
         Err(_) => {
             println!("⚠️  Notepad not running. Skipping interaction tests.");
@@ -159,9 +158,9 @@ fn test_notepad_interaction_performance() {
 fn test_window_operations_performance() {
     println!("\n🪟 Window Operations Performance Test");
     println!("=====================================\n");
-    
+
     let desktop = Desktop::new(false, false).expect("Failed to create Desktop");
-    
+
     // Test focused window
     let focused_perf = measure_performance("Get focused element", 20, || {
         match desktop.focused_element() {
@@ -170,7 +169,7 @@ fn test_window_operations_performance() {
         }
     });
     focused_perf.report();
-    
+
     // Test desktop root
     let root_perf = measure_performance("Get desktop root", 20, || {
         let _root = desktop.root();
@@ -184,26 +183,25 @@ fn test_window_operations_performance() {
 fn test_ui_tree_performance() {
     println!("\n🌳 UI Tree Performance Test");
     println!("===========================\n");
-    
+
     let desktop = Desktop::new(false, false).expect("Failed to create Desktop");
-    
+
     // Get current applications for testing
     let apps = desktop.applications().unwrap_or_default();
-    
+
     if apps.is_empty() {
         println!("⚠️  No applications found");
         return;
     }
-    
+
     // Test tree traversal for first few apps
     let test_count = apps.len().min(3);
-    
-    for i in 0..test_count {
-        let app = &apps[i];
+
+    for app in apps.iter().take(test_count) {
         let app_name = app.name().unwrap_or_else(|| "Unknown".to_string());
-        
+
         println!("\n📱 Testing UI tree for: {}", app_name);
-        
+
         // Test getting immediate children
         let children_perf = measure_performance("Get immediate children", 5, || {
             let children = app.children()?;
@@ -211,14 +209,14 @@ fn test_ui_tree_performance() {
             Ok(())
         });
         children_perf.report();
-        
+
         // Test depth traversal
         let traverse_perf = measure_performance("Traverse 2 levels deep", 3, || {
             let mut total_elements = 1; // The app itself
-            
+
             if let Ok(children) = app.children() {
                 total_elements += children.len();
-                
+
                 // Go one more level
                 for child in children.iter().take(5) {
                     if let Ok(grandchildren) = child.children() {
@@ -226,7 +224,7 @@ fn test_ui_tree_performance() {
                     }
                 }
             }
-            
+
             println!("   Total elements found: {}", total_elements);
             Ok(())
         });
@@ -239,13 +237,13 @@ fn test_ui_tree_performance() {
 fn test_browser_automation_performance() {
     println!("\n🌐 Browser Automation Performance Test");
     println!("=====================================\n");
-    
+
     let desktop = Desktop::new(false, false).expect("Failed to create Desktop");
-    
+
     // Test Chrome lookup
     let chrome_apps = ["Google Chrome", "Chrome", "chrome"];
     let mut found_chrome = false;
-    
+
     for chrome_name in &chrome_apps {
         let start = Instant::now();
         match desktop.application(chrome_name) {
@@ -258,10 +256,10 @@ fn test_browser_automation_performance() {
             Err(_) => continue,
         }
     }
-    
+
     if !found_chrome {
         println!("⚠️  Chrome not running. Trying Edge...");
-        
+
         let edge_apps = ["Microsoft Edge", "Edge", "msedge"];
         for edge_name in &edge_apps {
             let start = Instant::now();
@@ -282,23 +280,23 @@ fn test_browser_automation_performance() {
 fn test_basic_operations_performance() {
     println!("\n⚡ Basic Operations Performance Test");
     println!("====================================\n");
-    
+
     // Test Desktop initialization
     let init_perf = measure_performance("Desktop::new()", 10, || {
         let _desktop = Desktop::new(false, false)?;
         Ok(())
     });
     init_perf.report();
-    
+
     let desktop = Desktop::new(false, false).expect("Failed to create Desktop");
-    
+
     // Test locator creation
     let locator_perf = measure_performance("Desktop::locator()", 50, || {
         let _locator = desktop.locator("name:Calculator");
         Ok(())
     });
     locator_perf.report();
-    
+
     // Test root element access
     let root_perf = measure_performance("Desktop::root()", 50, || {
         let _root = desktop.root();
@@ -313,24 +311,24 @@ fn test_comprehensive_performance_report() {
     println!("\n📊 Comprehensive Performance Report");
     println!("===================================");
     println!("Running all synchronous performance tests...\n");
-    
+
     test_basic_operations_performance();
     println!("\n{}\n", "=".repeat(50));
-    
+
     test_real_app_performance();
     println!("\n{}\n", "=".repeat(50));
-    
+
     test_notepad_interaction_performance();
     println!("\n{}\n", "=".repeat(50));
-    
+
     test_window_operations_performance();
     println!("\n{}\n", "=".repeat(50));
-    
+
     test_ui_tree_performance();
     println!("\n{}\n", "=".repeat(50));
-    
+
     test_browser_automation_performance();
-    
+
     println!("\n✅ Performance test suite completed!");
     println!("\n📝 Summary:");
     println!("- Desktop initialization and basic operations are fast");
@@ -341,4 +339,4 @@ fn test_comprehensive_performance_report() {
     println!("  cargo test test_basic_operations_performance -- --ignored --nocapture");
     println!("  cargo test test_real_app_performance -- --ignored --nocapture");
     println!("  cargo test test_ui_tree_performance -- --ignored --nocapture");
-} 
+}
