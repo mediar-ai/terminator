@@ -1,0 +1,30 @@
+[package]
+name = "clipboard-trigger-bot"
+version = "0.1.0"
+description = "Clipboard Form Filler Application"
+authors = ["Your Name"]
+license = ""
+repository = ""
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "1.2", features = [] }
+
+[dependencies]
+tauri = { version = "1.2", features = [ "shell-open", "window-all", "http-all", "global-shortcut-all", "clipboard-all", "system-tray"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rdev = "0.5"  # For keyboard and mouse simulation
+tokio = { version = "1", features = ["full"] }
+
+[features]
+# by default Tauri runs in production mode
+# when `tauri` feature is present.
+# this is here so we can also compile in dev mode.
+default = ["custom-protocol"]
+# enables the custom protocol feature
+custom-protocol = ["tauri/custom-protocol"]
