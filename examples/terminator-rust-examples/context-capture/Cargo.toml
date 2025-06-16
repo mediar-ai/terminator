@@ -1,0 +1,28 @@
+[package]
+name = "context-capture"
+version = "0.1.0"
+edition = "2021"
+description = "Copy the current focused app info to clipboard using AI"
+
+[dependencies]
+global-hotkey = "0.4.2"
+arboard = "3.3.0"
+ollama-rs = "0.1.7"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.36.0", features = ["full"] }
+clap = { version = "4.5.3", features = ["derive"] }
+anyhow = "1.0.80"
+tao = { version = "0.26.1" }
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.52.0", features = [
+    "Win32_UI_Accessibility",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Foundation", 
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_Threading",
+    "Win32_Graphics_Gdi"
+]}
