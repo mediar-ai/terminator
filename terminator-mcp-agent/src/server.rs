@@ -13,7 +13,6 @@ use serde_json::json;
 use std::env;
 use terminator::{Desktop, Selector};
 
-
 #[tool(tool_box)]
 impl DesktopWrapper {
     pub async fn new() -> Result<Self, McpError> {

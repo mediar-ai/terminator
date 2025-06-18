@@ -430,11 +430,11 @@ impl WorkflowRecorder {
         info!("Saving workflow recording to {:?}", path.as_ref());
 
         let workflow = self.workflow.lock().map_err(|e| {
-            WorkflowRecorderError::SaveError(format!("Failed to lock workflow: {}", e))
+            WorkflowRecorderError::SaveError(format!("Failed to lock workflow: {e}"))
         })?;
 
         workflow.save_to_file(path).map_err(|e| {
-            WorkflowRecorderError::SaveError(format!("Failed to save workflow: {}", e))
+            WorkflowRecorderError::SaveError(format!("Failed to save workflow: {e}"))
         })?;
 
         Ok(())

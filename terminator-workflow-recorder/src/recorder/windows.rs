@@ -247,13 +247,13 @@ impl WindowsRecorder {
             };
             let hr = CoInitializeEx(None, threading_model);
             if hr.is_err() && hr != windows::Win32::Foundation::RPC_E_CHANGED_MODE {
-                let err_msg = format!("Failed to initialize COM for new thread: {:?}", hr);
+                let err_msg = format!("Failed to initialize COM for new thread: {hr:?}");
                 error!("{}", err_msg);
                 return Err(err_msg);
             }
         }
         UIAutomation::new_direct().map_err(|e| {
-            let err_msg = format!("Failed to create UIAutomation instance directly: {}", e);
+            let err_msg = format!("Failed to create UIAutomation instance directly: {e}");
             error!("{}", err_msg);
             err_msg
         })
@@ -1571,7 +1571,7 @@ impl WindowsRecorder {
             // Create a property changed event handler using the proper closure type
             let property_handler: Box<uiautomation::events::CustomPropertyChangedEventHandlerFn> =
                 Box::new(move |sender, property, value| {
-                    let property_name = format!("{:?}", property);
+                    let property_name = format!("{property:?}");
 
                     // Only proceed if we can extract a meaningful value
                     if let Some(value_string) = Self::format_property_value(&value) {
@@ -1670,7 +1670,7 @@ impl WindowsRecorder {
                         let full_url = if value_string.starts_with("http") {
                             value_string.clone()
                         } else {
-                            format!("https://{}", value_string)
+                            format!("https://{value_string}")
                         };
 
                         Self::check_and_emit_browser_navigation_with_url(
@@ -1691,22 +1691,34 @@ impl WindowsRecorder {
                         if let Some(ref element) = ui_element {
                             let role_lower = element.role().to_lowercase();
                             // Basic check: is this an editable field?
-                            if role_lower.contains("edit") || role_lower.contains("textbox") || role_lower.contains("input") {
+                            if role_lower.contains("edit")
+                                || role_lower.contains("textbox")
+                                || role_lower.contains("input")
+                            {
                                 // Ignore if we were already in a typing session (keystrokes seen)
-                                let keystrokes = property_typing_session.keystroke_count.load(Ordering::Relaxed);
-                                let typing_active = property_typing_session.is_active.load(Ordering::Relaxed);
+                                let keystrokes = property_typing_session
+                                    .keystroke_count
+                                    .load(Ordering::Relaxed);
+                                let typing_active =
+                                    property_typing_session.is_active.load(Ordering::Relaxed);
 
                                 if keystrokes == 0 && !typing_active {
                                     // Treat this as autofill
                                     let field_name = element.name_or_empty();
                                     let text_input_event = TextInputCompletedEvent {
                                         text_value: value_string.clone(),
-                                        field_name: if field_name.is_empty() { None } else { Some(field_name) },
+                                        field_name: if field_name.is_empty() {
+                                            None
+                                        } else {
+                                            Some(field_name)
+                                        },
                                         field_type: element.role(),
                                         input_method: TextInputMethod::AutoFilled,
                                         typing_duration_ms: 0,
                                         keystroke_count: 0,
-                                        metadata: EventMetadata::with_ui_element_and_timestamp(ui_element.clone()),
+                                        metadata: EventMetadata::with_ui_element_and_timestamp(
+                                            ui_element.clone(),
+                                        ),
                                     };
 
                                     // Ensure typing session is marked completed/cleared

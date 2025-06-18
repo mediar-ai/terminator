@@ -1,4 +1,4 @@
-use terminator::{Desktop, AutomationError};
+use terminator::{AutomationError, Desktop};
 
 #[tokio::main]
 async fn main() -> Result<(), AutomationError> {
@@ -50,7 +50,7 @@ async fn main() -> Result<(), AutomationError> {
             screenshot.height,
             screenshot.image_data.len()
         );
-        
+
         // Check if the screenshot has monitor metadata
         if let Some(meta_monitor) = &screenshot.monitor {
             println!("    Monitor metadata: {}", meta_monitor.name);
@@ -87,16 +87,13 @@ async fn main() -> Result<(), AutomationError> {
             "  Center of '{}': ({}, {})",
             first_monitor.name, center_x, center_y
         );
-        
+
         // Check if center point is contained within the monitor
         let contains_center = first_monitor.contains_point(center_x, center_y);
-        println!(
-            "  Monitor contains its center point: {}",
-            contains_center
-        );
+        println!("  Monitor contains its center point: {}", contains_center);
     }
 
     println!("\n✅ Monitor management example completed!");
 
     Ok(())
-} 
+}

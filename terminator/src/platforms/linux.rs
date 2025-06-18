@@ -1400,10 +1400,7 @@ impl AccessibilityEngine for LinuxEngine {
 
     // ============== DEPRECATED METHODS ==============
 
-    #[deprecated(
-        since = "0.4.9",
-        note = "Use get_monitor_by_name() and capture_monitor_by_id() instead"
-    )]
+    // Method kept for backward compatibility; not recommended for new code
     async fn capture_monitor_by_name(
         &self,
         name: &str,
@@ -1532,7 +1529,7 @@ impl AccessibilityEngine for LinuxEngine {
         )))
     }
 
-    #[deprecated(since = "0.4.9", note = "Use get_active_monitor() instead")]
+    // Method kept for backward compatibility; not recommended for new code
     async fn get_active_monitor_name(&self) -> Result<String, AutomationError> {
         let monitor = self.get_active_monitor().await?;
         Ok(monitor.name)
