@@ -1,4 +1,4 @@
-use crate::events::{ButtonClickEvent, ButtonInteractionType};
+THIS SHOULD BE A LINTER ERRORuse crate::events::{ButtonClickEvent, ButtonInteractionType};
 use crate::{
     ApplicationSwitchEvent, ApplicationSwitchMethod, BrowserTabNavigationEvent, ClipboardAction,
     ClipboardEvent, EventMetadata, HotkeyEvent, KeyboardEvent, MouseButton, MouseEvent,
@@ -8,7 +8,7 @@ use crate::{
 use arboard::Clipboard;
 use rdev::{Button, EventType, Key};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     sync::{Arc, Mutex},
     thread,
@@ -64,6 +64,9 @@ pub struct WindowsRecorder {
 
     /// Browser tab navigation tracking
     browser_tab_tracker: Arc<Mutex<BrowserTabTracker>>,
+
+    /// Recent focus history for cheap UI lookups
+    focus_history: Arc<Mutex<VecDeque<(Instant, UIElement)>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -281,6 +284,8 @@ impl WindowsRecorder {
         // Initialize hotkey patterns
         let hotkey_patterns = Arc::new(Self::initialize_hotkey_patterns());
 
+        let focus_history = Arc::new(Mutex::new(VecDeque::with_capacity(FOCUS_HISTORY_CAPACITY)));
+
         let mut recorder = Self {
             event_tx,
             config,
@@ -294,6 +299,7 @@ impl WindowsRecorder {
             current_typing_session: Arc::new(AtomicTypingSession::default()),
             current_application: Arc::new(Mutex::new(None)),
             browser_tab_tracker: Arc::new(Mutex::new(BrowserTabTracker::default())),
+            focus_history,
         };
 
         let handle = tokio::runtime::Handle::current();
@@ -760,6 +766,7 @@ impl WindowsRecorder {
         let hotkey_patterns = Arc::clone(&self.hotkey_patterns);
         let config = self.config.clone();
         let current_typing_session = Arc::clone(&self.current_typing_session);
+        let focus_history = Arc::clone(&self.focus_history);
 
         thread::spawn(move || {
             let track_modifiers = config.track_modifier_states;
@@ -834,13 +841,16 @@ impl WindowsRecorder {
                             let is_typing_keystroke =
                                 Self::is_typing_keystroke(key_code, character);
 
-                            // Only capture UI element for non-typing keystrokes (shortcuts, function keys, etc.)
-                            if !is_typing_keystroke {
+                            // Try cheap lookup from recent focus history first
+                            ui_element = WindowsRecorder::get_recent_focus_element(&focus_history, RECENT_FOCUS_THRESHOLD_MS);
+
+                            // Fallback to expensive COM call only for non-typing keys when cache miss
+                            if ui_element.is_none() && !is_typing_keystroke {
                                 ui_element = Self::get_focused_ui_element_with_timeout(
                                     automation.as_ref().unwrap(),
                                 );
                             }
-                            // For typing keystrokes: UI element will be captured when typing session completes
+                            // For typing keystrokes the element will be captured when session completes
                         }
 
                         // Handle typing session tracking for text input completion
@@ -930,8 +940,11 @@ impl WindowsRecorder {
                             let is_typing_keystroke =
                                 Self::is_typing_keystroke(key_code, character);
 
-                            // Only capture UI element for non-typing keystrokes
-                            if !is_typing_keystroke {
+                            // Try cheap lookup from recent focus history first
+                            ui_element = WindowsRecorder::get_recent_focus_element(&focus_history, RECENT_FOCUS_THRESHOLD_MS);
+
+                            // Fallback to expensive COM call only for non-typing keys when cache miss
+                            if ui_element.is_none() && !is_typing_keystroke {
                                 ui_element = Self::get_focused_ui_element_with_timeout(
                                     automation.as_ref().unwrap(),
                                 );
@@ -2008,6 +2021,25 @@ impl WindowsRecorder {
 
         true
     }
+
+    /// Return the most recent focused UI element that is still fresh enough, based on the provided threshold.
+    fn get_recent_focus_element(
+        history: &Arc<Mutex<VecDeque<(Instant, UIElement)>>>,
+        threshold_ms: u64,
+    ) -> Option<UIElement> {
+        let now = Instant::now();
+        if let Ok(hist) = history.lock() {
+            for (ts, elem) in hist.iter().rev() {
+                if now.duration_since(*ts).as_millis() <= threshold_ms as u128 {
+                    return Some(elem.clone());
+                } else {
+                    // Older entries will be even staler, break early
+                    break;
+                }
+            }
+        }
+        None
+    }
 }
 
 /// Convert a Key to a u32
@@ -2086,3 +2118,6 @@ fn key_to_u32(key: &Key) -> u32 {
         _ => 0,
     }
 }
+
+const RECENT_FOCUS_THRESHOLD_MS: u64 = 300; // How fresh a cached focus must be to be considered valid
+const FOCUS_HISTORY_CAPACITY: usize = 20;    // Maximum number of focus changes to remember
