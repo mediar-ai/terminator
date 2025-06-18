@@ -1205,4 +1205,26 @@ mod tests {
         assert!(!is_empty_string(&Some("something empty".to_string())));
         assert!(!is_empty_string(&Some("none selected".to_string())));
     }
+
+    #[test]
+    fn test_text_input_completed_autofill_serialization() {
+        // Create a dummy event (without UIElement for simplicity)
+        let event = TextInputCompletedEvent {
+            text_value: "John Doe".to_string(),
+            field_name: Some("Name".to_string()),
+            field_type: "TextBox".to_string(),
+            input_method: TextInputMethod::AutoFilled,
+            typing_duration_ms: 0,
+            keystroke_count: 0,
+            metadata: EventMetadata::with_timestamp(),
+        };
+
+        // Convert to serializable form and then to JSON
+        let serializable: SerializableTextInputCompletedEvent = (&event).into();
+        let json = serde_json::to_string(&serializable).expect("serialization should succeed");
+
+        // Ensure JSON contains expected fields
+        assert!(json.contains("John Doe"));
+        assert!(json.contains("AutoFilled"));
+    }
 }

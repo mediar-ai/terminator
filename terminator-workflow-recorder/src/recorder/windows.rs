@@ -1300,6 +1300,9 @@ impl WindowsRecorder {
         let config_clone = self.config.clone();
         let property_config = self.config.clone();
 
+        // Capture typing session for autofill detection in property handler
+        let current_typing_session = Arc::clone(&self.current_typing_session);
+
         thread::spawn(move || {
             info!("Starting UI Automation event monitoring thread");
 
@@ -1630,6 +1633,7 @@ impl WindowsRecorder {
             // Spawn a thread to process the property change data safely
             let property_event_tx_clone = property_event_tx.clone();
             let property_browser_tracker = Arc::clone(&browser_tab_tracker);
+            let property_typing_session = Arc::clone(&current_typing_session);
             std::thread::spawn(move || {
                 while let Ok((property_name, value_string, ui_element)) = property_rx.recv() {
                     // Extract element name on the worker thread
@@ -1677,6 +1681,42 @@ impl WindowsRecorder {
                             &property_config,
                             Some(full_url), // Pass the detected URL!
                         );
+                    }
+
+                    // === Autofill detection & TextInputCompletedEvent ===
+                    if config_clone.record_text_input_completion
+                        && property_name == "ValueValue"
+                        && !value_string.trim().is_empty()
+                    {
+                        if let Some(ref element) = ui_element {
+                            let role_lower = element.role().to_lowercase();
+                            // Basic check: is this an editable field?
+                            if role_lower.contains("edit") || role_lower.contains("textbox") || role_lower.contains("input") {
+                                // Ignore if we were already in a typing session (keystrokes seen)
+                                let keystrokes = property_typing_session.keystroke_count.load(Ordering::Relaxed);
+                                let typing_active = property_typing_session.is_active.load(Ordering::Relaxed);
+
+                                if keystrokes == 0 && !typing_active {
+                                    // Treat this as autofill
+                                    let field_name = element.name_or_empty();
+                                    let text_input_event = TextInputCompletedEvent {
+                                        text_value: value_string.clone(),
+                                        field_name: if field_name.is_empty() { None } else { Some(field_name) },
+                                        field_type: element.role(),
+                                        input_method: TextInputMethod::AutoFilled,
+                                        typing_duration_ms: 0,
+                                        keystroke_count: 0,
+                                        metadata: EventMetadata::with_ui_element_and_timestamp(ui_element.clone()),
+                                    };
+
+                                    // Ensure typing session is marked completed/cleared
+                                    let _ = property_typing_session.complete_session(true, 0);
+
+                                    let _ = property_event_tx_clone
+                                        .send(WorkflowEvent::TextInputCompleted(text_input_event));
+                                }
+                            }
+                        }
                     }
                 }
             });
