@@ -825,22 +825,12 @@ impl WindowsRecorder {
                             None
                         };
 
-                        // PERFORMANCE OPTIMIZATION: Only capture UI elements for high-level keyboard events
-                        // Skip UI element capture for individual typing keystrokes - only capture for:
-                        // 1. Non-typing keys (function keys, shortcuts, etc.)
-                        // 2. Completed typing sessions (handled in TextInputCompletedEvent)
+                        // Capture UI element for all keyboard events (including typing keystrokes)
                         let mut ui_element = None;
                         if capture_ui_elements {
-                            let is_typing_keystroke =
-                                Self::is_typing_keystroke(key_code, character);
-
-                            // Only capture UI element for non-typing keystrokes (shortcuts, function keys, etc.)
-                            if !is_typing_keystroke {
-                                ui_element = Self::get_focused_ui_element_with_timeout(
-                                    automation.as_ref().unwrap(),
-                                );
-                            }
-                            // For typing keystrokes: UI element will be captured when typing session completes
+                            ui_element = Self::get_focused_ui_element_with_timeout(
+                                automation.as_ref().unwrap(),
+                            );
                         }
 
                         // Handle typing session tracking for text input completion
@@ -918,24 +908,12 @@ impl WindowsRecorder {
                             }
                         };
 
-                        // PERFORMANCE OPTIMIZATION: Only capture UI elements for high-level keyboard events
-                        // Skip UI element capture for typing keystrokes during key release
+                        // Capture UI element for all keyboard events (including typing keystrokes)
                         let mut ui_element = None;
                         if capture_ui_elements {
-                            let character = if (32..=126).contains(&key_code) {
-                                Some(key_code as u8 as char)
-                            } else {
-                                None
-                            };
-                            let is_typing_keystroke =
-                                Self::is_typing_keystroke(key_code, character);
-
-                            // Only capture UI element for non-typing keystrokes
-                            if !is_typing_keystroke {
-                                ui_element = Self::get_focused_ui_element_with_timeout(
-                                    automation.as_ref().unwrap(),
-                                );
-                            }
+                            ui_element = Self::get_focused_ui_element_with_timeout(
+                                automation.as_ref().unwrap(),
+                            );
                         }
 
                         let keyboard_event = KeyboardEvent {
