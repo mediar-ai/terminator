@@ -313,6 +313,72 @@ pub(crate) trait UIElementImpl: Send + Sync + Debug {
     /// Close the element if it's closable (like windows, applications)
     /// Does nothing for non-closable elements (like buttons, text, etc.)
     fn close(&self) -> Result<(), AutomationError>;
+
+    /// Returns the `Monitor` object that contains this element.
+    ///
+    /// By default this implementation uses the element's bounding box and
+    /// the `xcap` crate to locate the monitor that contains the element's
+    /// top-left corner. Individual platforms can override this for a more
+    /// accurate or cheaper implementation.
+    fn monitor(&self) -> Result<crate::Monitor, AutomationError> {
+        // 1. Get element bounds (x, y)
+        let (x, y, _w, _h) = self.bounds()?;
+
+        // 2. Enumerate available monitors using xcap (already a dependency)
+        let monitors = xcap::Monitor::all().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to enumerate monitors: {}", e))
+        })?;
+
+        // 3. Find the first monitor whose geometry contains the element's
+        //    upper-left corner.
+        for (idx, mon) in monitors.iter().enumerate() {
+            // Guard every call because each accessor returns Result<_>
+            let mon_x = mon.x().map_err(|e| {
+                AutomationError::PlatformError(format!("Failed to get monitor x: {}", e))
+            })?;
+            let mon_y = mon.y().map_err(|e| {
+                AutomationError::PlatformError(format!("Failed to get monitor y: {}", e))
+            })?;
+            let mon_w = mon.width().map_err(|e| {
+                AutomationError::PlatformError(format!("Failed to get monitor width: {}", e))
+            })? as i32;
+            let mon_h = mon.height().map_err(|e| {
+                AutomationError::PlatformError(format!("Failed to get monitor height: {}", e))
+            })? as i32;
+
+            // Simple contains check (include edges)
+            let within_x = (x as i32) >= mon_x && (x as i32) < mon_x + mon_w;
+            let within_y = (y as i32) >= mon_y && (y as i32) < mon_y + mon_h;
+
+            if within_x && within_y {
+                // Build our internal Monitor struct from the xcap monitor
+                let name = mon.name().map_err(|e| {
+                    AutomationError::PlatformError(format!("Failed to get monitor name: {}", e))
+                })?;
+                let is_primary = mon.is_primary().map_err(|e| {
+                    AutomationError::PlatformError(format!("Failed to get monitor primary flag: {}", e))
+                })?;
+                let scale_factor = mon.scale_factor().map_err(|e| {
+                    AutomationError::PlatformError(format!("Failed to get monitor scale factor: {}", e))
+                })? as f64;
+
+                return Ok(crate::Monitor {
+                    id: format!("monitor_{}", idx),
+                    name,
+                    is_primary,
+                    width: mon_w as u32,
+                    height: mon_h as u32,
+                    x: mon_x,
+                    y: mon_y,
+                    scale_factor,
+                });
+            }
+        }
+
+        Err(AutomationError::ElementNotFound(
+            "Unable to determine monitor for element".to_string(),
+        ))
+    }
 }
 
 impl UIElement {
@@ -511,6 +577,14 @@ impl UIElement {
     /// Does nothing for non-closable elements (like buttons, text, etc.)
     pub fn close(&self) -> Result<(), AutomationError> {
         self.inner.close()
+    }
+
+    /// Return the `Monitor` that contains this UI element.
+    ///
+    /// This is useful when you need to perform monitor-specific operations
+    /// (e.g. capturing the screen area around the element).
+    pub fn monitor(&self) -> Result<crate::Monitor, AutomationError> {
+        self.inner.monitor()
     }
 
     // Convenience methods to reduce verbosity with optional properties
