@@ -1,4 +1,4 @@
-THIS SHOULD BE A LINTER ERRORuse crate::events::{ButtonClickEvent, ButtonInteractionType};
+use crate::events::{ButtonClickEvent, ButtonInteractionType};
 use crate::{
     ApplicationSwitchEvent, ApplicationSwitchMethod, BrowserTabNavigationEvent, ClipboardAction,
     ClipboardEvent, EventMetadata, HotkeyEvent, KeyboardEvent, MouseButton, MouseEvent,
@@ -991,11 +991,11 @@ impl WindowsRecorder {
 
                             let mut ui_element = None;
                             if capture_ui_elements {
-                                ui_element = Self::get_focused_ui_element_with_timeout(
-                                    automation.as_ref().unwrap(),
-                                );
+                                // Cheap cache lookup first
+                                ui_element = WindowsRecorder::get_recent_focus_element(&focus_history, RECENT_FOCUS_THRESHOLD_MS)
+                                    .or_else(|| Self::get_focused_ui_element_with_timeout(automation.as_ref().unwrap()));
 
-                                // Debug: Log what UI element we captured at mouse down
+                                // Debug logs
                                 if let Some(ref element) = ui_element {
                                     debug!(
                                         "Mouse down captured element: name='{}', role='{}', position=({}, {})",
@@ -1038,9 +1038,8 @@ impl WindowsRecorder {
 
                             let mut ui_element = None;
                             if capture_ui_elements {
-                                ui_element = Self::get_focused_ui_element_with_timeout(
-                                    automation.as_ref().unwrap(),
-                                );
+                                ui_element = WindowsRecorder::get_recent_focus_element(&focus_history, RECENT_FOCUS_THRESHOLD_MS)
+                                    .or_else(|| Self::get_focused_ui_element_with_timeout(automation.as_ref().unwrap()));
                             }
 
                             let mouse_event = MouseEvent {
@@ -1076,9 +1075,8 @@ impl WindowsRecorder {
                         };
                         let mut ui_element = None;
                         if capture_ui_elements {
-                            ui_element = Self::get_focused_ui_element_with_timeout(
-                                automation.as_ref().unwrap(),
-                            );
+                            ui_element = WindowsRecorder::get_recent_focus_element(&focus_history, RECENT_FOCUS_THRESHOLD_MS)
+                                .or_else(|| Self::get_focused_ui_element_with_timeout(automation.as_ref().unwrap()));
                         }
 
                         *last_mouse_pos.lock().unwrap() = Some((x, y));
@@ -1102,9 +1100,8 @@ impl WindowsRecorder {
                         if let Some((x, y)) = *last_mouse_pos.lock().unwrap() {
                             let mut ui_element = None;
                             if capture_ui_elements {
-                                ui_element = Self::get_focused_ui_element_with_timeout(
-                                    automation.as_ref().unwrap(),
-                                );
+                                ui_element = WindowsRecorder::get_recent_focus_element(&focus_history, RECENT_FOCUS_THRESHOLD_MS)
+                                    .or_else(|| Self::get_focused_ui_element_with_timeout(automation.as_ref().unwrap()));
                             }
 
                             let mouse_event = MouseEvent {
@@ -1304,6 +1301,7 @@ impl WindowsRecorder {
         let event_tx = self.event_tx.clone();
         let stop_indicator = Arc::clone(&self.stop_indicator);
         let ui_automation_thread_id = Arc::clone(&self.ui_automation_thread_id);
+        let focus_history = Arc::clone(&self.focus_history);
 
         // Clone filtering configuration
         let ignore_focus_patterns = self.config.ignore_focus_patterns.clone();
@@ -1450,9 +1448,20 @@ impl WindowsRecorder {
             let focus_processing_ignore_applications = ignore_applications.clone();
             let processing_handle = handle;
 
+            let focus_history_clone = Arc::clone(&focus_history);
+
             std::thread::spawn(move || {
                 while let Ok(ui_element) = focus_rx.recv() {
                     if let Some(element) = ui_element {
+                        // ✅ Cache this focused element with timestamp for cheap future lookups
+                        {
+                            let mut hist = focus_history_clone.lock().unwrap();
+                            hist.push_back((Instant::now(), element.clone()));
+                            if hist.len() > FOCUS_HISTORY_CAPACITY {
+                                hist.pop_front();
+                            }
+                        }
+
                         let element_name = element.name_or_empty();
                         let element_role = element.role().to_lowercase();
                         debug!(
