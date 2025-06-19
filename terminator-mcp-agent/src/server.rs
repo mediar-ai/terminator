@@ -9,7 +9,7 @@ use rmcp::model::{
     CallToolResult, Content, Implementation, ProtocolVersion, ServerCapabilities, ServerInfo,
 };
 use rmcp::{tool, Error as McpError, ServerHandler};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::env;
 use terminator::{Browser, Desktop, Selector};
 
@@ -174,14 +174,17 @@ impl DesktopWrapper {
             )
         })?;
 
-        Ok(CallToolResult::success(vec![Content::json(json!({
+        let mut result_json = json!({
             "action": "type",
             "status": "success",
             "text_typed": args.text_to_type,
             "element": element_info,
             "selector": args.selector,
             "timestamp": chrono::Utc::now().to_rfc3339()
-        }))?]))
+        });
+        self.maybe_attach_tree(args.include_tree.unwrap_or(false), element.process_id().ok(), &mut result_json);
+
+        Ok(CallToolResult::success(vec![Content::json(result_json)?]))
     }
 
     #[tool(description = "Clicks a UI element.")]
@@ -222,13 +225,18 @@ impl DesktopWrapper {
             )
         })?;
 
-        Ok(CallToolResult::success(vec![Content::json(json!({
+        // Build base result
+        let mut result_json = json!({
             "action": "click",
             "status": "success",
             "element": element_info,
             "selector": args.selector,
             "timestamp": chrono::Utc::now().to_rfc3339()
-        }))?]))
+        });
+        // Attach tree if requested
+        self.maybe_attach_tree(args.include_tree.unwrap_or(false), element.process_id().ok(), &mut result_json);
+
+        Ok(CallToolResult::success(vec![Content::json(result_json)?]))
     }
 
     #[tool(description = "Sends a key press to a UI element.")]
@@ -269,14 +277,17 @@ impl DesktopWrapper {
             )
         })?;
 
-        Ok(CallToolResult::success(vec![Content::json(json!({
+        let mut result_json = json!({
             "action": "press_key",
             "status": "success",
             "key_pressed": args.key,
             "element": element_info,
             "selector": args.selector,
             "timestamp": chrono::Utc::now().to_rfc3339()
-        }))?]))
+        });
+        self.maybe_attach_tree(args.include_tree.unwrap_or(false), element.process_id().ok(), &mut result_json);
+
+        Ok(CallToolResult::success(vec![Content::json(result_json)?]))
     }
 
     #[tool(description = "Sends a key press to the currently focused element (no selector required).")]
@@ -315,13 +326,16 @@ impl DesktopWrapper {
             )
         })?;
 
-        Ok(CallToolResult::success(vec![Content::json(json!({
+        let mut result_json = json!({
             "action": "press_key_global",
             "status": "success",
             "key_pressed": args.key,
             "element": element_info,
             "timestamp": chrono::Utc::now().to_rfc3339()
-        }))?]))
+        });
+        self.maybe_attach_tree(args.include_tree.unwrap_or(false), focused.process_id().ok(), &mut result_json);
+
+        Ok(CallToolResult::success(vec![Content::json(result_json)?]))
     }
 
     #[tool(description = "Executes a shell command.")]
@@ -521,7 +535,7 @@ impl DesktopWrapper {
                 )
             })?;
 
-        Ok(CallToolResult::success(vec![Content::json(json!({
+        let mut result_json = json!({
             "action": "mouse_drag",
             "status": "success",
             "element": element_info,
@@ -529,7 +543,10 @@ impl DesktopWrapper {
             "start": (args.start_x, args.start_y),
             "end": (args.end_x, args.end_y),
             "timestamp": chrono::Utc::now().to_rfc3339()
-        }))?]))
+        });
+        self.maybe_attach_tree(args.include_tree.unwrap_or(false), element.process_id().ok(), &mut result_json);
+
+        Ok(CallToolResult::success(vec![Content::json(result_json)?]))
     }
 
     #[tool(
@@ -559,13 +576,16 @@ impl DesktopWrapper {
                     "value": element.attributes().value.unwrap_or_default(),
                 });
 
-                Ok(CallToolResult::success(vec![Content::json(json!({
+                let mut result_json = json!({
                     "action": "validate_element",
                     "status": "success",
                     "element": element_info,
                     "selector": args.selector,
                     "timestamp": chrono::Utc::now().to_rfc3339()
-                }))?]))
+                });
+                self.maybe_attach_tree(args.include_tree.unwrap_or(false), element.process_id().ok(), &mut result_json);
+
+                Ok(CallToolResult::success(vec![Content::json(result_json)?]))
             }
             Err(e) => Ok(CallToolResult::success(vec![Content::json(json!({
                 "action": "validate_element",
@@ -611,7 +631,7 @@ impl DesktopWrapper {
             })).unwrap_or(json!(null)),
         });
 
-        Ok(CallToolResult::success(vec![Content::json(json!({
+        let mut result_json = json!({
             "action": "highlight_element",
             "status": "success",
             "element": element_info,
@@ -619,7 +639,10 @@ impl DesktopWrapper {
             "color": args.color.unwrap_or(0x0000FF),
             "duration_ms": args.duration_ms.unwrap_or(1000),
             "timestamp": chrono::Utc::now().to_rfc3339()
-        }))?]))
+        });
+        self.maybe_attach_tree(args.include_tree.unwrap_or(false), element.process_id().ok(), &mut result_json);
+
+        Ok(CallToolResult::success(vec![Content::json(result_json)?]))
     }
 
     #[tool(
@@ -839,7 +862,7 @@ impl DesktopWrapper {
             )
         })?;
 
-        Ok(CallToolResult::success(vec![Content::json(json!({
+        let mut result_json = json!({
             "action": "scroll_element",
             "status": "success",
             "element": element_info,
@@ -847,7 +870,26 @@ impl DesktopWrapper {
             "direction": args.direction,
             "amount": args.amount,
             "timestamp": chrono::Utc::now().to_rfc3339()
-        }))?]))
+        });
+        self.maybe_attach_tree(args.include_tree.unwrap_or(false), element.process_id().ok(), &mut result_json);
+
+        Ok(CallToolResult::success(vec![Content::json(result_json)?]))
+    }
+
+    // Helper to optionally attach UI tree to response
+    fn maybe_attach_tree(&self, include_tree: bool, pid_opt: Option<u32>, result_json: &mut Value) {
+        if !include_tree {
+            return;
+        }
+        if let Some(pid) = pid_opt {
+            if let Ok(tree) = self.desktop.get_window_tree(pid, None, None) {
+                if let Ok(tree_val) = serde_json::to_value(tree) {
+                    if let Some(obj) = result_json.as_object_mut() {
+                        obj.insert("ui_tree".to_string(), tree_val);
+                    }
+                }
+            }
+        }
     }
 }
 

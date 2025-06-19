@@ -18,6 +18,8 @@ pub struct GetWindowTreeArgs {
     pub pid: u32,
     #[schemars(description = "Optional window title filter")]
     pub title: Option<String>,
+    #[schemars(description = "Whether to include full UI tree in the response (verbose mode)")]
+    pub include_tree: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -34,6 +36,8 @@ pub struct LocatorArgs {
     pub selector: String,
     #[schemars(description = "Optional timeout in milliseconds for the action")]
     pub timeout_ms: Option<u64>,
+    #[schemars(description = "Whether to include full UI tree in the response (verbose mode)")]
+    pub include_tree: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -46,6 +50,8 @@ pub struct TypeIntoElementArgs {
     pub text_to_type: String,
     #[schemars(description = "Optional timeout in milliseconds for the action")]
     pub timeout_ms: Option<u64>,
+    #[schemars(description = "Whether to include full UI tree in the response (verbose mode)")]
+    pub include_tree: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -58,6 +64,8 @@ pub struct PressKeyArgs {
     pub selector: String,
     #[schemars(description = "Optional timeout in milliseconds for the action")]
     pub timeout_ms: Option<u64>,
+    #[schemars(description = "Whether to include full UI tree in the response (verbose mode)")]
+    pub include_tree: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -66,6 +74,8 @@ pub struct GlobalKeyArgs {
         description = "The key or key combination to press (e.g., '{PageDown}', '{Ctrl}{V}')"
     )]
     pub key: String,
+    #[schemars(description = "Whether to include full UI tree in the response (verbose mode)")]
+    pub include_tree: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -101,6 +111,8 @@ pub struct MouseDragArgs {
     pub end_y: f64,
     #[schemars(description = "Optional timeout in milliseconds")]
     pub timeout_ms: Option<u64>,
+    #[schemars(description = "Whether to include full UI tree in the response (verbose mode)")]
+    pub include_tree: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -111,6 +123,8 @@ pub struct ValidateElementArgs {
     pub selector: String,
     #[schemars(description = "Optional timeout in milliseconds")]
     pub timeout_ms: Option<u64>,
+    #[schemars(description = "Whether to include full UI tree in the response (verbose mode)")]
+    pub include_tree: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -125,6 +139,8 @@ pub struct HighlightElementArgs {
     pub duration_ms: Option<u64>,
     #[schemars(description = "Optional timeout in milliseconds")]
     pub timeout_ms: Option<u64>,
+    #[schemars(description = "Whether to include full UI tree in the response (verbose mode)")]
+    pub include_tree: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -137,6 +153,8 @@ pub struct WaitForElementArgs {
     pub condition: String,
     #[schemars(description = "Optional timeout in milliseconds")]
     pub timeout_ms: Option<u64>,
+    #[schemars(description = "Whether to include full UI tree in the response (verbose mode)")]
+    pub include_tree: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -170,6 +188,8 @@ pub struct ScrollElementArgs {
     #[schemars(description = "Amount to scroll (number of lines or pages)")]
     pub amount: f64,
     pub timeout_ms: Option<u64>,
+    #[schemars(description = "Whether to include full UI tree in the response (verbose mode)")]
+    pub include_tree: Option<bool>,
 }
 
 pub fn init_logging() -> Result<()> {
