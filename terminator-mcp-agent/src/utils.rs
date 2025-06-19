@@ -61,6 +61,14 @@ pub struct PressKeyArgs {
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct GlobalKeyArgs {
+    #[schemars(
+        description = "The key or key combination to press (e.g., '{PageDown}', '{Ctrl}{V}')"
+    )]
+    pub key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct RunCommandArgs {
     #[schemars(description = "The command to run on Windows")]
     pub windows_command: Option<String>,

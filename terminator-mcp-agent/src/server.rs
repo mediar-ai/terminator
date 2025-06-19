@@ -2,7 +2,7 @@ use crate::utils::{
     get_timeout, ClipboardArgs, DesktopWrapper, EmptyArgs, GetClipboardArgs, GetWindowTreeArgs,
     GetWindowsArgs, HighlightElementArgs, LocatorArgs, MouseDragArgs, NavigateBrowserArgs,
     OpenApplicationArgs, PressKeyArgs, RunCommandArgs, ScrollElementArgs, TypeIntoElementArgs,
-    ValidateElementArgs, WaitForElementArgs,
+    ValidateElementArgs, WaitForElementArgs, GlobalKeyArgs,
 };
 use chrono::Local;
 use rmcp::model::{
@@ -275,6 +275,51 @@ impl DesktopWrapper {
             "key_pressed": args.key,
             "element": element_info,
             "selector": args.selector,
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }))?]))
+    }
+
+    #[tool(description = "Sends a key press to the currently focused element (no selector required).")]
+    async fn press_key_global(
+        &self,
+        #[tool(param)] args: GlobalKeyArgs,
+    ) -> Result<CallToolResult, McpError> {
+        // Identify focused element
+        let focused = self.desktop.focused_element().map_err(|e| {
+            McpError::internal_error(
+                "Failed to get focused element",
+                Some(json!({"reason": e.to_string()})),
+            )
+        })?;
+
+        // Gather metadata for debugging / result payload
+        let element_info = json!({
+            "name": focused.name().unwrap_or_default(),
+            "role": focused.role(),
+            "id": focused.id().unwrap_or_default(),
+            "bounds": focused.bounds().map(|b| json!({
+                "x": b.0, "y": b.1, "width": b.2, "height": b.3
+            })).unwrap_or(json!(null)),
+            "enabled": focused.is_enabled().unwrap_or(false),
+        });
+
+        // Perform the key press
+        focused.press_key(&args.key).map_err(|e| {
+            McpError::resource_not_found(
+                "Failed to press key on focused element",
+                Some(json!({
+                    "reason": e.to_string(),
+                    "key_pressed": args.key,
+                    "element_info": element_info
+                })),
+            )
+        })?;
+
+        Ok(CallToolResult::success(vec![Content::json(json!({
+            "action": "press_key_global",
+            "status": "success",
+            "key_pressed": args.key,
+            "element": element_info,
             "timestamp": chrono::Utc::now().to_rfc3339()
         }))?]))
     }
