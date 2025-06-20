@@ -4301,6 +4301,7 @@ version = "0.5.3"
 dependencies = [
  "anyhow",
  "chrono",
+ "clap",
  "futures",
  "rmcp",
  "serde",

@@ -17,5 +17,16 @@ rmcp = { version = "0.1.5", features = [
     "server",
     "transport-sse-server",
     "transport-io",
+    "client",
+    "transport-child-process",
 ] }
 futures = "0.3"
+clap = { version = "4.5", features = ["derive"] }
+
+[[bin]]
+name = "terminator-mcp-agent"
+path = "src/main.rs"
+
+[[bin]]
+name = "terminator-mcp-test-runner"
+path = "src/test_runner.rs"

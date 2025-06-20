@@ -1,0 +1,156 @@
+name: MCP Test Runner Example
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_goal:
+        description: 'Test goal - what the automation should achieve'
+        required: true
+        default: 'Open Notepad and type Hello World'
+      test_expectation:
+        description: 'Expected outcome - what should be validated'
+        required: true
+        default: 'Text successfully typed in Notepad'
+      test_app:
+        description: 'Application to test (e.g., notepad, calculator)'
+        required: false
+        default: 'notepad'
+
+jobs:
+  ui-test-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Build MCP Agent and Test Runner
+        run: |
+          cargo build --release --bin terminator-mcp-agent
+          cargo build --release --bin terminator-mcp-test-runner
+
+      - name: Run UI Test
+        run: |
+          ./target/release/terminator-mcp-test-runner \
+            --goal "${{ github.event.inputs.test_goal }}" \
+            --expectation "${{ github.event.inputs.test_expectation }}" \
+            --app "${{ github.event.inputs.test_app }}" \
+            --output-format json \
+            --timeout 60 \
+            --vm-mode > test-results.json
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results.json
+
+      - name: Parse and Report Results
+        if: always()
+        run: |
+          $results = Get-Content test-results.json | ConvertFrom-Json
+          Write-Host "Test Goal: $($results.goal)"
+          Write-Host "Test Success: $($results.success)"
+          Write-Host "Duration: $($results.duration_ms)ms"
+          
+          if ($results.error) {
+            Write-Host "Error: $($results.error)"
+          }
+          
+          # Exit with error if test failed
+          if (-not $results.success) {
+            exit 1
+          }
+
+  ui-test-ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Virtual Display
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb x11-utils
+          export DISPLAY=:99
+          Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+
+      - name: Install Desktop Environment
+        run: |
+          sudo apt-get install -y \
+            xfce4 \
+            xfce4-terminal \
+            mousepad \
+            gnome-calculator
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+
+      - name: Build MCP Agent and Test Runner
+        run: |
+          cargo build --release --bin terminator-mcp-agent
+          cargo build --release --bin terminator-mcp-test-runner
+
+      - name: Run UI Test
+        env:
+          DISPLAY: :99
+        run: |
+          ./target/release/terminator-mcp-test-runner \
+            --goal "Open mousepad and type Hello from Linux" \
+            --expectation "Text successfully typed" \
+            --app "mousepad" \
+            --output-format json \
+            --timeout 60 \
+            --vm-mode > test-results.json
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-linux
+          path: test-results.json
+
+  matrix-test:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        test_case:
+          - { app: "notepad", goal: "Type test message", expectation: "success" }
+          - { app: "calculator", goal: "Click buttons 1+1=", expectation: "result displayed" }
+    
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Build and Test
+        run: |
+          cargo build --release --bin terminator-mcp-agent
+          cargo build --release --bin terminator-mcp-test-runner
+          
+          # Run the test
+          ./target/release/terminator-mcp-test-runner \
+            --goal "${{ matrix.test_case.goal }}" \
+            --expectation "${{ matrix.test_case.expectation }}" \
+            --app "${{ matrix.test_case.app }}" \
+            --output-format human \
+            --timeout 120
