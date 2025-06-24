@@ -1,7 +1,16 @@
 [package]
 name = "terminator"
 version = { workspace = true }
-edition = "2024"
+edition = "2021"
+description = "A Playwright-style SDK for automating desktop GUI applications"
+authors = ["Mediar AI"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/mediar-ai/terminator"
+homepage = "https://github.com/mediar-ai/terminator"
+documentation = "https://docs.rs/terminator"
+readme = "../README.md"
+keywords = ["automation", "gui", "desktop", "accessibility", "testing"]
+categories = ["accessibility", "api-bindings", "development-tools::testing"]
 
 [dependencies]
 serde = { workspace = true }

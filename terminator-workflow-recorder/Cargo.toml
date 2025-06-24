@@ -4,6 +4,13 @@ version = { workspace = true }
 edition = "2021"
 description = "A crate for recording user workflows on Windows"
 authors = ["Terminator Contributors"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/mediar-ai/terminator"
+homepage = "https://github.com/mediar-ai/terminator"
+documentation = "https://docs.rs/terminator-workflow-recorder"
+readme = "README.md"
+keywords = ["automation", "workflow", "recording", "windows", "ui"]
+categories = ["accessibility", "development-tools", "development-tools::testing"]
 
 [dependencies]
 terminator = { workspace = true }
