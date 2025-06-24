@@ -7,6 +7,7 @@ members = [
     "bindings/nodejs",
     "terminator-mcp-agent",
     "terminator-cli",
+    "terminator-observability",
 ]
 
 
@@ -63,3 +64,5 @@ tower-http = { version = "0.6.2", features = ["cors", "limit"] }
 # Workflow recorder dependencies
 chrono = "0.4"
 ctrlc = "3.4"
+uuid = { version = "1.10", features = ["v4", "serde"] }
+futures = "0.3"
