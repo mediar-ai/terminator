@@ -83,7 +83,7 @@ Three new tools are exposed when WebRTC is enabled:
    - `terminator-mcp-agent/src/streaming/capture.rs`
    - `terminator-mcp-agent/src/streaming/signaling.rs`
    - `terminator-mcp-agent/README_WEBRTC.md`
-   - `terminator/examples/webrtc_streaming.rs`
+   - `terminator-mcp-agent/examples/webrtc_streaming.rs`
    - `terminator-mcp-agent/tests/webrtc_test.rs`
 
 2. **Modified Files:**
