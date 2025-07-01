@@ -31,7 +31,7 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 tokio = { version = "1.44.2", features = ["full"] }
 
 # OCR / Vision
-xcap = "0.6.0"
+xcap = "0.4.0"
 image = "0.25.6"
 uni-ocr = "0.1.5"
 tempfile = "3.10.1"

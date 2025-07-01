@@ -20,12 +20,11 @@ tracing = { workspace = true }
 terminator = { workspace = true }
 serde_json = { workspace = true }
 tracing-subscriber = { workspace = true }
-rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", rev = "b9d7d61ebd6e8385cbc4aa105d4e25774fc1a59c", features = [
-    "server",
-    "transport-sse-server",
-    "transport-io",
-    "transport-streamable-http-server",
-] }
+# Temporarily commented out due to Rust 2024 edition requirement
+# rmcp = { version = "0.1.0", features = [
+#     "server",
+#     "transport-io",
+# ] }
 futures = "0.3"
 image = { version = "0.25.1", features = ["png"] }
 base64 = "0.22.1"
@@ -33,10 +32,9 @@ clap = { version = "4.5", features = ["derive"] }
 axum = "0.8"
 
 [dev-dependencies]
-rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", rev = "b9d7d61ebd6e8385cbc4aa105d4e25774fc1a59c", features = [
-    "client",
-    "transport-child-process",
-] }
+# rmcp = { version = "0.1.0", features = [
+#     "client",
+# ] }
 tokio-test = "0.4"
 anyhow = "1.0"
 rand = "0.8"

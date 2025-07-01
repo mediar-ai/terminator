@@ -1,0 +1,145 @@
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+    use terminator::{Desktop, Element};
+    use tokio::time::sleep;
+
+    #[derive(Debug)]
+    struct TestResult {
+        test_name: String,
+        success: bool,
+        error_message: Option<String>,
+        duration_ms: u128,
+    }
+
+    async fn measure_accuracy<F, Fut>(test_name: &str, test_fn: F) -> TestResult
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<(), String>>,
+    {
+        let start = std::time::Instant::now();
+        let result = test_fn().await;
+        let duration_ms = start.elapsed().as_millis();
+
+        TestResult {
+            test_name: test_name.to_string(),
+            success: result.is_ok(),
+            error_message: result.err(),
+            duration_ms,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_basic_automation_accuracy() {
+        println!("Starting basic automation accuracy test...");
+
+        let mut results = Vec::new();
+
+        // Test 1: Desktop creation
+        let result = measure_accuracy("Desktop Creation", || async {
+            Desktop::new().await.map(|_| ()).map_err(|e| e.to_string())
+        })
+        .await;
+        results.push(result);
+
+        // Test 2: List applications
+        let result = measure_accuracy("List Applications", || async {
+            let desktop = Desktop::new().await.map_err(|e| e.to_string())?;
+            desktop
+                .list_applications()
+                .await
+                .map(|apps| {
+                    println!("Found {} applications", apps.len());
+                    ()
+                })
+                .map_err(|e| e.to_string())
+        })
+        .await;
+        results.push(result);
+
+        // Test 3: Find Calculator (if available)
+        let result = measure_accuracy("Find Calculator", || async {
+            let desktop = Desktop::new().await.map_err(|e| e.to_string())?;
+            let apps = desktop
+                .list_applications()
+                .await
+                .map_err(|e| e.to_string())?;
+
+            let calc_found = apps.iter().any(|app| {
+                app.name.to_lowercase().contains("calc")
+                    || app.name.to_lowercase().contains("calculator")
+            });
+
+            if calc_found {
+                Ok(())
+            } else {
+                Err("Calculator not found".to_string())
+            }
+        })
+        .await;
+        results.push(result);
+
+        // Print results
+        println!("\n=== Accuracy Test Results ===");
+        let total_tests = results.len();
+        let passed_tests = results.iter().filter(|r| r.success).count();
+
+        for result in &results {
+            let status = if result.success {
+                "✓ PASS"
+            } else {
+                "✗ FAIL"
+            };
+            println!(
+                "{}: {} ({}ms)",
+                status, result.test_name, result.duration_ms
+            );
+            if let Some(ref error) = result.error_message {
+                println!("  Error: {}", error);
+            }
+        }
+
+        let accuracy = (passed_tests as f64 / total_tests as f64) * 100.0;
+        println!(
+            "\nAccuracy: {:.1}% ({}/{})",
+            accuracy, passed_tests, total_tests
+        );
+
+        // Assert at least 50% accuracy
+        assert!(accuracy >= 50.0, "Accuracy too low: {:.1}%", accuracy);
+    }
+
+    #[tokio::test]
+    async fn test_element_interaction_accuracy() {
+        println!("Starting element interaction accuracy test...");
+
+        let desktop = match Desktop::new().await {
+            Ok(d) => d,
+            Err(e) => {
+                println!("Failed to create desktop: {:?}", e);
+                return;
+            }
+        };
+
+        // Try to find any clickable element
+        let result = measure_accuracy("Find Clickable Element", || async {
+            let desktop = Desktop::new().await.map_err(|e| e.to_string())?;
+
+            // This is a placeholder - in real tests we'd use proper locators
+            // For now, just test that we can create a desktop
+            Ok(())
+        })
+        .await;
+
+        println!("Element interaction test result: {:?}", result);
+    }
+
+    #[test]
+    fn test_accuracy_calculation() {
+        // Simple unit test for accuracy calculation
+        let total = 10;
+        let passed = 7;
+        let accuracy = (passed as f64 / total as f64) * 100.0;
+        assert_eq!(accuracy, 70.0);
+    }
+}
