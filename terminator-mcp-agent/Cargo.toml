@@ -20,11 +20,9 @@ tracing = { workspace = true }
 terminator = { workspace = true }
 serde_json = { workspace = true }
 tracing-subscriber = { workspace = true }
-rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", rev = "b9d7d61ebd6e8385cbc4aa105d4e25774fc1a59c", features = [
+rmcp = { version = "0.1", features = [
     "server",
-    "transport-sse-server",
     "transport-io",
-    "transport-streamable-http-server",
 ] }
 futures = "0.3"
 image = { version = "0.25.1", features = ["png"] }
@@ -33,10 +31,6 @@ clap = { version = "4.5", features = ["derive"] }
 axum = "0.8"
 
 [dev-dependencies]
-rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", rev = "b9d7d61ebd6e8385cbc4aa105d4e25774fc1a59c", features = [
-    "client",
-    "transport-child-process",
-] }
 tokio-test = "0.4"
 anyhow = "1.0"
 rand = "0.8"
