@@ -31,6 +31,9 @@ pub struct DesktopWrapper {
     pub desktop: Arc<Desktop>,
     #[serde(skip)]
     pub tool_router: rmcp::handler::server::tool::ToolRouter<Self>,
+    #[cfg(feature = "webrtc-streaming")]
+    #[serde(skip)]
+    pub streamer: Option<Arc<tokio::sync::RwLock<crate::streaming::WebRTCStreamer>>>,
 }
 
 impl Default for DesktopWrapper {
@@ -548,3 +551,30 @@ pub struct ExportWorkflowSequenceArgs {
     )]
     pub known_error_handlers: Option<serde_json::Value>,
 }
+
+#[cfg(feature = "webrtc-streaming")]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct StartStreamingArgs {
+    #[schemars(
+        description = "WebRTC signaling configuration as JSON. Must include 'type' field to specify the signaling backend."
+    )]
+    pub signaling_config: serde_json::Value,
+    #[schemars(description = "Video width in pixels (default: 1920)")]
+    pub width: Option<u32>,
+    #[schemars(description = "Video height in pixels (default: 1080)")]
+    pub height: Option<u32>,
+    #[schemars(description = "Frames per second (default: 15)")]
+    pub fps: Option<u32>,
+    #[schemars(description = "Video bitrate in bits per second (default: 2000000)")]
+    pub bitrate: Option<u32>,
+    #[schemars(description = "STUN/TURN servers configuration as JSON array")]
+    pub ice_servers: Option<serde_json::Value>,
+}
+
+#[cfg(feature = "webrtc-streaming")]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct StopStreamingArgs {}
+
+#[cfg(feature = "webrtc-streaming")]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct GetStreamingStatusArgs {}

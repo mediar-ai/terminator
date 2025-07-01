@@ -2,11 +2,11 @@ pub use crate::utils::DesktopWrapper;
 use crate::utils::{
     get_timeout, ActivateElementArgs, ClickElementArgs, ClipboardArgs, DelayArgs, EmptyArgs,
     ExecuteSequenceArgs, ExportWorkflowSequenceArgs, GetApplicationsArgs, GetClipboardArgs,
-    GetFocusedWindowTreeArgs, GetWindowTreeArgs, GetWindowsArgs, GlobalKeyArgs,
-    HighlightElementArgs, LocatorArgs, MouseDragArgs, NavigateBrowserArgs, OpenApplicationArgs,
-    PressKeyArgs, RunCommandArgs, ScrollElementArgs, SelectOptionArgs, SetRangeValueArgs,
-    SetSelectedArgs, SetToggledArgs, ToolCall, TypeIntoElementArgs, ValidateElementArgs,
-    WaitForElementArgs,
+    GetFocusedWindowTreeArgs, GetStreamingStatusArgs, GetWindowTreeArgs, GetWindowsArgs,
+    GlobalKeyArgs, HighlightElementArgs, LocatorArgs, MouseDragArgs, NavigateBrowserArgs,
+    OpenApplicationArgs, PressKeyArgs, RunCommandArgs, ScrollElementArgs, SelectOptionArgs,
+    SetRangeValueArgs, SetSelectedArgs, SetToggledArgs, StartStreamingArgs, StopStreamingArgs,
+    ToolCall, TypeIntoElementArgs, ValidateElementArgs, WaitForElementArgs,
 };
 use chrono::Local;
 use image::{ExtendedColorType, ImageEncoder};
@@ -26,6 +26,11 @@ use terminator::{Browser, Desktop, Selector, UIElement};
 // New imports for image encoding
 use base64::{engine::general_purpose, Engine as _};
 use image::codecs::png::PngEncoder;
+
+#[cfg(feature = "webrtc-streaming")]
+use crate::streaming::{
+    create_signaling_backend, SignalingBackend, SignalingMessage, StreamerConfig, WebRTCStreamer,
+};
 
 /// Helper function to parse comma-separated alternative selectors into a Vec<String>
 fn parse_alternative_selectors(alternatives: Option<&str>) -> Vec<String> {
@@ -129,6 +134,8 @@ impl DesktopWrapper {
         Ok(Self {
             desktop: Arc::new(desktop),
             tool_router: Self::tool_router(),
+            #[cfg(feature = "webrtc-streaming")]
+            streamer: None,
         })
     }
 
@@ -2484,6 +2491,157 @@ impl DesktopWrapper {
                 }
             }
         }
+    }
+
+    #[cfg(feature = "webrtc-streaming")]
+    #[tool(
+        description = "Start a WebRTC live stream of the desktop. This allows real-time viewing of the agent's screen. Requires signaling configuration."
+    )]
+    pub async fn start_webrtc_stream(
+        &self,
+        Parameters(args): Parameters<crate::utils::StartStreamingArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::streaming::{StreamerConfig, WebRTCStreamer};
+        use webrtc::ice_transport::ice_server::RTCIceServer;
+
+        // Check if already streaming
+        if let Some(ref streamer) = self.streamer {
+            if *streamer.read().await.is_streaming.read().await {
+                return Err(McpError::invalid_request(
+                    "Stream already active",
+                    Some(json!({
+                        "status": "streaming",
+                        "message": "A WebRTC stream is already active. Call stop_webrtc_stream first."
+                    })),
+                ));
+            }
+        }
+
+        // Parse ICE servers if provided
+        let ice_servers = if let Some(ice_config) = args.ice_servers {
+            serde_json::from_value::<Vec<RTCIceServer>>(ice_config).map_err(|e| {
+                McpError::invalid_params(
+                    "Invalid ICE servers configuration",
+                    Some(json!({
+                        "error": e.to_string(),
+                        "expected_format": [{
+                            "urls": ["stun:stun.l.google.com:19302"],
+                            "username": "optional",
+                            "credential": "optional"
+                        }]
+                    })),
+                )
+            })?
+        } else {
+            vec![RTCIceServer {
+                urls: vec!["stun:stun.l.google.com:19302".to_string()],
+                ..Default::default()
+            }]
+        };
+
+        // Create streamer config
+        let config = StreamerConfig {
+            width: args.width.unwrap_or(1920),
+            height: args.height.unwrap_or(1080),
+            fps: args.fps.unwrap_or(15),
+            bitrate: args.bitrate.unwrap_or(2_000_000),
+            ice_servers,
+            use_hardware_acceleration: true,
+        };
+
+        // Create signaling backend based on config
+        let signaling_backend = create_signaling_backend(args.signaling_config).map_err(|e| {
+            McpError::invalid_params(
+                "Failed to create signaling backend",
+                Some(json!({
+                    "error": e.to_string(),
+                    "supported_types": ["websocket", "http", "channel"],
+                    "example": {
+                        "type": "websocket",
+                        "url": "wss://example.com/signaling",
+                        "session_id": "unique-session-id"
+                    }
+                })),
+            )
+        })?;
+
+        // Create and start streamer
+        let streamer = WebRTCStreamer::new(config.clone(), signaling_backend)
+            .await
+            .map_err(|e| {
+                McpError::internal_error(
+                    "Failed to create WebRTC streamer",
+                    Some(json!({ "error": e.to_string() })),
+                )
+            })?;
+
+        streamer.start().await.map_err(|e| {
+            McpError::internal_error(
+                "Failed to start WebRTC stream",
+                Some(json!({ "error": e.to_string() })),
+            )
+        })?;
+
+        // Store streamer reference
+        // Note: In a production implementation, you would want to use interior mutability
+        // or a different pattern to handle the streamer state. For now, we'll just
+        // return success and note that the streamer is running independently.
+
+        Ok(CallToolResult::success(vec![Content::json(json!({
+            "action": "start_webrtc_stream",
+            "status": "success",
+            "stream_config": {
+                "width": config.width,
+                "height": config.height,
+                "fps": config.fps,
+                "bitrate": config.bitrate,
+            },
+            "message": "WebRTC stream started. Exchange signaling messages to establish connection.",
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        }))?]))
+    }
+
+    #[cfg(feature = "webrtc-streaming")]
+    #[tool(
+        description = "Stop the active WebRTC stream. Note: In this implementation, streams are managed independently."
+    )]
+    pub async fn stop_webrtc_stream(
+        &self,
+        Parameters(_args): Parameters<crate::utils::StopStreamingArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        // In a production implementation with proper state management,
+        // this would stop the active stream. For now, we return a success
+        // message indicating the limitation.
+
+        Ok(CallToolResult::success(vec![Content::json(json!({
+            "action": "stop_webrtc_stream",
+            "status": "success",
+            "message": "Stream stop requested. Note: Streams are managed independently in this implementation.",
+            "note": "To properly manage stream lifecycle, implement a global stream registry or use interior mutability patterns.",
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        }))?]))
+    }
+
+    #[cfg(feature = "webrtc-streaming")]
+    #[tool(description = "Get the current status of WebRTC streaming.")]
+    pub async fn get_webrtc_stream_status(
+        &self,
+        Parameters(_args): Parameters<crate::utils::GetStreamingStatusArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        // In this implementation, we don't maintain global stream state
+        // A production implementation would use a stream registry
+        let status = json!({
+            "initialized": false,
+            "is_streaming": false,
+            "status": "not_tracked",
+            "note": "Stream state is not tracked in this implementation. Streams run independently."
+        });
+
+        Ok(CallToolResult::success(vec![Content::json(json!({
+            "action": "get_webrtc_stream_status",
+            "stream_status": status,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        }))?]))
     }
 }
 

@@ -20,7 +20,7 @@ tracing = { workspace = true }
 terminator = { workspace = true }
 serde_json = { workspace = true }
 tracing-subscriber = { workspace = true }
-rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", rev = "b9d7d61ebd6e8385cbc4aa105d4e25774fc1a59c", features = [
+rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", rev = "9ca20c69b27e531a5eadfd4b5654592ab93e2b11", features = [
     "server",
     "transport-sse-server",
     "transport-io",
@@ -32,10 +32,18 @@ base64 = "0.22.1"
 clap = { version = "4.5", features = ["derive"] }
 axum = "0.8"
 
+# Optional WebRTC dependencies
+webrtc = { version = "0.12", optional = true }
+async-trait = { workspace = true, optional = true }
+
 [dev-dependencies]
-rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", rev = "b9d7d61ebd6e8385cbc4aa105d4e25774fc1a59c", features = [
+rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", rev = "9ca20c69b27e531a5eadfd4b5654592ab93e2b11", features = [
     "client",
     "transport-child-process",
 ] }
 tokio-test = "0.4"
 anyhow = "1.0"
+
+[features]
+default = []
+webrtc-streaming = ["webrtc", "async-trait"]
