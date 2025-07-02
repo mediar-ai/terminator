@@ -2,6 +2,7 @@
 name = "terminator-mcp-agent"
 version.workspace = true
 edition.workspace = true
+resolver = "2"
 
 [lib]
 name = "terminator_mcp_agent"

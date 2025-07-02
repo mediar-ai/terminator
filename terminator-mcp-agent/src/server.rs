@@ -12,7 +12,8 @@ use chrono::Local;
 use image::{ExtendedColorType, ImageEncoder};
 use rmcp::handler::server::tool::Parameters;
 use rmcp::model::{
-    CallToolResult, Content, Implementation, ProtocolVersion, ServerCapabilities, ServerInfo,
+    CallToolResult, Content, Implementation, ProgressNotification, ProgressNotificationParam,
+    ProgressToken, ProtocolVersion, ServerCapabilities, ServerInfo,
 };
 use rmcp::{tool, Error as McpError, ServerHandler};
 use rmcp::{tool_handler, tool_router};
@@ -1674,16 +1675,21 @@ impl DesktopWrapper {
     }
 
     #[tool(
-        description = "Executes a sequence of automation tools in order. Provides detailed step-by-step execution results including timing, status, and any errors. Each step's result includes the tool output for debugging and verification."
+        description = "Executes a sequence of automation tools in order. Supports real-time progress notifications when a progress token is provided in the meta field. Progress updates are sent before and after each step, allowing clients to track execution status, current step, and completion percentage. Each step's result includes detailed timing and status information."
     )]
     pub async fn execute_sequence(
         &self,
         Parameters(args): Parameters<ExecuteSequenceArgs>,
+        meta: rmcp::model::Meta,
+        peer: rmcp::Peer<rmcp::RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         use rmcp::handler::server::tool::Parameters;
 
         let stop_on_error = args.stop_on_error.unwrap_or(true);
         let include_detailed = args.include_detailed_results.unwrap_or(true);
+
+        // Check if we have a progress token for sending notifications
+        let progress_token = meta.get_progress_token();
 
         // Parse the JSON string into an array of tool calls
         let tools_array: Vec<serde_json::Value> = serde_json::from_str(&args.tools_json)
@@ -1719,6 +1725,23 @@ impl DesktopWrapper {
             }
         }
 
+        let total_steps = parsed_tools.len() as u32;
+
+        // Send initial progress notification if we have a token
+        if let Some(ref token) = progress_token {
+            let progress_notification = ProgressNotification {
+                method: rmcp::model::ProgressNotificationMethod,
+                params: ProgressNotificationParam {
+                    progress_token: token.clone(),
+                    progress: 0,
+                    total: Some(total_steps),
+                    message: Some(format!("Starting execution of {} steps", total_steps)),
+                },
+                extensions: Default::default(),
+            };
+            let _ = peer.send_notification(progress_notification.into()).await;
+        }
+
         let mut results = Vec::new();
         let mut has_error = false;
         let start_time = chrono::Utc::now();
@@ -1742,6 +1765,25 @@ impl DesktopWrapper {
         for (index, tool_call) in parsed_tools.iter().enumerate() {
             let tool_start_time = chrono::Utc::now();
             let step_number = index + 1;
+            let current_progress = step_number as u32;
+
+            // Send progress notification for starting this step
+            if let Some(ref token) = progress_token {
+                let progress_notification = ProgressNotification {
+                    method: rmcp::model::ProgressNotificationMethod,
+                    params: ProgressNotificationParam {
+                        progress_token: token.clone(),
+                        progress: current_progress - 1, // Before execution
+                        total: Some(total_steps),
+                        message: Some(format!(
+                            "Executing step {}/{}: {}",
+                            step_number, total_steps, tool_call.tool_name
+                        )),
+                    },
+                    extensions: Default::default(),
+                };
+                let _ = peer.send_notification(progress_notification.into()).await;
+            }
 
             // Create step execution start info
             let step_info = json!({
@@ -2137,7 +2179,34 @@ impl DesktopWrapper {
                 }
             };
 
-            results.push(processed_result);
+            results.push(processed_result.clone());
+
+            // Send completion progress notification
+            if let Some(ref token) = progress_token {
+                let status_message = if processed_result["status"] == "success" {
+                    format!(
+                        "Completed step {}/{}: {}",
+                        step_number, total_steps, tool_call.tool_name
+                    )
+                } else {
+                    format!(
+                        "Failed step {}/{}: {} - {}",
+                        step_number, total_steps, tool_call.tool_name, processed_result["error"]
+                    )
+                };
+
+                let progress_notification = ProgressNotification {
+                    method: rmcp::model::ProgressNotificationMethod,
+                    params: ProgressNotificationParam {
+                        progress_token: token.clone(),
+                        progress: current_progress,
+                        total: Some(total_steps),
+                        message: Some(status_message),
+                    },
+                    extensions: Default::default(),
+                };
+                let _ = peer.send_notification(progress_notification.into()).await;
+            }
 
             // Handle delay after tool execution if specified
             if let Some(delay_ms) = tool_call.delay_ms {
