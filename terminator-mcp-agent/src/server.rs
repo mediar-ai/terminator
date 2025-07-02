@@ -1674,7 +1674,7 @@ impl DesktopWrapper {
     }
 
     #[tool(
-        description = "Executes multiple tools in sequence. Useful for automating complex workflows that require multiple steps. Each tool in the sequence can have its own error handling and delay configuration. Tool names can be provided either in short form (e.g., 'click_element') or full form (e.g., 'mcp_terminator-mcp-agent_click_element')."
+        description = "Executes a sequence of automation tools in order. Provides detailed step-by-step execution results including timing, status, and any errors. Each step's result includes the tool output for debugging and verification."
     )]
     pub async fn execute_sequence(
         &self,
@@ -1723,8 +1723,33 @@ impl DesktopWrapper {
         let mut has_error = false;
         let start_time = chrono::Utc::now();
 
+        // Create initial execution plan
+        let execution_plan = json!({
+            "total_steps": parsed_tools.len(),
+            "steps": parsed_tools.iter().enumerate().map(|(i, tool)| {
+                json!({
+                    "step": i + 1,
+                    "tool_name": tool.tool_name.clone(),
+                    "description": self.generate_step_description(&tool.tool_name, &tool.arguments),
+                    "status": "pending"
+                })
+            }).collect::<Vec<_>>()
+        });
+
+        // Include the execution plan in the initial response
+        let mut step_results = Vec::new();
+
         for (index, tool_call) in parsed_tools.iter().enumerate() {
             let tool_start_time = chrono::Utc::now();
+            let step_number = index + 1;
+
+            // Create step execution start info
+            let step_info = json!({
+                "step": step_number,
+                "tool_name": tool_call.tool_name.clone(),
+                "started_at": tool_start_time.to_rfc3339(),
+                "status": "executing"
+            });
 
             // Strip the mcp_terminator-mcp-agent_ prefix if present
             let tool_name = tool_call
@@ -2071,24 +2096,35 @@ impl DesktopWrapper {
                         })
                     };
 
-                    json!({
+                    let step_result = json!({
+                        "step": step_number,
                         "tool_name": tool_call.tool_name,
-                        "index": index,
                         "status": "success",
+                        "started_at": tool_start_time.to_rfc3339(),
+                        "completed_at": chrono::Utc::now().to_rfc3339(),
                         "duration_ms": (chrono::Utc::now() - tool_start_time).num_milliseconds(),
                         "result": content_summary,
-                    })
+                        "progress": format!("{}/{}", step_number, parsed_tools.len())
+                    });
+
+                    step_results.push(step_result.clone());
+                    step_result
                 }
                 Err(e) => {
                     has_error = true;
 
                     let error_result = json!({
+                        "step": step_number,
                         "tool_name": tool_call.tool_name,
-                        "index": index,
                         "status": "error",
+                        "started_at": tool_start_time.to_rfc3339(),
+                        "completed_at": chrono::Utc::now().to_rfc3339(),
                         "duration_ms": (chrono::Utc::now() - tool_start_time).num_milliseconds(),
                         "error": e.to_string(),
+                        "progress": format!("{}/{}", step_number, parsed_tools.len())
                     });
+
+                    step_results.push(error_result.clone());
 
                     // Check if we should continue on error
                     let continue_on_error = tool_call.continue_on_error.unwrap_or(false);
@@ -2113,14 +2149,31 @@ impl DesktopWrapper {
 
         let total_duration = (chrono::Utc::now() - start_time).num_milliseconds();
 
+        // Determine overall execution status
+        let overall_status = if has_error && stop_on_error {
+            "partial_success"
+        } else if has_error {
+            "completed_with_errors"
+        } else {
+            "success"
+        };
+
+        // Create comprehensive execution summary
         let summary = json!({
             "action": "execute_sequence",
-            "status": if has_error && stop_on_error { "partial_success" } else if has_error { "completed_with_errors" } else { "success" },
-            "total_tools": parsed_tools.len(),
-            "executed_tools": results.len(),
-            "total_duration_ms": total_duration,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-            "results": results,
+            "status": overall_status,
+            "execution_plan": execution_plan,
+            "execution_summary": {
+                "total_steps": parsed_tools.len(),
+                "executed_steps": results.len(),
+                "successful_steps": results.iter().filter(|r| r["status"] == "success").count(),
+                "failed_steps": results.iter().filter(|r| r["status"] == "error").count(),
+                "total_duration_ms": total_duration,
+                "started_at": start_time.to_rfc3339(),
+                "completed_at": chrono::Utc::now().to_rfc3339(),
+            },
+            "step_results": step_results,
+            "detailed_results": if include_detailed { Some(results) } else { None },
         });
 
         Ok(CallToolResult::success(vec![Content::json(summary)?]))
