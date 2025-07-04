@@ -352,7 +352,7 @@ impl AccessibilityEngine for WindowsEngine {
 
         // OPTIMIZATION: Use Children scope instead of Subtree to avoid deep tree traversal
         // Most applications are direct children of the desktop
-        let condition = self
+        let condition_win = self
             .automation
             .0
             .create_property_condition(
@@ -362,17 +362,43 @@ impl AccessibilityEngine for WindowsEngine {
             )
             .unwrap();
 
+        let condition_pane = self
+            .automation
+            .0
+            .create_property_condition(
+                UIProperty::ControlType,
+                Variant::from(ControlType::Pane as i32),
+                None,
+            )
+            .unwrap();
+
+        let condition = self
+            .automation
+            .0
+            .create_or_condition(condition_win, condition_pane)
+            .unwrap();
+
         let elements = root
             .find_all(TreeScope::Children, &condition)
             .map_err(|e| AutomationError::ElementNotFound(e.to_string()))?;
 
-        // OPTIMIZATION: Filter out system/hidden windows early to reduce processing
+        // OPTIMIZATION: Filter out windows with same pid to reduce processing
+        let mut seen_pids = std::collections::HashSet::new();
         let filtered_elements: Vec<uiautomation::UIElement> = elements
             .into_iter()
             .filter(|ele| {
-                // Only include visible windows with actual names
-                if let (Ok(name), Ok(is_offscreen)) = (ele.get_name(), ele.is_offscreen()) {
-                    !name.is_empty() && !is_offscreen
+                // include windows with names, this way we'd all the opened applications
+                if let Ok(pid) = ele.get_process_id() {
+                    if seen_pids.insert(pid) {
+                        // include only elements with unique PIDs
+                        if let Ok(name) = ele.get_name() {
+                            !name.is_empty()
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
                 } else {
                     false
                 }
@@ -380,7 +406,7 @@ impl AccessibilityEngine for WindowsEngine {
             .collect();
 
         debug!(
-            "Found {} visible application windows",
+            "Found '{}' application windows",
             filtered_elements.len()
         );
 
@@ -2041,7 +2067,7 @@ impl AccessibilityEngine for WindowsEngine {
             // Max depth to prevent infinite loops
             match current_element_arc.get_control_type() {
                 Ok(control_type) => {
-                    if control_type == ControlType::Window {
+                    if control_type == ControlType::Window || control_type == ControlType::Pane {
                         let window_ui_element = WindowsUIElement {
                             element: ThreadSafeWinUIElement(Arc::clone(&current_element_arc)),
                         };
@@ -4417,15 +4443,14 @@ fn get_application_pid(
                 }
             }
         }
-        // If all else fails, return an error instead of recursing
+        // If all else fails, try to find the application by name
         debug!(
-            "Failed to get application by PID {} and child PID for: {}",
-            pid, app_name
+            "Failed to get application by PID and child PID, trying by name: {}",
+            app_name
         );
-        Err(AutomationError::ElementNotFound(format!(
-            "Could not find window for process '{}' (PID: {}) or its children",
-            app_name, pid
-        )))
+        let app = engine.get_application_by_name(app_name)?;
+        app.activate_window()?;
+        Ok(app)
     }
 }
 
