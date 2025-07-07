@@ -40,5 +40,21 @@ rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", rev = "b9d7d6
     "transport-child-process",
 ] }
 tokio-test = "0.4"
-anyhow = "1.0"
 rand = "0.8"
+serde = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+terminator = { workspace = true }
+serde_json = { workspace = true }
+tracing-subscriber = { workspace = true }
+clap = { version = "4.5.4", features = ["derive"] }
+terminator-mcp-agent = { path = "../terminator-mcp-agent" }
+ollama-rs = "0.3.2"
+arboard = "3.6.0"
+rdev = "0.5.3"
+
+[[example]]
+name = "terminator-ai-summarizer"
+path = "examples/terminator-ai-summarizer/src/main.rs"
