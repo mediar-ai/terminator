@@ -395,6 +395,10 @@ pub struct ToolCall {
         description = "An optional delay in milliseconds to wait after this tool call completes."
     )]
     pub delay_ms: Option<u64>,
+    #[schemars(
+        description = "If true, this tool will always run regardless of previous failures in the sequence (similar to GitHub Actions' always()). Default: false"
+    )]
+    pub always: Option<bool>,
 }
 
 // Simplified structure for Gemini compatibility
@@ -421,6 +425,10 @@ pub struct SequenceStep {
     pub r#if: Option<String>,
     #[schemars(description = "Number of times to retry this step or group on failure.")]
     pub retries: Option<u32>,
+    #[schemars(
+        description = "If true, this step will always run regardless of previous failures in the sequence (similar to GitHub Actions' always()). Default: false"
+    )]
+    pub always: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]

@@ -1,0 +1,64 @@
+{
+    "workflow_name": "Example with Always Condition",
+    "workflow_description": "Demonstrates how to use the 'always' condition to ensure cleanup steps run regardless of failures",
+    "steps": [
+        {
+            "tool_name": "open_application",
+            "arguments": {
+                "app_name": "notepad"
+            },
+            "continue_on_error": false
+        },
+        {
+            "tool_name": "type_into_element",
+            "arguments": {
+                "selector": "role|document",
+                "text_to_type": "This might fail if notepad doesn't open"
+            },
+            "continue_on_error": false
+        },
+        {
+            "tool_name": "capture_screen",
+            "arguments": {},
+            "always": true,
+            "continue_on_error": true
+        },
+        {
+            "group_name": "cleanup_group",
+            "skippable": false,
+            "always": true,
+            "steps": [
+                {
+                    "tool_name": "close_element",
+                    "arguments": {
+                        "selector": "name:Notepad"
+                    },
+                    "always": true,
+                    "continue_on_error": true
+                },
+                {
+                    "tool_name": "delay",
+                    "arguments": {
+                        "delay_ms": 1000
+                    }
+                }
+            ]
+        },
+        {
+            "tool_name": "get_clipboard",
+            "arguments": {},
+            "always": true,
+            "continue_on_error": true
+        }
+    ],
+    "stop_on_error": true,
+    "variables": {
+        "enable_screenshots": {
+            "type": "Boolean",
+            "label": "Enable Screenshots",
+            "description": "Whether to capture screenshots during execution",
+            "default": true,
+            "required": false
+        }
+    }
+}

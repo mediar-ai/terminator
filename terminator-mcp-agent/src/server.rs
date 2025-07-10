@@ -1931,6 +1931,7 @@ impl DesktopWrapper {
                             arguments: s.arguments,
                             continue_on_error: s.continue_on_error,
                             delay_ms: s.delay_ms,
+                            always: s.always,
                         })
                         .collect(),
                     skippable: step.skippable,
@@ -1951,13 +1952,25 @@ impl DesktopWrapper {
         let start_time = chrono::Utc::now();
 
         for (item_index, item) in sequence_items.iter_mut().enumerate() {
-            let (if_expr, retries) = {
+            let (if_expr, retries, always_run) = {
                 let original_step = &args.steps[item_index];
                 (
                     original_step.r#if.clone(),
                     original_step.retries.unwrap_or(0),
+                    original_step.always.unwrap_or(false),
                 )
             };
+
+            // Check if we should stop the sequence (unless this step has always=true)
+            // Steps with always=true will run regardless of previous failures, similar to GitHub Actions' always()
+            // This is useful for cleanup steps or final reporting that should happen even if earlier steps failed
+            if sequence_should_stop && stop_on_error && !always_run {
+                info!(
+                    "Stopping sequence at step {} due to previous error (stop_on_error=true, always=false)",
+                    item_index
+                );
+                break;
+            }
 
             // 1. Evaluate condition directly. The expression evaluator handles variable lookups.
             if let Some(cond_str) = if_expr {
@@ -2019,6 +2032,13 @@ impl DesktopWrapper {
 
                         for (step_index, step_tool_call) in tool_group.steps.iter_mut().enumerate()
                         {
+                            let tool_always_run = step_tool_call.always.unwrap_or(false);
+
+                            // Check if group execution should stop (unless tool has always=true)
+                            if group_had_errors && !is_skippable && !tool_always_run {
+                                break;
+                            }
+
                             // Substitute variables in arguments before execution
                             let mut substituted_args = step_tool_call.arguments.clone();
                             substitute_variables(&mut substituted_args, &execution_context);
@@ -2044,11 +2064,8 @@ impl DesktopWrapper {
                             let tool_failed = result["status"] != "success";
                             if tool_failed {
                                 group_had_errors = true;
-                                if error_occurred || is_skippable {
-                                    if error_occurred && !is_skippable {
-                                        sequence_should_stop = true;
-                                    }
-                                    break;
+                                if error_occurred && !is_skippable {
+                                    sequence_should_stop = true;
                                 }
                             }
                         }
@@ -2091,10 +2108,6 @@ impl DesktopWrapper {
                 }
             }
             results.push(final_result);
-
-            if sequence_should_stop && stop_on_error {
-                break;
-            }
         }
 
         let total_duration = (chrono::Utc::now() - start_time).num_milliseconds();
