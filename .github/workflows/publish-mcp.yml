@@ -78,6 +78,7 @@ jobs:
 
       - name: Smoke test binary (Windows)
         if: runner.os == 'Windows'
+        id: smoke-test-windows
         shell: pwsh
         run: |
           cd terminator-mcp-agent
@@ -101,8 +102,41 @@ jobs:
             Stop-Process -Id $process.Id -Force
           }
 
+      - name: Smoke test binary (Linux/macOS)
+        if: runner.os != 'Windows'
+        id: smoke-test-unix
+        run: |
+          cd terminator-mcp-agent
+          # Start the MCP server in background
+          ./npm/${{ matrix.settings.npm_dir }}/${{ matrix.settings.bin_name }} --transport http --port 3999 &
+          MCP_PID=$!
+          echo "MCP_PID=$MCP_PID" >> $GITHUB_ENV
+          
+          # Wait for server to start
+          sleep 10
+          
+          # Test health endpoint
+          if curl -f http://localhost:3999/health; then
+            echo "Health check passed"
+          else
+            echo "Health check failed"
+            # Try to get logs
+            if [ -f "$HOME/.terminator/terminator-mcp-agent.log" ]; then
+              cat "$HOME/.terminator/terminator-mcp-agent.log"
+            fi
+            exit 1
+          fi
+
+      - name: Cleanup MCP process (Linux/macOS)
+        if: always() && runner.os != 'Windows' && steps.smoke-test-unix.outcome != 'skipped'
+        run: |
+          if [ ! -z "$MCP_PID" ]; then
+            kill $MCP_PID || true
+          fi
+
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
+        if: always() && (steps.smoke-test-windows.outcome != 'cancelled' || steps.smoke-test-unix.outcome != 'cancelled')
         with:
           name: ${{ matrix.settings.npm_dir }}-binary
           path: terminator-mcp-agent/npm/${{ matrix.settings.npm_dir }}/${{ matrix.settings.bin_name }}
@@ -112,6 +146,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - build
+    if: always() && needs.build.result != 'cancelled'
     steps:
       - uses: actions/checkout@v4
       - name: Setup node
@@ -122,10 +157,12 @@ jobs:
 
       - name: Download all binary artifacts
         uses: actions/download-artifact@v4
+        if: needs.build.result == 'success'
         with:
           path: artifacts
 
       - name: Move binaries to package locations
+        if: needs.build.result == 'success'
         run: |
           for dir in artifacts/*; do
             if [ -f "$dir"/* ]; then
@@ -137,6 +174,7 @@ jobs:
           done
 
       - name: Publish platform packages
+        if: needs.build.result == 'success'
         run: |
           cd terminator-mcp-agent/npm
           for dir in */; do
@@ -151,6 +189,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish main package
+        if: needs.build.result == 'success'
         run: |
           cd terminator-mcp-agent
           npm publish --access public
