@@ -115,3 +115,37 @@ Now, when your MCP client runs `terminator-mcp-agent`, it will use your local bu
 - For VS Code/Insiders, ensure the CLI (`code` or `code-insiders`) is available in your PATH.
 - If you encounter issues, try running with elevated permissions.
 
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Workflow Conditions
+
+### Using `always()` in if expressions
+
+Similar to GitHub Actions, you can use `always()` in the `if` expression to ensure a step runs regardless of previous failures:
+
+```json
+{
+  "steps": [
+    {
+      "tool_name": "type_into_element",
+      "arguments": { "selector": "input", "text_to_type": "test" }
+    },
+    {
+      "tool_name": "capture_screen",
+      "if": "always()",
+      "arguments": {},
+      "continue_on_error": true
+    }
+  ]
+}
+```
+
+The `capture_screen` step will run even if `type_into_element` fails. This is useful for:
+- Cleanup steps (closing applications, releasing resources)
+- Logging and debugging (capturing screenshots, saving logs)
+- Final reporting steps
+
+Both `always()` and `${{ always() }}` syntax are supported.
+

@@ -1931,7 +1931,6 @@ impl DesktopWrapper {
                             arguments: s.arguments,
                             continue_on_error: s.continue_on_error,
                             delay_ms: s.delay_ms,
-                            always: s.always,
                         })
                         .collect(),
                     skippable: step.skippable,
@@ -1952,28 +1951,30 @@ impl DesktopWrapper {
         let start_time = chrono::Utc::now();
 
         for (item_index, item) in sequence_items.iter_mut().enumerate() {
-            let (if_expr, retries, always_run) = {
+            let (if_expr, retries) = {
                 let original_step = &args.steps[item_index];
                 (
                     original_step.r#if.clone(),
                     original_step.retries.unwrap_or(0),
-                    original_step.always.unwrap_or(false),
                 )
             };
 
-            // Check if we should stop the sequence (unless this step has always=true)
-            // Steps with always=true will run regardless of previous failures, similar to GitHub Actions' always()
-            // This is useful for cleanup steps or final reporting that should happen even if earlier steps failed
-            if sequence_should_stop && stop_on_error && !always_run {
+            // Check if we should stop the sequence (unless this step has always() in its if expression)
+            let has_always_condition = if_expr
+                .as_ref()
+                .map(|expr| expr.contains("always()"))
+                .unwrap_or(false);
+
+            if sequence_should_stop && stop_on_error && !has_always_condition {
                 info!(
-                    "Stopping sequence at step {} due to previous error (stop_on_error=true, always=false)",
+                    "Stopping sequence at step {} due to previous error (stop_on_error=true, no always() condition)",
                     item_index
                 );
                 break;
             }
 
             // 1. Evaluate condition directly. The expression evaluator handles variable lookups.
-            if let Some(cond_str) = if_expr {
+            if let Some(cond_str) = if_expr.as_ref() {
                 // The `substitute_variables` call was incorrect for `if` expressions.
                 // The evaluator is designed to work with variable paths directly.
                 if !expression_eval::evaluate(&cond_str, &execution_context) {
@@ -2032,10 +2033,8 @@ impl DesktopWrapper {
 
                         for (step_index, step_tool_call) in tool_group.steps.iter_mut().enumerate()
                         {
-                            let tool_always_run = step_tool_call.always.unwrap_or(false);
-
-                            // Check if group execution should stop (unless tool has always=true)
-                            if group_had_errors && !is_skippable && !tool_always_run {
+                            // Check if group execution should stop
+                            if group_had_errors && !is_skippable {
                                 break;
                             }
 

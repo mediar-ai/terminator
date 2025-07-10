@@ -1,6 +1,6 @@
 {
     "workflow_name": "Example with Always Condition",
-    "workflow_description": "Demonstrates how to use the 'always' condition to ensure cleanup steps run regardless of failures",
+    "workflow_description": "Demonstrates how to use the 'always()' condition to ensure cleanup steps run regardless of failures",
     "steps": [
         {
             "tool_name": "open_application",
@@ -20,20 +20,19 @@
         {
             "tool_name": "capture_screen",
             "arguments": {},
-            "always": true,
+            "if": "always()",
             "continue_on_error": true
         },
         {
             "group_name": "cleanup_group",
             "skippable": false,
-            "always": true,
+            "if": "always()",
             "steps": [
                 {
                     "tool_name": "close_element",
                     "arguments": {
                         "selector": "name:Notepad"
                     },
-                    "always": true,
                     "continue_on_error": true
                 },
                 {
@@ -47,7 +46,7 @@
         {
             "tool_name": "get_clipboard",
             "arguments": {},
-            "always": true,
+            "if": "${{ always() }}",
             "continue_on_error": true
         }
     ],

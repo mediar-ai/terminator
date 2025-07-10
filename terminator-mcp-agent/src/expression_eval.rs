@@ -8,8 +8,28 @@ fn get_value<'a>(path: &str, variables: &'a Value) -> Option<&'a Value> {
 
 // Main evaluation function.
 pub fn evaluate(expression: &str, variables: &Value) -> bool {
+    evaluate_with_context(expression, variables, false)
+}
+
+// Main evaluation function with context about whether the workflow has been cancelled
+pub fn evaluate_with_context(expression: &str, variables: &Value, is_cancelled: bool) -> bool {
     // Trim whitespace
     let expr = expression.trim();
+
+    // Check for always() function first - it always returns true
+    if expr == "always()" || expr == "${{ always() }}" {
+        return true;
+    }
+
+    // Check for !cancelled() expression
+    if expr == "!cancelled()" || expr == "${{ !cancelled() }}" {
+        return !is_cancelled;
+    }
+
+    // Check for cancelled() expression
+    if expr == "cancelled()" || expr == "${{ cancelled() }}" {
+        return is_cancelled;
+    }
 
     // Try parsing function-based expressions first, e.g., contains(vars, 'value')
     if let Some(result) = parse_and_evaluate_function(expr, variables) {
@@ -143,5 +163,25 @@ mod tests {
         assert!(!evaluate("invalid expression", &vars)); // Invalid format
         assert!(!evaluate("unsupported(a, b)", &vars)); // Unsupported function
         assert!(!evaluate("var.not.found == true", &vars)); // Variable not found
+    }
+
+    #[test]
+    fn test_always_function() {
+        let vars = json!({});
+        assert!(evaluate("always()", &vars));
+        assert!(evaluate("${{ always() }}", &vars));
+        assert!(evaluate_with_context("always()", &vars, true)); // Always true even when cancelled
+        assert!(evaluate_with_context("always()", &vars, false)); // Always true when not cancelled
+    }
+
+    #[test]
+    fn test_cancelled_function() {
+        let vars = json!({});
+        assert!(!evaluate("cancelled()", &vars)); // Default is not cancelled
+        assert!(evaluate("!cancelled()", &vars)); // Not cancelled is true by default
+        assert!(evaluate_with_context("cancelled()", &vars, true)); // True when cancelled
+        assert!(!evaluate_with_context("cancelled()", &vars, false)); // False when not cancelled
+        assert!(!evaluate_with_context("!cancelled()", &vars, true)); // False when cancelled
+        assert!(evaluate_with_context("!cancelled()", &vars, false)); // True when not cancelled
     }
 }
