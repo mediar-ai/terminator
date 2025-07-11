@@ -1001,6 +1001,44 @@ impl AccessibilityEngine for WindowsEngine {
                 ))
             }
             Selector::Invalid(reason) => Err(AutomationError::InvalidSelector(reason.clone())),
+            Selector::Has(inner_selector) => {
+                let matcher = self
+                    .automation
+                    .0
+                    .create_matcher()
+                    .from_ref(root_ele)
+                    .depth(depth.unwrap_or(50) as u32)
+                    .timeout(timeout_ms as u64);
+
+                let elements = matcher.find_all().map_err(|e| {
+                    AutomationError::ElementNotFound(format!(
+                        "Error traversing elements for Has selector: {e}"
+                    ))
+                })?;
+
+                let mut matched = Vec::new();
+                for ele in elements {
+                    let ui_el = UIElement::new(Box::new(WindowsUIElement {
+                        element: ThreadSafeWinUIElement(Arc::new(ele.clone())),
+                    }));
+                    if let Ok(desc) = self.find_elements(
+                        inner_selector,
+                        Some(&ui_el),
+                        Some(Duration::from_millis(500)),
+                        Some(depth.unwrap_or(50)),
+                    ) {
+                        if !desc.is_empty() {
+                            matched.push(ui_el);
+                        }
+                    }
+                }
+                if matched.is_empty() {
+                    return Err(AutomationError::ElementNotFound(
+                        "No elements found matching has selector".into(),
+                    ));
+                }
+                Ok(matched)
+            }
         }
     }
 
@@ -1345,6 +1383,17 @@ impl AccessibilityEngine for WindowsEngine {
                 Ok(convert_uiautomation_element_to_terminator(element))
             }
             Selector::Invalid(reason) => Err(AutomationError::InvalidSelector(reason.clone())),
+            Selector::Has(inner_selector) => {
+                let elements = self.find_elements(
+                    &Selector::Has(inner_selector.clone()),
+                    root,
+                    timeout,
+                    Some(50),
+                )?;
+                elements.into_iter().next().ok_or_else(|| {
+                    AutomationError::ElementNotFound("Element not found for has selector".into())
+                })
+            }
         }
     }
 

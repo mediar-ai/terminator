@@ -766,6 +766,11 @@ fn find_elements_inner<'a>(
             Selector::Role { .. } | Selector::Name(_) => {
                 // Supported - continue to processing below
             }
+            Selector::TextExact(_text) | Selector::Has(_) => {
+                Err(AutomationError::UnsupportedOperation(
+                    "Selector variant not supported on Linux yet".to_string(),
+                ))
+            }
             Selector::Invalid(reason) => {
                 return Err(AutomationError::InvalidArgument(reason.clone()));
             }

@@ -21,6 +21,8 @@ pub enum Selector {
     Attributes(BTreeMap<String, String>),
     /// Filter current elements by a predicate
     Filter(usize), // Uses an ID to reference a filter predicate stored separately
+    /// Select elements that have (contain) a descendant matching the inner selector
+    Has(Box<Selector>),
     /// Chain multiple selectors
     Chain(Vec<Selector>),
     /// Select by class name
@@ -135,6 +137,10 @@ impl From<&str> for Selector {
             _ if s.starts_with('#') => Selector::Id(s[1..].to_string()),
             _ if s.starts_with('/') => Selector::Path(s.to_string()),
             _ if s.to_lowercase().starts_with("text:") => Selector::Text(s[5..].to_string()),
+            _ if s.to_lowercase().starts_with("has:") => {
+                let inner = &s[4..];
+                Selector::Has(Box::new(Selector::from(inner)))
+            }
             _ => Selector::Invalid(format!(
                 "Unknown selector format: \"{s}\". Use prefixes like 'role:', 'name:', 'id:', 'text:', 'nativeid:', 'classname:', or 'pos:' to specify the selector type."
             )),
