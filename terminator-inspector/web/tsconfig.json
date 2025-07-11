@@ -22,7 +22,16 @@
             "@types/node",
             "@types/react",
             "@types/react-dom"
-        ]
+        ],
+        "baseUrl": "./src",
+        "paths": {
+            "@/*": [
+                "./*"
+            ],
+            "~/*": [
+                "./*"
+            ]
+        }
     },
     "include": [
         "next-env.d.ts",
