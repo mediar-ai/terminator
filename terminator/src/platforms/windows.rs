@@ -1056,6 +1056,9 @@ impl AccessibilityEngine for WindowsEngine {
                 Ok(filtered_elements)
             }
             Selector::Invalid(reason) => Err(AutomationError::InvalidSelector(reason.clone())),
+            Selector::Nth(_idx) => {
+                Err(AutomationError::InvalidArgument("`nth` selector must be used as part of a chained selector (e.g. 'button >> nth=0')".to_string()))
+            }
         }
     }
 
@@ -1278,7 +1281,48 @@ impl AccessibilityEngine for WindowsEngine {
                     ));
                 }
 
-                // Recursively find the element by traversing the chain.
+                // Special-case handling when the *last* selector is an `Nth` index filter.
+                if let Some(Selector::Nth(idx)) = selectors.last() {
+                    // Build a selector chain without the trailing Nth.
+                    let mut base_chain: Vec<Selector> = selectors.clone();
+                    base_chain.pop(); // remove the last Nth
+
+                    let base_selector = if base_chain.len() == 1 {
+                        base_chain[0].clone()
+                    } else {
+                        Selector::Chain(base_chain)
+                    };
+
+                    // Get *all* elements that match the base selector chain.
+                    let mut elements =
+                        self.find_elements(&base_selector, root, timeout, Some(50))?;
+                    if elements.is_empty() {
+                        return Err(AutomationError::ElementNotFound(
+                            "No elements found for base selector chain when applying nth filter"
+                                .to_string(),
+                        ));
+                    }
+
+                    // Resolve the index (allow negative indexing from the end).
+                    let resolved_index: isize = *idx as isize;
+                    let len = elements.len() as isize;
+                    let normalized_index = if resolved_index < 0 {
+                        len + resolved_index
+                    } else {
+                        resolved_index
+                    };
+
+                    if normalized_index < 0 || normalized_index >= len {
+                        return Err(AutomationError::ElementNotFound(format!(
+                            "Index {idx} out of bounds for {} matching elements",
+                            elements.len()
+                        )));
+                    }
+
+                    return Ok(elements.remove(normalized_index as usize));
+                }
+
+                // Default behaviour (no trailing Nth) – fall back to the existing step-by-step traversal.
                 let mut current_element = root.cloned();
                 for selector in selectors {
                     let found_element =
@@ -1286,7 +1330,6 @@ impl AccessibilityEngine for WindowsEngine {
                     current_element = Some(found_element);
                 }
 
-                // Return the final single element found after the full chain traversal.
                 current_element.ok_or_else(|| {
                     AutomationError::ElementNotFound(
                         "Element not found after traversing chain".to_string(),
@@ -1434,6 +1477,10 @@ impl AccessibilityEngine for WindowsEngine {
                 Ok(elements.remove(0))
             }
             Selector::Invalid(reason) => Err(AutomationError::InvalidSelector(reason.clone())),
+            Selector::Nth(_) => Err(AutomationError::InvalidArgument(
+                "`nth` selector cannot be used standalone; chain it after another selector"
+                    .to_string(),
+            )),
         }
     }
 

@@ -39,6 +39,8 @@ pub enum Selector {
     Near(Box<Selector>),
     /// Select by position (x,y) on screen
     Position(i32, i32),
+    /// Select elements by their zero-based index within the current result set. Negative values count from the end (e.g. -1 = last).
+    Nth(i32),
     /// Represents an invalid selector string, with a reason.
     Invalid(String),
 }
@@ -147,6 +149,15 @@ impl From<&str> for Selector {
             _ if s.to_lowercase().starts_with("near:") => {
                 let inner_selector_str = &s["near:".len()..];
                 Selector::Near(Box::new(Selector::from(inner_selector_str)))
+            }
+            _ if s.to_lowercase().starts_with("nth=") => {
+                let idx_str = s[4..].trim();
+                match idx_str.parse::<i32>() {
+                    Ok(idx) => Selector::Nth(idx),
+                    Err(_) => Selector::Invalid(format!(
+                        "Invalid nth selector index: '{idx_str}'. Expected integer"
+                    )),
+                }
             }
             _ if s.starts_with("id:") => Selector::Id(s[3..].to_string()),
             _ if s.starts_with("text:") => Selector::Text(s[5..].to_string()),

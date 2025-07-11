@@ -714,6 +714,11 @@ fn find_elements_inner<'a>(
                     "Selector::Text is not implemented for Linux".to_string(),
                 ));
             }
+            Selector::Nth(_) => {
+                return Err(AutomationError::UnsupportedPlatform(
+                    "Selector::Nth is not implemented for Linux".to_string(),
+                ));
+            }
             Selector::Id(target_id) => {
                 // Traverse the tree from root, collect elements whose object_id matches target_id
                 let root_binding = linux_engine.get_root_element();
