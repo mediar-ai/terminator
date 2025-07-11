@@ -122,18 +122,7 @@ impl From<&str> for Selector {
                 let value = s[8..].trim().to_lowercase();
                 Selector::Visible(value == "true")
             }
-            _ if s.to_lowercase().starts_with("data-testid:") => {
-                let parts: Vec<&str> = s.splitn(2, ':').collect();
-                Selector::DataTestId(parts[1].trim().to_string())
-            }
-            _ if s.to_lowercase().starts_with("data-testid=") => {
-                let parts: Vec<&str> = s.splitn(2, '=').collect();
-                Selector::DataTestId(parts[1].trim().to_string())
-            }
-            _ if s.to_lowercase().starts_with("data-test-id=") => {
-                let parts: Vec<&str> = s.splitn(2, '=').collect();
-                Selector::DataTestId(parts[1].trim().to_string())
-            }
+            // removed legacy data-testid selectors (not relevant for accessibility APIs)
             _ if s.to_lowercase().starts_with("pos:") => {
                 let parts: Vec<&str> = s[4..].split(',').map(|p| p.trim()).collect();
                 if parts.len() == 2 {
