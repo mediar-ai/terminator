@@ -832,6 +832,34 @@ fn find_elements_inner<'a>(
             Selector::Role { .. } | Selector::Name(_) => {
                 // Supported - continue to processing below
             }
+            Selector::State { name, value } => {
+                let root_binding = linux_engine.get_root_element();
+                let root_elem = root.unwrap_or(&root_binding);
+                let all_elements = get_all_elements_from_root(root_elem).await?;
+                let results: Vec<UIElement> = all_elements
+                    .into_iter()
+                    .filter(|elem| {
+                        match name.as_str() {
+                            "focused" => elem.is_focused().unwrap_or(false) == *value,
+                            "checked" => elem.is_toggled().unwrap_or(false) == *value,
+                            "selected" => elem.is_selected().unwrap_or(false) == *value,
+                            "disabled" => elem.is_enabled().map(|v| !v).unwrap_or(false) == *value,
+                            "expanded" => {
+                                // not directly available; just return false for now
+                                false
+                            }
+                            _ => false,
+                        }
+                    })
+                    .collect();
+                if results.is_empty() {
+                    return Err(AutomationError::ElementNotFound(format!(
+                        "No elements with state {}={} found",
+                        name, value
+                    )));
+                }
+                return Ok(results);
+            }
         }
         // Only Role and Name selectors are supported below
         let root_binding = linux_engine.get_root_element();

@@ -2907,6 +2907,29 @@ impl AccessibilityEngine for MacOSEngine {
                 }
                 return Ok(matched);
             }
+            Selector::State { name, value } => {
+                let target_name = name.clone();
+                let desired = *value;
+                let collector = ElementsCollectorWithWindows::new(&start_element.0, move |e| {
+                    let wrapper = MacOSUIElement {
+                        element: ThreadSafeAXUIElement::new(e.clone()),
+                        use_background_apps: false,
+                        activate_app: false,
+                    };
+                    match target_name.as_str() {
+                        "focused" => wrapper.is_focused().unwrap_or(false) == desired,
+                        "selected" => wrapper.is_selected().unwrap_or(false) == desired,
+                        "disabled" => wrapper.is_enabled().map(|v| !v).unwrap_or(false) == desired,
+                        "checked" => wrapper.is_toggled().unwrap_or(false) == desired,
+                        _ => false,
+                    }
+                });
+                return Ok(collector
+                    .find_all()
+                    .into_iter()
+                    .map(|e| self.wrap_element(ThreadSafeAXUIElement::new(e)))
+                    .collect());
+            }
         }
     }
 
@@ -3196,6 +3219,18 @@ impl AccessibilityEngine for MacOSEngine {
                     .ok_or_else(|| AutomationError::ElementNotFound("Element not found".into()))
             }
             Selector::Invalid(reason) => Err(AutomationError::InvalidArgument(reason.clone())),
+            Selector::State { .. } => {
+                let elements = self.find_elements(
+                    selector,
+                    Some(&self.wrap_element(start_element.clone())),
+                    timeout,
+                    None,
+                )?;
+                elements
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| AutomationError::ElementNotFound("Element not found".into()))
+            }
         }
     }
 
