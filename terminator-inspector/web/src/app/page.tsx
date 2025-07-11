@@ -19,14 +19,7 @@ export default function HomePage() {
             {tree.length === 0 ? (
                 <p>Loading UI tree...</p>
             ) : (
-                <TreeView
-                    nodes={tree}
-                    onHover={(node) =>
-                        invoke('highlight_element', {
-                            serialized: JSON.stringify(node),
-                        })
-                    }
-                />
+                <TreeView nodes={tree} />
             )}
         </main>
     );
