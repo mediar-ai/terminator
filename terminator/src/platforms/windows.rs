@@ -1114,6 +1114,31 @@ impl AccessibilityEngine for WindowsEngine {
                                 Ok(is_req) => Ok(is_req == desired),
                                 Err(_) => Ok(false),
                             },
+                            "animated" => match e.get_is_animation_running() {
+                                Ok(is_anim) => Ok(is_anim == desired),
+                                Err(_) => Ok(false),
+                            },
+                            "blocked" => match e.get_window_interaction_state() {
+                                Ok(state) => Ok((state
+                                    == uiautomation::WindowInteractionState::BlockedByModalWindow)
+                                    == desired),
+                                Err(_) => Ok(false),
+                            },
+                            "modal" => e.get_is_modal().map(|v| v == desired).or(Ok(false)),
+                            "multiline" => {
+                                e.get_is_multi_line().map(|v| v == desired).or(Ok(false))
+                            }
+                            "multiselectable" => {
+                                e.get_is_multi_select().map(|v| v == desired).or(Ok(false))
+                            }
+                            "indeterminate" => {
+                                if let Ok(toggled) = e.get_toggle_state() {
+                                    Ok((toggled == uiautomation::ToggleState::Indeterminate)
+                                        == desired)
+                                } else {
+                                    Ok(false)
+                                }
+                            }
                             _ => Ok(false),
                         },
                     ))
@@ -1557,6 +1582,31 @@ impl AccessibilityEngine for WindowsEngine {
                                 Ok(is_req) => Ok(is_req == desired),
                                 Err(_) => Ok(false),
                             },
+                            "animated" => match e.get_is_animation_running() {
+                                Ok(is_anim) => Ok(is_anim == desired),
+                                Err(_) => Ok(false),
+                            },
+                            "blocked" => match e.get_window_interaction_state() {
+                                Ok(state) => Ok((state
+                                    == uiautomation::WindowInteractionState::BlockedByModalWindow)
+                                    == desired),
+                                Err(_) => Ok(false),
+                            },
+                            "modal" => e.get_is_modal().map(|v| v == desired).or(Ok(false)),
+                            "multiline" => {
+                                e.get_is_multi_line().map(|v| v == desired).or(Ok(false))
+                            }
+                            "multiselectable" => {
+                                e.get_is_multi_select().map(|v| v == desired).or(Ok(false))
+                            }
+                            "indeterminate" => {
+                                if let Ok(toggled) = e.get_toggle_state() {
+                                    Ok((toggled == uiautomation::ToggleState::Indeterminate)
+                                        == desired)
+                                } else {
+                                    Ok(false)
+                                }
+                            }
                             _ => Ok(false),
                         },
                     ))
