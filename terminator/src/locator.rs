@@ -106,6 +106,25 @@ impl Locator {
         })
     }
 
+    pub async fn nth(
+        &self,
+        index: usize,
+        timeout: Option<Duration>,
+    ) -> Result<UIElement, AutomationError> {
+        // Fetch all matching elements within the given (or default) timeout
+        let elements = self.all(timeout, None).await?;
+
+        if let Some(element) = elements.get(index) {
+            Ok(element.clone())
+        } else {
+            Err(AutomationError::ElementNotFound(format!(
+                "Requested the {index}-th element but only {} element(s) matched selector {}",
+                elements.len(),
+                self.selector_string()
+            )))
+        }
+    }
+
     fn append_selector(&self, selector_to_append: Selector) -> Locator {
         let mut new_chain = match self.selector.clone() {
             Selector::Chain(existing_chain) => existing_chain,

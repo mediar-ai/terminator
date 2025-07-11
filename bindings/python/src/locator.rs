@@ -85,6 +85,25 @@ impl Locator {
         })
     }
 
+    #[pyo3(name = "nth", text_signature = "($self, index)")]
+    /// (async) Get the nth matching element (0-based index).
+    ///
+    /// Args:
+    ///     index (int): Zero-based index of the element to retrieve.
+    ///
+    /// Returns:
+    ///     UIElement: The nth matching element.
+    pub fn nth<'py>(&self, py: Python<'py>, index: usize) -> PyResult<Bound<'py, PyAny>> {
+        let locator = self.inner.clone();
+        pyo3_tokio::future_into_py_with_locals(py, TaskLocals::with_running_loop(py)?, async move {
+            let element = locator
+                .nth(index, None)
+                .await
+                .map_err(automation_error_to_pyerr)?;
+            Ok(UIElement { inner: element })
+        })
+    }
+
     #[pyo3(name = "timeout", text_signature = "($self, timeout_ms)")]
     /// Set a default timeout for this locator.
     ///

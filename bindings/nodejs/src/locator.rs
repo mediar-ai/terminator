@@ -74,6 +74,19 @@ impl Locator {
             .map_err(map_error)
     }
 
+    /// (async) Get the nth matching element (0-based index).
+    ///
+    /// @param {number} index - Zero-based index of the element to retrieve.
+    /// @returns {Promise<Element>} The nth matching element.
+    #[napi]
+    pub async fn nth(&self, index: u32) -> napi::Result<Element> {
+        self.inner
+            .nth(index as usize, None)
+            .await
+            .map(Element::from)
+            .map_err(map_error)
+    }
+
     /// Set a default timeout for this locator.
     ///
     /// @param {number} timeoutMs - Timeout in milliseconds.
