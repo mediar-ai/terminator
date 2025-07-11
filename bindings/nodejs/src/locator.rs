@@ -74,6 +74,22 @@ impl Locator {
             .map_err(map_error)
     }
 
+    /// (async) Get the nth matching element.
+    ///
+    /// @param {number} index - Zero-based index. Negative values count from the end (-1 is last).
+    /// @param {number} [timeoutMs] - Optional timeout in milliseconds.
+    /// @returns {Promise<Element>} The nth matching element.
+    #[napi]
+    pub async fn nth(&self, index: i32, timeout_ms: Option<f64>) -> napi::Result<Element> {
+        use std::time::Duration;
+        let timeout = timeout_ms.map(|ms| Duration::from_millis(ms as u64));
+        self.inner
+            .nth(index as isize, timeout)
+            .await
+            .map(Element::from)
+            .map_err(map_error)
+    }
+
     /// Set a default timeout for this locator.
     ///
     /// @param {number} timeoutMs - Timeout in milliseconds.

@@ -85,6 +85,35 @@ impl Locator {
         })
     }
 
+    #[pyo3(name = "nth", signature = (index, timeout_ms=None))]
+    #[pyo3(text_signature = "($self, index, timeout_ms)")]
+    /// (async) Get the nth matching element.
+    ///
+    /// Args:
+    ///     index (int): Zero-based index. Negative values count from the end (-1 is last).
+    ///     timeout_ms (Optional[int]): Timeout in milliseconds.
+    ///
+    /// Returns:
+    ///     UIElement: The nth matching element.
+    pub fn nth<'py>(
+        &self,
+        py: Python<'py>,
+        index: i64,
+        timeout_ms: Option<u64>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let locator = self.inner.clone();
+        pyo3_tokio::future_into_py_with_locals(py, TaskLocals::with_running_loop(py)?, async move {
+            let element = locator
+                .nth(
+                    index as isize,
+                    timeout_ms.map(std::time::Duration::from_millis),
+                )
+                .await
+                .map_err(automation_error_to_pyerr)?;
+            Ok(UIElement { inner: element })
+        })
+    }
+
     #[pyo3(name = "timeout", text_signature = "($self, timeout_ms)")]
     /// Set a default timeout for this locator.
     ///

@@ -119,6 +119,7 @@ impl From<&str> for Selector {
                 Selector::Name(s.to_string())
             }
             _ if s.starts_with("id:") => Selector::Id(s[3..].to_string()),
+            _ if s.starts_with("id=") => Selector::Id(s[3..].to_string()),
             _ if s.starts_with("text:") => Selector::Text(s[5..].to_string()),
             _ if s.contains(':') => {
                 let parts: Vec<&str> = s.splitn(2, ':').collect();
