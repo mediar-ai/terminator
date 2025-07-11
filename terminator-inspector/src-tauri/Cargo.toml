@@ -9,6 +9,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 terminator = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }
 
 [build-dependencies]
 tauri-build = { version = "1.5", features = [] }

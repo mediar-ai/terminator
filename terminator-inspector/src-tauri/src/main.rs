@@ -6,17 +6,27 @@
 #[cfg(target_os = "windows")]
 mod platform {
     use super::*;
+    use serde_json;
+    use std::time::Duration;
     use terminator::element::SerializableUIElement;
     use terminator::{Desktop, UIElement};
+    use tracing::{error, info};
 
     #[tauri::command]
     pub async fn get_ui_tree() -> Result<Vec<SerializableUIElement>, String> {
-        let desktop = Desktop::new_default().map_err(|e| e.to_string())?;
+        let desktop = Desktop::new_default().map_err(|e| {
+            error!("Failed to create Desktop: {e}");
+            e.to_string()
+        })?;
 
-        let apps = desktop.applications().map_err(|e| e.to_string())?;
+        let apps = desktop.applications().map_err(|e| {
+            error!("Failed to enumerate applications: {e}");
+            e.to_string()
+        })?;
 
         let mut trees = Vec::new();
         for app in apps {
+            // Depth of 5 is a good compromise for performance vs detail.
             trees.push(app.to_serializable_tree(5));
         }
 
@@ -25,11 +35,24 @@ mod platform {
 
     #[tauri::command]
     pub fn highlight_element(serialized: String, color: Option<u32>) -> Result<(), String> {
-        let element: UIElement =
-            serde_json::from_str(&serialized).map_err(|e| format!("serde error: {e}"))?;
-        element
-            .highlight(color, Some(std::time::Duration::from_millis(1000)))
-            .map_err(|e| e.to_string())
+        // 1. Deserialize into a live UIElement (Termin­ator will locate it).
+        let element: UIElement = match serde_json::from_str(&serialized) {
+            Ok(el) => el,
+            Err(e) => {
+                error!("Failed to deserialize SerializableUIElement: {e}");
+                return Err(format!("serde error: {e}"));
+            }
+        };
+
+        // 2. Attempt to highlight – wrap in catch_unwind so we never panic across FFI.
+        std::panic::catch_unwind(move || {
+            element.highlight(color, Some(Duration::from_millis(1000)))
+        })
+        .map_err(|_| "highlight panicked".to_string())?
+        .map_err(|e| {
+            error!("Highlighting failed: {e}");
+            e.to_string()
+        })
     }
 }
 

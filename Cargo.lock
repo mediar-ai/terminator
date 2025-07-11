@@ -6716,6 +6716,7 @@ dependencies = [
  "tauri-build",
  "terminator-rs",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
