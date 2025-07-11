@@ -844,6 +844,25 @@ fn find_elements_inner<'a>(
                             "checked" => elem.is_toggled().unwrap_or(false) == *value,
                             "selected" => elem.is_selected().unwrap_or(false) == *value,
                             "disabled" => elem.is_enabled().map(|v| !v).unwrap_or(false) == *value,
+                            "busy" => {
+                                // Use AT-SPI state Busy if available
+                                if let Some(props) = elem.attributes().properties.get("StateBusy") {
+                                    props.as_ref().and_then(|v| v.as_bool()).unwrap_or(false)
+                                        == *value
+                                } else {
+                                    false
+                                }
+                            }
+                            "invalid" => {
+                                if let Some(props) =
+                                    elem.attributes().properties.get("StateInvalidEntry")
+                                {
+                                    props.as_ref().and_then(|v| v.as_bool()).unwrap_or(false)
+                                        == *value
+                                } else {
+                                    false
+                                }
+                            }
                             "expanded" => {
                                 // not directly available; just return false for now
                                 false

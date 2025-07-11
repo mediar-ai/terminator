@@ -2921,6 +2921,26 @@ impl AccessibilityEngine for MacOSEngine {
                         "selected" => wrapper.is_selected().unwrap_or(false) == desired,
                         "disabled" => wrapper.is_enabled().map(|v| !v).unwrap_or(false) == desired,
                         "checked" => wrapper.is_toggled().unwrap_or(false) == desired,
+                        "busy" => {
+                            wrapper
+                                .attributes()
+                                .properties
+                                .get("AXBusy")
+                                .map_or(false, |v| {
+                                    v.as_ref().and_then(|val| val.as_bool()).unwrap_or(false)
+                                        == desired
+                                })
+                        }
+                        "invalid" => {
+                            wrapper
+                                .attributes()
+                                .properties
+                                .get("AXInvalid")
+                                .map_or(false, |v| {
+                                    v.as_ref().and_then(|val| val.as_bool()).unwrap_or(false)
+                                        == desired
+                                })
+                        }
                         _ => false,
                     }
                 });
