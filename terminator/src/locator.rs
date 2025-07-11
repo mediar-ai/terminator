@@ -3,7 +3,7 @@ use tracing::{debug, instrument};
 use crate::element::UIElement;
 use crate::errors::AutomationError;
 use crate::platforms::AccessibilityEngine;
-use crate::selector::Selector;
+use crate::selector::{Selector, SpatialRelation};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task;
@@ -47,6 +47,95 @@ impl Locator {
         self
     }
 
+    fn relation_ok(
+        cand: (f64, f64, f64, f64),
+        anch: (f64, f64, f64, f64),
+        rel: SpatialRelation,
+        max_px: u32,
+    ) -> bool {
+        match rel {
+            SpatialRelation::Above => cand.1 + cand.3 <= anch.1,
+            SpatialRelation::Below => cand.1 >= anch.1 + anch.3,
+            SpatialRelation::RightOf => cand.0 >= anch.0 + anch.2,
+            SpatialRelation::Near => {
+                let (cx, cy) = (cand.0 + cand.2 / 2.0, cand.1 + cand.3 / 2.0);
+                let (ax, ay) = (anch.0 + anch.2 / 2.0, anch.1 + anch.3 / 2.0);
+                let dist = ((cx - ax).powi(2) + (cy - ay).powi(2)).sqrt();
+                dist <= max_px as f64
+            }
+        }
+    }
+
+    fn query_spatial(
+        &self,
+        relation: SpatialRelation,
+        anchor_sel: &Selector,
+        max_px: u32,
+    ) -> Result<Vec<UIElement>, AutomationError> {
+        // Resolve anchor elements
+        let anchors = self
+            .engine
+            .find_elements(anchor_sel, self.root.as_ref(), None, None)?;
+        if anchors.is_empty() {
+            return Err(AutomationError::ElementNotFound(
+                "Anchor selector returned no elements".to_string(),
+            ));
+        }
+
+        // Collect all candidates under root
+        let mut stack = vec![if let Some(r) = &self.root {
+            r.clone()
+        } else {
+            self.engine.get_root_element()
+        }];
+        let mut candidates = Vec::new();
+        while let Some(el) = stack.pop() {
+            candidates.push(el.clone());
+            if let Ok(children) = el.children() {
+                stack.extend(children);
+            }
+        }
+
+        let mut result = Vec::new();
+        for cand in &candidates {
+            let cb = match cand.bounds() {
+                Ok(b) => b,
+                Err(_) => continue,
+            };
+            for anchor in &anchors {
+                if let Ok(ab) = anchor.bounds() {
+                    if Self::relation_ok(cb, ab, relation, max_px) {
+                        result.push(cand.clone());
+                        break;
+                    }
+                }
+            }
+        }
+
+        if relation == SpatialRelation::Near {
+            // sort by distance to first anchor center
+            let (ax, ay) = {
+                let b = anchors[0].bounds()?;
+                (b.0 + b.2 / 2.0, b.1 + b.3 / 2.0)
+            };
+            result.sort_by(|e1, e2| {
+                let d = |e: &UIElement| {
+                    if let Ok(b) = e.bounds() {
+                        let (cx, cy) = (b.0 + b.2 / 2.0, b.1 + b.3 / 2.0);
+                        ((cx - ax).powi(2) + (cy - ay).powi(2)).sqrt()
+                    } else {
+                        f64::MAX
+                    }
+                };
+                d(e1)
+                    .partial_cmp(&d(e2))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+
+        Ok(result)
+    }
+
     /// Get all elements matching this locator, waiting up to the specified timeout.
     /// If no timeout is provided, uses the locator's default timeout.
     pub async fn all(
@@ -54,12 +143,19 @@ impl Locator {
         timeout: Option<Duration>,
         depth: Option<usize>,
     ) -> Result<Vec<UIElement>, AutomationError> {
-        let effective_timeout = timeout.unwrap_or(self.timeout);
+        if let Selector::Spatial {
+            relation,
+            anchor,
+            max_px,
+        } = &self.selector
+        {
+            return self.query_spatial(*relation, anchor, *max_px);
+        }
         // find_elements itself handles the timeout now
         self.engine.find_elements(
             &self.selector,
             self.root.as_ref(),
-            Some(effective_timeout),
+            Some(timeout.unwrap_or(self.timeout)),
             depth,
         )
     }

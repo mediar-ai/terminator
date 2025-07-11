@@ -33,6 +33,12 @@ pub enum Selector {
     LocalizedRole(String),
     /// Select by position (x,y) on screen
     Position(i32, i32),
+    /// Spatial selector relative to an anchor selector
+    Spatial {
+        relation: SpatialRelation,
+        anchor: Box<Selector>,
+        max_px: u32, // only for Near, default 50
+    },
     /// Represents an invalid selector string, with a reason.
     Invalid(String),
     /// Select by data-testid attribute
@@ -173,9 +179,66 @@ impl From<&str> for Selector {
                     }
                 }
             }
+            // spatial selectors
+            _ if s.to_lowercase().starts_with("above:") => {
+                let anchor_str = s[6..].trim();
+                Selector::Spatial {
+                    relation: SpatialRelation::Above,
+                    anchor: Box::new(Selector::from(anchor_str)),
+                    max_px: 0,
+                }
+            }
+            _ if s.to_lowercase().starts_with("below:") => {
+                let anchor_str = s[6..].trim();
+                Selector::Spatial {
+                    relation: SpatialRelation::Below,
+                    anchor: Box::new(Selector::from(anchor_str)),
+                    max_px: 0,
+                }
+            }
+            _ if s.to_lowercase().starts_with("right-of:") => {
+                let anchor_str = s[9..].trim();
+                Selector::Spatial {
+                    relation: SpatialRelation::RightOf,
+                    anchor: Box::new(Selector::from(anchor_str)),
+                    max_px: 0,
+                }
+            }
+            // near(distance):anchor or near:anchor
+            _ if s.to_lowercase().starts_with("near(") => {
+                if let Some(end_paren) = s.find("):") {
+                    let dist_part = &s[5..end_paren];
+                    let distance = dist_part.parse::<u32>().unwrap_or(50);
+                    let anchor_str = &s[end_paren + 2..];
+                    Selector::Spatial {
+                        relation: SpatialRelation::Near,
+                        anchor: Box::new(Selector::from(anchor_str)),
+                        max_px: distance,
+                    }
+                } else {
+                    Selector::Invalid(format!("Invalid near() selector syntax: {s}"))
+                }
+            }
+            _ if s.to_lowercase().starts_with("near:") => {
+                let anchor_str = s[5..].trim();
+                Selector::Spatial {
+                    relation: SpatialRelation::Near,
+                    anchor: Box::new(Selector::from(anchor_str)),
+                    max_px: 50,
+                }
+            }
             _ => Selector::Invalid(format!(
                 "Unknown selector format: \"{s}\". Use prefixes like 'role:', 'name:', 'id:', 'text:', 'nativeid:', 'classname:', or 'pos:' to specify the selector type."
             )),
         }
     }
+}
+
+/// Spatial relationship types for bounding-box selectors
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SpatialRelation {
+    Near,
+    Above,
+    Below,
+    RightOf,
 }
