@@ -2,10 +2,10 @@
 
 import { invoke } from '@tauri-apps/api/tauri';
 import React, { useEffect, useState } from 'react';
-import TreeView, { UINode } from '../components/TreeView';
+import TreeView, { SerializableNode } from '../components/TreeView';
 
 export default function HomePage() {
-    const [tree, setTree] = useState<UINode[]>([]);
+    const [tree, setTree] = useState<SerializableNode[]>([]);
 
     useEffect(() => {
         invoke('get_ui_tree')

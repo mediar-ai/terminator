@@ -14,20 +14,21 @@ export interface UIElementAttributes {
     name?: string;
 }
 
-export interface UINode {
+export interface SerializableNode {
     id?: string;
-    attributes: UIElementAttributes;
-    children?: UINode[];
+    role: string;
+    name?: string;
+    children?: SerializableNode[];
 }
 
 interface TreeViewProps {
-    nodes: UINode[];
+    nodes: SerializableNode[];
 }
 
 export default function TreeView({ nodes }: TreeViewProps) {
-    const renderNode = (node: UINode, path: string) => {
+    const renderNode = (node: SerializableNode, path: string) => {
         const hasChildren = !!node.children && node.children.length > 0;
-        const label = node.attributes?.name || node.attributes?.role || node.id || 'unknown';
+        const label = node.name || node.role || node.id || 'unknown';
 
         return (
             <AccordionItem key={path} value={path} className="pl-2">
@@ -45,7 +46,9 @@ export default function TreeView({ nodes }: TreeViewProps) {
                 {hasChildren && (
                     <AccordionContent className="pl-4 border-l border-muted">
                         <Accordion type="multiple" className="space-y-1">
-                            {node.children!.map((child, idx) => renderNode(child, `${path}.${idx}`))}
+                            {node.children!.map((child, idx) =>
+                                renderNode(child, `${path}.${idx}`),
+                            )}
                         </Accordion>
                     </AccordionContent>
                 )}

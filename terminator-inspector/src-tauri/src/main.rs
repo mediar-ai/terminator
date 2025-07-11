@@ -6,15 +6,21 @@
 #[cfg(target_os = "windows")]
 mod platform {
     use super::*;
-    use terminator::{Desktop, UIElement, UINode};
+    use terminator::element::SerializableUIElement;
+    use terminator::{Desktop, UIElement};
 
     #[tauri::command]
-    pub async fn get_ui_tree() -> Result<Vec<UINode>, String> {
+    pub async fn get_ui_tree() -> Result<Vec<SerializableUIElement>, String> {
         let desktop = Desktop::new_default().map_err(|e| e.to_string())?;
-        desktop
-            .get_all_applications_tree()
-            .await
-            .map_err(|e| e.to_string())
+
+        let apps = desktop.applications().map_err(|e| e.to_string())?;
+
+        let mut trees = Vec::new();
+        for app in apps {
+            trees.push(app.to_serializable_tree(5));
+        }
+
+        Ok(trees)
     }
 
     #[tauri::command]
@@ -30,10 +36,10 @@ mod platform {
 #[cfg(not(target_os = "windows"))]
 mod platform {
     use super::*;
-    use terminator::UINode;
+    use terminator::element::SerializableUIElement;
 
     #[tauri::command]
-    pub async fn get_ui_tree() -> Result<Vec<UINode>, String> {
+    pub async fn get_ui_tree() -> Result<Vec<SerializableUIElement>, String> {
         Err("Accessibility engine currently supported only on Windows".into())
     }
 
