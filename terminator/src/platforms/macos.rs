@@ -2855,6 +2855,9 @@ impl AccessibilityEngine for MacOSEngine {
             Selector::RightOf(_) | Selector::LeftOf(_) | Selector::Above(_) | Selector::Below(_) | Selector::Near(_) => Err(AutomationError::UnsupportedOperation(
                 "Relative selectors (RightOf/LeftOf/Above/Below/Near) are not yet supported for macOS".to_string(),
             )),
+            Selector::State(_) => Err(AutomationError::UnsupportedOperation(
+                "Selector::State is not supported on macOS".to_string(),
+            )),
         }
     }
 
@@ -3143,6 +3146,9 @@ impl AccessibilityEngine for MacOSEngine {
             Selector::Invalid(reason) => Err(AutomationError::InvalidArgument(reason.clone())),
             Selector::RightOf(_) | Selector::LeftOf(_) | Selector::Above(_) | Selector::Below(_) | Selector::Near(_) => Err(AutomationError::UnsupportedOperation(
                 "Relative selectors (RightOf/LeftOf/Above/Below/Near) are not yet supported for macOS".to_string(),
+            )),
+            Selector::State(_) => Err(AutomationError::UnsupportedOperation(
+                "Selector::State is not supported on macOS".to_string(),
             )),
         }
     }
