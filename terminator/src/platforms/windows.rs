@@ -1099,6 +1099,21 @@ impl AccessibilityEngine for WindowsEngine {
                                     Ok(false)
                                 }
                             }
+                            "pressed" => {
+                                if let Ok(toggled) = e.get_toggle_state() {
+                                    Ok((toggled != 0) == desired)
+                                } else {
+                                    Ok(false)
+                                }
+                            }
+                            "readonly" => match e.get_is_read_only() {
+                                Ok(is_ro) => Ok(is_ro == desired),
+                                Err(_) => Ok(false),
+                            },
+                            "required" => match e.get_is_required_for_form() {
+                                Ok(is_req) => Ok(is_req == desired),
+                                Err(_) => Ok(false),
+                            },
                             _ => Ok(false),
                         },
                     ))
@@ -1527,6 +1542,21 @@ impl AccessibilityEngine for WindowsEngine {
                                     Ok(false)
                                 }
                             }
+                            "pressed" => {
+                                if let Ok(toggled) = e.get_toggle_state() {
+                                    Ok((toggled != 0) == desired)
+                                } else {
+                                    Ok(false)
+                                }
+                            }
+                            "readonly" => match e.get_is_read_only() {
+                                Ok(is_ro) => Ok(is_ro == desired),
+                                Err(_) => Ok(false),
+                            },
+                            "required" => match e.get_is_required_for_form() {
+                                Ok(is_req) => Ok(is_req == desired),
+                                Err(_) => Ok(false),
+                            },
                             _ => Ok(false),
                         },
                     ))
