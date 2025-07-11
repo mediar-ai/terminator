@@ -1072,6 +1072,52 @@ impl AccessibilityEngine for WindowsEngine {
                     })
                     .collect())
             }
+            Selector::State { name, value } => {
+                let state_name = name.clone();
+                let desired = *value;
+                let matcher = self
+                    .automation
+                    .0
+                    .create_matcher()
+                    .from_ref(root_ele)
+                    .depth(depth.unwrap_or(50) as u32)
+                    .filter_fn(Box::new(
+                        move |e: &uiautomation::UIElement| match state_name.as_str() {
+                            "focused" => e.has_keyboard_focus().map(|v| v == desired).or(Ok(false)),
+                            "checked" => {
+                                if let Ok(toggled) = e.get_toggle_state() {
+                                    Ok((toggled != 0) == desired)
+                                } else {
+                                    Ok(false)
+                                }
+                            }
+                            "expanded" => {
+                                if let Ok(exp_state) = e.get_expand_collapse_state() {
+                                    Ok((exp_state == uiautomation::ExpandCollapseState::Expanded)
+                                        == desired)
+                                } else {
+                                    Ok(false)
+                                }
+                            }
+                            _ => Ok(false),
+                        },
+                    ))
+                    .timeout(timeout_ms as u64);
+                let elements = matcher.find_all().map_err(|e| {
+                    AutomationError::ElementNotFound(format!(
+                        "state:{}={}, Err: {}",
+                        state_name, desired, e
+                    ))
+                })?;
+                return Ok(elements
+                    .into_iter()
+                    .map(|el| {
+                        UIElement::new(Box::new(WindowsUIElement {
+                            element: ThreadSafeWinUIElement(Arc::new(el)),
+                        }))
+                    })
+                    .collect());
+            }
         }
     }
 
@@ -1453,6 +1499,52 @@ impl AccessibilityEngine for WindowsEngine {
                 Ok(UIElement::new(Box::new(WindowsUIElement {
                     element: ThreadSafeWinUIElement(Arc::new(element)),
                 })))
+            }
+            Selector::State { name, value } => {
+                let state_name = name.clone();
+                let desired = *value;
+                let matcher = self
+                    .automation
+                    .0
+                    .create_matcher()
+                    .from_ref(root_ele)
+                    .depth(depth.unwrap_or(50) as u32)
+                    .filter_fn(Box::new(
+                        move |e: &uiautomation::UIElement| match state_name.as_str() {
+                            "focused" => e.has_keyboard_focus().map(|v| v == desired).or(Ok(false)),
+                            "checked" => {
+                                if let Ok(toggled) = e.get_toggle_state() {
+                                    Ok((toggled != 0) == desired)
+                                } else {
+                                    Ok(false)
+                                }
+                            }
+                            "expanded" => {
+                                if let Ok(exp_state) = e.get_expand_collapse_state() {
+                                    Ok((exp_state == uiautomation::ExpandCollapseState::Expanded)
+                                        == desired)
+                                } else {
+                                    Ok(false)
+                                }
+                            }
+                            _ => Ok(false),
+                        },
+                    ))
+                    .timeout(timeout_ms as u64);
+                let elements = matcher.find_all().map_err(|e| {
+                    AutomationError::ElementNotFound(format!(
+                        "state:{}={}, Err: {}",
+                        state_name, desired, e
+                    ))
+                })?;
+                return Ok(elements
+                    .into_iter()
+                    .map(|el| {
+                        UIElement::new(Box::new(WindowsUIElement {
+                            element: ThreadSafeWinUIElement(Arc::new(el)),
+                        }))
+                    })
+                    .collect());
             }
         }
     }

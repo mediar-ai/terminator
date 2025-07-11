@@ -37,6 +37,8 @@ pub enum Selector {
     Invalid(String),
     /// Select by data-testid attribute
     DataTestId(String),
+    /// Select by accessibility state (focused, checked, expanded)
+    State { name: String, value: bool },
 }
 
 impl std::fmt::Display for Selector {
@@ -154,6 +156,22 @@ impl From<&str> for Selector {
             _ if s.to_lowercase().starts_with("has:") => {
                 let inner = &s[4..];
                 Selector::Has(Box::new(Selector::from(inner)))
+            }
+            _ if s.to_lowercase().starts_with("state:") => {
+                let body = &s[6..];
+                // allow forms like focused or focused=false
+                if let Some((state_name, val_str)) = body.split_once('=') {
+                    let val = val_str.trim().eq_ignore_ascii_case("true");
+                    Selector::State {
+                        name: state_name.trim().to_lowercase(),
+                        value: val,
+                    }
+                } else {
+                    Selector::State {
+                        name: body.trim().to_lowercase(),
+                        value: true,
+                    }
+                }
             }
             _ => Selector::Invalid(format!(
                 "Unknown selector format: \"{s}\". Use prefixes like 'role:', 'name:', 'id:', 'text:', 'nativeid:', 'classname:', or 'pos:' to specify the selector type."
