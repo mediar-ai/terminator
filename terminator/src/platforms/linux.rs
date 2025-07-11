@@ -731,10 +731,76 @@ fn find_elements_inner<'a>(
                 }
                 return Ok(results);
             }
-            Selector::Visible(_) => {
+            Selector::Visible(visible) => {
+                // Search all elements and filter by visibility
+                let root_binding = linux_engine.get_root_element();
+                let root_elem = root.unwrap_or(&root_binding);
+                let all_elements = get_all_elements_from_root(root_elem).await?;
+                let results: Vec<UIElement> = all_elements
+                    .into_iter()
+                    .filter(|elem| elem.is_visible().unwrap_or(false) == *visible)
+                    .collect();
+                if results.is_empty() {
+                    return Err(AutomationError::ElementNotFound(format!(
+                        "No element found with visible={} flag",
+                        visible
+                    )));
+                }
+                return Ok(results);
+            }
+            Selector::DataTestId(test_id) => {
+                let root_binding = linux_engine.get_root_element();
+                let root_elem = root.unwrap_or(&root_binding);
+                let all_elements = get_all_elements_from_root(root_elem).await?;
+                let results: Vec<UIElement> = all_elements
+                    .into_iter()
+                    .filter(|elem| {
+                        elem.attributes()
+                            .properties
+                            .get("data-testid")
+                            .map_or(false, |v| {
+                                v.as_ref()
+                                    .and_then(|val| val.as_str())
+                                    .map_or(false, |s| s == test_id)
+                            })
+                    })
+                    .collect();
+                if results.is_empty() {
+                    return Err(AutomationError::ElementNotFound(format!(
+                        "No element with data-testid='{}'",
+                        test_id
+                    )));
+                }
+                return Ok(results);
+            }
+            Selector::Has(inner_selector) => {
+                let root_binding = linux_engine.get_root_element();
+                let root_elem = root.unwrap_or(&root_binding);
+                let all_elements = get_all_elements_from_root(root_elem).await?;
+                let mut matched = Vec::new();
+                for el in all_elements {
+                    if let Ok(desc) =
+                        find_elements_inner(linux_engine, inner_selector, Some(&el), depth).await
+                    {
+                        if !desc.is_empty() {
+                            matched.push(el);
+                        }
+                    }
+                }
+                if matched.is_empty() {
+                    return Err(AutomationError::ElementNotFound(
+                        "No element matching has selector".into(),
+                    ));
+                }
+                return Ok(matched);
+            }
+            Selector::TextExact(_text) => {
                 return Err(AutomationError::UnsupportedPlatform(
-                    "Selector::Visible is not implemented for Linux".to_string(),
+                    "TextExact not supported".into(),
                 ));
+            }
+            Selector::Invalid(reason) => {
+                return Err(AutomationError::InvalidArgument(reason.clone()));
             }
             Selector::Chain(chain) => {
                 if chain.is_empty() {
@@ -765,14 +831,6 @@ fn find_elements_inner<'a>(
             }
             Selector::Role { .. } | Selector::Name(_) => {
                 // Supported - continue to processing below
-            }
-            Selector::TextExact(_text) | Selector::Has(_) => {
-                Err(AutomationError::UnsupportedOperation(
-                    "Selector variant not supported on Linux yet".to_string(),
-                ))
-            }
-            Selector::Invalid(reason) => {
-                return Err(AutomationError::InvalidArgument(reason.clone()));
             }
         }
         // Only Role and Name selectors are supported below

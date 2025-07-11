@@ -2852,6 +2852,61 @@ impl AccessibilityEngine for MacOSEngine {
                 "Position selector not yet supported for macOS".to_string(),
             )),
             Selector::Invalid(reason) => Err(AutomationError::InvalidArgument(reason.clone())),
+            Selector::Visible(visible_flag) => {
+                let target_visible = *visible_flag;
+                let collector = ElementsCollectorWithWindows::new(&start_element.0, move |e| {
+                    let wrapper = MacOSUIElement {
+                        element: ThreadSafeAXUIElement::new(e.clone()),
+                        use_background_apps: self.use_background_apps,
+                        activate_app: self.activate_app,
+                    };
+                    wrapper.is_visible().unwrap_or(false) == target_visible
+                });
+                return Ok(collector
+                    .find_all()
+                    .into_iter()
+                    .map(|e| self.wrap_element(ThreadSafeAXUIElement::new(e)))
+                    .collect());
+            }
+            Selector::DataTestId(test_id) => {
+                let target = test_id.clone();
+                let collector = ElementsCollectorWithWindows::new(&start_element.0, move |e| {
+                    let wrapper = MacOSUIElement {
+                        element: ThreadSafeAXUIElement::new(e.clone()),
+                        use_background_apps: false,
+                        activate_app: false,
+                    };
+                    wrapper
+                        .attributes()
+                        .properties
+                        .get("data-testid")
+                        .map_or(false, |v| {
+                            v.as_ref()
+                                .and_then(|val| val.as_str())
+                                .map_or(false, |s| s == target)
+                        })
+                });
+                return Ok(collector
+                    .find_all()
+                    .into_iter()
+                    .map(|e| self.wrap_element(ThreadSafeAXUIElement::new(e)))
+                    .collect());
+            }
+            Selector::Has(inner_selector) => {
+                // Traverse elements, pick those that contain descendant matching inner selector
+                let mut matched = Vec::new();
+                let collector = ElementsCollectorWithWindows::new(&start_element.0, |_e| true);
+                for ax in collector.find_all() {
+                    let wrapped = self.wrap_element(ThreadSafeAXUIElement::new(ax.clone()));
+                    if let Ok(desc) = self.find_elements(inner_selector, Some(&wrapped), None, None)
+                    {
+                        if !desc.is_empty() {
+                            matched.push(wrapped);
+                        }
+                    }
+                }
+                return Ok(matched);
+            }
         }
     }
 
@@ -3128,15 +3183,18 @@ impl AccessibilityEngine for MacOSEngine {
             Selector::ClassName(_) => Err(AutomationError::UnsupportedOperation(
                 "ClassName selector is not yet supported for macOS".to_string(),
             )),
-            Selector::Visible(_) => Err(AutomationError::UnsupportedOperation(
-                "Visible selector not yet supported for macOS".to_string(),
-            )),
-            Selector::LocalizedRole(_) => Err(AutomationError::UnsupportedOperation(
-                "LocalizedRole selector is not yet supported for macOS".to_string(),
-            )),
-            Selector::Position(_, _) => Err(AutomationError::UnsupportedOperation(
-                "Position selector not yet supported for macOS".to_string(),
-            )),
+            Selector::Visible(_) | Selector::DataTestId(_) | Selector::Has(_) => {
+                let elements = self.find_elements(
+                    selector,
+                    Some(&self.wrap_element(start_element.clone())),
+                    timeout,
+                    None,
+                )?;
+                elements
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| AutomationError::ElementNotFound("Element not found".into()))
+            }
             Selector::Invalid(reason) => Err(AutomationError::InvalidArgument(reason.clone())),
         }
     }
