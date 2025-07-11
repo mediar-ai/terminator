@@ -1055,6 +1055,43 @@ impl AccessibilityEngine for WindowsEngine {
 
                 Ok(filtered_elements)
             }
+            Selector::State(state_str) => {
+                let target_state = state_str.to_lowercase();
+                let matcher = self
+                    .automation
+                    .0
+                    .create_matcher()
+                    .from_ref(root_ele)
+                    .depth(50)
+                    .filter_fn(Box::new(move |e: &uiautomation::UIElement| {
+                        let res = match target_state.as_str() {
+                            "enabled" => e
+                                .is_enabled()
+                                .map_err(|_| uiautomation::Error::UnexpectedError)
+                                .map(|v| v),
+                            "disabled" => e
+                                .is_enabled()
+                                .map_err(|_| uiautomation::Error::UnexpectedError)
+                                .map(|v| !v),
+                            "focused" => e
+                                .has_keyboard_focus()
+                                .map_err(|_| uiautomation::Error::UnexpectedError),
+                            _ => Ok(false),
+                        };
+                        res.or(Ok(false))
+                    }))
+                    .timeout(timeout_ms as u64);
+
+                let element = matcher.find_first().map_err(|e| {
+                    AutomationError::ElementNotFound(format!(
+                        "State: '{}', Err: {}",
+                        target_state, e
+                    ))
+                })?;
+                Ok(UIElement::new(Box::new(WindowsUIElement {
+                    element: ThreadSafeWinUIElement(Arc::new(element)),
+                })))
+            }
             Selector::Invalid(reason) => Err(AutomationError::InvalidSelector(reason.clone())),
         }
     }
@@ -1433,6 +1470,9 @@ impl AccessibilityEngine for WindowsEngine {
 
                 Ok(elements.remove(0))
             }
+            Selector::State(_state_str) => Err(AutomationError::UnsupportedOperation(
+                "State selector not yet fully supported in find_element".to_string(),
+            )),
             Selector::Invalid(reason) => Err(AutomationError::InvalidSelector(reason.clone())),
         }
     }

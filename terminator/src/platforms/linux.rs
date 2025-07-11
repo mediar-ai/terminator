@@ -736,6 +736,11 @@ fn find_elements_inner<'a>(
                     "Selector::Visible is not implemented for Linux".to_string(),
                 ));
             }
+            Selector::State(_) => {
+                return Err(AutomationError::UnsupportedPlatform(
+                    "Selector::State is not implemented for Linux".to_string(),
+                ));
+            }
             Selector::Chain(chain) => {
                 if chain.is_empty() {
                     return Err(AutomationError::InvalidArgument(
