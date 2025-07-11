@@ -1,7 +1,7 @@
 "use client";
 
 import { invoke } from '@tauri-apps/api/tauri';
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import TreeView, { UINode } from '../components/TreeView';
 
 export default function HomePage() {
