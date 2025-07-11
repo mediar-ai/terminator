@@ -1039,6 +1039,39 @@ impl AccessibilityEngine for WindowsEngine {
                 }
                 Ok(matched)
             }
+            Selector::DataTestId(value) => {
+                let target = value.clone();
+                let matcher = self
+                    .automation
+                    .0
+                    .create_matcher()
+                    .from_ref(root_ele)
+                    .depth(depth.unwrap_or(50) as u32)
+                    .filter_fn(Box::new(move |e: &uiautomation::UIElement| {
+                        // Fetch HelpText or Name or all properties
+                        let attrs = match convert_uiautomation_element_to_terminator(e.clone())
+                            .attributes()
+                            .properties
+                            .get("data-testid")
+                        {
+                            Some(Some(v)) => v.as_str().unwrap_or("") == target,
+                            _ => false,
+                        };
+                        Ok(attrs)
+                    }))
+                    .timeout(timeout_ms as u64);
+                let elements = matcher.find_all().map_err(|e| {
+                    AutomationError::ElementNotFound(format!("data-testid: '{value}', Err: {e}"))
+                })?;
+                Ok(elements
+                    .into_iter()
+                    .map(|ele| {
+                        UIElement::new(Box::new(WindowsUIElement {
+                            element: ThreadSafeWinUIElement(Arc::new(ele)),
+                        }))
+                    })
+                    .collect())
+            }
         }
     }
 
@@ -1393,6 +1426,33 @@ impl AccessibilityEngine for WindowsEngine {
                 elements.into_iter().next().ok_or_else(|| {
                     AutomationError::ElementNotFound("Element not found for has selector".into())
                 })
+            }
+            Selector::DataTestId(value) => {
+                let target = value.clone();
+                let matcher = self
+                    .automation
+                    .0
+                    .create_matcher()
+                    .from_ref(root_ele)
+                    .depth(50)
+                    .filter_fn(Box::new(move |e: &uiautomation::UIElement| {
+                        let attrs = match convert_uiautomation_element_to_terminator(e.clone())
+                            .attributes()
+                            .properties
+                            .get("data-testid")
+                        {
+                            Some(Some(v)) => v.as_str().unwrap_or("") == target,
+                            _ => false,
+                        };
+                        Ok(attrs)
+                    }))
+                    .timeout(timeout_ms as u64);
+                let element = matcher.find_first().map_err(|e| {
+                    AutomationError::ElementNotFound(format!("data-testid: '{value}', Err: {e}"))
+                })?;
+                Ok(UIElement::new(Box::new(WindowsUIElement {
+                    element: ThreadSafeWinUIElement(Arc::new(element)),
+                })))
             }
         }
     }

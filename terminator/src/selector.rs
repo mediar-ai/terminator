@@ -35,6 +35,8 @@ pub enum Selector {
     Position(i32, i32),
     /// Represents an invalid selector string, with a reason.
     Invalid(String),
+    /// Select by data-testid attribute
+    DataTestId(String),
 }
 
 impl std::fmt::Display for Selector {
@@ -111,6 +113,18 @@ impl From<&str> for Selector {
             _ if s.to_lowercase().starts_with("visible:") => {
                 let value = s[8..].trim().to_lowercase();
                 Selector::Visible(value == "true")
+            }
+            _ if s.to_lowercase().starts_with("data-testid:") => {
+                let parts: Vec<&str> = s.splitn(2, ':').collect();
+                Selector::DataTestId(parts[1].trim().to_string())
+            }
+            _ if s.to_lowercase().starts_with("data-testid=") => {
+                let parts: Vec<&str> = s.splitn(2, '=').collect();
+                Selector::DataTestId(parts[1].trim().to_string())
+            }
+            _ if s.to_lowercase().starts_with("data-test-id=") => {
+                let parts: Vec<&str> = s.splitn(2, '=').collect();
+                Selector::DataTestId(parts[1].trim().to_string())
             }
             _ if s.to_lowercase().starts_with("pos:") => {
                 let parts: Vec<&str> = s[4..].split(',').map(|p| p.trim()).collect();
