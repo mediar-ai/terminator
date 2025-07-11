@@ -1,0 +1,14 @@
+[package]
+name = "terminator-inspector-backend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tauri = { version = "1.6", features = ["api-all"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+terminator = { workspace = true }
+tokio = { workspace = true }
+
+[build-dependencies]
+tauri-build = { version = "1.6", features = [] }
