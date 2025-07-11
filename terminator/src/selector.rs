@@ -11,6 +11,8 @@ pub enum Selector {
     Name(String),
     /// Select by text content
     Text(String),
+    /// Select by text content (exact, case-sensitive)
+    TextExact(String),
     /// Select using XPath-like query
     Path(String),
     /// Select by using Native Automation id, (eg: `AutomationID` for windows) and for linux it is Id value in Attributes
@@ -121,6 +123,8 @@ impl From<&str> for Selector {
             _ if s.starts_with("id:") => Selector::Id(s[3..].to_string()),
             _ if s.starts_with("id=") => Selector::Id(s[3..].to_string()),
             _ if s.starts_with("text:") => Selector::Text(s[5..].to_string()),
+            _ if s.to_lowercase().starts_with("textis:") => Selector::TextExact(s[7..].to_string()),
+            _ if s.to_lowercase().starts_with("text-is:") => Selector::TextExact(s[8..].to_string()),
             _ if s.contains(':') => {
                 let parts: Vec<&str> = s.splitn(2, ':').collect();
                 Selector::Role {

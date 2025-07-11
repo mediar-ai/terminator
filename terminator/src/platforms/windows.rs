@@ -762,6 +762,34 @@ impl AccessibilityEngine for WindowsEngine {
                     })
                     .collect())
             }
+            Selector::TextExact(text) => {
+                // Exact, case-sensitive name match
+                let matcher = self
+                    .automation
+                    .0
+                    .create_matcher()
+                    .from_ref(root_ele)
+                    .filter(Box::new(NameFilter {
+                        value: String::from(text),
+                        casesensitive: true,
+                        partial: false,
+                    }))
+                    .depth(depth.unwrap_or(50) as u32)
+                    .timeout(timeout_ms as u64);
+
+                let elements = matcher.find_all().map_err(|e| {
+                    AutomationError::ElementNotFound(format!("TextExact: '{text}', Err: {e}"))
+                })?;
+
+                Ok(elements
+                    .into_iter()
+                    .map(|ele| {
+                        UIElement::new(Box::new(WindowsUIElement {
+                            element: ThreadSafeWinUIElement(Arc::new(ele)),
+                        }))
+                    })
+                    .collect())
+            }
             Selector::Path(_) => Err(AutomationError::UnsupportedOperation(
                 "`Path` selector not supported".to_string(),
             )),
@@ -1126,6 +1154,31 @@ impl AccessibilityEngine for WindowsEngine {
                 let element = matcher.find_first().map_err(|e| {
                     AutomationError::ElementNotFound(format!(
                         "Text: '{text}', Root: {root:?}, Err: {e}"
+                    ))
+                })?;
+
+                let arc_ele = ThreadSafeWinUIElement(Arc::new(element));
+                Ok(UIElement::new(Box::new(WindowsUIElement {
+                    element: arc_ele,
+                })))
+            }
+            Selector::TextExact(text) => {
+                let matcher = self
+                    .automation
+                    .0
+                    .create_matcher()
+                    .from_ref(root_ele)
+                    .filter(Box::new(NameFilter {
+                        value: String::from(text),
+                        casesensitive: true,
+                        partial: false,
+                    }))
+                    .depth(50)
+                    .timeout(timeout_ms as u64);
+
+                let element = matcher.find_first().map_err(|e| {
+                    AutomationError::ElementNotFound(format!(
+                        "TextExact: '{text}', Root: {root:?}, Err: {e}"
                     ))
                 })?;
 
