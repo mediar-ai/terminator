@@ -168,3 +168,37 @@ contributions are welcome! please feel free to submit issues and pull requests. 
 ## businesses 
 
 if you want desktop automation at scale for your business, [let's talk](https://mediar.ai)
+
+## 🪟 Windows: Install MCP Server as a Service
+
+Terminator ships a helper script that registers the MCP server (`mcp.exe`) as a native Windows service that
+
+* starts automatically on system boot
+* restarts itself if the process crashes or exits unexpectedly
+
+### 1. Copy `mcp.exe`
+Place your built (or downloaded) `mcp.exe` somewhere permanent, e.g.:
+```
+C:\Program Files\MCP\mcp.exe
+```
+
+### 2. Run the installer script (elevated PowerShell)
+```powershell
+cd <repo-root>\scripts
+# IMPORTANT: Launch a PowerShell **Run as Administrator** window first
+.\install-mcp-service.ps1 -ExecutablePath "C:\Program Files\MCP\mcp.exe"
+```
+Optional parameters:
+* `-Args` – command-line arguments passed to `mcp.exe` (default: `http`)
+* `-ServiceName`, `-DisplayName`, `-Description` – customise the service metadata
+
+### 3. Verify
+Open **Services** (Win+R → `services.msc`) and look for “MCP Server”. It should be **Running** and set to **Automatic**.
+
+### 4. Uninstalling
+```powershell
+Stop-Service MCPServer
+sc.exe delete MCPServer
+```
+
+---
