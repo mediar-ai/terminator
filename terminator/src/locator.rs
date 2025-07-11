@@ -55,6 +55,41 @@ impl Locator {
         depth: Option<usize>,
     ) -> Result<Vec<UIElement>, AutomationError> {
         let effective_timeout = timeout.unwrap_or(self.timeout);
+
+        // Special handling: if the selector is a chain ending with Filter(idx),
+        // we first resolve elements for the chain without that filter and then
+        // pick the requested index locally. This avoids changes to each
+        // platform engine while enabling `nth:` in pure string selectors.
+        if let Selector::Chain(parts) = &self.selector {
+            if let Some(Selector::Filter(idx)) = parts.last() {
+                // Build a selector chain without the final Filter
+                let base_selector: Selector = if parts.len() == 2 {
+                    // A single preceding selector → just use it directly
+                    parts[0].clone()
+                } else {
+                    Selector::Chain(parts[..parts.len() - 1].to_vec())
+                };
+
+                // Delegate search to the engine for the base selector
+                let elems = self.engine.find_elements(
+                    &base_selector,
+                    self.root.as_ref(),
+                    Some(effective_timeout),
+                    depth,
+                )?;
+
+                // Return nth element if it exists
+                return elems.get(*idx).cloned().map(|e| vec![e]).ok_or_else(|| {
+                    AutomationError::ElementNotFound(format!(
+                        "Requested the {idx}-th element but only {} element(s) matched selector {}",
+                        elems.len(),
+                        self.selector_string()
+                    ))
+                });
+            }
+        }
+
+        // Default behaviour (no filter handling needed)
         // find_elements itself handles the timeout now
         self.engine.find_elements(
             &self.selector,
@@ -83,7 +118,25 @@ impl Locator {
 
         // Since the underlying engine's find_element is a blocking call that
         // already handles polling and timeouts, we should not wrap it in another async loop.
-        // Instead, we run it in a blocking-safe thread to avoid stalling the async runtime.
+        // If selector is chain ending with Filter(idx), we can simply call `all` and return
+        // the element (this reuses the filtering logic implemented in `all`).
+        if let Selector::Chain(parts) = &self.selector {
+            if parts
+                .last()
+                .map(|p| matches!(p, Selector::Filter(_)))
+                .unwrap_or(false)
+            {
+                // Reuse `all` logic; timeout is passed down.
+                let elements = self.all(Some(effective_timeout), None).await?;
+                return elements.into_iter().next().ok_or_else(|| {
+                    AutomationError::ElementNotFound(format!(
+                        "No element found for selector {}",
+                        self.selector_string()
+                    ))
+                });
+            }
+        }
+
         let engine = self.engine.clone();
         let selector = self.selector.clone();
         let root = self.root.clone();

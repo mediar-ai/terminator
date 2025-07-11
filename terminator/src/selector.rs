@@ -160,6 +160,13 @@ impl From<&str> for Selector {
             _ if s.starts_with('#') => Selector::Id(s[1..].to_string()),
             _ if s.starts_with('/') => Selector::Path(s.to_string()),
             _ if s.to_lowercase().starts_with("text:") => Selector::Text(s[5..].to_string()),
+            _ if s.to_lowercase().starts_with("nth:") || s.to_lowercase().starts_with("index:") => {
+                let value = s.splitn(2, ':').nth(1).unwrap_or("").trim();
+                match value.parse::<usize>() {
+                    Ok(idx) => Selector::Filter(idx),
+                    Err(_) => Selector::Invalid(format!("Invalid nth/index value: '{value}'")),
+                }
+            }
             _ => Selector::Invalid(format!(
                 "Unknown selector format: \"{s}\". Use prefixes like 'role:', 'name:', 'id:', 'text:', 'nativeid:', 'classname:', or 'pos:' to specify the selector type."
             )),
