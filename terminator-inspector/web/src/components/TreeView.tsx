@@ -1,14 +1,16 @@
 "use client";
 
-import * as Accordion from '@radix-ui/react-accordion';
-import clsx from 'clsx';
-import { ChevronDown } from 'lucide-react';
-import { useId } from 'react';
+import {
+    Accordion,
+    AccordionContent,
+    AccordionItem,
+    AccordionTrigger,
+} from '@/components/ui/accordion';
+import React from 'react';
 
 export interface UIElementAttributes {
     role: string;
     name?: string;
-    // value?: string;
 }
 
 export interface UINode {
@@ -22,56 +24,33 @@ interface TreeViewProps {
     onHover?: (node: UINode) => void;
 }
 
-function Label({ node }: { node: UINode }) {
-    const { attributes, id } = node;
-    return (
-        <span>
-            {attributes?.name || attributes?.role || id || 'unknown'}
-        </span>
-    );
-}
-
 export default function TreeView({ nodes, onHover }: TreeViewProps) {
-    // Radix Accordion expects IDs – we generate unique roots
-    const rootId = useId();
-
     const renderNode = (node: UINode, path: string) => {
         const hasChildren = !!node.children && node.children.length > 0;
-        const itemValue = `${path}`;
+        const label = node.attributes?.name || node.attributes?.role || node.id || 'unknown';
 
         return (
-            <Accordion.Item key={itemValue} value={itemValue} className="pl-2">
-                <Accordion.Header asChild>
-                    <div
-                        className={clsx(
-                            'flex items-center gap-1 cursor-pointer select-none hover:text-blue-600',
-                        )}
-                        onMouseEnter={() => onHover?.(node)}
-                    >
-                        {hasChildren && (
-                            <Accordion.Trigger
-                                className="group data-[state=open]:rotate-180 transition-transform"
-                            >
-                                <ChevronDown size={14} className="text-gray-500" />
-                            </Accordion.Trigger>
-                        )}
-                        <Label node={node} />
-                    </div>
-                </Accordion.Header>
+            <AccordionItem key={path} value={path} className="pl-2">
+                <AccordionTrigger
+                    className="text-left"
+                    onMouseEnter={() => onHover?.(node)}
+                >
+                    {label}
+                </AccordionTrigger>
                 {hasChildren && (
-                    <Accordion.Content className="pl-3 border-l border-gray-200">
-                        {node.children!.map((child, idx) =>
-                            renderNode(child, `${path}.${idx}`),
-                        )}
-                    </Accordion.Content>
+                    <AccordionContent className="pl-4 border-l border-muted">
+                        <Accordion type="multiple" className="space-y-1">
+                            {node.children!.map((child, idx) => renderNode(child, `${path}.${idx}`))}
+                        </Accordion>
+                    </AccordionContent>
                 )}
-            </Accordion.Item>
+            </AccordionItem>
         );
     };
 
     return (
-        <Accordion.Root type="multiple" className="text-sm">
-            {nodes.map((node, idx) => renderNode(node, `${rootId}-${idx}`))}
-        </Accordion.Root>
+        <Accordion type="multiple" className="text-sm">
+            {nodes.map((n, idx) => renderNode(n, `${idx}`))}
+        </Accordion>
     );
 }
