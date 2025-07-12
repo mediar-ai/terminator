@@ -6,6 +6,7 @@ import {
     AccordionItem,
     AccordionTrigger,
 } from '@/components/ui/accordion';
+import { cn } from '@/lib/utils';
 import { invoke } from '@tauri-apps/api/tauri';
 import { useState } from 'react';
 
@@ -36,7 +37,10 @@ export default function TreeView({ nodes, openValues, onOpenChange }: TreeViewPr
         return (
             <AccordionItem key={path} value={path} className="pl-2">
                 <AccordionTrigger
-                    className="text-left"
+                    className={cn(
+                        'text-left px-1 py-0.5 rounded-md',
+                        hoverPath === path && 'bg-blue-50',
+                    )}
                     onMouseEnter={() =>
                         invoke('highlight_element', {
                             serialized: JSON.stringify(node),
