@@ -105,36 +105,57 @@ pub fn substitute_variables(args: &mut Value, variables: &Value) {
             }
         }
         Value::String(s) => {
-            // This regex finds all occurrences of {{variable.name}}
-            let re = Regex::new(r"\{\{([a-zA-Z0-9_.-]+)\}\}").unwrap();
+            // Regex to capture any {{ ... }} placeholder, even when the inner expression contains
+            // single '}' characters. We purposely capture *everything* lazily up to the first
+            // closing delimiter so that an expression such as {{contains(arr, '}')}} is captured
+            // in full. Later, we only perform a substitution if the captured text matches the
+            // pattern for a simple variable path (e.g. my_var or person.name).
+            //
+            //   {{   <capture non-greedily>   }}
+            //
+            // We cannot rely on look-ahead in Rust's regex crate, so a non-greedy dot pattern
+            // is the most practical solution.
+            let placeholder_re = Regex::new(r"\{\{(.*?)\}\}").unwrap();
+
+            // A stricter regex used to decide whether the captured text is *just* a variable
+            // path (letters, numbers, dot, underscore or dash). If it doesn't fully match this
+            // pattern we treat it as an expression and leave it unchanged.
+            let var_path_re = Regex::new(r"^[a-zA-Z0-9_.-]+$").unwrap();
 
             // Handle full string replacement first, e.g., args is "{{my_var}}"
-            if let Some(caps) = re.captures(s) {
+            if let Some(caps) = placeholder_re.captures(s) {
                 if caps.get(0).unwrap().as_str() == s {
-                    let var_name = caps.get(1).unwrap().as_str().trim();
-                    let pointer = format!("/{}", var_name.replace('.', "/"));
-                    if let Some(replacement_val) = variables.pointer(&pointer) {
-                        *args = replacement_val.clone();
+                    let inner = caps.get(1).unwrap().as_str().trim();
+                    if var_path_re.is_match(inner) {
+                        let pointer = format!("/{}", inner.replace('.', "/"));
+                        if let Some(replacement_val) = variables.pointer(&pointer) {
+                            *args = replacement_val.clone();
+                        }
                     }
-                    return; // Return after full replacement
+                    return; // Return after processing full placeholder string (replaced or left as-is)
                 }
             }
 
-            // Handle partial replacement, e.g., "Hello, {{user.name}}!"
-            let new_s = re
+            // Handle partial replacement within a larger string, e.g., "Hello, {{user.name}}!"
+            let new_s = placeholder_re
                 .replace_all(s, |caps: &regex::Captures| {
-                    let var_name = caps.get(1).unwrap().as_str().trim();
-                    let pointer = format!("/{}", var_name.replace('.', "/"));
-                    variables
-                        .pointer(&pointer)
-                        .map(|v| {
-                            if v.is_string() {
-                                v.as_str().unwrap().to_string()
-                            } else {
-                                v.to_string()
-                            }
-                        })
-                        .unwrap_or_else(|| caps.get(0).unwrap().as_str().to_string())
+                    let inner = caps.get(1).unwrap().as_str().trim();
+                    if var_path_re.is_match(inner) {
+                        let pointer = format!("/{}", inner.replace('.', "/"));
+                        variables
+                            .pointer(&pointer)
+                            .map(|v| {
+                                if v.is_string() {
+                                    v.as_str().unwrap().to_string()
+                                } else {
+                                    v.to_string()
+                                }
+                            })
+                            .unwrap_or_else(|| caps.get(0).unwrap().as_str().to_string())
+                    } else {
+                        // Not a simple variable placeholder – treat as expression and leave unchanged.
+                        caps.get(0).unwrap().as_str().to_string()
+                    }
                 })
                 .to_string();
 

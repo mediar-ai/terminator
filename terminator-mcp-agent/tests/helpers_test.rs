@@ -106,3 +106,28 @@ fn test_substitute_multiple_in_one_string() {
     substitute_variables(&mut args, &variables);
     assert_eq!(args, json!({"key": "Hello Alex, welcome to the machine!"}));
 }
+
+#[test]
+fn test_expression_placeholder_with_brace_is_preserved() {
+    // The placeholder contains a lone '}' character inside a quoted string. Our substitution
+    // logic should recognise that this is an *expression* (not a simple variable path) and
+    // therefore leave it untouched.
+    let mut args = json!({"expr": "{{contains(arr, '}')}}"});
+    let variables = json!({ "arr": ["a", "b"] });
+    substitute_variables(&mut args, &variables);
+    assert_eq!(args, json!({"expr": "{{contains(arr, '}')}}"}));
+}
+
+#[test]
+fn test_expression_placeholder_with_double_brace_sequence() {
+    // Expression containing a double closing brace inside a string literal should *not* split
+    // the placeholder. Although handling embedded "}}" is out of scope for variable
+    // substitution, this test ensures our regex does not panic and leaves the string as-is.
+    let mut args = json!({"expr": "{{contains(text, \"hello}}world\")}}"});
+    let variables = json!({ "text": "dummy" });
+    substitute_variables(&mut args, &variables);
+    assert_eq!(
+        args,
+        json!({"expr": "{{contains(text, \"hello}}world\")}}"})
+    );
+}
