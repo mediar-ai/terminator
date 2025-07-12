@@ -7,7 +7,7 @@ import {
     AccordionTrigger,
 } from '@/components/ui/accordion';
 import { invoke } from '@tauri-apps/api/tauri';
-import React from 'react';
+import { useState } from 'react';
 
 export interface UIElementAttributes {
     role: string;
@@ -26,6 +26,7 @@ interface TreeViewProps {
 }
 
 export default function TreeView({ nodes }: TreeViewProps) {
+    const [hoverPath, setHoverPath] = useState<string | null>(null);
     const renderNode = (node: SerializableNode, path: string) => {
         const hasChildren = !!node.children && node.children.length > 0;
         const label = node.name || node.role || node.id || 'unknown';
@@ -39,13 +40,25 @@ export default function TreeView({ nodes }: TreeViewProps) {
                             serialized: JSON.stringify(node),
                             color: 0xff0000,
                         })
+                            .catch(console.error)
+                            .finally(() => setHoverPath(path))
                     }
+                    onMouseLeave={() => setHoverPath(null)}
                 >
-                    {label}
+                    <span className="font-medium mr-2">{node.name ?? '—'}</span>
+                    {node.role && (
+                        <span className="text-xs bg-muted rounded px-1 py-0.5 mr-1 capitalize">
+                            {node.role}
+                        </span>
+                    )}
+                    {node.id && <span className="text-xs text-gray-500">#{node.id}</span>}
                 </AccordionTrigger>
                 {hasChildren && (
                     <AccordionContent className="pl-4 border-l border-muted">
-                        <Accordion type="multiple" className="space-y-1">
+                        <Accordion
+                            type="multiple"
+                            className="space-y-1"
+                        >
                             {node.children!.map((child, idx) =>
                                 renderNode(child, `${path}.${idx}`),
                             )}
