@@ -1,0 +1,25 @@
+{
+    "build": {
+        "beforeBuildCommand": "npm run build",
+        "beforeDevCommand": "npm run dev",
+        "devPath": "../web",
+        "distDir": "../web/.next"
+    },
+    "package": {
+        "productName": "Terminator Inspector",
+        "version": "0.1.0"
+    },
+    "tauri": {
+        "windows": [
+            {
+                "title": "Terminator Inspector",
+                "width": 1024,
+                "height": 768,
+                "resizable": true
+            }
+        ],
+        "security": {
+            "csp": "default-src blob: data: filesystem: ws: http: https: tauri: asset:"
+        }
+    }
+}
