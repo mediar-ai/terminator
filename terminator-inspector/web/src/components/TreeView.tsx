@@ -23,9 +23,11 @@ export interface SerializableNode {
 
 interface TreeViewProps {
     nodes: SerializableNode[];
+    openValues?: string[];
+    onOpenChange?: (v: string[]) => void;
 }
 
-export default function TreeView({ nodes }: TreeViewProps) {
+export default function TreeView({ nodes, openValues, onOpenChange }: TreeViewProps) {
     const [hoverPath, setHoverPath] = useState<string | null>(null);
     const renderNode = (node: SerializableNode, path: string) => {
         const hasChildren = !!node.children && node.children.length > 0;
@@ -70,7 +72,7 @@ export default function TreeView({ nodes }: TreeViewProps) {
     };
 
     return (
-        <Accordion type="multiple" className="text-sm">
+        <Accordion type="multiple" className="text-sm" value={openValues} onValueChange={onOpenChange}>
             {nodes.map((n, idx) => renderNode(n, `${idx}`))}
         </Accordion>
     );
