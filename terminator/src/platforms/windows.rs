@@ -49,6 +49,12 @@ const KNOWN_BROWSER_PROCESS_NAMES: &[&str] = &[
     "arc", "explorer",
 ];
 
+// Define a tuned depth that gives faster searches for common role+name look-ups.
+// A depth of 15 is usually enough to cover typical window hierarchy levels
+// (Window → Pane → Group → Control), so we try this first before falling back
+// to the old, much deeper scan which was noticeably slower.
+const DEFAULT_ROLE_NAME_SEARCH_DEPTH: u32 = 15;
+
 // Helper function to get process name by PID using native Windows API
 pub fn get_process_name_by_pid(pid: i32) -> Result<String, AutomationError> {
     unsafe {
@@ -614,7 +620,12 @@ impl AccessibilityEngine for WindowsEngine {
                     root_ele.get_name().unwrap_or_default()
                 );
 
-                let actual_depth = depth.unwrap_or(50) as u32;
+                // Use the provided depth if the caller specified one, otherwise use the tuned
+                // fast-path depth which drastically reduces the search space and therefore the
+                // latency when looking up elements by role+name.
+                let actual_depth = depth
+                    .map(|d| d as u32)
+                    .unwrap_or(DEFAULT_ROLE_NAME_SEARCH_DEPTH);
 
                 let mut matcher_builder = self
                     .automation
@@ -1110,35 +1121,55 @@ impl AccessibilityEngine for WindowsEngine {
                     root_ele.get_name().unwrap_or_default()
                 );
 
-                let mut matcher_builder = self
-                    .automation
-                    .0
-                    .create_matcher()
-                    .from_ref(root_ele)
-                    .control_type(win_control_type)
-                    .depth(50) // Default depth for find_element
-                    .timeout(timeout_ms as u64);
+                // We try a fast search first with a shallow depth. In most real-world UIs the
+                // control of interest is no deeper than 10-15 levels below the window root, so a
+                // shallow search finishes much quicker. If that fails we gracefully fall back to
+                // the old, deeper search to retain full coverage.
 
-                if let Some(name) = name {
-                    // use contains_name, its undetermined right now
-                    // wheather we should use `name` or `contains_name`
-                    matcher_builder = matcher_builder.filter(Box::new(NameFilter {
-                        value: name.clone(),
-                        casesensitive: false,
-                        partial: true,
-                    }));
+                let search_depths: &[u32] = &[DEFAULT_ROLE_NAME_SEARCH_DEPTH, 50];
+
+                for &d in search_depths {
+                    let mut matcher_builder = self
+                        .automation
+                        .0
+                        .create_matcher()
+                        .from_ref(root_ele)
+                        .control_type(win_control_type)
+                        .depth(d)
+                        .timeout(timeout_ms as u64);
+
+                    if let Some(name) = name {
+                        matcher_builder = matcher_builder.filter(Box::new(NameFilter {
+                            value: name.clone(),
+                            casesensitive: false,
+                            partial: true,
+                        }));
+                    }
+
+                    match matcher_builder.find_first() {
+                        Ok(element) => {
+                            let arc_ele = ThreadSafeWinUIElement(Arc::new(element));
+                            return Ok(UIElement::new(Box::new(WindowsUIElement {
+                                element: arc_ele,
+                            })));
+                        }
+                        Err(err) => {
+                            debug!(
+                                "role+name fast search (depth={}) failed: {}. Will fallback if possible",
+                                d, err
+                            );
+                            // If this was the last depth we're trying, bubble the error up.
+                            if d == *search_depths.last().unwrap() {
+                                return Err(AutomationError::ElementNotFound(format!(
+                                    "Role: '{role}' (mapped to {win_control_type:?}), Name: {name:?}, Root: {root:?}, Err: {err}"
+                                )));
+                            }
+                        }
+                    }
                 }
 
-                let element = matcher_builder.find_first().map_err(|e| {
-                    AutomationError::ElementNotFound(format!(
-                        "Role: '{role}' (mapped to {win_control_type:?}), Name: {name:?}, Root: {root:?}, Err: {e}"
-                    ))
-                })?;
-
-                let arc_ele = ThreadSafeWinUIElement(Arc::new(element));
-                Ok(UIElement::new(Box::new(WindowsUIElement {
-                    element: arc_ele,
-                })))
+                // Unreachable: the loop either returns on success or on the final failure.
+                unreachable!()
             }
             Selector::Id(id) => {
                 debug!("Searching for element with ID: {}", id);
