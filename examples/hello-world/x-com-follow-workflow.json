@@ -1,0 +1,69 @@
+{
+    "tool_name": "execute_sequence",
+    "arguments": {
+        "variables": {
+            "url": {
+                "type": "string",
+                "label": "X.com URL",
+                "default": "https://x.com"
+            },
+            "scroll_times": {
+                "type": "int",
+                "label": "Number of scrolls",
+                "default": 5
+            }
+        },
+        "inputs": {
+            "url": "https://x.com",
+            "scroll_times": 5
+        },
+        "selectors": {
+            "browser_window": "role:Window|name:X",
+            "follow_button": "role:Button|name:Follow"
+        },
+        "steps": [
+            {
+                "tool_name": "open_url",
+                "arguments": {
+                    "url": "{{url}}"
+                }
+            },
+            {
+                "tool_name": "wait_for_element",
+                "arguments": {
+                    "selector": "{{selectors.browser_window}}",
+                    "condition": "exists",
+                    "timeout_ms": 8000
+                }
+            },
+            {
+                "group_name": "Scroll and Follow Loop",
+                "repeat": "{{scroll_times}}",
+                "steps": [
+                    {
+                        "tool_name": "scroll_element",
+                        "arguments": {
+                            "selector": "{{selectors.browser_window}}",
+                            "direction": "down",
+                            "amount": 500
+                        }
+                    },
+                    {
+                        "tool_name": "wait_for_element",
+                        "arguments": {
+                            "selector": "{{selectors.follow_button}}",
+                            "condition": "exists",
+                            "timeout_ms": 3000
+                        }
+                    },
+                    {
+                        "tool_name": "click_all_elements",
+                        "arguments": {
+                            "selector": "{{selectors.follow_button}}"
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}
