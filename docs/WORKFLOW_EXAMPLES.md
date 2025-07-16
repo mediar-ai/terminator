@@ -56,3 +56,32 @@ steps:
 ---
 
 Feel free to duplicate these files under `examples/workflows/` and iterate on them for your own automation scenarios.
+
+## 3. `x_follow_basic.yaml`
+
+Automates **X.com** (Twitter):
+
+1. Opens https://x.com.
+2. Waits until a `Follow` button is visible.
+3. Runs **five** scroll + follow cycles:
+   - Click the first visible `Follow` button (if any).
+   - Scrolls the timeline (`PageDown`).
+   - Short delay to let new content load.
+4. Optionally closes the browser tab with `{Ctrl}{W}`.
+
+This is a straightforward, unrolled loop—handy for demo purposes.
+
+---
+
+## 4. `x_follow_advanced.yaml`
+
+A slightly more sophisticated variant that:
+
+1. Opens X.com and waits for the feed.
+2. Executes three *batch* cycles where each cycle:
+   - Attempts to click up to three visible `Follow` buttons (using `continue_on_error` so the workflow keeps going if none are found).
+   - Scrolls **twice** (`PageDown`) to load fresh content.
+   - Waits 1.5 s between cycles for stability.
+3. Closes the tab at the end.
+
+Feel free to duplicate and extend these YAMLs—e.g. increase the number of click attempts per cycle or add more cycles—to suit your own growth-hacking experiments.
