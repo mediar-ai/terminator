@@ -2458,6 +2458,18 @@ impl DesktopWrapper {
                 execution_context_map.insert("last_result".to_string(), last.clone());
             }
 
+            // Also make results accessible by step `id` similar to GitHub Actions syntax
+            if let Some(step_id) = original_step.id.as_ref() {
+                // Ensure a "steps" object exists in the context
+                let steps_entry = execution_context_map
+                    .entry("steps".to_string())
+                    .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+
+                if let serde_json::Value::Object(map) = steps_entry {
+                    map.insert(step_id.clone(), last.clone());
+                }
+            }
+
             // Decide next index based on success or fallback
             let step_succeeded = !step_error_occurred;
 
