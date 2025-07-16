@@ -287,7 +287,8 @@ terminator mcp run workflow.json  # JSON
 
 **Linux**:
 - Ensure AT-SPI (assistive technology) is enabled
-- Install required packages: `apt-get install at-spi2-core`
+- Install required packages: `apt-get install at-spi2-core`  
+  > Note: If your distribution requires elevated privileges to install packages, prefix the command with `sudo`.
 - Check desktop environment compatibility (GNOME, KDE, XFCE supported)
 
 ### Performance Optimization

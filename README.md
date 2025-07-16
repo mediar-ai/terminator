@@ -150,6 +150,7 @@ To create reliable selectors (e.g. `name:Seven`, `role:Button`, `window:Calculat
   ```bash
   apt install accerciser
   ```
+  > Note: If your system requires elevated privileges to install packages, prefix the command with `sudo` (e.g., `sudo apt install accerciser`).
 * **Usage:** Launch Accerciser → Select the window/app → Browse the accessible widget tree.
 
 ---
