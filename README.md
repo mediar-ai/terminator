@@ -83,6 +83,18 @@ npm install terminator.js
 # or: bun add terminator.js
 ```
 
+### 🛠️ Terminator CLI
+
+Need to run workflows from your terminal or CI pipeline? Install the Terminator CLI:
+
+```bash
+# Install the latest published version
+cargo install terminator-cli
+
+# Or, from a local checkout of this repo
+cargo install --path terminator-cli
+```
+
 ## Feature Support
 
 While Terminator aims for full cross-platform support, current capabilities vary by OS. Windows is the primary development target and has the most complete feature set.
@@ -136,7 +148,7 @@ To create reliable selectors (e.g. `name:Seven`, `role:Button`, `window:Calculat
 * **Install:**
 
   ```bash
-  sudo apt install accerciser
+  apt install accerciser
   ```
 * **Usage:** Launch Accerciser → Select the window/app → Browse the accessible widget tree.
 
