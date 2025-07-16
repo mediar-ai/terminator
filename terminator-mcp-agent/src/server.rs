@@ -2126,8 +2126,11 @@ impl DesktopWrapper {
             }
         }
 
-        // Build the execution context. It's a combination of the 'inputs' and 'selectors' from the arguments.
-        // The context is a simple, flat map of variables that will be used for substitution in tool arguments.
+        // Build the execution context.  We keep it as a **mutable Map** so we can
+        // enrich it with each step's output (e.g., expose previous tool results
+        // to subsequent steps).
+        // This enables placeholders like `{{last_result.status}}` or
+        // `{{results.0.element.name}}` to be substituted dynamically.
         let mut execution_context_map = serde_json::Map::new();
 
         // First, populate with default values from variables schema
@@ -2180,10 +2183,15 @@ impl DesktopWrapper {
             };
             execution_context_map.insert("selectors".to_string(), selectors_value);
         }
-        let execution_context = serde_json::Value::Object(execution_context_map);
+        // Initialise results array so users can reference it immediately
+        execution_context_map.insert("results".to_string(), serde_json::Value::Array(vec![]));
+
+        // Create initial execution context value (will be refreshed each loop
+        // iteration to include new results).
+        let mut execution_context = serde_json::Value::Object(execution_context_map.clone());
 
         info!(
-            "Executing sequence with context: {}",
+            "Executing sequence with initial context: {}",
             serde_json::to_string_pretty(&execution_context).unwrap_or_default()
         );
 
@@ -2278,6 +2286,10 @@ impl DesktopWrapper {
             }
 
             // 1. Evaluate condition, unless it's an 'always' step.
+            // Refresh execution context value at the start of each iteration so
+            // it contains any new data from previous steps.
+            execution_context = serde_json::Value::Object(execution_context_map.clone());
+
             if let Some(cond_str) = &if_expr {
                 if !is_always_step && !expression_eval::evaluate(cond_str, &execution_context) {
                     info!(
@@ -2431,6 +2443,21 @@ impl DesktopWrapper {
 
             results.push(final_result);
 
+            // Update execution context with the latest step result so that subsequent
+            // steps can reference it using placeholders like `{{last_result}}` or
+            // via the `results` array.
+            if let Some(results_val) = execution_context_map.get_mut("results") {
+                if let serde_json::Value::Array(arr) = results_val {
+                    if let Some(last) = results.last() {
+                        arr.push(last.clone());
+                    }
+                }
+            }
+
+            if let Some(last) = results.last() {
+                execution_context_map.insert("last_result".to_string(), last.clone());
+            }
+
             // Decide next index based on success or fallback
             let step_succeeded = !step_error_occurred;
 
@@ -2545,6 +2572,8 @@ impl DesktopWrapper {
         if let Some(parser_def) = args.output_parser.as_ref() {
             // Apply variable substitution to the output_parser field
             let mut parser_json = parser_def.clone();
+            // Refresh execution context one last time with final data
+            execution_context = serde_json::Value::Object(execution_context_map.clone());
             substitute_variables(&mut parser_json, &execution_context);
 
             match output_parser::run_output_parser(&parser_json, &summary) {
