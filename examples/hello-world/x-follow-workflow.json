@@ -1,0 +1,80 @@
+{
+  "tool_name": "execute_sequence",
+  "arguments": {
+    "variables": {
+      "url": {
+        "type": "string",
+        "label": "X.com URL",
+        "default": "https://x.com"
+      },
+      "scroll_times": {
+        "type": "int",
+        "label": "Number of scrolls",
+        "default": 5
+      },
+      "follow_button_selector": {
+        "type": "string",
+        "label": "Follow Button Selector",
+        "default": "role:Button|name:/Follow/"
+      }
+    },
+    "inputs": {
+      "url": "https://x.com",
+      "scroll_times": 5,
+      "follow_button_selector": "role:Button|name:/Follow/"
+    },
+    "selectors": {
+      "browser_window": "role:Window|name:X"
+    },
+    "steps": [
+      {
+        "tool_name": "open_url",
+        "arguments": {
+          "url": "{{url}}"
+        }
+      },
+      {
+        "tool_name": "wait_for_element",
+        "arguments": {
+          "selector": "{{selectors.browser_window}}",
+          "condition": "exists",
+          "timeout_ms": 8000
+        }
+      },
+      {
+        "group_name": "Scroll and Follow Loop",
+        "repeat": "{{scroll_times}}",
+        "steps": [
+          {
+            "tool_name": "scroll_element",
+            "arguments": {
+              "selector": "{{selectors.browser_window}}",
+              "direction": "down",
+              "amount": 800
+            }
+          },
+          {
+            "tool_name": "wait_for_element",
+            "arguments": {
+              "selector": "{{follow_button_selector}}",
+              "condition": "exists",
+              "timeout_ms": 4000
+            }
+          },
+          {
+            "tool_name": "click_all_elements",
+            "arguments": {
+              "selector": "{{follow_button_selector}}"
+            }
+          }
+        ]
+      },
+      {
+        "tool_name": "wait",
+        "arguments": {
+          "duration_ms": 2000
+        }
+      }
+    ]
+  }
+}
