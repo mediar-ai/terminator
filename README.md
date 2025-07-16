@@ -160,6 +160,7 @@ You can build and debug selector paths incrementally using `.locator()` chaining
 - https://github.com/mediar-ai/terminator-typescript-examples
 - https://github.com/mediar-ai/terminator-python-examples
 - https://github.com/mediar-ai/terminator/examples
+- docs/WORKFLOW_EXAMPLES.md  <!-- New YAML workflow examples -->
 
 ## contributing
 
