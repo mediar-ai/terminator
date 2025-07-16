@@ -192,10 +192,18 @@ pub struct UIElementAttributes {
     pub is_keyboard_focusable: Option<bool>,
     #[serde(default, skip_serializing_if = "is_false_bool")]
     pub is_focused: Option<bool>,
+    #[serde(default, skip_serializing_if = "is_false_bool")]
+    pub is_toggled: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bounds: Option<(f64, f64, f64, f64)>, // Only populated for keyboard-focusable elements
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "is_false_bool")]
+    pub is_selected: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child_count: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index_in_parent: Option<usize>,
 }
 
 impl fmt::Debug for UIElementAttributes {
@@ -257,9 +265,29 @@ impl fmt::Debug for UIElementAttributes {
             debug_struct.field("is_focused", &true);
         }
 
+        // Only show toggled if true
+        if let Some(true) = self.is_toggled {
+            debug_struct.field("is_toggled", &true);
+        }
+
         // Only show bounds if present
         if let Some(ref bounds) = self.bounds {
             debug_struct.field("bounds", bounds);
+        }
+
+        // Only show selected if true
+        if let Some(true) = self.is_selected {
+            debug_struct.field("is_selected", &true);
+        }
+
+        // Only show child_count if present
+        if let Some(count) = self.child_count {
+            debug_struct.field("child_count", &count);
+        }
+
+        // Only show index_in_parent if present
+        if let Some(index) = self.index_in_parent {
+            debug_struct.field("index_in_parent", &index);
         }
 
         debug_struct.finish()

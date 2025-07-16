@@ -121,6 +121,7 @@ fn test_complex_arguments_preservation() {
         arguments: complex_args.clone(),
         continue_on_error: None,
         delay_ms: None,
+        id: None,
     };
 
     let serialized = serde_json::to_value(&tool_call).unwrap();
@@ -837,5 +838,390 @@ try {
         }
     } else {
         println!("❌ No result received from Node.js process");
+    }
+}
+
+#[tokio::test]
+async fn test_nodejs_execution_with_local_bindings() {
+    // Test JavaScript execution using local terminator.js bindings
+    use std::process::Stdio;
+    use terminator_mcp_agent::scripting_engine::find_executable;
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    use tokio::process::Command;
+
+    println!("🧪 Testing Node.js execution with local terminator.js bindings...");
+
+    // Get paths relative to workspace root
+    let workspace_root = std::env::current_dir()
+        .unwrap()
+        .parent() // Move up from terminator-mcp-agent to workspace root
+        .unwrap()
+        .to_path_buf();
+
+    let local_bindings_path = workspace_root.join("bindings").join("nodejs");
+
+    // Verify the local bindings directory exists
+    if !tokio::fs::metadata(&local_bindings_path).await.is_ok() {
+        panic!(
+            "❌ Local bindings directory not found at: {}",
+            local_bindings_path.display()
+        );
+    }
+
+    println!(
+        "📁 Using local bindings at: {}",
+        local_bindings_path.display()
+    );
+
+    // Build the local bindings first
+    println!("🔨 Building local terminator.js bindings...");
+    let build_result = if cfg!(windows) {
+        Command::new("cmd")
+            .current_dir(&local_bindings_path)
+            .args(["/c", "npm", "run", "build"])
+            .output()
+            .await
+    } else {
+        Command::new("npm")
+            .current_dir(&local_bindings_path)
+            .args(["run", "build"])
+            .output()
+            .await
+    };
+
+    match build_result {
+        Ok(output) => {
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                println!("⚠️ Build failed: {}", stderr);
+                println!(
+                    "📄 Build stdout: {}",
+                    String::from_utf8_lossy(&output.stdout)
+                );
+                // Don't panic - the bindings might already be built
+                println!("⚠️ Continuing with existing build...");
+            } else {
+                println!("✅ Local bindings built successfully");
+            }
+        }
+        Err(e) => {
+            println!("⚠️ Failed to run build command: {}", e);
+            println!("⚠️ Continuing with existing build...");
+        }
+    }
+
+    // Create isolated test directory
+    let test_dir = std::env::temp_dir().join(format!(
+        "test_local_bindings_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+
+    tokio::fs::create_dir_all(&test_dir).await.unwrap();
+    println!("📁 Created test directory: {}", test_dir.display());
+
+    // Create package.json that references the local bindings
+    let package_json = format!(
+        r#"{{
+  "name": "test-local-terminator",
+  "version": "1.0.0",
+  "dependencies": {{
+    "terminator.js": "file:{}"
+  }}
+}}"#,
+        local_bindings_path.to_string_lossy().replace('\\', "/")
+    );
+
+    let package_json_path = test_dir.join("package.json");
+    tokio::fs::write(&package_json_path, package_json)
+        .await
+        .unwrap();
+    println!("📄 Created package.json with local dependency");
+
+    // Install the local bindings
+    println!("📦 Installing local terminator.js...");
+    let install_result = if cfg!(windows) {
+        Command::new("cmd")
+            .current_dir(&test_dir)
+            .args(["/c", "npm", "install"])
+            .output()
+            .await
+    } else {
+        Command::new("npm")
+            .current_dir(&test_dir)
+            .args(["install"])
+            .output()
+            .await
+    };
+
+    match install_result {
+        Ok(output) => {
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                println!("❌ Install failed:");
+                println!("📄 stdout: {stdout}");
+                println!("📄 stderr: {stderr}");
+                panic!("Failed to install local bindings");
+            } else {
+                println!("✅ Local bindings installed successfully");
+            }
+        }
+        Err(e) => {
+            panic!("❌ Failed to run npm install: {e}");
+        }
+    }
+
+    // Verify installation
+    let node_modules_path = test_dir.join("node_modules").join("terminator.js");
+    if tokio::fs::metadata(&node_modules_path).await.is_err() {
+        panic!("❌ terminator.js not found in node_modules after installation");
+    }
+    println!("✅ Verified local terminator.js installation");
+
+    // Create test script
+    let test_script = r#"
+try {
+    console.log("🧪 Testing local terminator.js bindings...");
+    console.log("Working directory:", process.cwd());
+    
+    // Import terminator.js
+    const { Desktop } = require('terminator.js');
+    console.log("✅ Successfully imported Desktop from local terminator.js");
+    
+    // Create Desktop instance
+    const desktop = new Desktop();
+    console.log("✅ Successfully created Desktop instance");
+    
+    // Test basic functionality - get root element
+    const root = desktop.root();
+    console.log("✅ Successfully got root element");
+    console.log("Root role:", root.role());
+    console.log("Root name:", root.name());
+    
+    // Test applications list
+    const apps = desktop.applications();
+    console.log("✅ Successfully got applications list");
+    console.log("Found", apps.length, "applications");
+    
+    // Return success result
+    const result = {
+        success: true,
+        message: "Local terminator.js bindings working correctly",
+        hasDesktop: typeof desktop !== 'undefined',
+        hasRoot: typeof root !== 'undefined',
+        appCount: apps.length,
+        rootRole: root.role(),
+        rootName: root.name()
+    };
+    
+    process.stdout.write('__RESULT__' + JSON.stringify(result) + '__END__\n');
+    
+} catch (error) {
+    console.log("❌ Error testing local bindings:", error.message);
+    console.log("Error stack:", error.stack);
+    
+    const errorResult = {
+        success: false,
+        error: error.message,
+        stack: error.stack,
+        code: error.code || 'UNKNOWN'
+    };
+    
+    process.stdout.write('__RESULT__' + JSON.stringify(errorResult) + '__END__\n');
+}
+"#;
+
+    let script_path = test_dir.join("test.js");
+    tokio::fs::write(&script_path, test_script).await.unwrap();
+
+    println!("🚀 Running test with local bindings...");
+
+    // Execute the test script
+    let node_exe = find_executable("node").unwrap();
+    let mut child = if cfg!(windows) && node_exe.ends_with(".exe") {
+        Command::new(&node_exe)
+            .current_dir(&test_dir)
+            .arg("test.js")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap()
+    } else if cfg!(windows) {
+        Command::new("cmd")
+            .current_dir(&test_dir)
+            .args(["/c", "node", "test.js"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap()
+    } else {
+        Command::new(&node_exe)
+            .current_dir(&test_dir)
+            .arg("test.js")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap()
+    };
+
+    let mut stdout = BufReader::new(child.stdout.take().unwrap()).lines();
+    let mut stderr = BufReader::new(child.stderr.take().unwrap()).lines();
+
+    // Read stderr in background
+    tokio::spawn(async move {
+        while let Ok(Some(line)) = stderr.next_line().await {
+            println!("STDERR: {}", line);
+        }
+    });
+
+    // Read stdout and look for result
+    let mut result: Option<serde_json::Value> = None;
+    while let Ok(Some(line)) = stdout.next_line().await {
+        println!("STDOUT: {}", line);
+
+        if line.starts_with("__RESULT__") && line.ends_with("__END__") {
+            let result_json = line.replace("__RESULT__", "").replace("__END__", "");
+            result = serde_json::from_str(&result_json).ok();
+            break;
+        }
+    }
+
+    let status = child.wait().await.unwrap();
+    println!("Process exit code: {:?}", status.code());
+
+    // Clean up test directory
+    tokio::fs::remove_dir_all(&test_dir).await.ok();
+
+    // Verify results
+    match result {
+        Some(res) => {
+            println!(
+                "📄 Final result: {}",
+                serde_json::to_string_pretty(&res).unwrap()
+            );
+
+            if let Some(success) = res.get("success").and_then(|v| v.as_bool()) {
+                assert!(success, "❌ Local bindings test should succeed");
+                println!("✅ Local bindings test completed successfully!");
+
+                // Verify expected fields
+                assert!(
+                    res.get("hasDesktop")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                    "Should have Desktop instance"
+                );
+                assert!(
+                    res.get("hasRoot")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                    "Should have root element"
+                );
+                assert!(
+                    res.get("appCount").and_then(|v| v.as_u64()).is_some(),
+                    "Should have app count"
+                );
+
+                println!("✅ All assertions passed for local bindings test!");
+            } else {
+                if let Some(error) = res.get("error") {
+                    panic!("❌ Local bindings test failed: {}", error);
+                } else {
+                    panic!("❌ Local bindings test failed with unknown error");
+                }
+            }
+        }
+        None => {
+            panic!("❌ No result received from local bindings test");
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_scripting_engine_with_local_bindings() {
+    // Test the new execute_javascript_with_local_bindings function
+    use terminator_mcp_agent::scripting_engine::execute_javascript_with_local_bindings;
+
+    let test_script = r#"
+// Test basic terminator.js functionality with local bindings
+try {
+    log("🧪 Testing scripting engine with local bindings...");
+    
+    // Test that desktop is available globally
+    if (typeof desktop === 'undefined') {
+        throw new Error("Desktop global not available");
+    }
+    
+    log("✅ Desktop global is available");
+    
+    // Test basic desktop functionality
+    const root = desktop.root();
+    log("✅ Got root element:", root.role());
+    
+    const apps = desktop.applications();
+    log("✅ Got applications list, count:", apps.length);
+    
+    // Return success result
+    return {
+        success: true,
+        message: "Scripting engine with local bindings working correctly",
+        rootRole: root.role(),
+        rootName: root.name(),
+        appCount: apps.length,
+        testTimestamp: new Date().toISOString()
+    };
+    
+} catch (error) {
+    log("❌ Error:", error.message);
+    return {
+        success: false,
+        error: error.message,
+        stack: error.stack
+    };
+}
+"#;
+
+    println!("🧪 Testing execute_javascript_with_local_bindings function...");
+
+    let result = execute_javascript_with_local_bindings(test_script.to_string()).await;
+
+    match result {
+        Ok(value) => {
+            println!("✅ Scripting engine test succeeded!");
+            println!(
+                "📄 Result: {}",
+                serde_json::to_string_pretty(&value).unwrap_or_default()
+            );
+
+            // Verify the result structure
+            if let Some(obj) = value.as_object() {
+                if let Some(success) = obj.get("success").and_then(|v| v.as_bool()) {
+                    assert!(success, "Scripting engine should report success");
+                    println!("✅ Scripting engine reported success");
+                } else {
+                    panic!("Scripting engine result should have success field");
+                }
+
+                // Verify expected fields exist
+                assert!(obj.contains_key("rootRole"), "Should have rootRole");
+                assert!(obj.contains_key("rootName"), "Should have rootName");
+                assert!(obj.contains_key("appCount"), "Should have appCount");
+                assert!(
+                    obj.contains_key("testTimestamp"),
+                    "Should have testTimestamp"
+                );
+
+                println!("✅ All expected fields present in result");
+            } else {
+                panic!("Result should be an object with success info");
+            }
+        }
+        Err(e) => {
+            println!("❌ Scripting engine test failed: {}", e);
+            panic!("Scripting engine with local bindings should succeed: {}", e);
+        }
     }
 }

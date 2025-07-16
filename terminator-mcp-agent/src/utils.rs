@@ -469,6 +469,8 @@ pub struct ToolCall {
         description = "An optional delay in milliseconds to wait after this tool call completes."
     )]
     pub delay_ms: Option<u64>,
+    #[schemars(description = "Optional unique identifier for this step.")]
+    pub id: Option<String>,
 }
 
 // Simplified structure for Gemini compatibility

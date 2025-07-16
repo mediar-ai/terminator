@@ -158,11 +158,11 @@ Now, when your MCP client runs `terminator-mcp-agent`, it will use your local bu
     "steps": [                // 4️⃣ Ordered actions & control flow
       {
         "tool_name": "open_application",
-        "arguments": { "path": "{{app_path}}" }
+        "arguments": { "path": "${{app_path}}" }
       },
       {
         "tool_name": "click_element", // 4a. Make sure the UI is reset
-        "arguments": { "selector": "{{selectors.btn_clear}}" },
+        "arguments": { "selector": "${{selectors.btn_clear}}" },
         "continue_on_error": true
       },
       {
@@ -171,15 +171,15 @@ Now, when your MCP client runs `terminator-mcp-agent`, it will use your local bu
           {
             "tool_name": "type_into_element",
             "arguments": {
-              "selector": "{{selectors.calc_window}}",
-              "text_to_type": "{{first_number}}"
+              "selector": "${{selectors.calc_window}}",
+              "text_to_type": "${{first_number}}"
             }
           }
         ]
       },
       {
         "tool_name": "click_element",
-        "arguments": { "selector": "{{selectors.btn_plus}}" }
+        "arguments": { "selector": "${{selectors.btn_plus}}" }
       },
       {
         "group_name": "Enter Second Number",
@@ -187,20 +187,20 @@ Now, when your MCP client runs `terminator-mcp-agent`, it will use your local bu
           {
             "tool_name": "type_into_element",
             "arguments": {
-              "selector": "{{selectors.calc_window}}",
-              "text_to_type": "{{second_number}}"
+              "selector": "${{selectors.calc_window}}",
+              "text_to_type": "${{second_number}}"
             }
           }
         ]
       },
       {
         "tool_name": "click_element",
-        "arguments": { "selector": "{{selectors.btn_equals}}" }
+        "arguments": { "selector": "${{selectors.btn_equals}}" }
       },
       {
         "tool_name": "wait_for_element",  // 4c. Capture final UI tree
         "arguments": {
-          "selector": "{{selectors.calc_window}}",
+          "selector": "${{selectors.calc_window}}",
           "condition": "exists",
           "include_tree": true,
           "timeout_ms": 2000
@@ -228,7 +228,7 @@ Now, when your MCP client runs `terminator-mcp-agent`, it will use your local bu
 
 1. **Variables vs. Inputs** – Declare once, override per-run. This is perfect for parameterizing CI pipelines or A/B test data.
 2. **Selectors** – Give every important UI element a *nickname*. It makes long workflows readable and easy to maintain.
-3. **Templating** – `{{ ... }}` lets you reference **any** key inside `variables`, `inputs`, or `selectors`. The engine uses Mustache-style rendering.
+3. **Templating** – `${{ ... }}` (GitHub Actions-style) *or* legacy `{{ ... }}` lets you reference **any** key inside `variables`, `inputs`, or `selectors`. Both syntaxes are supported; the engine uses Mustache-style rendering.
 4. **Groups & Control Flow** – Add `group_name`, `skippable`, `if`, or `continue_on_error` to any step for advanced branching.
 5. **Output Parsing** – Always end with a step that includes the UI tree, then use the declarative JSON DSL to mine the data you need.
 

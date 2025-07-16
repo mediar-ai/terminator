@@ -109,6 +109,12 @@ Follow these rules to keep your string formatting efficient, readable, and free 
 
   // ❌ Avoid – explicit positional args are noisier
   format!("{} files processed in {:?}", count, elapsed);
+
+  // ✅ Good – implicit capture
+  panic!("❌ Local bindings test failed: {error}");
+
+  // ❌ Avoid – explicit positional args are noisier
+  panic!("❌ Local bindings test failed: {}", error);
   ```
 
 - 🔹 **Avoid `format!` in tight loops**

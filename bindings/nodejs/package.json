@@ -37,11 +37,11 @@
     }
   },
   "optionalDependencies": {
-    "terminator.js-darwin-arm64": "0.8.5",
-    "terminator.js-darwin-x64": "0.8.5",
-    "terminator.js-linux-x64-gnu": "0.8.5",
-    "terminator.js-win32-arm64-msvc": "0.8.5",
-    "terminator.js-win32-x64-msvc": "0.8.5"
+    "terminator.js-darwin-arm64": "0.9.0",
+    "terminator.js-darwin-x64": "0.9.0",
+    "terminator.js-linux-x64-gnu": "0.9.0",
+    "terminator.js-win32-arm64-msvc": "0.9.0",
+    "terminator.js-win32-x64-msvc": "0.9.0"
   },
   "repository": {
     "type": "git",
@@ -51,11 +51,12 @@
     "artifacts": "npx napi artifacts",
     "build": "npm run sync-version && npx napi build --platform --release --strip",
     "build:debug": "npm run sync-version && npx napi build --platform",
+    "prepublish:ci": "npm run sync-version",
     "prepublishOnly": "npm run sync-version && npx napi prepublish -t npm",
     "sync-version": "node sync-version.js",
     "test": "node node_example.js",
     "test-hook": "powershell.exe -ExecutionPolicy Bypass -File \"../../.git/hooks/pre-push.ps1\""
   },
   "types": "wrapper.d.ts",
-  "version": "0.8.5"
+  "version": "0.9.0"
 }

@@ -12,30 +12,40 @@ jobs:
         settings:
           - host: windows-latest
             target: x86_64-pc-windows-msvc
+            arch: x64
+            platform: win32
             build: |
               cd bindings/nodejs
               npm run build  
               cp terminator.win32-x64-msvc.node npm/win32-x64-msvc/
           - host: windows-11-arm
             target: aarch64-pc-windows-msvc
+            arch: arm64
+            platform: win32
             build: |
               cd bindings/nodejs
               npm run build
               cp terminator.win32-arm64-msvc.node npm/win32-arm64-msvc/
           - host: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+            arch: x64
+            platform: linux
             build: |
               cd bindings/nodejs
               npm run build
               cp terminator.linux-x64-gnu.node npm/linux-x64-gnu/
           - host: macos-latest
             target: x86_64-apple-darwin
+            arch: x64
+            platform: darwin
             build: |
               cd bindings/nodejs
               npm run build -- --target x86_64-apple-darwin
               cp terminator.darwin-x64.node npm/darwin-x64/
           - host: macos-latest
             target: aarch64-apple-darwin
+            arch: arm64
+            platform: darwin
             build: |
               cd bindings/nodejs
               npm run build -- --target aarch64-apple-darwin
@@ -100,6 +110,32 @@ jobs:
         run: ${{ matrix.settings.build }}
         shell: bash
 
+      - name: Verify build output
+        run: |
+          cd bindings/nodejs
+          echo "Verifying .node file was created and copied:"
+          
+          # Construct platform package directory name correctly
+          if [ "${{ matrix.settings.platform }}" = "win32" ]; then
+            platform_package="npm/${{ matrix.settings.platform }}-${{ matrix.settings.arch }}-msvc"
+          elif [ "${{ matrix.settings.platform }}" = "linux" ]; then
+            platform_package="npm/${{ matrix.settings.platform }}-${{ matrix.settings.arch }}-gnu"
+          else
+            # For darwin and other platforms, no suffix
+            platform_package="npm/${{ matrix.settings.platform }}-${{ matrix.settings.arch }}"
+          fi
+          
+          echo "Looking for .node file in: ${platform_package}/"
+          ls -la "${platform_package}/" || echo "Directory not found"
+          if ls "${platform_package}/"*.node 1> /dev/null 2>&1; then
+            echo "✓ Native binary found in platform package"
+            ls -la "${platform_package}/"*.node
+          else
+            echo "✗ ERROR: No .node file found in platform package!"
+            exit 1
+          fi
+        shell: bash
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -127,34 +163,34 @@ jobs:
         with:
           path: artifacts
 
+      - name: List downloaded artifacts
+        run: |
+          echo "=== Downloaded artifacts structure ==="
+          find artifacts -type f -name "*.node" | head -20
+          echo "=== End artifacts listing ==="
+
       - name: Copy artifacts to npm packages
         run: |
-          echo "Listing downloaded artifacts:"
-          find artifacts -name "*.node" -type f
+          echo "Processing downloaded artifacts..."
           
-          echo "Copying .node files to platform packages:"
-          for artifact_dir in artifacts/bindings-*/; do
+          # Copy .node files from artifacts to npm packages
+          for artifact_dir in artifacts/bindings-*; do
             if [ -d "$artifact_dir" ]; then
-              echo "Processing $artifact_dir"
-              # Copy all .node files from this artifact to the corresponding npm packages
+              echo "Processing artifact directory: $artifact_dir"
+              
+              # Find all .node files in this artifact
               find "$artifact_dir" -name "*.node" -type f | while read -r node_file; do
-                # Extract the platform name from the .node filename
-                filename=$(basename "$node_file")
-                platform=$(echo "$filename" | sed 's/terminator\.//g' | sed 's/\.node//g')
-                target_dir="bindings/nodejs/npm/$platform"
+                echo "Found .node file: $node_file"
                 
-                if [ -d "$target_dir" ]; then
-                  echo "Copying $filename to $target_dir/"
-                  cp "$node_file" "$target_dir/"
-                else
-                  echo "Warning: Target directory $target_dir does not exist for $filename"
-                fi
+                # Copy the entire directory structure from artifact to preserve platform packages
+                # Target should be npm/ subdirectory where platform packages are located
+                rsync -av "$artifact_dir/" bindings/nodejs/npm/ --include="*/" --include="*.node" --exclude="*"
               done
             fi
           done
           
-          echo "Verifying copied files:"
-          find bindings/nodejs/npm -name "*.node" -type f
+          echo "=== Final verification of copied .node files ==="
+          find bindings/nodejs/npm -name "*.node" -type f || echo "No .node files found after copy!"
 
       - name: Sync version for publish
         run: |
@@ -164,29 +200,254 @@ jobs:
       - name: Publish platform packages
         run: |
           cd bindings/nodejs
+          
+          # Extract version once
+          MAIN_VERSION=$(node -p "require('./package.json').version")
+          echo "Publishing platform packages for version: $MAIN_VERSION"
+          
           for dir in npm/*/; do
             if [ -d "$dir" ] && [ -f "$dir/package.json" ]; then
-              echo "Publishing $(basename "$dir")"
+              platform_name=$(basename "$dir")
+              echo "=== Processing platform package: $platform_name ==="
+              
               cd "$dir"
-              # Check if .node file exists before publishing
-              if ls *.node 1> /dev/null 2>&1; then
-                npm publish --access public || echo "Package already published or failed"
-              else
-                echo "No .node file found, skipping $(basename "$dir")"
+              
+              # Verify .node file exists
+              if ! ls *.node 1> /dev/null 2>&1; then
+                echo "ERROR: No .node file found in $platform_name, skipping..."
+                cd ../..
+                continue
               fi
+              
+              # List contents for debugging
+              echo "Platform package contents:"
+              ls -la
+              
+              # Get package info
+              PACKAGE_NAME=$(node -p "require('./package.json').name")
+              PACKAGE_VERSION=$(node -p "require('./package.json').version")
+              
+              echo "Package: $PACKAGE_NAME@$PACKAGE_VERSION"
+              
+              # Check if version exists on NPM
+              if npm view "$PACKAGE_NAME@$PACKAGE_VERSION" version >/dev/null 2>&1; then
+                echo "Version $PACKAGE_VERSION of $PACKAGE_NAME already exists, skipping..."
+              else
+                echo "Publishing $PACKAGE_NAME@$PACKAGE_VERSION..."
+                if npm publish --access public; then
+                  echo "✓ Successfully published $PACKAGE_NAME@$PACKAGE_VERSION"
+                else
+                  echo "✗ Failed to publish $PACKAGE_NAME@$PACKAGE_VERSION"
+                fi
+              fi
+              
               cd ../..
             fi
           done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Verify platform packages are published
+        continue-on-error: true
+        run: |
+          cd bindings/nodejs
+          MAIN_VERSION=$(node -p "require('./package.json').version")
+          echo "Verifying platform packages for version $MAIN_VERSION are available..."
+          
+          # List what packages we expect to verify
+          echo "=== Expected platform packages ==="
+          for dir in npm/*/; do
+            if [ -d "$dir" ] && [ -f "$dir/package.json" ]; then
+              cd "$dir"
+              PACKAGE_NAME=$(node -p "require('./package.json').name")
+              echo "- $PACKAGE_NAME@$MAIN_VERSION"
+              cd ../..
+            fi
+          done
+          
+          # Wait longer for NPM to propagate (platform packages can take time)
+          echo "Waiting 30 seconds for NPM propagation..."
+          sleep 30
+          
+          # Track verification results
+          failed_packages=()
+          verified_packages=()
+          
+          for dir in npm/*/; do
+            if [ -d "$dir" ] && [ -f "$dir/package.json" ]; then
+              cd "$dir"
+              PACKAGE_NAME=$(node -p "require('./package.json').name")
+              echo "Checking if $PACKAGE_NAME@$MAIN_VERSION is available..."
+              
+              # Try multiple times with increasing delays
+              package_found=false
+              for attempt in 1 2 3; do
+                if npm view "$PACKAGE_NAME@$MAIN_VERSION" version >/dev/null 2>&1; then
+                  echo "✓ $PACKAGE_NAME@$MAIN_VERSION is available on NPM (attempt $attempt)"
+                  verified_packages+=("$PACKAGE_NAME")
+                  package_found=true
+                  break
+                else
+                  echo "⏳ $PACKAGE_NAME@$MAIN_VERSION not found yet (attempt $attempt/3)"
+                  if [ $attempt -lt 3 ]; then
+                    sleep 15
+                  fi
+                fi
+              done
+              
+              if [ "$package_found" = false ]; then
+                echo "✗ $PACKAGE_NAME@$MAIN_VERSION is NOT available on NPM after 3 attempts"
+                failed_packages+=("$PACKAGE_NAME")
+              fi
+              
+              cd ../..
+            fi
+          done
+          
+          # Report results
+          echo "=== Verification Results ==="
+          echo "Successfully verified packages:"
+          for pkg in "${verified_packages[@]}"; do
+            echo "  ✓ $pkg"
+          done
+          
+          if [ ${#failed_packages[@]} -gt 0 ]; then
+            echo "Failed to verify packages:"
+            for pkg in "${failed_packages[@]}"; do
+              echo "  ✗ $pkg"
+            done
+            
+            echo ""
+            echo "⚠️  Some platform packages are not yet available on NPM."
+            echo "This might be due to:"
+            echo "  - NPM propagation delays (can take several minutes)"
+            echo "  - Build failures in the matrix jobs"
+            echo "  - Publishing errors"
+            echo ""
+            echo "The main package will still be published, but users might experience"
+            echo "installation issues until all platform packages are available."
+            echo ""
+            echo "You can manually verify later by running:"
+            for pkg in "${failed_packages[@]}"; do
+              echo "  npm view $pkg@$MAIN_VERSION"
+            done
+          else
+            echo "✅ All platform packages are available on NPM!"
+          fi
+
       - name: Publish main package
         run: |
           cd bindings/nodejs
+          
           # Install dependencies including @napi-rs/cli
           npm install
+          
           # Remove any tgz files that might interfere
           rm -f *.tgz
-          npm publish --access public
+          
+          # Extract package info
+          PACKAGE_NAME=$(node -p "require('./package.json').name")
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          
+          echo "Publishing main package: $PACKAGE_NAME@$PACKAGE_VERSION"
+          
+          # Check if this version already exists on NPM
+          if npm view "$PACKAGE_NAME@$PACKAGE_VERSION" version >/dev/null 2>&1; then
+            echo "Version $PACKAGE_VERSION of $PACKAGE_NAME already exists on NPM, skipping..."
+          else
+            echo "Publishing $PACKAGE_NAME@$PACKAGE_VERSION..."
+            
+            # Verify package.json has correct optionalDependencies
+            echo "=== Checking optionalDependencies in package.json ==="
+            node -p "JSON.stringify(require('./package.json').optionalDependencies, null, 2)"
+            
+            # Run prepublish without GitHub API calls
+            npm run prepublish:ci
+            
+            # Publish main package
+            if npm publish --access public --ignore-scripts; then
+              echo "✓ Successfully published main package $PACKAGE_NAME@$PACKAGE_VERSION"
+            else
+              echo "✗ Failed to publish main package"
+              exit 1
+            fi
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Final verification
+        continue-on-error: true
+        run: |
+          cd bindings/nodejs
+          PACKAGE_NAME=$(node -p "require('./package.json').name")
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          
+          echo "=== Final verification ==="
+          echo "Waiting for NPM propagation..."
+          sleep 20
+          
+          # Try multiple times to verify main package
+          main_package_found=false
+          for attempt in 1 2 3; do
+            echo "Checking if main package is available (attempt $attempt/3)..."
+            if npm view "$PACKAGE_NAME@$PACKAGE_VERSION" version >/dev/null 2>&1; then
+              echo "✓ Main package $PACKAGE_NAME@$PACKAGE_VERSION is available on NPM"
+              main_package_found=true
+              break
+            else
+              echo "⏳ Main package not found yet, waiting..."
+              if [ $attempt -lt 3 ]; then
+                sleep 20
+              fi
+            fi
+          done
+          
+          if [ "$main_package_found" = true ]; then
+            # Test installation in a clean directory
+            cd /tmp
+            mkdir npm-test-$$
+            cd npm-test-$$
+            
+            echo "Testing installation of $PACKAGE_NAME@$PACKAGE_VERSION..."
+            if npm install "$PACKAGE_NAME@$PACKAGE_VERSION" --no-optional; then
+              echo "✓ Package installs successfully (without optional dependencies)"
+              
+              # Verify main package was installed
+              if [ -d "node_modules/$PACKAGE_NAME" ]; then
+                echo "Main package structure:"
+                ls -la "node_modules/$PACKAGE_NAME/"
+              fi
+              
+              # Try with optional dependencies (platform packages)
+              echo "Testing installation with platform packages..."
+              npm install "$PACKAGE_NAME@$PACKAGE_VERSION" || {
+                echo "⚠️  Installation with platform packages failed - this is expected if platform packages aren't available yet"
+                echo "Users can still install with --no-optional flag until platform packages propagate"
+              }
+              
+              # Check for platform-specific dependencies if they were installed
+              if [ -d "node_modules" ]; then
+                echo "Installed packages:"
+                find node_modules -name "*terminator*" -type d 2>/dev/null || echo "No platform packages found (this is OK if they haven't propagated yet)"
+              fi
+            else
+              echo "⚠️  Package installation failed - checking if it's due to missing platform packages..."
+              echo "This might be temporary while platform packages propagate to NPM"
+            fi
+            
+            # Cleanup
+            cd /tmp
+            rm -rf npm-test-$$
+            
+            echo ""
+            echo "🎉 Main package $PACKAGE_NAME@$PACKAGE_VERSION has been published!"
+            echo "📦 NPM: https://www.npmjs.com/package/$PACKAGE_NAME"
+            echo ""
+            echo "Note: If platform packages are still propagating, users can install with:"
+            echo "  npm install $PACKAGE_NAME@$PACKAGE_VERSION --no-optional"
+            echo ""
+          else
+            echo "⚠️  Main package verification failed after multiple attempts"
+            echo "This might be due to NPM propagation delays"
+            echo "Check manually: npm view $PACKAGE_NAME@$PACKAGE_VERSION"
+          fi

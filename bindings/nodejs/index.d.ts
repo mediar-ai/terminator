@@ -267,6 +267,36 @@ export declare class Desktop {
    * @returns {Promise<Array<Element>>} A list of window elements belonging to the application.
    */
   windowsForApplication(name: string): Promise<Array<Element>>
+  /**
+   * (async) Get the UI tree for all open applications in parallel.
+   *
+   * @returns {Promise<Array<UINode>>} List of UI trees for all applications.
+   */
+  getAllApplicationsTree(): Promise<Array<UINode>>
+  /**
+   * (async) Press a key globally.
+   *
+   * @param {string} key - The key to press (e.g., "Enter", "Ctrl+C", "F1").
+   */
+  pressKey(key: string): Promise<void>
+  /**
+   * (async) Zoom in by a specified number of levels.
+   *
+   * @param {number} level - Number of zoom-in steps to perform.
+   */
+  zoomIn(level: number): Promise<void>
+  /**
+   * (async) Zoom out by a specified number of levels.
+   *
+   * @param {number} level - Number of zoom-out steps to perform.
+   */
+  zoomOut(level: number): Promise<void>
+  /**
+   * (async) Set the zoom level to a specific percentage.
+   *
+   * @param {number} percentage - The zoom percentage (e.g., 100 for 100%, 150 for 150%, 50 for 50%).
+   */
+  setZoom(percentage: number): Promise<void>
 }
 /** A UI element in the accessibility tree. */
 export declare class Element {

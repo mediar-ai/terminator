@@ -13,8 +13,8 @@ pub fn evaluate(expression: &str, variables: &Value) -> bool {
     let expr = expression.trim();
 
     // Handle negation operator
-    if expr.starts_with('!') {
-        let inner_expr = expr[1..].trim();
+    if let Some(inner_expr) = expr.strip_prefix('!') {
+        let inner_expr = inner_expr.trim();
         return !evaluate(inner_expr, variables);
     }
 

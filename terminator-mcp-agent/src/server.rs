@@ -2204,6 +2204,7 @@ impl DesktopWrapper {
                     arguments: step.arguments.clone().unwrap_or(serde_json::json!({})),
                     continue_on_error: step.continue_on_error,
                     delay_ms: step.delay_ms,
+                    id: step.id.clone(),
                 };
                 SequenceItem::Tool { tool_call }
             } else if let Some(group_name) = &step.group_name {
@@ -2219,6 +2220,7 @@ impl DesktopWrapper {
                             arguments: s.arguments,
                             continue_on_error: s.continue_on_error,
                             delay_ms: s.delay_ms,
+                            id: s.id,
                         })
                         .collect(),
                     skippable: step.skippable,
@@ -2241,8 +2243,6 @@ impl DesktopWrapper {
         let mut sequence_had_errors = false;
         let mut critical_error_occurred = false;
         let start_time = chrono::Utc::now();
-        let mut last_known_pid: Option<u32> = None;
-        let mut last_known_element_selector: Option<String> = None;
 
         let mut current_index: usize = 0;
         let max_iterations = sequence_items.len() * 10; // Prevent infinite fallback loops
@@ -2318,24 +2318,16 @@ impl DesktopWrapper {
                         let mut substituted_args = tool_call.arguments.clone();
                         substitute_variables(&mut substituted_args, &execution_context);
 
-                        let (result, error_occurred, pid) = self
+                        let (result, error_occurred) = self
                             .execute_single_tool(
                                 &tool_call.tool_name,
                                 &substituted_args,
                                 tool_call.continue_on_error.unwrap_or(false),
                                 current_index,
                                 include_detailed,
+                                original_step.id.as_deref(),
                             )
                             .await;
-
-                        if let Some(p) = pid {
-                            last_known_pid = Some(p);
-                            if let Some(s) =
-                                substituted_args.get("selector").and_then(|v| v.as_str())
-                            {
-                                last_known_element_selector = Some(s.to_string());
-                            }
-                        }
 
                         final_result = result.clone();
                         if result["status"] == "success" {
@@ -2365,24 +2357,16 @@ impl DesktopWrapper {
                             let mut substituted_args = step_tool_call.arguments.clone();
                             substitute_variables(&mut substituted_args, &execution_context);
 
-                            let (result, error_occurred, pid) = self
+                            let (result, error_occurred) = self
                                 .execute_single_tool(
                                     &step_tool_call.tool_name,
                                     &substituted_args,
                                     step_tool_call.continue_on_error.unwrap_or(false),
                                     step_index,
                                     include_detailed,
+                                    step_tool_call.id.as_deref(), // Use step ID if available
                                 )
                                 .await;
-
-                            if let Some(p) = pid {
-                                last_known_pid = Some(p);
-                                if let Some(s) =
-                                    substituted_args.get("selector").and_then(|v| v.as_str())
-                                {
-                                    last_known_element_selector = Some(s.to_string());
-                                }
-                            }
 
                             group_results.push(result.clone());
 
@@ -2518,43 +2502,34 @@ impl DesktopWrapper {
             "results": results,
         });
 
+        if let Some(parser_def) = args.output_parser.as_ref() {
+            // Apply variable substitution to the output_parser field
+            let mut parser_json = parser_def.clone();
+            substitute_variables(&mut parser_json, &execution_context);
+
+            match output_parser::run_output_parser(&parser_json, &summary) {
+                Ok(Some(parsed_data)) => {
+                    if let Some(obj) = summary.as_object_mut() {
+                        obj.insert("parsed_output".to_string(), parsed_data);
+                    }
+                }
+                Ok(None) => {
+                    if let Some(obj) = summary.as_object_mut() {
+                        obj.insert("parsed_output".to_string(), json!({}));
+                    }
+                    // UI tree not found, which is not an error, just means nothing to parse.
+                }
+                Err(e) => {
+                    if let Some(obj) = summary.as_object_mut() {
+                        obj.insert("parser_error".to_string(), json!(e.to_string()));
+                    }
+                }
+            }
+        }
+
         let mut maybe_base64_image: Option<String> = None;
         if final_status != "success" {
-            let mut debug_info = json!({});
-            let mut tree_captured = false;
-
-            if let Some(pid) = last_known_pid {
-                if pid > 0 {
-                    if let Ok(tree) = self.desktop.get_window_tree(pid, None, None) {
-                        if let Ok(tree_val) = serde_json::to_value(tree) {
-                            debug_info["ui_tree"] = tree_val;
-                            debug_info["pid_used"] = json!(pid);
-                            debug_info["source"] = json!("last_known_pid");
-                            if let Some(selector) = last_known_element_selector {
-                                debug_info["last_known_selector"] = json!(selector);
-                            }
-                            tree_captured = true;
-                        }
-                    }
-                }
-            }
-
-            if !tree_captured {
-                // Fallback to focused window if we couldn't get a tree from a known PID
-                if let Ok(focused_element) = self.desktop.focused_element() {
-                    if let Ok(pid) = focused_element.process_id() {
-                        if pid > 0 {
-                            if let Ok(tree) = self.desktop.get_window_tree(pid, None, None) {
-                                if let Ok(tree_val) = serde_json::to_value(tree) {
-                                    debug_info["ui_tree"] = tree_val;
-                                    debug_info["pid_used"] = json!(pid);
-                                    debug_info["source"] = json!("focused_window_fallback");
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            let debug_info = json!({});
 
             // Capture a screenshot on failure for visual context
             if let Ok(monitor) = self.desktop.get_primary_monitor().await {
@@ -2581,33 +2556,6 @@ impl DesktopWrapper {
             }
         }
 
-        if let Some(parser_def) = args.output_parser.as_ref() {
-            // Apply variable substitution to the output_parser field
-            let mut parser_json = parser_def.clone();
-            // Refresh execution context one last time with final data
-            execution_context = serde_json::Value::Object(execution_context_map.clone());
-            substitute_variables(&mut parser_json, &execution_context);
-
-            match output_parser::run_output_parser(&parser_json, &summary) {
-                Ok(Some(parsed_data)) => {
-                    if let Some(obj) = summary.as_object_mut() {
-                        obj.insert("parsed_output".to_string(), parsed_data);
-                    }
-                }
-                Ok(None) => {
-                    if let Some(obj) = summary.as_object_mut() {
-                        obj.insert("parsed_output".to_string(), json!({}));
-                    }
-                    // UI tree not found, which is not an error, just means nothing to parse.
-                }
-                Err(e) => {
-                    if let Some(obj) = summary.as_object_mut() {
-                        obj.insert("parser_error".to_string(), json!(e.to_string()));
-                    }
-                }
-            }
-        }
-
         let mut contents = vec![Content::json(summary)?];
         if let Some(base64_image) = maybe_base64_image {
             contents.push(Content::image(base64_image, "image/png".to_string()));
@@ -2623,7 +2571,8 @@ impl DesktopWrapper {
         is_skippable: bool,
         index: usize,
         include_detailed: bool,
-    ) -> (serde_json::Value, bool, Option<u32>) {
+        step_id: Option<&str>,
+    ) -> (serde_json::Value, bool) {
         let tool_start_time = chrono::Utc::now();
         let tool_name_short = tool_name
             .strip_prefix("mcp_terminator-mcp-agent_")
@@ -2634,28 +2583,12 @@ impl DesktopWrapper {
 
         let tool_result = self.dispatch_tool(tool_name_short, arguments).await;
 
-        let (processed_result, error_occurred, pid) = match tool_result {
+        let (processed_result, error_occurred) = match tool_result {
             Ok(result) => {
-                let mut pid = None;
                 let mut extracted_content = Vec::new();
 
                 for content in &result.content {
                     if let Ok(json_content) = serde_json::to_value(content) {
-                        // Try to extract PID from the JSON content of the result
-                        if pid.is_none() {
-                            pid = json_content
-                                .get("element")
-                                .and_then(|e| e.get("pid"))
-                                .and_then(|p| p.as_u64())
-                                .map(|p| p as u32);
-                        }
-                        if pid.is_none() {
-                            pid = json_content
-                                .get("application")
-                                .and_then(|e| e.get("pid"))
-                                .and_then(|p| p.as_u64())
-                                .map(|p| p as u32);
-                        }
                         extracted_content.push(json_content);
                     } else {
                         extracted_content.push(
@@ -2670,18 +2603,28 @@ impl DesktopWrapper {
                     json!({ "type": "summary", "content": "Tool executed successfully", "content_count": result.content.len() })
                 };
                 let duration_ms = (chrono::Utc::now() - tool_start_time).num_milliseconds();
-                let result_json = json!({
+                let mut result_json = json!({
                     "tool_name": tool_name,
                     "index": index,
                     "status": "success",
                     "duration_ms": duration_ms,
                     "result": content_summary,
                 });
-                (result_json, false, pid)
+
+                // Add step_id if provided
+                if let Some(id) = step_id {
+                    if let Some(obj) = result_json.as_object_mut() {
+                        obj.insert("step_id".to_string(), json!(id));
+                    }
+                }
+
+                let result_json =
+                    serde_json::Value::Object(result_json.as_object().unwrap().clone());
+                (result_json, false)
             }
             Err(e) => {
                 let duration_ms = (chrono::Utc::now() - tool_start_time).num_milliseconds();
-                let error_result = json!({
+                let mut error_result = json!({
                     "tool_name": tool_name,
                     "index": index,
                     "status": if is_skippable { "skipped" } else { "error" },
@@ -2689,17 +2632,27 @@ impl DesktopWrapper {
                     "error": format!("{}", e),
                 });
 
+                // Add step_id if provided
+                if let Some(id) = step_id {
+                    if let Some(obj) = error_result.as_object_mut() {
+                        obj.insert("step_id".to_string(), json!(id));
+                    }
+                }
+
+                let error_result =
+                    serde_json::Value::Object(error_result.as_object().unwrap().clone());
+
                 if !is_skippable {
                     warn!(
                         "Tool '{}' at index {} failed. Reason: {}",
                         tool_name, index, e
                     );
                 }
-                (error_result, !is_skippable, None)
+                (error_result, !is_skippable)
             }
         };
 
-        (processed_result, error_occurred, pid)
+        (processed_result, error_occurred)
     }
 
     async fn dispatch_tool(

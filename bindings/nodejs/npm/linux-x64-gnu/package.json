@@ -1,24 +1,24 @@
 {
-  "name": "terminator.js-linux-x64-gnu",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/mediar-ai/terminator"
-  },
-  "os": [
-    "linux"
-  ],
   "cpu": [
     "x64"
-  ],
-  "main": "terminator.linux-x64-gnu.node",
-  "files": [
-    "terminator.linux-x64-gnu.node"
   ],
   "engines": {
     "node": ">= 10"
   },
+  "files": [
+    "terminator.linux-x64-gnu.node"
+  ],
   "libc": [
     "glibc"
   ],
-  "version": "0.8.3"
+  "main": "terminator.linux-x64-gnu.node",
+  "name": "terminator.js-linux-x64-gnu",
+  "os": [
+    "linux"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mediar-ai/terminator"
+  },
+  "version": "0.9.0"
 }

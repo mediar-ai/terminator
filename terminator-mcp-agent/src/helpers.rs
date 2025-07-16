@@ -111,8 +111,14 @@ pub fn substitute_variables(args: &mut Value, variables: &Value) {
         }
         Value::String(s) => {
             debug!("Processing string: '{}'", s);
-            // This regex finds all occurrences of {{...}} non-greedily.
-            let re = Regex::new(r"\{\{(.*?)\}\}").unwrap();
+            // This regex finds all occurrences of {{...}} and ${{...}} non-greedily.
+            // It supports the traditional `{{variable}}` style as well as the GitHub Actions
+            // style `${{ variable }}` by making the leading `$` optional.
+            // Examples matched:
+            //   "{{my_var}}"
+            //   "${{my_var}}"
+            //   "role:Button|name:${{button_name}}"
+            let re = Regex::new(r"\$?\{\{(.*?)\}\}").unwrap();
 
             // Handle full string replacement first, e.g., args is "{{my_var}}" or an expression.
             if let Some(caps) = re.captures(s) {
@@ -164,6 +170,9 @@ pub fn substitute_variables(args: &mut Value, variables: &Value) {
             let original_s = s.clone();
             let new_s = re
                 .replace_all(s, |caps: &regex::Captures| {
+                    // Because the regex allows an optional leading `$`, the capture group index
+                    // for the inner contents remains at 1 regardless of whether the `$` is
+                    // present. We therefore consistently pull out capture 1 here.
                     let inner_str = caps.get(1).unwrap().as_str().trim();
                     debug!(
                         "Found partial placeholder: '{}' with inner: '{}'",
@@ -493,6 +502,30 @@ mod tests {
     #[test]
     fn test_substitute_equality_expression() {
         let mut args = json!({"enabled": "{{quote_type == 'Face Amount'}}"});
+        let vars = json!({"quote_type": "Face Amount"});
+        substitute_variables(&mut args, &vars);
+        assert_eq!(args["enabled"], true);
+    }
+
+    #[test]
+    fn test_substitute_github_actions_style_variable() {
+        let mut args = json!({"url": "${{target_url}}"});
+        let vars = json!({"target_url": "https://github.com"});
+        substitute_variables(&mut args, &vars);
+        assert_eq!(args["url"], "https://github.com");
+    }
+
+    #[test]
+    fn test_substitute_github_actions_style_partial() {
+        let mut args = json!({"selector": "role:Button|name:${{button_name}}"});
+        let vars = json!({"button_name": "Submit"});
+        substitute_variables(&mut args, &vars);
+        assert_eq!(args["selector"], "role:Button|name:Submit");
+    }
+
+    #[test]
+    fn test_substitute_github_actions_style_expression() {
+        let mut args = json!({"enabled": "${{quote_type == 'Face Amount'}}"});
         let vars = json!({"quote_type": "Face Amount"});
         substitute_variables(&mut args, &vars);
         assert_eq!(args["enabled"], true);

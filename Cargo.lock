@@ -3572,6 +3572,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ollama-rs"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "659dd1460a1079db751a236b301e78e63486758fee7e2db1ddcd2372c264be36"
+dependencies = [
+ "async-stream",
+ "log",
+ "reqwest",
+ "schemars 1.0.4",
+ "serde",
+ "serde_json",
+ "static_assertions",
+ "thiserror 2.0.12",
+ "url",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4359,6 +4376,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "ref-cast"
+version = "1.0.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a0ae411dbe946a674d89546582cea4ba2bb8defac896622d6496f14c23ba5cf"
+dependencies = [
+ "ref-cast-impl",
+]
+
+[[package]]
+name = "ref-cast-impl"
+version = "1.0.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1165225c21bff1f3bbce98f5a1f889949bc902d3575308cc7b0de30b4f6d27c7"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "regex"
 version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4499,7 +4536,7 @@ dependencies = [
  "rand 0.9.1",
  "reqwest",
  "rmcp-macros",
- "schemars",
+ "schemars 0.8.22",
  "serde",
  "serde_json",
  "sse-stream",
@@ -4660,7 +4697,20 @@ checksum = "3fbf2ae1b8bc8e02df939598064d22402220cd5bbcca1c76f7d6a310974d5615"
 dependencies = [
  "chrono",
  "dyn-clone",
- "schemars_derive",
+ "schemars_derive 0.8.22",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "schemars"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82d20c4491bc164fa2f6c5d44565947a52ad80b9505d8e36f8d54c27c739fcd0"
+dependencies = [
+ "dyn-clone",
+ "ref-cast",
+ "schemars_derive 1.0.4",
  "serde",
  "serde_json",
 ]
@@ -4670,6 +4720,18 @@ name = "schemars_derive"
 version = "0.8.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32e265784ad618884abaea0600a9adf15393368d840e0222d101a072f3f7534d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde_derive_internals",
+ "syn",
+]
+
+[[package]]
+name = "schemars_derive"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33d020396d1d138dc19f1165df7545479dcd58d93810dc5d646a16e55abefa80"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5092,7 +5154,7 @@ dependencies = [
 
 [[package]]
 name = "terminator-cli"
-version = "0.8.5"
+version = "0.9.0"
 dependencies = [
  "anthropic-sdk",
  "anyhow",
@@ -5106,6 +5168,7 @@ dependencies = [
  "rmcp",
  "serde",
  "serde_json",
+ "serde_yaml",
  "tempfile",
  "tokio",
  "tracing",
@@ -5114,9 +5177,10 @@ dependencies = [
 
 [[package]]
 name = "terminator-mcp-agent"
-version = "0.8.5"
+version = "0.9.0"
 dependencies = [
  "anyhow",
+ "arboard",
  "axum",
  "base64 0.22.1",
  "boa_engine",
@@ -5125,7 +5189,9 @@ dependencies = [
  "futures",
  "image",
  "jsonpath_lib",
+ "ollama-rs",
  "rand 0.8.5",
+ "rdev",
  "regex",
  "reqwest",
  "rmcp",
@@ -5144,7 +5210,7 @@ dependencies = [
 
 [[package]]
 name = "terminator-node-bindings"
-version = "0.8.5"
+version = "0.9.0"
 dependencies = [
  "napi",
  "napi-build",
@@ -5156,7 +5222,7 @@ dependencies = [
 
 [[package]]
 name = "terminator-py-bindings"
-version = "0.8.5"
+version = "0.9.0"
 dependencies = [
  "pyo3",
  "pyo3-async-runtimes",
@@ -5170,7 +5236,7 @@ dependencies = [
 
 [[package]]
 name = "terminator-rs"
-version = "0.8.5"
+version = "0.9.0"
 dependencies = [
  "accessibility",
  "accessibility-sys",
@@ -5208,7 +5274,7 @@ dependencies = [
 
 [[package]]
 name = "terminator-workflow-recorder"
-version = "0.8.5"
+version = "0.9.0"
 dependencies = [
  "arboard",
  "async-stream",

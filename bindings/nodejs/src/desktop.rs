@@ -410,4 +410,50 @@ impl Desktop {
             .map(|windows| windows.into_iter().map(Element::from).collect())
             .map_err(map_error)
     }
+
+    // ============== ADDITIONAL MISSING METHODS ==============
+
+    /// (async) Get the UI tree for all open applications in parallel.
+    ///
+    /// @returns {Promise<Array<UINode>>} List of UI trees for all applications.
+    #[napi]
+    pub async fn get_all_applications_tree(&self) -> napi::Result<Vec<UINode>> {
+        self.inner
+            .get_all_applications_tree()
+            .await
+            .map(|trees| trees.into_iter().map(UINode::from).collect())
+            .map_err(map_error)
+    }
+
+    /// (async) Press a key globally.
+    ///
+    /// @param {string} key - The key to press (e.g., "Enter", "Ctrl+C", "F1").
+    #[napi]
+    pub async fn press_key(&self, key: String) -> napi::Result<()> {
+        self.inner.press_key(&key).await.map_err(map_error)
+    }
+
+    /// (async) Zoom in by a specified number of levels.
+    ///
+    /// @param {number} level - Number of zoom-in steps to perform.
+    #[napi]
+    pub async fn zoom_in(&self, level: u32) -> napi::Result<()> {
+        self.inner.zoom_in(level).await.map_err(map_error)
+    }
+
+    /// (async) Zoom out by a specified number of levels.
+    ///
+    /// @param {number} level - Number of zoom-out steps to perform.
+    #[napi]
+    pub async fn zoom_out(&self, level: u32) -> napi::Result<()> {
+        self.inner.zoom_out(level).await.map_err(map_error)
+    }
+
+    /// (async) Set the zoom level to a specific percentage.
+    ///
+    /// @param {number} percentage - The zoom percentage (e.g., 100 for 100%, 150 for 150%, 50 for 50%).
+    #[napi]
+    pub async fn set_zoom(&self, percentage: u32) -> napi::Result<()> {
+        self.inner.set_zoom(percentage).await.map_err(map_error)
+    }
 }

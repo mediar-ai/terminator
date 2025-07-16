@@ -764,6 +764,10 @@ impl UIElementImpl for MacOSUIElement {
                 is_focused: self.is_focused().ok(),
                 enabled: self.is_enabled().ok(),
                 bounds: None, // Will be populated by get_configurable_attributes if focusable
+                is_toggled: None,
+                is_selected: None,
+                child_count: None,
+                index_in_parent: None,
             };
 
             // Special handling for window title - try multiple attributes
@@ -842,6 +846,22 @@ impl UIElementImpl for MacOSUIElement {
                 }
             }
 
+            // Populate AI layout fields
+            if let Ok(children) = self.children() {
+                attrs.child_count = Some(children.len());
+            }
+            if let Ok(Some(parent)) = self.parent() {
+                if let Ok(siblings) = parent.children() {
+                    let self_element = UIElement::new(self.clone_box());
+                    if let Some(idx) = siblings.iter().position(|e| e == &self_element) {
+                        attrs.index_in_parent = Some(idx);
+                    }
+                }
+            }
+            if let Ok(selected) = self.is_selected() {
+                attrs.is_selected = Some(selected);
+            }
+
             let duration = start.elapsed();
             debug!("Window attributes completed in {:?}", duration);
             if duration > std::time::Duration::from_millis(100) {
@@ -869,6 +889,10 @@ impl UIElementImpl for MacOSUIElement {
             is_focused: self.is_focused().ok(),
             enabled: self.is_enabled().ok(),
             bounds: None, // Will be populated by get_configurable_attributes if focusable
+            is_toggled: None,
+            is_selected: None,
+            child_count: None,
+            index_in_parent: None,
         };
 
         // Debug attribute collection
@@ -983,6 +1007,22 @@ impl UIElementImpl for MacOSUIElement {
             }
         }
         debug!("Completed processing all {} attributes", attr_names.len());
+
+        // Populate AI layout fields
+        if let Ok(children) = self.children() {
+            attrs.child_count = Some(children.len());
+        }
+        if let Ok(Some(parent)) = self.parent() {
+            if let Ok(siblings) = parent.children() {
+                let self_element = UIElement::new(self.clone_box());
+                if let Some(idx) = siblings.iter().position(|e| e == &self_element) {
+                    attrs.index_in_parent = Some(idx);
+                }
+            }
+        }
+        if let Ok(selected) = self.is_selected() {
+            attrs.is_selected = Some(selected);
+        }
 
         let duration = start.elapsed();
         debug!(

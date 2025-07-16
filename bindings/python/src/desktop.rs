@@ -512,4 +512,117 @@ impl Desktop {
             Ok(py_result)
         })
     }
+
+    // ============== END MONITOR METHODS ==============
+
+    // ============== ADDITIONAL MISSING METHODS ==============
+
+    #[pyo3(name = "get_all_applications_tree", text_signature = "($self)")]
+    /// (async) Get the UI tree for all open applications in parallel.
+    ///
+    /// Returns:
+    ///     List[UINode]: List of UI trees for all applications.
+    pub fn get_all_applications_tree<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let desktop = self.inner.clone();
+        pyo3_tokio::future_into_py_with_locals(py, TaskLocals::with_running_loop(py)?, async move {
+            let result = desktop
+                .get_all_applications_tree()
+                .await
+                .map_err(automation_error_to_pyerr)?;
+            let py_result: Vec<crate::types::UINode> =
+                result.into_iter().map(crate::types::UINode::from).collect();
+            Ok(py_result)
+        })
+    }
+
+    #[pyo3(name = "windows_for_application", text_signature = "($self, name)")]
+    /// (async) Get all window elements for a given application name.
+    ///
+    /// Args:
+    ///     name (str): The name of the application whose windows will be retrieved.
+    ///
+    /// Returns:
+    ///     List[UIElement]: A list of window elements belonging to the application.
+    pub fn windows_for_application<'py>(
+        &self,
+        py: Python<'py>,
+        name: &str,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let desktop = self.inner.clone();
+        let name = name.to_string();
+        pyo3_tokio::future_into_py_with_locals(py, TaskLocals::with_running_loop(py)?, async move {
+            let result = desktop
+                .windows_for_application(&name)
+                .await
+                .map_err(automation_error_to_pyerr)?;
+            let py_result: Vec<UIElement> =
+                result.into_iter().map(|e| UIElement { inner: e }).collect();
+            Ok(py_result)
+        })
+    }
+
+    #[pyo3(name = "press_key", text_signature = "($self, key)")]
+    /// (async) Press a key globally.
+    ///
+    /// Args:
+    ///     key (str): The key to press (e.g., "Enter", "Ctrl+C", "F1").
+    pub fn press_key<'py>(&self, py: Python<'py>, key: &str) -> PyResult<Bound<'py, PyAny>> {
+        let desktop = self.inner.clone();
+        let key = key.to_string();
+        pyo3_tokio::future_into_py_with_locals(py, TaskLocals::with_running_loop(py)?, async move {
+            desktop
+                .press_key(&key)
+                .await
+                .map_err(automation_error_to_pyerr)?;
+            Ok(())
+        })
+    }
+
+    #[pyo3(name = "zoom_in", text_signature = "($self, level)")]
+    /// (async) Zoom in by a specified number of levels.
+    ///
+    /// Args:
+    ///     level (int): Number of zoom-in steps to perform.
+    pub fn zoom_in<'py>(&self, py: Python<'py>, level: u32) -> PyResult<Bound<'py, PyAny>> {
+        let desktop = self.inner.clone();
+        pyo3_tokio::future_into_py_with_locals(py, TaskLocals::with_running_loop(py)?, async move {
+            desktop
+                .zoom_in(level)
+                .await
+                .map_err(automation_error_to_pyerr)?;
+            Ok(())
+        })
+    }
+
+    #[pyo3(name = "zoom_out", text_signature = "($self, level)")]
+    /// (async) Zoom out by a specified number of levels.
+    ///
+    /// Args:
+    ///     level (int): Number of zoom-out steps to perform.
+    pub fn zoom_out<'py>(&self, py: Python<'py>, level: u32) -> PyResult<Bound<'py, PyAny>> {
+        let desktop = self.inner.clone();
+        pyo3_tokio::future_into_py_with_locals(py, TaskLocals::with_running_loop(py)?, async move {
+            desktop
+                .zoom_out(level)
+                .await
+                .map_err(automation_error_to_pyerr)?;
+            Ok(())
+        })
+    }
+
+    #[pyo3(name = "set_zoom", text_signature = "($self, percentage)")]
+    /// (async) Set the zoom level to a specific percentage.
+    ///
+    /// Args:
+    ///     percentage (int): The zoom percentage (e.g., 100 for 100%, 150 for 150%, 50 for 50%).
+    pub fn set_zoom<'py>(&self, py: Python<'py>, percentage: u32) -> PyResult<Bound<'py, PyAny>> {
+        let desktop = self.inner.clone();
+        pyo3_tokio::future_into_py_with_locals(py, TaskLocals::with_running_loop(py)?, async move {
+            desktop
+                .set_zoom(percentage)
+                .await
+                .map_err(automation_error_to_pyerr)?;
+            Ok(())
+        })
+    }
 }

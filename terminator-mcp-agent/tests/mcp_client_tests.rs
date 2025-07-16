@@ -803,7 +803,7 @@ mod run_javascript {
             // Check if we got an object back rather than specific properties
             if js_result.is_object() {
                 // Object was returned successfully
-                assert!(true);
+                // No assertion needed - the fact that we got an object is the test
             } else {
                 // Check basic properties if available
                 if let Some(msg) = js_result.get("message") {
