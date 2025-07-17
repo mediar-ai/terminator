@@ -35,7 +35,7 @@ base64 = "0.22.1"
 clap = { version = "4.5", features = ["derive"] }
 axum = "0.8"
 terminator-workflow-recorder = { path = "../terminator-workflow-recorder" }
-jsonpath_lib = "0.3.0"
+jsonpath-rust = "0.3"
 regex = { workspace = true }
 
 boa_engine = "0.20.0"
