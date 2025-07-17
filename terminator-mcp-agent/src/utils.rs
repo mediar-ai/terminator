@@ -480,7 +480,8 @@ pub struct SequenceStep {
     pub tool_name: Option<String>,
     #[schemars(description = "The arguments for the tool (for single tool steps)")]
     pub arguments: Option<serde_json::Value>,
-    #[schemars(description = "Continue on error flag (for single tool steps)")]
+    #[schemars(description = "Whether to continue execution when this step (or group) fails. Alias: `skippable`.")]
+    #[serde(alias = "skippable")]
     pub continue_on_error: Option<bool>,
     #[schemars(description = "Delay after execution (for single tool steps)")]
     pub delay_ms: Option<u64>,
@@ -488,8 +489,6 @@ pub struct SequenceStep {
     pub group_name: Option<String>,
     #[schemars(description = "Steps in the group (for grouped steps)")]
     pub steps: Option<Vec<ToolCall>>,
-    #[schemars(description = "Whether the group is skippable on error (for grouped steps)")]
-    pub skippable: Option<bool>,
     #[serde(rename = "if", skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "An optional expression to determine if this step should run. e.g., \"policy.use_max_budget == true\" or \"contains(policy.product_types, 'FEX')\""
@@ -569,7 +568,8 @@ pub struct VariableDefinition {
 pub struct ToolGroup {
     pub group_name: String,
     pub steps: Vec<ToolCall>,
-    pub skippable: Option<bool>,
+    #[serde(alias = "skippable")]
+    pub continue_on_error: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

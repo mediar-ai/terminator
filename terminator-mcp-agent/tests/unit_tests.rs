@@ -137,12 +137,12 @@ fn test_sequence_step_with_group() {
             "tool_name": "tool1",
             "arguments": {"param": "value"}
         }],
-        "skippable": true
+        "continue_on_error": true
     }"#;
 
     let step: SequenceStep = serde_json::from_str(json_str).unwrap();
     assert_eq!(step.group_name, Some("test_group".to_string()));
-    assert_eq!(step.skippable, Some(true));
+    assert_eq!(step.continue_on_error, Some(true));
     assert!(step.steps.is_some());
     assert_eq!(step.steps.as_ref().unwrap().len(), 1);
     assert_eq!(step.steps.as_ref().unwrap()[0].tool_name, "tool1");

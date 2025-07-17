@@ -2215,7 +2215,7 @@ impl DesktopWrapper {
                             id: s.id,
                         })
                         .collect(),
-                    skippable: step.skippable,
+                    continue_on_error: step.continue_on_error,
                 };
                 SequenceItem::Group { tool_group }
             } else {
@@ -2337,7 +2337,7 @@ impl DesktopWrapper {
                     SequenceItem::Group { tool_group } => {
                         let mut group_had_errors = false;
                         let mut group_results = Vec::new();
-                        let is_skippable = tool_group.skippable.unwrap_or(false);
+                        let is_skippable = tool_group.continue_on_error.unwrap_or(false);
 
                         for (step_index, step_tool_call) in tool_group.steps.iter_mut().enumerate()
                         {
