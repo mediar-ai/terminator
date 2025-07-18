@@ -36,6 +36,10 @@ pub enum WorkflowRecorderError {
     /// I/O error
     #[error("I/O error: {0}")]
     IoError(#[from] std::io::Error),
+
+    /// Error related to audio recording operations
+    #[error("Audio error: {0}")]
+    AudioError(String),
 }
 
 /// Result type for workflow recorder operations

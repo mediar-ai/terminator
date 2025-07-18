@@ -9,6 +9,8 @@
 mod error;
 mod events;
 mod recorder;
+#[cfg(target_os = "windows")]
+mod audio;
 
 pub use error::*;
 pub use events::{
@@ -19,6 +21,8 @@ pub use events::{
     TextInputCompletedEvent, TextInputMethod, TextSelectionEvent, WorkflowEvent,
 };
 pub use recorder::*;
+#[cfg(target_os = "windows")]
+pub use audio::AudioRecorder;
 
 #[cfg(target_os = "windows")]
 pub mod structs {
