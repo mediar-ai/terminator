@@ -11,8 +11,15 @@ use tracing::info;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
+// Optional network recorder available when compiled with the "network_capture" feature
+#[cfg(feature = "network_capture")]
+pub mod network;
+
 #[cfg(target_os = "windows")]
 pub use self::windows::*;
+
+#[cfg(feature = "network_capture")]
+pub use self::network::*;
 
 /// Performance mode for the workflow recorder
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -90,6 +97,9 @@ pub struct WorkflowRecorderConfig {
 
     /// Whether to record hotkey/shortcut events
     pub record_hotkeys: bool,
+
+    /// Whether to record network traffic (requires the "network_capture" cargo feature)
+    pub record_network: bool,
 
     pub record_text_input_completion: bool,
 
@@ -177,6 +187,7 @@ impl Default for WorkflowRecorderConfig {
             capture_ui_elements: true,
             record_clipboard: true,
             record_hotkeys: true,
+            record_network: false,
             record_text_input_completion: true,
             record_application_switches: true, // High-level semantic events, enabled by default
             record_browser_tab_navigation: true, // High-level semantic events, enabled by default
@@ -399,6 +410,7 @@ impl Default for WorkflowRecorderConfig {
             filter_mouse_noise: false,
             filter_keyboard_noise: false,
             reduce_ui_element_capture: false,
+            record_network: false,
         }
     }
 }
@@ -468,6 +480,10 @@ pub struct WorkflowRecorder {
     /// The platform-specific recorder
     #[cfg(target_os = "windows")]
     windows_recorder: Option<WindowsRecorder>,
+
+    /// Optional network recorder (enabled with the "network_capture" feature)
+    #[cfg(feature = "network_capture")]
+    network_recorder: Option<network::NetworkRecorder>,
 }
 
 impl WorkflowRecorder {
@@ -482,6 +498,8 @@ impl WorkflowRecorder {
             config,
             #[cfg(target_os = "windows")]
             windows_recorder: None,
+            #[cfg(feature = "network_capture")]
+            network_recorder: None,
         }
     }
 
@@ -508,6 +526,13 @@ impl WorkflowRecorder {
             let windows_recorder = WindowsRecorder::new(self.config.clone(), event_tx).await?;
             self.windows_recorder = Some(windows_recorder);
 
+            // Start network recorder if enabled in config and feature is active
+            #[cfg(feature = "network_capture")]
+            if self.config.record_network {
+                let net_recorder = network::NetworkRecorder::new(self.event_tx.clone()).await?;
+                self.network_recorder = Some(net_recorder);
+            }
+
             // Start the event processing task
             let event_rx = self.event_tx.subscribe();
             tokio::spawn(async move {
@@ -533,6 +558,12 @@ impl WorkflowRecorder {
         {
             if let Some(windows_recorder) = self.windows_recorder.take() {
                 windows_recorder.stop()?;
+            }
+
+            // Stop network recorder if running
+            #[cfg(feature = "network_capture")]
+            if let Some(net_recorder) = self.network_recorder.take() {
+                net_recorder.stop().await?;
             }
         }
 

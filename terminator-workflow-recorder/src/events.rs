@@ -345,6 +345,9 @@ pub enum WorkflowEvent {
 
     /// High-level button click event
     ButtonClick(ButtonClickEvent),
+
+    /// A network packet event
+    Network(NetworkEvent),
 }
 
 impl WorkflowEvent {
@@ -361,6 +364,7 @@ impl WorkflowEvent {
             WorkflowEvent::ApplicationSwitch(e) => &e.metadata,
             WorkflowEvent::BrowserTabNavigation(e) => &e.metadata,
             WorkflowEvent::ButtonClick(e) => &e.metadata,
+            WorkflowEvent::Network(e) => &e.metadata,
         }
     }
 
@@ -377,6 +381,7 @@ impl WorkflowEvent {
             WorkflowEvent::ApplicationSwitch(e) => &mut e.metadata,
             WorkflowEvent::BrowserTabNavigation(e) => &mut e.metadata,
             WorkflowEvent::ButtonClick(e) => &mut e.metadata,
+            WorkflowEvent::Network(e) => &mut e.metadata,
         }
     }
 
@@ -660,6 +665,33 @@ pub struct BrowserTabNavigationEvent {
     /// Whether this was a back/forward navigation
     pub is_back_forward: bool,
     /// Event metadata
+    pub metadata: EventMetadata,
+}
+
+/// Represents a network packet event captured during recording
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkEvent {
+    /// Protocol name, e.g. "TCP", "UDP", "ICMP", "HTTP"
+    pub protocol: String,
+
+    /// Source IP address (string representation)
+    pub src_ip: String,
+
+    /// Source port (when available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub src_port: Option<u16>,
+
+    /// Destination IP address (string representation)
+    pub dest_ip: String,
+
+    /// Destination port (when available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dest_port: Option<u16>,
+
+    /// Size of the packet payload in bytes
+    pub packet_length: usize,
+
+    /// Event metadata (timestamp only – UI element will be None)
     pub metadata: EventMetadata,
 }
 
@@ -1071,6 +1103,34 @@ impl From<&ButtonClickEvent> for SerializableButtonClickEvent {
     }
 }
 
+/// Serializable version of NetworkEvent for JSON export
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SerializableNetworkEvent {
+    pub protocol: String,
+    pub src_ip: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub src_port: Option<u16>,
+    pub dest_ip: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dest_port: Option<u16>,
+    pub packet_length: usize,
+    pub metadata: SerializableEventMetadata,
+}
+
+impl From<&NetworkEvent> for SerializableNetworkEvent {
+    fn from(event: &NetworkEvent) -> Self {
+        Self {
+            protocol: event.protocol.clone(),
+            src_ip: event.src_ip.clone(),
+            src_port: event.src_port,
+            dest_ip: event.dest_ip.clone(),
+            dest_port: event.dest_port,
+            packet_length: event.packet_length,
+            metadata: SerializableEventMetadata::from(&event.metadata),
+        }
+    }
+}
+
 /// Serializable version of WorkflowEvent for JSON export
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SerializableWorkflowEvent {
@@ -1084,6 +1144,7 @@ pub enum SerializableWorkflowEvent {
     ApplicationSwitch(SerializableApplicationSwitchEvent),
     BrowserTabNavigation(SerializableBrowserTabNavigationEvent),
     ButtonClick(SerializableButtonClickEvent),
+    Network(SerializableNetworkEvent),
 }
 
 impl From<&WorkflowEvent> for SerializableWorkflowEvent {
@@ -1105,6 +1166,7 @@ impl From<&WorkflowEvent> for SerializableWorkflowEvent {
                 SerializableWorkflowEvent::BrowserTabNavigation(e.into())
             }
             WorkflowEvent::ButtonClick(e) => SerializableWorkflowEvent::ButtonClick(e.into()),
+            WorkflowEvent::Network(e) => SerializableWorkflowEvent::Network(SerializableNetworkEvent::from(e)),
         }
     }
 }
