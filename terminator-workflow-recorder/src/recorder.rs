@@ -1,12 +1,15 @@
 use crate::{RecordedWorkflow, Result, WorkflowEvent, WorkflowRecorderError};
 use std::{
     collections::HashSet,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 use tokio::sync::broadcast;
 use tokio_stream::Stream;
 use tracing::info;
+
+#[cfg(target_os = "windows")]
+use crate::audio::AudioRecorder;
 
 #[cfg(target_os = "windows")]
 pub mod windows;
@@ -50,6 +53,8 @@ impl PerformanceMode {
             reduce_ui_element_capture: true,
             record_text_input_completion: false, // Disable high-overhead feature
             mouse_move_throttle_ms: 500,         // Very slow mouse tracking
+            record_audio: true,
+            audio_output_path: None,
             ..WorkflowRecorderConfig::default()
         }
     }
@@ -68,6 +73,8 @@ impl PerformanceMode {
             performance_mode: PerformanceMode::Balanced,
             filter_mouse_noise: true,    // Skip mouse moves/scrolls
             mouse_move_throttle_ms: 200, // Moderate mouse tracking
+            record_audio: true,
+            audio_output_path: None,
             ..WorkflowRecorderConfig::default()
         }
     }
@@ -167,6 +174,13 @@ pub struct WorkflowRecorderConfig {
 
     /// Reduce expensive UI element capture operations
     pub reduce_ui_element_capture: bool,
+
+    /// Whether to record audio (microphone input)
+    pub record_audio: bool,
+
+    /// Optional path to store the recorded audio. If None, a default file name
+    /// based on the workflow name will be created in the current working directory.
+    pub audio_output_path: Option<PathBuf>,
 }
 
 impl Default for WorkflowRecorderConfig {
@@ -399,6 +413,8 @@ impl Default for WorkflowRecorderConfig {
             filter_mouse_noise: false,
             filter_keyboard_noise: false,
             reduce_ui_element_capture: false,
+            record_audio: true,
+            audio_output_path: None,
         }
     }
 }
@@ -465,6 +481,10 @@ pub struct WorkflowRecorder {
     /// The configuration
     config: WorkflowRecorderConfig,
 
+    /// Optional audio recorder (Windows only)
+    #[cfg(target_os = "windows")]
+    audio_recorder: Option<AudioRecorder>,
+
     /// The platform-specific recorder
     #[cfg(target_os = "windows")]
     windows_recorder: Option<WindowsRecorder>,
@@ -480,6 +500,8 @@ impl WorkflowRecorder {
             workflow,
             event_tx,
             config,
+            #[cfg(target_os = "windows")]
+            audio_recorder: None,
             #[cfg(target_os = "windows")]
             windows_recorder: None,
         }
@@ -508,6 +530,23 @@ impl WorkflowRecorder {
             let windows_recorder = WindowsRecorder::new(self.config.clone(), event_tx).await?;
             self.windows_recorder = Some(windows_recorder);
 
+            // If audio recording is enabled, spin it up.
+            if self.config.record_audio {
+                let audio_path = if let Some(ref p) = self.config.audio_output_path {
+                    p.clone()
+                } else {
+                    let wf_name = {
+                        let wf = self.workflow.lock().unwrap();
+                        wf.name.clone()
+                    };
+                    PathBuf::from(format!("{wf_name}_audio.wav"))
+                };
+
+                let mut audio_recorder = AudioRecorder::new(audio_path);
+                audio_recorder.start()?;
+                self.audio_recorder = Some(audio_recorder);
+            }
+
             // Start the event processing task
             let event_rx = self.event_tx.subscribe();
             tokio::spawn(async move {
@@ -528,6 +567,16 @@ impl WorkflowRecorder {
     /// Stop recording
     pub async fn stop(&mut self) -> Result<()> {
         info!("Stopping workflow recording");
+
+        #[cfg(target_os = "windows")]
+        {
+            // Stop audio first so that it captures all remaining samples before
+            // we shut down the rest of the recorder.
+            if let Some(recorder) = self.audio_recorder.as_mut() {
+                recorder.stop()?;
+            }
+            self.audio_recorder = None;
+        }
 
         #[cfg(target_os = "windows")]
         {
