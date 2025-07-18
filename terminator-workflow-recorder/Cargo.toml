@@ -32,6 +32,15 @@ rdev = "0.5.2"
 notify = "8.0"
 arboard = "3.0"
 
+# Optional network capture dependencies
+pcap = { version = "0.10", optional = true }
+etherparse = { version = "0.13", optional = true }
+
+[features]
+default = []
+# Enable passive network capture (requires libpcap on the target machine)
+network_capture = ["pcap", "etherparse"]
+
 [dev-dependencies]
 terminator = { workspace = true }
 tempfile = "3.0"
