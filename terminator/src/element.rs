@@ -1117,3 +1117,165 @@ async fn find_element_in_tree(
 
     None
 }
+
+// === BEGIN: Process-based element for Session 0 compatibility ===
+
+/// Lightweight implementation of `UIElementImpl` that represents a running
+/// process rather than a real on-screen UI element. This is used as a fallback
+/// when Terminator is executing inside Windows Session 0 where no interactive
+/// desktop is available and applications have no top-level window.
+#[derive(Clone, Debug)]
+struct ProcessUIElement {
+    pid: u32,
+    name: String,
+}
+
+impl ProcessUIElement {
+    fn new(pid: u32, name: String) -> Self {
+        Self { pid, name }
+    }
+
+    /// Helper to generate a stable object ID from the PID.
+    fn object_id_value(&self) -> usize {
+        // A simple and stable mapping is sufficient.
+        self.pid as usize
+    }
+}
+
+// Macro to quickly declare unsupported operations for process-only elements.
+macro_rules! unsupported {
+    ($feat:expr) => {
+        return Err(crate::errors::AutomationError::UnsupportedOperation(
+            format!("{} is not supported for process-based UIElement", $feat),
+        ));
+    };
+}
+
+use crate::locator::Locator;
+use crate::selector::Selector;
+use crate::{ScreenshotResult, Monitor};
+use crate::errors::AutomationError;
+
+impl UIElementImpl for ProcessUIElement {
+    fn object_id(&self) -> usize {
+        self.object_id_value()
+    }
+
+    fn id(&self) -> Option<String> {
+        Some(format!("process_{}", self.pid))
+    }
+
+    fn role(&self) -> String {
+        "Application".to_string()
+    }
+
+    fn attributes(&self) -> UIElementAttributes {
+        UIElementAttributes {
+            role: "Application".to_string(),
+            name: Some(self.name.clone()),
+            ..Default::default()
+        }
+    }
+
+    fn children(&self) -> Result<Vec<UIElement>, AutomationError> {
+        Ok(Vec::new())
+    }
+
+    fn parent(&self) -> Result<Option<UIElement>, AutomationError> {
+        Ok(None)
+    }
+
+    fn bounds(&self) -> Result<(f64, f64, f64, f64), AutomationError> {
+        unsupported!("bounds")
+    }
+
+    fn click(&self) -> Result<crate::ClickResult, AutomationError> {
+        unsupported!("click")
+    }
+
+    fn double_click(&self) -> Result<crate::ClickResult, AutomationError> {
+        unsupported!("double_click")
+    }
+
+    fn right_click(&self) -> Result<(), AutomationError> { unsupported!("right_click") }
+    fn hover(&self) -> Result<(), AutomationError> { unsupported!("hover") }
+    fn focus(&self) -> Result<(), AutomationError> { unsupported!("focus") }
+    fn invoke(&self) -> Result<(), AutomationError> { unsupported!("invoke") }
+    fn type_text(&self, _text: &str, _use_clipboard: bool) -> Result<(), AutomationError> {
+        unsupported!("type_text")
+    }
+    fn press_key(&self, _key: &str) -> Result<(), AutomationError> {
+        unsupported!("press_key")
+    }
+    fn get_text(&self, _max_depth: usize) -> Result<String, AutomationError> {
+        unsupported!("get_text")
+    }
+    fn set_value(&self, _value: &str) -> Result<(), AutomationError> { unsupported!("set_value") }
+    fn is_enabled(&self) -> Result<bool, AutomationError> { Ok(true) }
+    fn is_visible(&self) -> Result<bool, AutomationError> { Ok(true) }
+    fn is_focused(&self) -> Result<bool, AutomationError> { Ok(false) }
+    fn perform_action(&self, _action: &str) -> Result<(), AutomationError> {
+        unsupported!("perform_action")
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn create_locator(&self, _selector: Selector) -> Result<Locator, AutomationError> {
+        unsupported!("create_locator")
+    }
+    fn scroll(&self, _direction: &str, _amount: f64) -> Result<(), AutomationError> {
+        unsupported!("scroll")
+    }
+    fn activate_window(&self) -> Result<(), AutomationError> { unsupported!("activate_window") }
+    fn minimize_window(&self) -> Result<(), AutomationError> { unsupported!("minimize_window") }
+    fn maximize_window(&self) -> Result<(), AutomationError> { unsupported!("maximize_window") }
+    fn clone_box(&self) -> Box<dyn UIElementImpl> {
+        Box::new(self.clone())
+    }
+    fn is_keyboard_focusable(&self) -> Result<bool, AutomationError> { Ok(false) }
+    fn mouse_drag(&self, _sx: f64, _sy: f64, _ex: f64, _ey: f64) -> Result<(), AutomationError> {
+        unsupported!("mouse_drag")
+    }
+    fn mouse_click_and_hold(&self, _x: f64, _y: f64) -> Result<(), AutomationError> {
+        unsupported!("mouse_click_and_hold")
+    }
+    fn mouse_move(&self, _x: f64, _y: f64) -> Result<(), AutomationError> {
+        unsupported!("mouse_move")
+    }
+    fn mouse_release(&self) -> Result<(), AutomationError> { unsupported!("mouse_release") }
+    fn application(&self) -> Result<Option<UIElement>, AutomationError> { Ok(None) }
+    fn window(&self) -> Result<Option<UIElement>, AutomationError> { Ok(None) }
+    fn highlight(&self, _color: Option<u32>, _duration: Option<std::time::Duration>) -> Result<(), AutomationError> {
+        unsupported!("highlight")
+    }
+    fn set_transparency(&self, _percentage: u8) -> Result<(), AutomationError> {
+        unsupported!("set_transparency")
+    }
+    fn process_id(&self) -> Result<u32, AutomationError> { Ok(self.pid) }
+    fn capture(&self) -> Result<ScreenshotResult, AutomationError> { unsupported!("capture") }
+    fn close(&self) -> Result<(), AutomationError> { unsupported!("close") }
+    fn url(&self) -> Option<String> { None }
+    fn select_option(&self, _option_name: &str) -> Result<(), AutomationError> {
+        unsupported!("select_option")
+    }
+    fn list_options(&self) -> Result<Vec<String>, AutomationError> { unsupported!("list_options") }
+    fn is_toggled(&self) -> Result<bool, AutomationError> { unsupported!("is_toggled") }
+    fn set_toggled(&self, _state: bool) -> Result<(), AutomationError> { unsupported!("set_toggled") }
+    fn get_range_value(&self) -> Result<f64, AutomationError> { unsupported!("get_range_value") }
+    fn set_range_value(&self, _value: f64) -> Result<(), AutomationError> { unsupported!("set_range_value") }
+    fn is_selected(&self) -> Result<bool, AutomationError> { unsupported!("is_selected") }
+    fn set_selected(&self, _state: bool) -> Result<(), AutomationError> { unsupported!("set_selected") }
+    // Use default monitor implementation
+}
+
+// === END: Process-based element for Session 0 compatibility ===
+
+// Add a helper constructor on UIElement to build a process-based element.
+impl UIElement {
+    /// Create a lightweight `UIElement` that only tracks a running process by PID.
+    /// This is primarily intended for Windows Session 0 scenarios where no
+    /// top-level window exists for the application.
+    pub fn new_from_process_id(pid: u32, app_name: &str) -> Self {
+        UIElement::new(Box::new(ProcessUIElement::new(pid, app_name.to_string())))
+    }
+}

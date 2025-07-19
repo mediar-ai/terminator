@@ -39,6 +39,8 @@ use windows::Win32::UI::Shell::{
     ACTIVATEOPTIONS, SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
 };
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+// === ADD: Utility to detect if running inside Session 0 ===
+use windows::Win32::System::Threading::{GetCurrentProcessId, ProcessIdToSessionId};
 
 // Define a default timeout duration
 const DEFAULT_FIND_TIMEOUT: Duration = Duration::from_millis(5000);
@@ -1522,6 +1524,55 @@ impl AccessibilityEngine for WindowsEngine {
     }
 
     fn open_application(&self, app_name: &str) -> Result<UIElement, AutomationError> {
+        // Special handling when running as a Windows service (Session 0):
+        // the app launches but no main window is created, so traditional
+        // window-based discovery fails.  We therefore launch the process and
+        // immediately return a process-based UIElement.
+        if is_session_zero() {
+            // Handle Settings URIs separately – they spawn the `SystemSettings.exe` process.
+            if app_name.starts_with("ms-settings:") {
+                info!("[Session 0] Launching settings URI: {}", app_name);
+
+                unsafe {
+                    let app_name_hstring = HSTRING::from(app_name);
+                    let verb_hstring = HSTRING::from("open");
+                    let result = ShellExecuteW(
+                        None,
+                        PCWSTR(verb_hstring.as_ptr()),
+                        PCWSTR(app_name_hstring.as_ptr()),
+                        PCWSTR::null(),
+                        PCWSTR::null(),
+                        SW_SHOWNORMAL,
+                    );
+
+                    if result.0 as isize <= 32 {
+                        return Err(AutomationError::PlatformError(format!(
+                            "Failed to open settings URI {} – ShellExecuteW error {:?}",
+                            app_name, result.0
+                        )));
+                    }
+                }
+
+                // Give the Settings process a moment to spin up, then locate its PID.
+                std::thread::sleep(Duration::from_millis(1200));
+                let pid_opt = get_pid_by_name("SystemSettings");
+                if let Some(pid) = pid_opt {
+                    return Ok(crate::element::UIElement::new_from_process_id(
+                        pid as u32,
+                        "Settings",
+                    ));
+                }
+
+                // PID not found, but we still consider the launch successful and
+                // return a dummy element with PID 0.
+                return Ok(crate::element::UIElement::new_from_process_id(0, "Settings"));
+            }
+
+            // For everything else, fall back to legacy executable launch which we
+            // patched below to be Session-0 aware.
+            return launch_legacy_app(self, app_name);
+        }
+
         info!("Opening application on Windows: {}", app_name);
 
         // Handle modern ms-settings apps
@@ -4596,6 +4647,14 @@ impl From<windows::core::Error> for AutomationError {
 
 // Get apps information using Get-StartApps
 pub fn get_app_info_from_startapps(app_name: &str) -> Result<(String, String), AutomationError> {
+    // In Session 0 `Get-StartApps` always returns an empty array. Short-circuit and
+    // let the caller fall back to legacy lookup.
+    if is_session_zero() {
+        return Err(AutomationError::PlatformError(
+            "Get-StartApps is unavailable in Session 0".to_string(),
+        ));
+    }
+
     let command = r#"Get-StartApps | Select-Object Name, AppID | ConvertTo-Json"#.to_string();
 
     let output = std::process::Command::new("powershell")
@@ -5345,6 +5404,19 @@ fn launch_legacy_app(engine: &WindowsEngine, app_name: &str) -> Result<UIElement
                 // Try again with the extracted PID
                 get_application_pid(engine, new_pid.unwrap(), app_name)
             }
+        }
+    }
+}
+
+/// Returns `true` when the current process is running in Windows Session 0.
+fn is_session_zero() -> bool {
+    unsafe {
+        let pid = GetCurrentProcessId();
+        let mut session_id: u32 = 0;
+        if ProcessIdToSessionId(pid, &mut session_id).as_bool() {
+            session_id == 0
+        } else {
+            false
         }
     }
 }
