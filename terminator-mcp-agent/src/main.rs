@@ -12,6 +12,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use terminator_mcp_agent::server;
 use terminator_mcp_agent::utils::init_logging;
+#[cfg(feature = "metrics")]
 use terminator_mcp_agent::metrics::Metrics;
 
 #[derive(Parser, Debug)]
@@ -55,11 +56,20 @@ async fn main() -> Result<()> {
     init_logging()?;
 
     // Initialize metrics if enabled
+    #[cfg(feature = "metrics")]
     let metrics = if args.enable_metrics {
         tracing::info!("Prometheus metrics enabled");
         Some(Arc::new(Metrics::new()))
     } else {
         tracing::info!("Prometheus metrics disabled");
+        None
+    };
+    
+    #[cfg(not(feature = "metrics"))]
+    let metrics = {
+        if args.enable_metrics {
+            tracing::warn!("Metrics requested but not compiled with metrics feature");
+        }
         None
     };
 
@@ -114,6 +124,7 @@ async fn main() -> Result<()> {
                 .nest_service("/mcp", service);
 
             // Add metrics endpoint if metrics are enabled
+            #[cfg(feature = "metrics")]
             if let Some(ref metrics_instance) = metrics {
                 router = router
                     .route("/metrics", axum::routing::get(terminator_mcp_agent::metrics::metrics_handler))
@@ -125,6 +136,7 @@ async fn main() -> Result<()> {
             println!("Streamable HTTP server running on http://{addr}");
             println!("Connect your MCP client to: http://{addr}/mcp");
             println!("Health check available at: http://{addr}/health");
+            #[cfg(feature = "metrics")]
             if metrics.is_some() {
                 println!("Metrics available at: http://{addr}/metrics");
             }

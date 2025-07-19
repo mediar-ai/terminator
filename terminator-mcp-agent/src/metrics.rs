@@ -292,3 +292,91 @@ impl HttpRequestMetrics {
 pub async fn metrics_handler() -> impl IntoResponse {
     (StatusCode::NOT_FOUND, "Metrics not enabled")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(feature = "metrics")]
+    #[test]
+    fn test_metrics_creation() {
+        let metrics = Metrics::new();
+        assert!(metrics.registry.gather().len() > 0);
+    }
+
+    #[cfg(feature = "metrics")]
+    #[test]
+    fn test_tool_call_tracking() {
+        let metrics = Metrics::new();
+        let tracker = metrics.tool_call_start("test_tool");
+        
+        // Test successful completion
+        tracker.success();
+        
+        // Verify metrics were recorded
+        let metric_families = metrics.registry.gather();
+        let tool_calls_metric = metric_families
+            .iter()
+            .find(|mf| mf.get_name() == "mcp_tool_calls_total");
+        assert!(tool_calls_metric.is_some());
+    }
+
+    #[cfg(feature = "metrics")]
+    #[test]
+    fn test_tool_call_error_tracking() {
+        let metrics = Metrics::new();
+        let tracker = metrics.tool_call_start("test_tool");
+        
+        // Test error completion
+        tracker.error("test_error");
+        
+        // Verify metrics were recorded
+        let metric_families = metrics.registry.gather();
+        let tool_calls_metric = metric_families
+            .iter()
+            .find(|mf| mf.get_name() == "mcp_tool_calls_total");
+        assert!(tool_calls_metric.is_some());
+    }
+
+    #[cfg(feature = "metrics")]
+    #[test]
+    fn test_http_request_tracking() {
+        let metrics = Metrics::new();
+        let tracker = metrics.http_request_start("GET", "/test");
+        
+        tracker.finish(200);
+        
+        // Verify metrics were recorded
+        let metric_families = metrics.registry.gather();
+        let http_requests_metric = metric_families
+            .iter()
+            .find(|mf| mf.get_name() == "mcp_http_requests_total");
+        assert!(http_requests_metric.is_some());
+    }
+
+    #[cfg(feature = "metrics")]
+    #[test]
+    fn test_prometheus_export() {
+        let metrics = Metrics::new();
+        
+        // Record some sample metrics
+        let tool_tracker = metrics.tool_call_start("sample_tool");
+        tool_tracker.success();
+        
+        let http_tracker = metrics.http_request_start("POST", "/mcp");
+        http_tracker.finish(200);
+        
+        // Test that we can export metrics
+        let metric_families = metrics.registry.gather();
+        assert!(metric_families.len() > 0);
+        
+        // Test text format encoding
+        let encoder = TextEncoder::new();
+        let mut buffer = Vec::new();
+        encoder.encode(&metric_families, &mut buffer).unwrap();
+        let metrics_text = String::from_utf8(buffer).unwrap();
+        
+        assert!(metrics_text.contains("mcp_tool_calls_total"));
+        assert!(metrics_text.contains("mcp_http_requests_total"));
+    }
+}

@@ -3,6 +3,9 @@ use crate::helpers::*;
 use crate::output_parser;
 use crate::scripting_engine;
 use crate::utils::find_and_execute_with_retry_with_fallback;
+#[cfg(feature = "metrics")]
+use crate::utils::with_metrics;
+#[cfg(not(feature = "metrics"))]
 use crate::utils::with_metrics;
 pub use crate::utils::DesktopWrapper;
 use crate::utils::WaitForOutputParserArgs;
@@ -91,6 +94,7 @@ impl DesktopWrapper {
         Self::with_metrics(None).await
     }
 
+    #[cfg(feature = "metrics")]
     pub async fn with_metrics(metrics: Option<Arc<crate::metrics::Metrics>>) -> Result<Self, McpError> {
         #[cfg(any(target_os = "windows", target_os = "linux"))]
         let desktop = match Desktop::new(false, false) {
@@ -119,6 +123,37 @@ impl DesktopWrapper {
             tool_router: Self::tool_router(),
             recorder: Arc::new(Mutex::new(None)),
             metrics,
+        })
+    }
+
+    #[cfg(not(feature = "metrics"))]
+    pub async fn with_metrics(_metrics: Option<Arc<()>>) -> Result<Self, McpError> {
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
+        let desktop = match Desktop::new(false, false) {
+            Ok(d) => d,
+            Err(e) => {
+                return Err(McpError::internal_error(
+                    "Failed to initialize terminator desktop",
+                    serde_json::to_value(e.to_string()).ok(),
+                ))
+            }
+        };
+
+        #[cfg(target_os = "macos")]
+        let desktop = match Desktop::new(true, true) {
+            Ok(d) => d,
+            Err(e) => {
+                return Err(McpError::internal_error(
+                    "Failed to initialize terminator desktop",
+                    serde_json::to_value(e.to_string()).ok(),
+                ))
+            }
+        };
+
+        Ok(Self {
+            desktop: Arc::new(desktop),
+            tool_router: Self::tool_router(),
+            recorder: Arc::new(Mutex::new(None)),
         })
     }
 

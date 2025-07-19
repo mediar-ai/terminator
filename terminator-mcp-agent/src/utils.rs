@@ -10,9 +10,11 @@ use tokio::sync::Mutex;
 use tracing::{warn, Level};
 use tracing_subscriber::EnvFilter;
 
+#[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
 
 /// Macro to add metrics tracking to tool implementations
+#[cfg(feature = "metrics")]
 macro_rules! with_metrics {
     ($self:expr, $tool_name:expr, $body:expr) => {
         {
@@ -36,6 +38,14 @@ macro_rules! with_metrics {
             
             result
         }
+    };
+}
+
+/// No-op version when metrics feature is disabled
+#[cfg(not(feature = "metrics"))]
+macro_rules! with_metrics {
+    ($self:expr, $tool_name:expr, $body:expr) => {
+        $body
     };
 }
 
@@ -67,6 +77,7 @@ pub struct DesktopWrapper {
     pub tool_router: rmcp::handler::server::tool::ToolRouter<Self>,
     #[serde(skip)]
     pub recorder: Arc<Mutex<Option<terminator_workflow_recorder::WorkflowRecorder>>>,
+    #[cfg(feature = "metrics")]
     #[serde(skip)]
     pub metrics: Option<Arc<Metrics>>,
 }
