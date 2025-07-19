@@ -10,6 +10,37 @@ use tokio::sync::Mutex;
 use tracing::{warn, Level};
 use tracing_subscriber::EnvFilter;
 
+use crate::metrics::Metrics;
+
+/// Macro to add metrics tracking to tool implementations
+macro_rules! with_metrics {
+    ($self:expr, $tool_name:expr, $body:expr) => {
+        {
+            let metrics_tracker = $self.metrics.as_ref().map(|m| m.tool_call_start($tool_name));
+            let result = $body;
+            
+            if let Some(tracker) = metrics_tracker {
+                match &result {
+                    Ok(_) => tracker.success(),
+                    Err(e) => {
+                        let error_type = match e {
+                            rmcp::McpError::ResourceNotFound(_) => "resource_not_found",
+                            rmcp::McpError::InternalError(_) => "internal_error",
+                            rmcp::McpError::InvalidRequest(_) => "invalid_request",
+                            _ => "unknown_error",
+                        };
+                        tracker.error(error_type);
+                    }
+                }
+            }
+            
+            result
+        }
+    };
+}
+
+pub(crate) use with_metrics;
+
 // Validation helpers for better type safety
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct EmptyArgs {}
@@ -36,6 +67,8 @@ pub struct DesktopWrapper {
     pub tool_router: rmcp::handler::server::tool::ToolRouter<Self>,
     #[serde(skip)]
     pub recorder: Arc<Mutex<Option<terminator_workflow_recorder::WorkflowRecorder>>>,
+    #[serde(skip)]
+    pub metrics: Option<Arc<Metrics>>,
 }
 
 impl Default for DesktopWrapper {

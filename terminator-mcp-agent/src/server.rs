@@ -3,6 +3,7 @@ use crate::helpers::*;
 use crate::output_parser;
 use crate::scripting_engine;
 use crate::utils::find_and_execute_with_retry_with_fallback;
+use crate::utils::with_metrics;
 pub use crate::utils::DesktopWrapper;
 use crate::utils::WaitForOutputParserArgs;
 use crate::utils::{
@@ -87,6 +88,10 @@ fn is_valid_extraction(extracted_data: &serde_json::Value, criteria: &serde_json
 #[tool_router]
 impl DesktopWrapper {
     pub async fn new() -> Result<Self, McpError> {
+        Self::with_metrics(None).await
+    }
+
+    pub async fn with_metrics(metrics: Option<Arc<crate::metrics::Metrics>>) -> Result<Self, McpError> {
         #[cfg(any(target_os = "windows", target_os = "linux"))]
         let desktop = match Desktop::new(false, false) {
             Ok(d) => d,
@@ -113,6 +118,7 @@ impl DesktopWrapper {
             desktop: Arc::new(desktop),
             tool_router: Self::tool_router(),
             recorder: Arc::new(Mutex::new(None)),
+            metrics,
         })
     }
 
@@ -123,6 +129,10 @@ impl DesktopWrapper {
         &self,
         Parameters(args): Parameters<GetWindowTreeArgs>,
     ) -> Result<CallToolResult, McpError> {
+        with_metrics!(self, "get_window_tree", self._get_window_tree_impl(args).await)
+    }
+
+    async fn _get_window_tree_impl(&self, args: GetWindowTreeArgs) -> Result<CallToolResult, McpError> {
         let tree = self
             .desktop
             .get_window_tree(
@@ -131,6 +141,9 @@ impl DesktopWrapper {
                 None, // Use default config for now
             )
             .map_err(|e| {
+                if let Some(ref metrics) = self.metrics {
+                    metrics.record_error("desktop_automation", "get_window_tree");
+                }
                 McpError::resource_not_found(
                     "Failed to get window tree",
                     Some(json!({"reason": e.to_string(), "pid": args.pid, "title": args.title})),
@@ -449,6 +462,10 @@ impl DesktopWrapper {
         &self,
         Parameters(args): Parameters<ClickElementArgs>,
     ) -> Result<CallToolResult, McpError> {
+        with_metrics!(self, "click_element", self._click_element_impl(args).await)
+    }
+
+    async fn _click_element_impl(&self, args: ClickElementArgs) -> Result<CallToolResult, McpError> {
         let ((_click_result, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
@@ -462,12 +479,17 @@ impl DesktopWrapper {
             .await
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector,
-                    args.alternative_selectors.as_deref(),
-                    args.fallback_selectors.as_deref(),
-                    e,
-                )),
+                Err(e) => {
+                    if let Some(ref metrics) = self.metrics {
+                        metrics.record_error("element_not_found", "click_element");
+                    }
+                    Err(build_element_not_found_error(
+                        &args.selector,
+                        args.alternative_selectors.as_deref(),
+                        args.fallback_selectors.as_deref(),
+                        e,
+                    ))
+                },
             }?;
 
         let element_info = build_element_info(&element);

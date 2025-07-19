@@ -9,8 +9,10 @@ use rmcp::{
     ServiceExt,
 };
 use std::net::SocketAddr;
+use std::sync::Arc;
 use terminator_mcp_agent::server;
 use terminator_mcp_agent::utils::init_logging;
+use terminator_mcp_agent::metrics::Metrics;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -30,6 +32,10 @@ struct Args {
     /// Host to bind to (only used for SSE and HTTP transports)
     #[arg(long, default_value = "127.0.0.1")]
     host: String,
+
+    /// Enable Prometheus metrics collection (requires metrics feature)
+    #[arg(long, default_value = "false")]
+    enable_metrics: bool,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -48,13 +54,22 @@ async fn main() -> Result<()> {
 
     init_logging()?;
 
+    // Initialize metrics if enabled
+    let metrics = if args.enable_metrics {
+        tracing::info!("Prometheus metrics enabled");
+        Some(Arc::new(Metrics::new()))
+    } else {
+        tracing::info!("Prometheus metrics disabled");
+        None
+    };
+
     tracing::info!("Initializing Terminator MCP server...");
     tracing::info!("Transport mode: {:?}", args.transport);
 
     match args.transport {
         TransportMode::Stdio => {
             tracing::info!("Starting stdio transport...");
-            let desktop = server::DesktopWrapper::new().await?;
+            let desktop = server::DesktopWrapper::with_metrics(metrics.clone()).await?;
             let service = desktop.serve(stdio()).await.inspect_err(|e| {
                 tracing::error!("Serving error: {:?}", e);
             })?;
@@ -65,7 +80,7 @@ async fn main() -> Result<()> {
             let addr: SocketAddr = format!("{}:{}", args.host, args.port).parse()?;
             tracing::info!("Starting SSE server on http://{}", addr);
 
-            let desktop = server::DesktopWrapper::new().await?;
+            let desktop = server::DesktopWrapper::with_metrics(metrics.clone()).await?;
             let ct = SseServer::serve(addr)
                 .await?
                 .with_service(move || desktop.clone());
@@ -74,6 +89,9 @@ async fn main() -> Result<()> {
             println!("Connect your MCP client to:");
             println!("  SSE endpoint: http://{addr}/sse");
             println!("  Message endpoint: http://{addr}/message");
+            if metrics.is_some() {
+                println!("Note: Metrics are available only with HTTP transport mode");
+            }
             println!("Press Ctrl+C to stop");
 
             tokio::signal::ctrl_c().await?;
@@ -84,21 +102,32 @@ async fn main() -> Result<()> {
             let addr: SocketAddr = format!("{}:{}", args.host, args.port).parse()?;
             tracing::info!("Starting streamable HTTP server on http://{}", addr);
 
-            let desktop = server::DesktopWrapper::new().await?;
+            let desktop = server::DesktopWrapper::with_metrics(metrics.clone()).await?;
             let service = StreamableHttpService::new(
                 move || Ok(desktop.clone()),
                 LocalSessionManager::default().into(),
                 Default::default(),
             );
 
-            let router = axum::Router::new()
+            let mut router = axum::Router::new()
                 .route("/health", axum::routing::get(health_check))
                 .nest_service("/mcp", service);
+
+            // Add metrics endpoint if metrics are enabled
+            if let Some(ref metrics_instance) = metrics {
+                router = router
+                    .route("/metrics", axum::routing::get(terminator_mcp_agent::metrics::metrics_handler))
+                    .with_state(metrics_instance.clone());
+            }
+
             let tcp_listener = tokio::net::TcpListener::bind(addr).await?;
 
             println!("Streamable HTTP server running on http://{addr}");
             println!("Connect your MCP client to: http://{addr}/mcp");
             println!("Health check available at: http://{addr}/health");
+            if metrics.is_some() {
+                println!("Metrics available at: http://{addr}/metrics");
+            }
             println!("Press Ctrl+C to stop");
 
             axum::serve(tcp_listener, router)
