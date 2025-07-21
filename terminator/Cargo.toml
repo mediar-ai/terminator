@@ -60,6 +60,10 @@ windows = { version = "0.61.1", features = [
     "Win32_UI_Shell",
     "Win32_Security",
     "Win32_UI_WindowsAndMessaging",
+    # New WinRT namespaces for CoreAutomationRemoteOperation support
+    "Windows_UI_UIAutomation_Core",
+    "Windows_UI_UIAutomation",
+    "Windows_Foundation",
 ] }
 
 uiautomation = { version = "0.22.0", features = [
