@@ -46,11 +46,21 @@ reqwest = { version = "0.12.5", features = ["json"] }
 # YAML parsing support
 serde_yaml = "0.9"
 
+# Prometheus metrics (optional feature)
+prometheus = { version = "0.13", optional = true }
+tower-http = { version = "0.6", features = ["trace"], optional = true }
+tower = { version = "0.5", optional = true }
+lazy_static = { version = "1.4", optional = true }
+
 # Dependencies for AI summarizer binary - TODO add behind feature flag
 ollama-rs = "0.3.2"
 arboard = "3.6.0"
 rdev = "0.5.3"
 which = "4"
+
+[features]
+default = []
+metrics = ["prometheus", "tower-http", "tower", "lazy_static"]
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -59,6 +69,10 @@ rand = "0.8"
 [[example]]
 name = "terminator-ai-summarizer"
 path = "examples/terminator-ai-summarizer/src/main.rs"
+
+[[example]]
+name = "metrics-demo"
+path = "examples/metrics-demo.rs"
 
 [[bin]]
 name = "ai-summarizer"                                 # Your custom CLI name here
