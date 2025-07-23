@@ -9,6 +9,8 @@
 mod error;
 mod events;
 mod recorder;
+pub mod session0_launcher;
+
 
 pub use error::*;
 pub use events::{
@@ -19,6 +21,8 @@ pub use events::{
     TextInputCompletedEvent, TextInputMethod, TextSelectionEvent, WorkflowEvent,
 };
 pub use recorder::*;
+pub use session0_launcher::*;
+
 
 #[cfg(target_os = "windows")]
 pub mod structs {
