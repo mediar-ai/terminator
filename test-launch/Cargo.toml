@@ -1,0 +1,8 @@
+[package]
+name = "test-launch"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+
+[dependencies]
+windows = "0.56.0"

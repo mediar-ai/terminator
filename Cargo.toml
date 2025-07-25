@@ -6,7 +6,7 @@ members = [
     "bindings/python",
     "bindings/nodejs",
     "terminator-mcp-agent",
-    "terminator-workflow-recorder",
+    "terminator-workflow-recorder", "test-launch",
 ]
 
 
