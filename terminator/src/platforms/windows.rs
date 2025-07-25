@@ -24,16 +24,26 @@ use uiautomation::UIAutomation;
 use uni_ocr::{OcrEngine, OcrProvider};
 
 // windows imports
-use windows::core::{Error, HRESULT, HSTRING, PCWSTR};
-use windows::Win32::Foundation::{CloseHandle, HANDLE, HINSTANCE, HWND};
+use windows::core::{w, Error, HRESULT, HSTRING, PCWSTR};
+use windows::Win32::Foundation::{
+    CloseHandle, HANDLE, HINSTANCE, HWND, INVALID_HANDLE_VALUE, BOOL, PWSTR,
+};
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED,
 };
+use windows::Win32::System::Diagnostics::Debug::GetLastError;
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
 use windows::Win32::System::Registry::HKEY;
-use windows::Win32::System::Threading::GetProcessId;
+use windows::Win32::System::RemoteDesktop::{WTSGetActiveConsoleSessionId, WTSQueryUserToken};
+use windows::Win32::System::Threading::{
+    CreateProcessAsUserW, CreateProcessW, DuplicateTokenEx, GetProcessId, ProcessIdToSessionId,
+    SecurityImpersonation, TokenPrimary, CREATE_NEW_CONSOLE, CREATE_UNICODE_ENVIRONMENT,
+    NORMAL_PRIORITY_CLASS, PROCESS_INFORMATION, SECURITY_ATTRIBUTES, STARTUPINFOW,
+    TOKEN_ALL_ACCESS,
+};
+use windows::Win32::System::UserAccessAndSecurity::{CreateEnvironmentBlock, DestroyEnvironmentBlock};
 use windows::Win32::UI::Shell::{
     ApplicationActivationManager, IApplicationActivationManager, ShellExecuteExW, ShellExecuteW,
     ACTIVATEOPTIONS, SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
@@ -1557,12 +1567,14 @@ impl AccessibilityEngine for WindowsEngine {
             return launch_app(self, &app_id, &display_name);
         }
 
-        // If it's not a start menu app, assume it's a legacy executable
+        // If it's not a start menu app, use the enhanced legacy launcher
         warn!(
-            "Could not find '{}' in StartApps, attempting to launch as executable.",
+            "Could not find '{}' in StartApps, attempting to launch as executable with Session 0 support.",
             app_name
         );
-        launch_legacy_app(self, app_name)
+        
+        // Use the new function with Session 0 support
+        launch_legacy_app_with_session_support(self, app_name)
     }
 
     fn open_url(
@@ -5563,66 +5575,216 @@ fn get_smart_attributes(element: &UIElement) -> UIElementAttributes {
     }
 }
 
-fn launch_legacy_app(engine: &WindowsEngine, app_name: &str) -> Result<UIElement, AutomationError> {
-    info!("Launching legacy app: {}", app_name);
+// Function to detect if running in Session 0
+fn is_running_in_session_zero() -> bool {
     unsafe {
-        // Convert app_name to wide string
-        let mut app_name_wide: Vec<u16> =
-            app_name.encode_utf16().chain(std::iter::once(0)).collect();
+        let current_session_id = WTSGetActiveConsoleSessionId();
+        let mut process_session_id: u32 = 0;
 
-        // Prepare process startup info
-        let startup_info = windows::Win32::System::Threading::STARTUPINFOW {
-            cb: std::mem::size_of::<windows::Win32::System::Threading::STARTUPINFOW>() as u32,
+        let process_id = std::process::id();
+        if ProcessIdToSessionId(process_id, &mut process_session_id).is_ok() {
+            // The process is in session 0, and there is an active user session.
+            return process_session_id == 0
+                && current_session_id != 0
+                && current_session_id != 0xFFFFFFFF;
+        }
+
+        false
+    }
+}
+
+// Function to launch process in user session
+fn launch_process_in_user_session(
+    application_path: &str,
+    command_line: Option<&str>,
+    working_directory: Option<&str>,
+) -> Result<u32, AutomationError> {
+    unsafe {
+        // Get active console session ID
+        let session_id = WTSGetActiveConsoleSessionId();
+        if session_id == 0 || session_id == 0xFFFFFFFF {
+            return Err(AutomationError::PlatformError(
+                "No active console user session found".to_string(),
+            ));
+        }
+
+        // Get user token from active session
+        let mut user_token: HANDLE = INVALID_HANDLE_VALUE;
+        if WTSQueryUserToken(session_id, &mut user_token).is_err() {
+            let error = GetLastError();
+            return Err(AutomationError::PlatformError(format!(
+                "WTSQueryUserToken failed with error: {}",
+                error.0
+            )));
+        }
+        let _user_token_guard = HandleGuard(user_token);
+
+        // Duplicate the token to create a primary token
+        let mut duplicate_token: HANDLE = INVALID_HANDLE_VALUE;
+        let mut security_attributes = SECURITY_ATTRIBUTES {
+            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: std::ptr::null_mut(),
+            bInheritHandle: BOOL::from(false),
+        };
+
+        if DuplicateTokenEx(
+            user_token,
+            TOKEN_ALL_ACCESS,
+            Some(&security_attributes),
+            SecurityImpersonation,
+            TokenPrimary,
+            &mut duplicate_token,
+        )
+        .is_err()
+        {
+            let error = GetLastError();
+            return Err(AutomationError::PlatformError(format!(
+                "DuplicateTokenEx failed with error: {}",
+                error.0
+            )));
+        }
+        let _duplicate_token_guard = HandleGuard(duplicate_token);
+
+        // Create environment block for the user
+        let mut penv: *mut std::ffi::c_void = std::ptr::null_mut();
+        if CreateEnvironmentBlock(&mut penv, duplicate_token, false).is_err() {
+            let error = GetLastError();
+            return Err(AutomationError::PlatformError(format!(
+                "CreateEnvironmentBlock failed with error: {}",
+                error.0
+            )));
+        }
+
+        // Prepare startup information
+        let desktop_name = w!("winsta0\\default");
+        let mut startup_info = STARTUPINFOW {
+            cb: std::mem::size_of::<STARTUPINFOW>() as u32,
+            lpDesktop: PWSTR(desktop_name.as_ptr() as *mut u16),
             ..Default::default()
         };
 
-        // Prepare process info
-        let mut process_info = windows::Win32::System::Threading::PROCESS_INFORMATION::default();
+        let mut process_info = PROCESS_INFORMATION::default();
 
-        // Create the process
-        let result = windows::Win32::System::Threading::CreateProcessW(
-            None, // Application name (null means use command line)
-            Some(windows::core::PWSTR::from_raw(app_name_wide.as_mut_ptr())), // Command line
-            None, // Process security attributes
-            None, // Thread security attributes
-            false, // Inherit handles
-            windows::Win32::System::Threading::CREATE_NEW_CONSOLE, // Creation flags
-            None, // Environment
-            None, // Current directory
+        // Prepare command line - CreateProcessAsUserW can modify it
+        let mut cmd_line_buffer: Vec<u16> = Vec::new();
+
+        // Build command line: "application_path" arguments
+        let full_command = if let Some(args) = command_line {
+            format!("\"{}\" {}", application_path, args)
+        } else {
+            format!("\"{}\"", application_path)
+        };
+
+        cmd_line_buffer.extend(full_command.encode_utf16());
+        cmd_line_buffer.push(0); // null terminator
+
+        // Working directory
+        let work_dir_wide: Option<Vec<u16>> = working_directory.map(|dir| {
+            let mut buffer: Vec<u16> = dir.encode_utf16().collect();
+            buffer.push(0);
+            buffer
+        });
+
+        // Create process as user
+        let result = CreateProcessAsUserW(
+            duplicate_token,
+            None, // Use command line for application name
+            PWSTR(cmd_line_buffer.as_mut_ptr()),
+            Some(&security_attributes),
+            Some(&security_attributes),
+            BOOL::from(false),
+            NORMAL_PRIORITY_CLASS | CREATE_NEW_CONSOLE | CREATE_UNICODE_ENVIRONMENT,
+            Some(penv as *const std::ffi::c_void),
+            work_dir_wide.as_ref().map(|dir| PCWSTR(dir.as_ptr())),
             &startup_info,
             &mut process_info,
         );
 
+        // Clean up environment block
+        let _ = DestroyEnvironmentBlock(penv);
+
         if result.is_err() {
+            let error = GetLastError();
             return Err(AutomationError::PlatformError(format!(
-                "Failed to launch application '{app_name}'"
+                "CreateProcessAsUser failed with error: {}",
+                error.0
             )));
         }
 
-        // Close thread handle as we don't need it
-        let _ = windows::Win32::Foundation::CloseHandle(process_info.hThread);
+        // Close process and thread handles as we only need the PID
+        CloseHandle(process_info.hProcess);
+        CloseHandle(process_info.hThread);
 
-        // Store process handle in a guard to ensure it's closed
-        let _process_handle = HandleGuard(process_info.hProcess);
+        // Return process ID
+        Ok(process_info.dwProcessId)
+    }
+}
 
-        // Get the PID
-        let pid = process_info.dwProcessId as i32;
+// Enhanced legacy app launcher with Session 0 support
+fn launch_legacy_app_with_session_support(
+    engine: &WindowsEngine, 
+    app_name: &str
+) -> Result<UIElement, AutomationError> {
+    info!("Launching legacy app with session support: {}", app_name);
 
-        // Extract process name from process_info (unused variable)
-        let process_name = get_process_name_by_pid(pid).unwrap_or_else(|_| app_name.to_string());
-
-        match get_application_pid(engine, pid, app_name) {
-            Ok(app) => Ok(app),
-            Err(_) => {
-                let new_pid = get_pid_by_name(&process_name);
-                if new_pid.is_none() {
-                    return Err(AutomationError::PlatformError(format!(
-                        "Failed to get PID for launched process: {process_name}"
-                    )));
-                }
-                // Try again with the extracted PID
-                get_application_pid(engine, new_pid.unwrap(), app_name)
+    // Check if running in Session 0
+    if is_running_in_session_zero() {
+        info!("Running in Session 0, using CreateProcessAsUser approach");
+        
+        // Try launching using CreateProcessAsUser
+        match launch_process_in_user_session(app_name, None, None) {
+            Ok(pid) => {
+                info!("Successfully launched process with PID: {}", pid);
+                // Wait a moment for process to initialize
+                thread::sleep(Duration::from_millis(2000));
+                
+                // Try to get UI element by PID
+                return engine.get_application_by_pid(pid as i32, Some(Duration::from_secs(10)));
+            }
+            Err(e) => {
+                warn!("Failed to launch via CreateProcessAsUser: {}", e);
+                // Continue with traditional method as fallback
             }
         }
+    }
+
+    // Fallback to traditional method if not in Session 0 or if Session 0 method failed
+    info!("Using traditional CreateProcessW approach");
+    
+    let mut startup_info = STARTUPINFOW {
+        cb: std::mem::size_of::<STARTUPINFOW>() as u32,
+        ..Default::default()
+    };
+    let mut process_info = PROCESS_INFORMATION::default();
+
+    // Prepare command line buffer
+    let mut cmd_line_buffer: Vec<u16> = app_name.encode_utf16().collect();
+    cmd_line_buffer.push(0); // null terminator
+
+    unsafe {
+        if CreateProcessW(
+            None, // Use command line for application name
+            PWSTR(cmd_line_buffer.as_mut_ptr()),
+            None,
+            None,
+            BOOL::from(false),
+            NORMAL_PRIORITY_CLASS,
+            None,
+            None,
+            &startup_info,
+            &mut process_info,
+        ).is_err() {
+            return Err(AutomationError::PlatformError(format!(
+                "Failed to launch legacy application: {}",
+                app_name
+            )));
+        }
+
+        let pid = process_info.dwProcessId;
+        CloseHandle(process_info.hProcess);
+        CloseHandle(process_info.hThread);
+
+        thread::sleep(Duration::from_millis(2000));
+        engine.get_application_by_pid(pid as i32, Some(Duration::from_secs(10)))
     }
 }
