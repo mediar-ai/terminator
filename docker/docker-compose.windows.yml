@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  terminator-mcp-windows:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.windows
+    container_name: terminator-mcp-windows
+    ports:
+      - "8080:8080"
+    environment:
+      # Enable verbose logging for debugging
+      - RUST_LOG=info
+      - NODE_ENV=production
+    healthcheck:
+      test: ["CMD", "powershell", "-command", "try { $r = iwr http://localhost:8080/health -UseBasicParsing -TimeoutSec 5; if ($r.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    # Windows containers require specific isolation mode
+    isolation: process
+    # Optional: Set memory limits (adjust as needed)
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+    networks:
+      - terminator-network
+
+networks:
+  terminator-network:
+    driver: nat

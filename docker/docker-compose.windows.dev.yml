@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  terminator-mcp-windows-dev:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.windows.dev
+    container_name: terminator-mcp-windows-dev
+    ports:
+      - "8080:8080"
+    environment:
+      # Enable debug logging for development
+      - RUST_LOG=debug
+      - NODE_ENV=development
+      # Optional: Add custom environment variables
+      - TERMINATOR_DEBUG=1
+    healthcheck:
+      test: ["CMD", "powershell", "-command", "try { $r = iwr http://localhost:8080/health -UseBasicParsing -TimeoutSec 5; if ($r.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s  # Longer start period for development build
+    restart: unless-stopped
+    # Windows containers require specific isolation mode
+    isolation: process
+    # Development containers may need more resources
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+    networks:
+      - terminator-dev-network
+    # Optional: Mount source code for live development (if supported)
+    # volumes:
+    #   - type: bind
+    #     source: ../terminator-mcp-agent
+    #     target: C:\app\terminator-mcp-agent
+
+networks:
+  terminator-dev-network:
+    driver: nat

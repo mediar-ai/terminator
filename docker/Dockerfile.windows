@@ -7,14 +7,43 @@ FROM mcr.microsoft.com/windows/servercore:ltsc2022
 # Set working directory
 WORKDIR C:\app
 
-# Install bun (JavaScript runtime)
-RUN powershell -c "irm bun.sh/install.ps1 | iex"
+# Install Node.js (LTS version) - more reliable than Bun for production
+RUN powershell -Command `
+    "Invoke-WebRequest -Uri 'https://nodejs.org/dist/v20.18.1/node-v20.18.1-win-x64.msi' -OutFile 'nodejs.msi'; `
+    Start-Process msiexec.exe -Wait -ArgumentList '/i nodejs.msi /quiet /norestart'; `
+    Remove-Item nodejs.msi"
+
+# Add Node.js to PATH
+RUN powershell -Command `
+    "[Environment]::SetEnvironmentVariable('PATH', $env:PATH + ';C:\Program Files\nodejs', [EnvironmentVariableTarget]::Machine)"
+
+# Copy the terminator-mcp-agent package files
+COPY terminator-mcp-agent/package.json terminator-mcp-agent/package-lock.json ./
+COPY terminator-mcp-agent/index.js terminator-mcp-agent/config.js ./
+COPY terminator-mcp-agent/npm ./npm
+
+# Install npm dependencies (if any)
+RUN npm install --production
+
+# Create a startup script that properly configures the MCP agent for Docker
+RUN powershell -Command `
+    "New-Item -ItemType File -Path 'start-mcp.ps1' -Force; `
+    Set-Content -Path 'start-mcp.ps1' -Value @' `
+    Write-Host \"🤖 Starting Terminator MCP Agent in Docker Windows container...\" `
+    Write-Host \"📦 Platform: win32-x64\" `
+    Write-Host \"🌐 HTTP Transport Mode with CORS enabled\" `
+    Write-Host \"🔗 Connect to: http://container-ip:8080/mcp\" `
+    Write-Host \"💚 Health check: http://container-ip:8080/health\" `
+    Write-Host \"\" `
+    node index.js -t http --host 0.0.0.0 --port 8080 --cors `
+    '@"
 
 # Expose the MCP server port
 EXPOSE 8080
 
-# Healthcheck (optional, adjust if your agent exposes a health endpoint)
-HEALTHCHECK CMD powershell -command "try { \$r = iwr http://localhost:8080/health -UseBasicParsing; if (\$r.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }"
+# Healthcheck to verify the MCP agent is running properly
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 `
+    CMD powershell -command "try { \$r = iwr http://localhost:8080/health -UseBasicParsing -TimeoutSec 5; if (\$r.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }"
 
-# Start the MCP agent using bunx (as per official instructions)
-CMD ["bunx", "-y", "terminator-mcp-agent@latest", "-t", "http", "--port", "8080"]
+# Start the MCP agent with proper configuration for Docker
+CMD ["powershell", "-File", "start-mcp.ps1"]
