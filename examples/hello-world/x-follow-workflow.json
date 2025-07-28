@@ -1,0 +1,196 @@
+{
+  "tool_name": "execute_sequence",
+  "arguments": {
+    "variables": {
+      "url": {
+        "type": "string",
+        "label": "X.com URL",
+        "default": "https://x.com/home"
+      },
+      "scroll_times": {
+        "type": "number",
+        "label": "Number of scrolls",
+        "default": 2
+      },
+      "tweet_selector": {
+        "type": "string",
+        "label": "Tweet Cell Selector",
+        "default": "//div[@data-testid='cellInnerDiv']"
+      },
+      "caret_selector": {
+        "type": "string",
+        "label": "Tweet Dropdown Caret",
+        "default": ".//button[@data-testid='caret']"
+      },
+      "dropdown_selector": {
+        "type": "string",
+        "label": "Dropdown Menu",
+        "default": "//div[@data-testid='Dropdown']"
+      },
+      "follow_item_selector": {
+        "type": "string",
+        "label": "Follow Button in Dropdown",
+        "default": ".//div[@role='menuitem'][contains(., 'Follow') and not(contains(., 'Unfollow'))]"
+      }
+    },
+    "inputs": {
+      "url": "https://x.com/home",
+      "scroll_times": 2
+    },
+    "selectors": {
+      "browser_window": "role:Document"
+    },
+    "steps": [
+      {
+        "tool_name": "navigate_browser",
+        "arguments": {
+          "url": "{{url}}"
+        }
+      },
+      {
+        "tool_name": "wait_for_element",
+        "arguments": {
+          "selector": "{{tweet_selector}}",
+          "condition": "exists",
+          "timeout_ms": 15000
+        }
+      },
+      {
+        "group_name": "Scroll and Follow Loop",
+        "repeat": "{{scroll_times}}",
+        "steps": [
+          {
+            "tool_name": "extract_elements",
+            "arguments": {
+              "selector": "{{tweet_selector}}"
+            },
+            "outputs": {
+              "elements": "tweets"
+            }
+          },
+          {
+            "tool_name": "set_variable",
+            "arguments": {
+              "variable_name": "initial_tweet_count",
+              "value": "{{tweets.length}}"
+            }
+          },
+          {
+            "group_name": "Process Tweets",
+            "repeat": "{{tweets.length}}",
+            "steps": [
+              {
+                "tool_name": "scroll_element_into_view",
+                "arguments": {
+                  "selector": "{{tweets.[loop_index]}}"
+                }
+              },
+              {
+                "tool_name": "wait",
+                "arguments": {
+                  "duration_ms": 1000
+                }
+              },
+              {
+                "tool_name": "click_element",
+                "arguments": {
+                  "selector": "{{caret_selector}}",
+                  "base_element": "{{tweets.[loop_index]}}"
+                }
+              },
+              {
+                "tool_name": "wait_for_element",
+                "arguments": {
+                  "selector": "{{dropdown_selector}}",
+                  "condition": "exists",
+                  "timeout_ms": 10000
+                }
+              },
+              {
+                "tool_name": "if_element_exists",
+                "arguments": {
+                  "selector": "{{follow_item_selector}}",
+                  "base_element": "{{dropdown_selector}}"
+                },
+                "if_steps": [
+                  {
+                    "tool_name": "click_element",
+                    "arguments": {
+                      "selector": "{{follow_item_selector}}"
+                    }
+                  },
+                  {
+                    "tool_name": "wait",
+                    "arguments": {
+                      "duration_ms": 1500
+                    }
+                  },
+                  {
+                    "tool_name": "press_key",
+                    "arguments": {
+                      "key": "Escape"
+                    }
+                  }
+                ],
+                "else_steps": [
+                  {
+                    "tool_name": "press_key",
+                    "arguments": {
+                      "key": "Escape"
+                    }
+                  }
+                ]
+              },
+              {
+                "tool_name": "wait",
+                "arguments": {
+                  "duration_ms": 1500
+                }
+              }
+            ]
+          },
+          {
+            "tool_name": "scroll_element",
+            "arguments": {
+              "selector": "{{browser_window}}",
+              "direction": "down",
+              "amount": 1000
+            }
+          },
+          {
+            "tool_name": "wait",
+            "arguments": {
+              "duration_ms": 3000
+            }
+          },
+          {
+            "tool_name": "extract_elements",
+            "arguments": {
+              "selector": "{{tweet_selector}}"
+            },
+            "outputs": {
+              "elements": "updated_tweets"
+            }
+          },
+          {
+            "tool_name": "if_condition",
+            "arguments": {
+              "condition": "{{updated_tweets.length === initial_tweet_count}}"
+            },
+            "if_steps": [
+              {
+                "tool_name": "log",
+                "arguments": {
+                  "message": "No new tweets loaded after scroll, breaking loop."
+                }
+              },
+              {
+                "tool_name": "break_repeat"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
