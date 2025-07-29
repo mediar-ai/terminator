@@ -1,196 +1,341 @@
 {
-  "tool_name": "execute_sequence",
-  "arguments": {
-    "variables": {
-      "url": {
-        "type": "string",
-        "label": "X.com URL",
-        "default": "https://x.com/home"
+  "variables": {
+    "url": {
+      "type": "string",
+      "label": "X.com URL",
+      "default": "https://x.com/home"
+    },
+    "max_scrolls": {
+      "type": "number",
+      "label": "Number of scrolls to perform",
+      "default": 2
+    },
+    "tweet_container_selector": {
+      "type": "string",
+      "label": "Selector for individual tweet containers (cellInnerDiv)",
+      "default": "role:Group" 
+    },
+    "caret_button_selector": {
+      "type": "string",
+      "label": "Selector for the caret (more options) button",
+      "default": "role:Button" 
+    },
+    "dropdown_menu_selector": {
+      "type": "string",
+      "label": "Selector for the dropdown menu",
+      "default": "role:Menu" 
+    },
+    "follow_menu_item_selector": {
+      "type": "string",
+      "label": "Selector for the 'Follow' menu item",
+      "default": "role:MenuItem|name:Follow" 
+    },
+    "unfollow_menu_item_selector": {
+      "type": "string",
+      "label": "Selector for the 'Unfollow' menu item (to detect if already following)",
+      "default": "role:MenuItem|name:Unfollow"
+    },
+    "scrollable_feed_selector": {
+      "type": "string",
+      "label": "Selector for the main scrollable X.com feed",
+      "default": "role:Feed" 
+    }
+  },
+  "inputs": {
+    "url": "https://x.com/home",
+    "max_scrolls": 2,
+    "tweet_container_selector": "role:Group",
+    "caret_button_selector": "role:Button",
+    "dropdown_menu_selector": "role:Menu",
+    "follow_menu_item_selector": "role:MenuItem|name:Follow",
+    "unfollow_menu_item_selector": "role:MenuItem|name:Unfollow",
+    "scrollable_feed_selector": "role:Feed"
+  },
+  "selectors": {
+    "browser_window": "role:Document" 
+  },
+  "initial_variables": {
+    "start_index": 0,
+    "follow_count": 0
+  },
+  "steps": [
+    {
+      "tool_name": "navigate_browser",
+      "arguments": {
+        "url": "{{url}}"
       },
-      "scroll_times": {
-        "type": "number",
-        "label": "Number of scrolls",
-        "default": 2
-      },
-      "tweet_selector": {
-        "type": "string",
-        "label": "Tweet Cell Selector",
-        "default": "//div[@data-testid='cellInnerDiv']"
-      },
-      "caret_selector": {
-        "type": "string",
-        "label": "Tweet Dropdown Caret",
-        "default": ".//button[@data-testid='caret']"
-      },
-      "dropdown_selector": {
-        "type": "string",
-        "label": "Dropdown Menu",
-        "default": "//div[@data-testid='Dropdown']"
-      },
-      "follow_item_selector": {
-        "type": "string",
-        "label": "Follow Button in Dropdown",
-        "default": ".//div[@role='menuitem'][contains(., 'Follow') and not(contains(., 'Unfollow'))]"
+      "outputs": {
+        "pid": "browser_pid"
       }
     },
-    "inputs": {
-      "url": "https://x.com/home",
-      "scroll_times": 2
+    {
+      "tool_name": "wait_for_element",
+      "arguments": {
+        "selector": "{{selectors.browser_window}}",
+        "condition": "exists",
+        "timeout_ms": 8000
+      }
     },
-    "selectors": {
-      "browser_window": "role:Document"
-    },
-    "steps": [
-      {
-        "tool_name": "navigate_browser",
-        "arguments": {
-          "url": "{{url}}"
-        }
-      },
-      {
-        "tool_name": "wait_for_element",
-        "arguments": {
-          "selector": "{{tweet_selector}}",
-          "condition": "exists",
-          "timeout_ms": 15000
-        }
-      },
-      {
-        "group_name": "Scroll and Follow Loop",
-        "repeat": "{{scroll_times}}",
-        "steps": [
-          {
-            "tool_name": "extract_elements",
-            "arguments": {
-              "selector": "{{tweet_selector}}"
-            },
-            "outputs": {
-              "elements": "tweets"
-            }
+    {
+      "group_name": "Main Scroll Loop",
+      "repeat": "{{max_scrolls}}",
+      "steps": [
+        {
+          "tool_name": "extract_elements",
+          "arguments": {
+            "selector": "{{scrollable_feed_selector}} >> {{tweet_container_selector}}",
+            "attribute": "bounds",
+            "max_items": -1 
           },
-          {
-            "tool_name": "set_variable",
-            "arguments": {
-              "variable_name": "initial_tweet_count",
-              "value": "{{tweets.length}}"
-            }
-          },
-          {
-            "group_name": "Process Tweets",
-            "repeat": "{{tweets.length}}",
-            "steps": [
-              {
-                "tool_name": "scroll_element_into_view",
-                "arguments": {
-                  "selector": "{{tweets.[loop_index]}}"
-                }
-              },
-              {
-                "tool_name": "wait",
-                "arguments": {
-                  "duration_ms": 1000
-                }
-              },
-              {
-                "tool_name": "click_element",
-                "arguments": {
-                  "selector": "{{caret_selector}}",
-                  "base_element": "{{tweets.[loop_index]}}"
-                }
-              },
-              {
-                "tool_name": "wait_for_element",
-                "arguments": {
-                  "selector": "{{dropdown_selector}}",
-                  "condition": "exists",
-                  "timeout_ms": 10000
-                }
-              },
-              {
-                "tool_name": "if_element_exists",
-                "arguments": {
-                  "selector": "{{follow_item_selector}}",
-                  "base_element": "{{dropdown_selector}}"
-                },
-                "if_steps": [
-                  {
-                    "tool_name": "click_element",
-                    "arguments": {
-                      "selector": "{{follow_item_selector}}"
-                    }
-                  },
-                  {
-                    "tool_name": "wait",
-                    "arguments": {
-                      "duration_ms": 1500
-                    }
-                  },
-                  {
-                    "tool_name": "press_key",
-                    "arguments": {
-                      "key": "Escape"
-                    }
-                  }
-                ],
-                "else_steps": [
-                  {
-                    "tool_name": "press_key",
-                    "arguments": {
-                      "key": "Escape"
-                    }
-                  }
-                ]
-              },
-              {
-                "tool_name": "wait",
-                "arguments": {
-                  "duration_ms": 1500
-                }
-              }
-            ]
-          },
-          {
-            "tool_name": "scroll_element",
-            "arguments": {
-              "selector": "{{browser_window}}",
-              "direction": "down",
-              "amount": 1000
-            }
-          },
-          {
-            "tool_name": "wait",
-            "arguments": {
-              "duration_ms": 3000
-            }
-          },
-          {
-            "tool_name": "extract_elements",
-            "arguments": {
-              "selector": "{{tweet_selector}}"
-            },
-            "outputs": {
-              "elements": "updated_tweets"
-            }
-          },
-          {
-            "tool_name": "if_condition",
-            "arguments": {
-              "condition": "{{updated_tweets.length === initial_tweet_count}}"
-            },
-            "if_steps": [
-              {
-                "tool_name": "log",
-                "arguments": {
-                  "message": "No new tweets loaded after scroll, breaking loop."
-                }
-              },
-              {
-                "tool_name": "break_repeat"
-              } 
-            ]
+          "outputs": {
+            "items": "all_tweet_elements"
           }
-        ]
+        },
+        {
+          "tool_name": "log",
+          "arguments": {
+            "message": "Found {{all_tweet_elements.length}} tweet elements. Processing from index {{start_index}}."
+          }
+        },
+        {
+          "group_name": "Process Individual Tweets",
+          "repeat": "{{all_tweet_elements.length}}",
+          "repeat_from_index": "{{start_index}}", 
+          "steps": [
+            {
+              "tool_name": "get_element_by_index",
+              "arguments": {
+                "list": "{{all_tweet_elements}}",
+                "index": "{{loop_index}}"
+              },
+              "outputs": {
+                "element": "current_tweet"
+              }
+            },
+            {
+              "group_name": "Handle Current Tweet",
+              "try_catch": true, 
+              "try": [
+                {
+                  "tool_name": "find_element",
+                  "arguments": {
+                    "selector": "{{current_tweet}} >> {{caret_button_selector}}",
+                    "condition": "exists",
+                    "timeout_ms": 10000 
+                  },
+                  "outputs": {
+                    "element": "caret_button"
+                  }
+                },
+                {
+                  "tool_name": "log",
+                  "arguments": {
+                    "message": "Page is ready! Caret found for tweet index {{loop_index}}."
+                  }
+                },
+                {
+                  "tool_name": "scroll_into_view",
+                  "arguments": {
+                    "selector": "{{caret_button}}",
+                    "block": "center"
+                  }
+                },
+                {
+                  "tool_name": "wait",
+                  "arguments": {
+                    "duration_ms": 2000
+                  }
+                },
+                {
+                  "tool_name": "click_element",
+                  "arguments": {
+                    "selector": "{{caret_button}}"
+                  }
+                },
+                {
+                  "tool_name": "wait",
+                  "arguments": {
+                    "duration_ms": 2000
+                  }
+                },
+                {
+                  "tool_name": "wait_for_element",
+                  "arguments": {
+                    "selector": "{{dropdown_menu_selector}}",
+                    "condition": "exists",
+                    "timeout_ms": 20000
+                  },
+                  "outputs": {
+                    "element": "dropdown"
+                  }
+                },
+                {
+                  "tool_name": "log",
+                  "arguments": {
+                    "message": "Dropdown appeared for tweet index {{loop_index}}."
+                  }
+                },
+                {
+                  "tool_name": "check_element_exists",
+                  "arguments": {
+                    "selector": "{{dropdown}} >> {{follow_menu_item_selector}}"
+                  },
+                  "outputs": {
+                    "exists": "follow_option_exists"
+                  }
+                },
+                {
+                  "group_name": "Conditional: If 'Follow' button exists",
+                  "condition": "{{follow_option_exists}}",
+                  "steps": [
+                    {
+                      "tool_name": "check_element_exists",
+                      "arguments": {
+                        "selector": "{{dropdown}} >> {{unfollow_menu_item_selector}}"
+                      },
+                      "outputs": {
+                        "exists": "unfollow_option_exists"
+                      }
+                    },
+                    {
+                      "group_name": "Conditional: If 'Unfollow' is NOT present (meaning we can follow)",
+                      "condition": "!{{unfollow_option_exists}}",
+                      "steps": [
+                        {
+                          "tool_name": "log",
+                          "arguments": {
+                            "message": "Follow button found, and user not already followed. Clicking for tweet index {{loop_index}}."
+                          }
+                        },
+                        {
+                          "tool_name": "click_element",
+                          "arguments": {
+                            "selector": "{{dropdown}} >> {{follow_menu_item_selector}}"
+                          }
+                        },
+                        {
+                          "tool_name": "wait",
+                          "arguments": {
+                            "duration_ms": 3000
+                          }
+                        },
+                        {
+                          "tool_name": "send_keys",
+                          "arguments": {
+                            "keys": "escape"
+                          }
+                        },
+                        {
+                          "tool_name": "wait",
+                          "arguments": {
+                            "duration_ms": 3000
+                          }
+                        },
+                        {
+                          "tool_name": "increment_variable",
+                          "arguments": {
+                            "variable_name": "follow_count",
+                            "value": 1
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "group_name": "Conditional: If 'Unfollow' IS present (meaning already followed)",
+                      "condition": "{{unfollow_option_exists}}",
+                      "steps": [
+                        {
+                          "tool_name": "log",
+                          "arguments": {
+                            "message": "User already followed, skipping for tweet index {{loop_index}}."
+                          }
+                        },
+                        {
+                          "tool_name": "send_keys",
+                          "arguments": {
+                            "keys": "escape"
+                          }
+                        },
+                        {
+                          "tool_name": "wait",
+                          "arguments": {
+                            "duration_ms": 3000
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "group_name": "Conditional: If 'Follow' button does NOT exist",
+                  "condition": "!{{follow_option_exists}}",
+                  "steps": [
+                    {
+                      "tool_name": "log",
+                      "arguments": {
+                        "message": "No follow button found in dropdown, skipping for tweet index {{loop_index}}."
+                      }
+                    },
+                    {
+                      "tool_name": "send_keys",
+                      "arguments": {
+                        "keys": "escape"
+                      }
+                    },
+                    {
+                      "tool_name": "wait",
+                      "arguments": {
+                        "duration_ms": 3000
+                      }
+                    }
+                  ]
+                }
+              ],
+              "catch": [
+                {
+                  "tool_name": "log",
+                  "arguments": {
+                    "message": "Skipping tweet index {{loop_index}} due to error. (Simulated Selenium 'except' block)."
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tool_name": "set_variable",
+          "arguments": {
+            "variable_name": "start_index",
+            "value": "{{all_tweet_elements.length}}"
+          }
+        },
+        {
+          "tool_name": "scroll_element",
+          "arguments": {
+            "selector": "{{scrollable_feed_selector}}",
+            "direction": "down",
+            "amount": "page" 
+          }
+        },
+        {
+          "tool_name": "log",
+          "arguments": {
+            "message": "Scrolled down."
+          }
+        },
+        {
+          "tool_name": "wait",
+          "arguments": {
+            "duration_ms": 3000
+          }
+        }
+      ]
+    },
+    {
+      "tool_name": "log",
+      "arguments": {
+        "message": "Total follow actions performed: {{follow_count}}"
       }
-    ]
-  }
+    }
+  ]
 }
