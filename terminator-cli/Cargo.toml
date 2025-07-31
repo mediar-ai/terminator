@@ -41,3 +41,4 @@ dotenvy = "0.15.7"
 reqwest = { version = "0.12.22", features = ["json", "rustls-tls"] }
 futures-util = "0.3.31"
 anthropic-sdk = "0.1.5"
+openai-api-rs = "6.0.8"

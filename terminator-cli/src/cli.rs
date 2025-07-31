@@ -20,6 +20,15 @@ pub enum BumpLevel {
     Major,
 }
 
+#[derive(ValueEnum, Clone, Copy, Debug, Default)]
+#[clap(rename_all = "lower")]
+pub enum AIProvider {
+    #[default]
+    Anthropic,
+    OpenAI,
+    Gemini,
+}
+
 impl std::fmt::Display for BumpLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", format!("{self:?}").to_lowercase())
@@ -42,6 +51,11 @@ pub struct McpChatArgs {
     /// Command to start MCP server via stdio (e.g., "npx -y terminator-mcp-agent")
     #[clap(long, short = 'c', conflicts_with = "url")]
     pub command: Option<String>,
+
+    /// Specify AIProvider 
+    #[clap(long, short = 'a', default_value_t = AIProvider::Anthropic, value_enum)]
+    pub aiprovider: AIProvider,
+
 }
 
 #[derive(Parser, Debug)]

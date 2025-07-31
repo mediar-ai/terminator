@@ -1,27 +1,6 @@
-use tokio::process::Command;
-
 /// Check if the path is a Windows batch file
 pub fn is_batch_file(path: &str) -> bool {
     path.ends_with(".bat") || path.ends_with(".cmd")
-}
-
-/// Create command with proper handling for batch files on Windows
-pub fn create_command(executable: &str, args: &[String]) -> Command {
-    let mut cmd = if cfg!(windows) && is_batch_file(executable) {
-        // For batch files on Windows, use cmd.exe /c
-        let mut cmd = Command::new("cmd");
-        cmd.arg("/c");
-        cmd.arg(executable);
-        cmd
-    } else {
-        Command::new(executable)
-    };
-
-    if !args.is_empty() {
-        cmd.args(args);
-    }
-
-    cmd
 }
 
 /// Find executable with cross-platform path resolution

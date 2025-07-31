@@ -16,7 +16,7 @@
 //!   cargo run --bin terminator -- release minor # Full release: bump minor + tag + push
 
 use crate::cli::{Cli, Commands};
-use crate::workflow_exec::handle_mcp_command;
+use crate::command::handle_mcp_command;
 use crate::version_control::{
     ensure_project_root,
     full_release,
@@ -27,8 +27,9 @@ use crate::version_control::{
 };
 
 mod cli;
-mod mcp_client;
 mod utils;
+mod command;
+mod mcp_client;
 mod workflow_exec;
 mod version_control;
 

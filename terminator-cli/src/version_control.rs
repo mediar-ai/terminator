@@ -2,7 +2,7 @@ use std::fs;
 use std::env;
 use std::path::Path;
 use std::process::Command;
-use crate::workflow_exec::run_command;
+use crate::command::run_command;
 
 pub fn full_release(bump_type: &str) {
     println!("🚀 Starting full release process with {bump_type} bump...");

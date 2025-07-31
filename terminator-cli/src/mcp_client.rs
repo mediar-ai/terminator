@@ -21,10 +21,22 @@ use rmcp::{
         StreamableHttpClientTransport,
     },
 };
+use crate::cli::AIProvider;
 use crate::utils::{
     find_executable,
     init_logging,
-    create_command
+};
+use crate::command::create_command;
+use openai_api_rs::v1::{
+    types,
+    api::OpenAIClient,
+    common::GPT4_O,             // for function call
+    chat_completion::{
+        self,
+        ChatCompletionRequest,
+        ChatCompletionResponse,
+        ChatCompletionChoice,
+    },
 };
 
 pub enum Transport {
@@ -435,12 +447,23 @@ pub async fn execute_command(
     Ok(())
 }
 
-pub async fn natural_language_chat(transport: Transport) -> Result<()> {
+pub async fn natural_language_chat(transport: Transport, provider: AIProvider) -> Result<()> {
     println!("🤖 Terminator Natural Language Chat Client");
     println!("==========================================");
 
     // Load Anthropic API Key
     dotenvy::dotenv().ok();
+
+    let api_key = match provider {
+        AIProvider::Anthropic => std::env::var("ANTHROPIC_API_KEY"),
+        AIProvider::OpenAI => std::env::var("OPENAI_API_KEY"),
+        AIProvider::Gemini => std::env::var("GEMINI_API_KEY"),
+    }.map_err(|_| {
+        println!("Please set it in a .env file.");
+        anyhow::anyhow!("❌ API key not set for selected provider. \
+                        missing env var `GEMINI_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY`.");
+    });
+
     let api_key = match std::env::var("ANTHROPIC_API_KEY") {
         Ok(key) => key,
         Err(_) => {
