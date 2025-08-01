@@ -41,6 +41,8 @@ pub enum Selector {
     Nth(i32),
     /// Select elements that have at least one descendant matching the inner selector (Playwright-style :has())
     Has(Box<Selector>),
+    /// Select elements within Java applications (Windows only, requires Java Access Bridge)
+    JavaApp(Option<String>), // Optional JVM ID or application name
     /// Represents an invalid selector string, with a reason.
     Invalid(String),
 }
@@ -145,6 +147,15 @@ impl From<&str> for Selector {
                 let inner_selector_str = &s["has:".len()..];
                 Selector::Has(Box::new(Selector::from(inner_selector_str)))
             }
+            _ if s.to_lowercase().starts_with("javaapp:") => {
+                let app_name = &s["javaapp:".len()..];
+                if app_name.is_empty() {
+                    Selector::JavaApp(None)
+                } else {
+                    Selector::JavaApp(Some(app_name.to_string()))
+                }
+            }
+            _ if s.to_lowercase() == "javaapp" => Selector::JavaApp(None),
             _ if s.to_lowercase().starts_with("nth=") || s.to_lowercase().starts_with("nth:") => {
                 let index_str = if s.to_lowercase().starts_with("nth:") {
                     &s["nth:".len()..]

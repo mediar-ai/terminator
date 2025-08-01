@@ -23,6 +23,19 @@ use uiautomation::variants::Variant;
 use uiautomation::UIAutomation;
 use uni_ocr::{OcrEngine, OcrProvider};
 
+// Java Access Bridge support
+#[cfg(target_os = "windows")]
+mod java_access_bridge;
+#[cfg(target_os = "windows")]
+mod java_access_bridge_element;
+#[cfg(all(target_os = "windows", test))]
+mod java_access_bridge_tests;
+
+#[cfg(target_os = "windows")]
+use java_access_bridge::{JavaAccessBridge, is_java_access_bridge_available};
+#[cfg(target_os = "windows")]
+use java_access_bridge_element::JavaAccessBridgeElement;
+
 // windows imports
 use windows::core::{Error, HRESULT, HSTRING, PCWSTR};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, HINSTANCE, HWND};
@@ -137,6 +150,8 @@ pub struct WindowsEngine {
     automation: ThreadSafeWinUIAutomation,
     use_background_apps: bool,
     activate_app: bool,
+    // Java Access Bridge support
+    java_access_bridge_available: bool,
 }
 
 impl WindowsEngine {
@@ -159,11 +174,60 @@ impl WindowsEngine {
         let automation = UIAutomation::new_direct()
             .map_err(|e| AutomationError::PlatformError(e.to_string()))?;
         let arc_automation = ThreadSafeWinUIAutomation(Arc::new(automation));
+        
+        // Check if Java Access Bridge is available
+        let java_access_bridge_available = is_java_access_bridge_available();
+        if java_access_bridge_available {
+            info!("✅ Java Access Bridge detected and available");
+        } else {
+            info!("ℹ️ Java Access Bridge not available (this is normal if no Java applications need to be automated)");
+        }
+        
         Ok(Self {
             automation: arc_automation,
             use_background_apps,
             activate_app,
+            java_access_bridge_available,
         })
+    }
+
+    /// Check if a window handle belongs to a Java application
+    #[cfg(target_os = "windows")]
+    pub fn is_java_window(&self, hwnd: HWND) -> bool {
+        if !self.java_access_bridge_available {
+            return false;
+        }
+        
+        match JavaAccessBridge::get_instance() {
+            Ok(jab) => {
+                if let Ok(jab_locked) = jab.lock() {
+                    let hwnd_ptr = hwnd.0 as *mut std::ffi::c_void;
+                    jab_locked.is_java_window(hwnd_ptr)
+                } else {
+                    false
+                }
+            }
+            Err(_) => false,
+        }
+    }
+    
+    /// Try to create a Java Access Bridge element from a window handle
+    #[cfg(target_os = "windows")]
+    pub fn try_create_java_element(&self, hwnd: HWND) -> Option<UIElement> {
+        if !self.java_access_bridge_available || !self.is_java_window(hwnd) {
+            return None;
+        }
+        
+        match JavaAccessBridgeElement::from_hwnd(hwnd) {
+            Ok(jab_element) => {
+                let element_impl = Box::new(jab_element);
+                Some(UIElement::new(element_impl))
+            }
+            Err(e) => {
+                debug!("Failed to create Java Access Bridge element: {}", e);
+                None
+            }
+        }
     }
 
     /// Extract browser-specific information from window titles
