@@ -504,23 +504,11 @@ pub struct SequenceStep {
     )]
     pub fallback_id: Option<String>,
     
-    // New parallel execution fields
+    // Simplified parallel execution
     #[schemars(
-        description = "Whether this tool can be executed in parallel with other tools. Default: false"
+        description = "Whether this tool can be executed in parallel with other parallel tools. Default: false"
     )]
-    pub parallelizable: Option<bool>,
-    #[schemars(
-        description = "Execution group ID - tools with the same group ID can run in parallel"
-    )]
-    pub parallel_group_id: Option<String>,
-    #[schemars(
-        description = "List of step IDs that this tool depends on (must complete before this tool runs)"
-    )]
-    pub depends_on: Option<Vec<String>>,
-    #[schemars(
-        description = "Maximum number of parallel executions allowed in this tool's group. Default: unlimited"
-    )]
-    pub max_parallel: Option<u32>,
+    pub parallel: Option<bool>,
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize, Clone, Default, JsonSchema)]
@@ -550,19 +538,11 @@ pub struct ExecuteSequenceArgs {
     )]
     pub output_parser: Option<serde_json::Value>,
 
-    // New parallel execution fields
+    // Simplified parallel execution
     #[schemars(
-        description = "Enable parallel execution for the entire sequence. Default: false"
+        description = "Enable parallel execution for tools marked with 'parallel: true'. Default: false"
     )]
-    pub enable_parallel_execution: Option<bool>,
-    #[schemars(
-        description = "Global maximum number of tools that can run in parallel. Default: 4"
-    )]
-    pub global_max_parallel: Option<u32>,
-    #[schemars(
-        description = "Execution strategy: 'sequential' (default), 'parallel', or 'mixed'"
-    )]
-    pub execution_strategy: Option<String>,
+    pub parallel_execution: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema, Clone)]
@@ -1123,139 +1103,33 @@ pub struct WaitForOutputParserArgs {
     pub include_tree: Option<bool>,
 }
 
-// Parallel execution support structures
+// Simple parallel execution support
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ExecutionStrategy {
-    Sequential,
-    Parallel,
-    Mixed,
-}
-
-impl Default for ExecutionStrategy {
-    fn default() -> Self {
-        ExecutionStrategy::Sequential
-    }
-}
-
-impl From<Option<String>> for ExecutionStrategy {
-    fn from(strategy: Option<String>) -> Self {
-        match strategy.as_deref() {
-            Some("parallel") => ExecutionStrategy::Parallel,
-            Some("mixed") => ExecutionStrategy::Mixed,
-            _ => ExecutionStrategy::Sequential,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ParallelExecutionGroup {
-    pub group_id: String,
-    pub steps: Vec<usize>, // indices into the main steps array
-    pub max_parallel: Option<u32>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ExecutionPlan {
-    pub sequential_groups: Vec<Vec<usize>>, // groups of step indices that must run sequentially
-    pub parallel_groups: Vec<ParallelExecutionGroup>, // groups that can run in parallel
-    pub dependency_graph: HashMap<String, Vec<String>>, // step_id -> dependencies
-}
-
-#[derive(Debug, Clone)]
-pub struct StepExecutionResult {
-    pub step_index: usize,
-    pub step_id: Option<String>,
-    pub result: serde_json::Value,
-    pub success: bool,
-    pub start_time: chrono::DateTime<chrono::Utc>,
-    pub end_time: chrono::DateTime<chrono::Utc>,
-    pub duration_ms: i64,
-}
-
-/// Analyzes sequence steps and creates an execution plan based on parallelization hints
-pub fn create_execution_plan(
-    steps: &[SequenceStep],
-    strategy: ExecutionStrategy,
-    global_max_parallel: u32,
-) -> ExecutionPlan {
-    let mut sequential_groups = Vec::new();
+/// Simple execution plan: group consecutive parallel steps together
+pub fn create_simple_execution_plan(steps: &[SequenceStep]) -> (Vec<usize>, Vec<Vec<usize>>) {
+    let mut sequential_steps = Vec::new();
     let mut parallel_groups = Vec::new();
-    let mut dependency_graph = HashMap::new();
+    let mut current_parallel_group = Vec::new();
     
-    // Build dependency graph
     for (i, step) in steps.iter().enumerate() {
-        if let Some(step_id) = &step.id {
-            if let Some(deps) = &step.depends_on {
-                dependency_graph.insert(step_id.clone(), deps.clone());
+        if step.parallel.unwrap_or(false) {
+            // Add to current parallel group
+            current_parallel_group.push(i);
+        } else {
+            // Finish any current parallel group
+            if !current_parallel_group.is_empty() {
+                parallel_groups.push(current_parallel_group);
+                current_parallel_group = Vec::new();
             }
+            // Add as sequential step
+            sequential_steps.push(i);
         }
     }
     
-    match strategy {
-        ExecutionStrategy::Sequential => {
-            // All steps in sequential groups
-            sequential_groups.push((0..steps.len()).collect());
-        },
-        ExecutionStrategy::Parallel => {
-            // Try to parallelize everything that doesn't have dependencies
-            let mut current_group = Vec::new();
-            for (i, step) in steps.iter().enumerate() {
-                if step.parallelizable.unwrap_or(false) && step.depends_on.is_none() {
-                    current_group.push(i);
-                } else {
-                    if !current_group.is_empty() {
-                        parallel_groups.push(ParallelExecutionGroup {
-                            group_id: format!("auto_parallel_{}", parallel_groups.len()),
-                            steps: current_group,
-                            max_parallel: Some(global_max_parallel),
-                        });
-                        current_group = Vec::new();
-                    }
-                    sequential_groups.push(vec![i]);
-                }
-            }
-            if !current_group.is_empty() {
-                parallel_groups.push(ParallelExecutionGroup {
-                    group_id: format!("auto_parallel_{}", parallel_groups.len()),
-                    steps: current_group,
-                    max_parallel: Some(global_max_parallel),
-                });
-            }
-        },
-        ExecutionStrategy::Mixed => {
-            // Group by parallel_group_id, keep others sequential
-            let mut group_map: HashMap<String, Vec<usize>> = HashMap::new();
-            let mut ungrouped = Vec::new();
-            
-            for (i, step) in steps.iter().enumerate() {
-                if let Some(group_id) = &step.parallel_group_id {
-                    group_map.entry(group_id.clone()).or_default().push(i);
-                } else {
-                    ungrouped.push(i);
-                }
-            }
-            
-            // Add parallel groups
-            for (group_id, step_indices) in group_map {
-                let max_parallel = steps[step_indices[0]].max_parallel.or(Some(global_max_parallel));
-                parallel_groups.push(ParallelExecutionGroup {
-                    group_id,
-                    steps: step_indices,
-                    max_parallel,
-                });
-            }
-            
-            // Add ungrouped steps as sequential
-            for step_idx in ungrouped {
-                sequential_groups.push(vec![step_idx]);
-            }
-        }
+    // Don't forget the last parallel group
+    if !current_parallel_group.is_empty() {
+        parallel_groups.push(current_parallel_group);
     }
     
-    ExecutionPlan {
-        sequential_groups,
-        parallel_groups,
-        dependency_graph,
-    }
+    (sequential_steps, parallel_groups)
 }

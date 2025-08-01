@@ -1,0 +1,42 @@
+{
+  "tool_name": "execute_sequence",
+  "arguments": {
+    "parallel_execution": true,
+    "steps": [
+      {
+        "tool_name": "get_applications",
+        "arguments": {},
+        "id": "apps"
+      },
+      {
+        "tool_name": "get_focused_window_tree",
+        "arguments": {},
+        "id": "window",
+        "parallel": true
+      },
+      {
+        "tool_name": "run_command",
+        "arguments": {
+          "command": "ps aux | head -5"
+        },
+        "id": "processes",
+        "parallel": true
+      },
+      {
+        "tool_name": "delay",
+        "arguments": {
+          "delay_ms": 1000
+        },
+        "id": "wait"
+      },
+      {
+        "tool_name": "click_element",
+        "arguments": {
+          "selector": "button[text='Submit']",
+          "pid": 12345
+        },
+        "id": "click"
+      }
+    ]
+  }
+}

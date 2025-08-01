@@ -2278,17 +2278,13 @@ impl DesktopWrapper {
         // Check for parallel execution mode
         // ---------------------------
         
-        let enable_parallel = args.enable_parallel_execution.unwrap_or(false);
-        let execution_strategy = crate::utils::ExecutionStrategy::from(args.execution_strategy.clone());
-        let global_max_parallel = args.global_max_parallel.unwrap_or(4);
+        let enable_parallel = args.parallel_execution.unwrap_or(false);
         
-        if enable_parallel || execution_strategy != crate::utils::ExecutionStrategy::Sequential {
-            // Use new parallel execution path
-            return self.execute_sequence_parallel(
+        if enable_parallel {
+            // Use simple parallel execution path
+            return self.execute_sequence_simple_parallel(
                 args,
                 execution_context,
-                execution_strategy,
-                global_max_parallel,
                 stop_on_error,
                 include_detailed,
             ).await;
@@ -2592,125 +2588,124 @@ impl DesktopWrapper {
         Ok(CallToolResult::success(contents))
     }
 
-    // New parallel execution implementation
-    async fn execute_sequence_parallel(
+    // Simple parallel execution implementation
+    async fn execute_sequence_simple_parallel(
         &self,
         args: ExecuteSequenceArgs,
         execution_context: serde_json::Value,
-        execution_strategy: crate::utils::ExecutionStrategy,
-        global_max_parallel: u32,
         stop_on_error: bool,
         include_detailed: bool,
     ) -> Result<CallToolResult, McpError> {
-        use crate::utils::{create_execution_plan, StepExecutionResult};
-        use std::collections::HashMap;
-        use tokio::sync::Semaphore;
+        use crate::utils::create_simple_execution_plan;
         
         let start_time = chrono::Utc::now();
-        let execution_plan = create_execution_plan(&args.steps, execution_strategy, global_max_parallel);
+        let (sequential_steps, parallel_groups) = create_simple_execution_plan(&args.steps);
         
-        let mut all_results = Vec::new();
+        let mut results = Vec::new();
         let mut sequence_had_errors = false;
         let mut critical_error_occurred = false;
+        let mut step_counter = 0;
         
-        info!("Executing sequence with parallel execution plan: {} sequential groups, {} parallel groups", 
-              execution_plan.sequential_groups.len(), execution_plan.parallel_groups.len());
+        info!("Executing sequence with {} sequential steps and {} parallel groups", 
+              sequential_steps.len(), parallel_groups.len());
         
-        // Execute sequential groups first
-        for sequential_group in &execution_plan.sequential_groups {
-            for &step_index in sequential_group {
-                if critical_error_occurred && stop_on_error {
-                    break;
-                }
-                
-                let step = &args.steps[step_index];
-                let result = self.execute_step_with_context(
-                    step, 
-                    step_index, 
-                    &execution_context, 
-                    include_detailed
+        // Process steps in order, alternating between sequential and parallel
+        let mut seq_idx = 0;
+        let mut par_idx = 0;
+        
+        for original_step_idx in 0..args.steps.len() {
+            if critical_error_occurred && stop_on_error {
+                break;
+            }
+            
+            // Check if this step is sequential
+            if seq_idx < sequential_steps.len() && sequential_steps[seq_idx] == original_step_idx {
+                let step = &args.steps[original_step_idx];
+                let (result, error_occurred) = self.execute_single_tool(
+                    &step.tool_name.as_ref().unwrap(),
+                    &step.arguments.clone().unwrap_or(json!({})),
+                    step.continue_on_error.unwrap_or(false),
+                    original_step_idx,
+                    include_detailed,
+                    step.id.as_deref(),
                 ).await;
                 
-                if !result.success {
+                results.push(result);
+                if error_occurred {
                     sequence_had_errors = true;
                     if stop_on_error {
                         critical_error_occurred = true;
                     }
                 }
                 
-                all_results.push(result);
-                
-                // Handle delay if specified
                 if let Some(delay_ms) = step.delay_ms {
                     if delay_ms > 0 {
                         tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
                     }
                 }
-            }
-        }
-        
-        // Execute parallel groups
-        for parallel_group in &execution_plan.parallel_groups {
-            if critical_error_occurred && stop_on_error {
-                break;
-            }
-            
-            let max_concurrent = parallel_group.max_parallel.unwrap_or(global_max_parallel) as usize;
-            let semaphore = Arc::new(Semaphore::new(max_concurrent));
-            let mut handles = Vec::new();
-            
-            for &step_index in &parallel_group.steps {
-                let step = args.steps[step_index].clone();
-                let execution_context = execution_context.clone();
-                let semaphore = semaphore.clone();
-                let desktop = self.clone();
                 
-                let handle = tokio::spawn(async move {
-                    let _permit = semaphore.acquire().await.expect("Semaphore should not be closed");
-                    desktop.execute_step_with_context(&step, step_index, &execution_context, include_detailed).await
-                });
-                
-                handles.push(handle);
+                seq_idx += 1;
             }
-            
-            // Wait for all parallel tasks to complete
-            let parallel_results = futures::future::join_all(handles).await;
-            
-            for result in parallel_results {
-                match result {
-                    Ok(step_result) => {
-                        if !step_result.success {
-                            sequence_had_errors = true;
-                            if stop_on_error {
-                                critical_error_occurred = true;
-                            }
+            // Check if this step starts a parallel group
+            else if par_idx < parallel_groups.len() && parallel_groups[par_idx].contains(&original_step_idx) {
+                let group = &parallel_groups[par_idx];
+                let mut handles = Vec::new();
+                
+                for &step_index in group {
+                    let step = args.steps[step_index].clone();
+                    let execution_context = execution_context.clone();
+                    let desktop = self.clone();
+                    
+                    let handle = tokio::spawn(async move {
+                        let mut substituted_args = step.arguments.clone().unwrap_or(json!({}));
+                        substitute_variables(&mut substituted_args, &execution_context);
+                        
+                        desktop.execute_single_tool(
+                            &step.tool_name.as_ref().unwrap(),
+                            &substituted_args,
+                            step.continue_on_error.unwrap_or(false),
+                            step_index,
+                            include_detailed,
+                            step.id.as_deref(),
+                        ).await
+                    });
+                    
+                    handles.push((step_index, handle));
+                }
+                
+                // Wait for all parallel tasks and collect results in order
+                let mut group_results = Vec::new();
+                for (step_index, handle) in handles {
+                    match handle.await {
+                        Ok((result, error_occurred)) => {
+                            group_results.push((step_index, result, error_occurred));
                         }
-                        all_results.push(step_result);
+                        Err(e) => {
+                            group_results.push((step_index, json!({
+                                "status": "error",
+                                "error": format!("Task join error: {}", e)
+                            }), true));
+                        }
                     }
-                    Err(e) => {
+                }
+                
+                // Sort results by step index and add them
+                group_results.sort_by_key(|(step_index, _, _)| *step_index);
+                for (_, result, error_occurred) in group_results {
+                    results.push(result);
+                    if error_occurred {
                         sequence_had_errors = true;
                         if stop_on_error {
                             critical_error_occurred = true;
                         }
-                        all_results.push(StepExecutionResult {
-                            step_index: 0, // We don't have the index in this context
-                            step_id: None,
-                            result: json!({
-                                "status": "error",
-                                "error": format!("Task join error: {}", e)
-                            }),
-                            success: false,
-                            start_time: chrono::Utc::now(),
-                            end_time: chrono::Utc::now(),
-                            duration_ms: 0,
-                        });
                     }
                 }
+                
+                // Skip to end of this parallel group
+                step_counter = *group.iter().max().unwrap();
+                par_idx += 1;
             }
         }
-        
-        // Sort results by step index for consistent ordering
-        all_results.sort_by_key(|r| r.step_index);
         
         let total_duration = (chrono::Utc::now() - start_time).num_milliseconds();
         
@@ -2722,17 +2717,15 @@ impl DesktopWrapper {
             "completed_with_errors"
         };
         
-        let results_json: Vec<serde_json::Value> = all_results.iter().map(|r| r.result.clone()).collect();
-        
         let mut summary = json!({
             "action": "execute_sequence",
             "status": final_status,
             "execution_mode": "parallel",
             "total_tools": args.steps.len(),
-            "executed_tools": all_results.len(),
+            "executed_tools": results.len(),
             "total_duration_ms": total_duration,
             "timestamp": chrono::Utc::now().to_rfc3339(),
-            "results": results_json,
+            "results": results,
         });
         
         // Apply output parser if specified
@@ -2762,49 +2755,7 @@ impl DesktopWrapper {
         
         Ok(CallToolResult::success(vec![Content::json(summary)?]))
     }
-    
-    // Helper function to execute a single step with context
-    async fn execute_step_with_context(
-        &self,
-        step: &crate::utils::SequenceStep,
-        step_index: usize,
-        execution_context: &serde_json::Value,
-        include_detailed: bool,
-    ) -> crate::utils::StepExecutionResult {
-        let start_time = chrono::Utc::now();
-        
-        let result = if let Some(tool_name) = &step.tool_name {
-            let mut substituted_args = step.arguments.clone().unwrap_or(json!({}));
-            substitute_variables(&mut substituted_args, execution_context);
-            
-            let (tool_result, error_occurred) = self.execute_single_tool(
-                tool_name,
-                &substituted_args,
-                step.continue_on_error.unwrap_or(false),
-                step_index,
-                include_detailed,
-                step.id.as_deref(),
-            ).await;
-            
-            (tool_result, error_occurred)
-        } else {
-            // Handle group execution if needed
-            (json!({"status": "error", "error": "Group execution not yet implemented in parallel mode"}), true)
-        };
-        
-        let end_time = chrono::Utc::now();
-        let duration_ms = (end_time - start_time).num_milliseconds();
-        
-        crate::utils::StepExecutionResult {
-            step_index,
-            step_id: step.id.clone(),
-            result: result.0,
-            success: result.0["status"] == "success",
-            start_time,
-            end_time,
-            duration_ms,
-        }
-    }
+
 
     async fn execute_single_tool(
         &self,
