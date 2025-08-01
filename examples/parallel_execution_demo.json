@@ -1,0 +1,68 @@
+{
+  "tool_name": "execute_sequence",
+  "arguments": {
+    "enable_parallel_execution": true,
+    "execution_strategy": "mixed",
+    "global_max_parallel": 3,
+    "stop_on_error": true,
+    "include_detailed_results": true,
+    "steps": [
+      {
+        "tool_name": "get_applications",
+        "arguments": {},
+        "id": "list_apps",
+        "parallelizable": true,
+        "parallel_group_id": "read_operations"
+      },
+      {
+        "tool_name": "get_focused_window_tree",
+        "arguments": {
+          "include_invisible": false
+        },
+        "id": "get_current_window",
+        "parallelizable": true,
+        "parallel_group_id": "read_operations"
+      },
+      {
+        "tool_name": "delay",
+        "arguments": {
+          "delay_ms": 1000
+        },
+        "id": "wait_step",
+        "depends_on": ["list_apps", "get_current_window"]
+      },
+      {
+        "tool_name": "click_element",
+        "arguments": {
+          "selector": "button[text='Submit']",
+          "pid": 12345
+        },
+        "id": "click_submit",
+        "depends_on": ["wait_step"],
+        "max_parallel": 1
+      },
+      {
+        "tool_name": "type_into_element",
+        "arguments": {
+          "text": "Hello World",
+          "selector": "input[type='text']",
+          "pid": 12345
+        },
+        "id": "type_text",
+        "parallelizable": true,
+        "parallel_group_id": "ui_operations"
+      },
+      {
+        "tool_name": "press_key",
+        "arguments": {
+          "key": "Tab",
+          "pid": 12345
+        },
+        "id": "press_tab",
+        "parallelizable": true,
+        "parallel_group_id": "ui_operations",
+        "depends_on": ["type_text"]
+      }
+    ]
+  }
+}
