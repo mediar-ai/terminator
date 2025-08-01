@@ -1,0 +1,66 @@
+# Linux Dockerfile for Terminator MCP Agent
+# This provides the same functionality as the Windows version but runs on Linux
+FROM node:20-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies including graphics libraries for desktop automation
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    libegl1-mesa \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libgtk-3-0 \
+    libx11-6 \
+    libxext6 \
+    libxrender1 \
+    libxtst6 \
+    libxi6 \
+    libxrandr2 \
+    libxss1 \
+    libgconf-2-4 \
+    libasound2 \
+    libpangocairo-1.0-0 \
+    libatk1.0-0 \
+    libcairo-gobject2 \
+    libgtk-3-0 \
+    libgdk-pixbuf2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the terminator-mcp-agent package files
+COPY terminator-mcp-agent/package.json terminator-mcp-agent/package-lock.json ./
+COPY terminator-mcp-agent/index.js terminator-mcp-agent/config.js ./
+COPY terminator-mcp-agent/npm ./npm
+
+# Install npm dependencies
+RUN npm install --production
+
+# Create startup script
+RUN echo '#!/bin/bash\n\
+    echo "🤖 Starting Terminator MCP Agent in Docker Linux container..."\n\
+    echo "📦 Platform: $(uname -s)-$(uname -m)"\n\
+    echo "🌐 HTTP Transport Mode with CORS enabled"\n\
+    echo "🔗 Connect to: http://container-ip:8080/mcp"\n\
+    echo "💚 Health check: http://container-ip:8080/health"\n\
+    echo ""\n\
+    exec node index.js -t http --host 0.0.0.0 --port 8080 --cors\n\
+    ' > start-mcp.sh && chmod +x start-mcp.sh
+
+# Expose port 8080
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# Set environment variables
+ENV NODE_ENV=production
+ENV MCP_HOST=0.0.0.0
+ENV MCP_PORT=8080
+ENV MCP_TRANSPORT=http
+ENV MCP_CORS_ENABLED=true
+
+# Start the MCP agent
+CMD ["./start-mcp.sh"]

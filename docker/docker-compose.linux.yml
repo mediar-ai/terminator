@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  # Demonstration service showing how the MCP agent would run in production
+  terminator-mcp-demo:
+    image: node:20-slim
+    container_name: terminator-mcp-demo
+    working_dir: /app
+    ports:
+      - "8083:8080"
+    environment:
+      - NODE_ENV=production
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8080
+      - MCP_TRANSPORT=http
+      - MCP_CORS_ENABLED=true
+    volumes:
+      - ../terminator-mcp-agent:/app
+    command: >
+      sh -c "
+        echo '🐳 Docker Compose Demo - Terminator MCP Agent' &&
+        echo '📦 This demonstrates how the MCP agent runs in containers' &&
+        echo '🌐 HTTP Transport Mode with CORS enabled' &&
+        echo '🔗 Connect to: http://localhost:8083/mcp' &&
+        echo '💚 Health check: http://localhost:8083/health' &&
+        echo '' &&
+        npm install --production &&
+        exec node index.js -t http --host 0.0.0.0 --port 8080 --cors
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - terminator-network
+
+networks:
+  terminator-network:
+    driver: bridge
