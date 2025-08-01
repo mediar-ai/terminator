@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: terminator
+  labels:
+    name: terminator
+    purpose: desktop-automation
+    platform: windows
+  annotations:
+    description: "Namespace for Terminator MCP Agent Windows containers"
+    maintainer: "terminator-team"
+    documentation: "https://github.com/mediar-ai/terminator/blob/main/KUBERNETES-WINDOWS.md"

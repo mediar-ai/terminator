@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: terminator-mcp-data
+  namespace: terminator
+  labels:
+    app: terminator-mcp-agent
+    component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  # Use Windows-compatible storage class
+  storageClassName: managed-csi
+  # Optional: Selector for specific PV requirements
+  selector:
+    matchLabels:
+      platform: windows
+---
+# Optional: PersistentVolume for custom storage (if needed)
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: terminator-mcp-pv
+  labels:
+    app: terminator-mcp-agent
+    platform: windows
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: managed-csi
+  # Windows-specific volume configuration
+  csi:
+    driver: disk.csi.azure.com  # Example for Azure
+    volumeHandle: terminator-mcp-volume
+    fsType: ntfs
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/os
+          operator: In
+          values:
+          - windows

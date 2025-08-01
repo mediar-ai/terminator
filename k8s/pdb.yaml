@@ -1,0 +1,29 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: terminator-mcp-pdb
+  namespace: terminator
+  labels:
+    app: terminator-mcp-agent
+    component: availability
+spec:
+  minAvailable: 1  # Always keep at least 1 pod running
+  selector:
+    matchLabels:
+      app: terminator-mcp-agent
+---
+# Alternative: Use maxUnavailable instead
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: terminator-mcp-pdb-alt
+  namespace: terminator
+  labels:
+    app: terminator-mcp-agent
+    component: availability
+    variant: max-unavailable
+spec:
+  maxUnavailable: 50%  # Allow up to 50% of pods to be unavailable
+  selector:
+    matchLabels:
+      app: terminator-mcp-agent

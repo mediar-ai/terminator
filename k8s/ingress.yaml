@@ -1,0 +1,86 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: terminator-mcp-ingress
+  namespace: terminator
+  labels:
+    app: terminator-mcp-agent
+    component: ingress
+  annotations:
+    # NGINX Ingress Controller annotations
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    
+    # Enable CORS for MCP clients
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization"
+    
+    # Rate limiting
+    nginx.ingress.kubernetes.io/rate-limit-connections: "10"
+    nginx.ingress.kubernetes.io/rate-limit-requests-per-minute: "60"
+    
+    # Azure Application Gateway annotations (alternative)
+    # kubernetes.io/ingress.class: "azure/application-gateway"
+    # appgw.ingress.kubernetes.io/backend-protocol: "http"
+    # appgw.ingress.kubernetes.io/request-timeout: "60"
+    
+    # AWS ALB annotations (alternative)
+    # kubernetes.io/ingress.class: "alb"
+    # alb.ingress.kubernetes.io/scheme: "internet-facing"
+    # alb.ingress.kubernetes.io/target-type: "ip"
+    # alb.ingress.kubernetes.io/backend-protocol: "HTTP"
+spec:
+  ingressClassName: nginx  # Use appropriate ingress class
+  rules:
+  - host: terminator-mcp.example.com  # Replace with your domain
+    http:
+      paths:
+      - path: /mcp
+        pathType: Prefix
+        backend:
+          service:
+            name: terminator-mcp-service
+            port:
+              number: 8080
+      - path: /health
+        pathType: Exact
+        backend:
+          service:
+            name: terminator-mcp-service
+            port:
+              number: 8080
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: terminator-mcp-service
+            port:
+              number: 8080
+  
+  # TLS configuration (optional)
+  tls:
+  - hosts:
+    - terminator-mcp.example.com
+    secretName: terminator-mcp-tls
+---
+# TLS Secret (create manually or use cert-manager)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: terminator-mcp-tls
+  namespace: terminator
+  labels:
+    app: terminator-mcp-agent
+    component: tls
+type: kubernetes.io/tls
+data:
+  # Base64 encoded certificate and key
+  # Replace with actual values or use cert-manager
+  tls.crt: LS0tLS1CRUdJTi... # Your certificate
+  tls.key: LS0tLS1CRUdJTi... # Your private key

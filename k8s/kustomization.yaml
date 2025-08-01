@@ -1,0 +1,93 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: terminator-mcp-agent
+  annotations:
+    config.kubernetes.io/local-config: "true"
+
+# Namespace for all resources
+namespace: terminator
+
+# Common labels applied to all resources
+commonLabels:
+  app.kubernetes.io/name: terminator-mcp-agent
+  app.kubernetes.io/version: v1.0.0
+  app.kubernetes.io/component: mcp-server
+  app.kubernetes.io/part-of: terminator
+  app.kubernetes.io/managed-by: kustomize
+
+# Resources to include
+resources:
+- namespace.yaml
+- configmap.yaml
+- rbac.yaml
+- pvc.yaml
+- deployment.yaml
+- service.yaml
+- hpa.yaml
+- pdb.yaml
+- networkpolicy.yaml
+- ingress.yaml
+
+# Images to use (can be overridden)
+images:
+- name: ghcr.io/mediar-ai/terminator-mcp-agent-windows
+  newTag: latest
+
+# ConfigMap generator for additional config
+configMapGenerator:
+- name: terminator-mcp-env
+  literals:
+  - DEPLOYMENT_TYPE=kubernetes
+  - CLUSTER_NAME=default
+  - ENVIRONMENT=production
+
+# Secret generator for sensitive data
+secretGenerator:
+- name: terminator-mcp-secrets
+  literals:
+  - API_KEY=your-api-key-here
+  - DATABASE_PASSWORD=your-password-here
+  type: Opaque
+
+# Patches for environment-specific customizations
+patchesStrategicMerge:
+- patches/production.yaml
+
+# JSON patches for fine-grained modifications
+patchesJson6902:
+- target:
+    group: apps
+    version: v1
+    kind: Deployment
+    name: terminator-mcp-agent
+  path: patches/deployment-patch.yaml
+
+# Replicas for different environments
+replicas:
+- name: terminator-mcp-agent
+  count: 2
+
+# Name prefix for all resources
+namePrefix: prod-
+
+# Name suffix for all resources
+# nameSuffix: -v1
+
+# Variables for templating
+vars:
+- name: SERVICE_NAME
+  objref:
+    kind: Service
+    name: terminator-mcp-service
+    apiVersion: v1
+  fieldref:
+    fieldpath: metadata.name
+- name: NAMESPACE
+  objref:
+    kind: Namespace
+    name: terminator
+    apiVersion: v1
+  fieldref:
+    fieldpath: metadata.name

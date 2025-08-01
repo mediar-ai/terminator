@@ -1,0 +1,284 @@
+# All-in-One Kubernetes Deployment for Terminator MCP Agent
+# Deploy with: kubectl apply -f https://raw.githubusercontent.com/mediar-ai/terminator/main/k8s/all-in-one.yaml
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: terminator
+  labels:
+    name: terminator
+    purpose: desktop-automation
+    platform: windows
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: terminator-mcp-config
+  namespace: terminator
+  labels:
+    app: terminator-mcp-agent
+    component: config
+data:
+  RUST_LOG: "info"
+  NODE_ENV: "production"
+  MCP_HOST: "0.0.0.0"
+  MCP_PORT: "8080"
+  MCP_TRANSPORT: "http"
+  MCP_CORS_ENABLED: "true"
+  KUBERNETES_DEPLOYMENT: "true"
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: terminator-mcp-sa
+  namespace: terminator
+  labels:
+    app: terminator-mcp-agent
+    component: rbac
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: terminator-mcp-role
+  namespace: terminator
+  labels:
+    app: terminator-mcp-agent
+    component: rbac
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets", "pods", "services", "events"]
+  verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: terminator-mcp-rolebinding
+  namespace: terminator
+  labels:
+    app: terminator-mcp-agent
+    component: rbac
+subjects:
+- kind: ServiceAccount
+  name: terminator-mcp-sa
+  namespace: terminator
+roleRef:
+  kind: Role
+  name: terminator-mcp-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: terminator-mcp-data
+  namespace: terminator
+  labels:
+    app: terminator-mcp-agent
+    component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: managed-csi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: terminator-mcp-agent
+  namespace: terminator
+  labels:
+    app: terminator-mcp-agent
+    version: v1.0.0
+    component: mcp-server
+    platform: windows
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: terminator-mcp-agent
+  template:
+    metadata:
+      labels:
+        app: terminator-mcp-agent
+        version: v1.0.0
+        component: mcp-server
+        platform: windows
+    spec:
+      nodeSelector:
+        kubernetes.io/os: windows
+        kubernetes.io/arch: amd64
+      tolerations:
+      - key: "os"
+        operator: "Equal"
+        value: "windows"
+        effect: "NoSchedule"
+      - key: "kubernetes.io/os"
+        operator: "Equal"
+        value: "windows"
+        effect: "NoSchedule"
+      serviceAccountName: terminator-mcp-sa
+      containers:
+      - name: terminator-mcp-agent
+        image: ghcr.io/mediar-ai/terminator-mcp-agent-windows:latest
+        imagePullPolicy: Always
+        ports:
+        - name: mcp-http
+          containerPort: 8080
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: terminator-mcp-config
+        env:
+        - name: KUBERNETES_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: mcp-http
+            scheme: HTTP
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: mcp-http
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /health
+            port: mcp-http
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 12
+        volumeMounts:
+        - name: data-volume
+          mountPath: C:\app\data
+        - name: logs-volume
+          mountPath: C:\app\logs
+      volumes:
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: terminator-mcp-data
+      - name: logs-volume
+        emptyDir: {}
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: terminator-mcp-service
+  namespace: terminator
+  labels:
+    app: terminator-mcp-agent
+    component: service
+spec:
+  type: LoadBalancer
+  selector:
+    app: terminator-mcp-agent
+  ports:
+  - name: mcp-http
+    port: 8080
+    targetPort: mcp-http
+    protocol: TCP
+  sessionAffinity: ClientIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: terminator-mcp-nodeport
+  namespace: terminator
+  labels:
+    app: terminator-mcp-agent
+    component: nodeport-service
+spec:
+  type: NodePort
+  selector:
+    app: terminator-mcp-agent
+  ports:
+  - name: mcp-http
+    port: 8080
+    targetPort: mcp-http
+    nodePort: 30080
+    protocol: TCP
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: terminator-mcp-hpa
+  namespace: terminator
+  labels:
+    app: terminator-mcp-agent
+    component: autoscaling
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: terminator-mcp-agent
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: terminator-mcp-pdb
+  namespace: terminator
+  labels:
+    app: terminator-mcp-agent
+    component: availability
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: terminator-mcp-agent

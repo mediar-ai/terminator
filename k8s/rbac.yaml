@@ -1,0 +1,91 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: terminator-mcp-sa
+  namespace: terminator
+  labels:
+    app: terminator-mcp-agent
+    component: rbac
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: terminator-mcp-role
+  namespace: terminator
+  labels:
+    app: terminator-mcp-agent
+    component: rbac
+rules:
+# Allow reading ConfigMaps for configuration
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+# Allow reading Secrets for sensitive configuration
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list"]
+# Allow reading own Pod information
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+# Allow reading Services for service discovery
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get", "list"]
+# Allow reading Events for debugging
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: terminator-mcp-rolebinding
+  namespace: terminator
+  labels:
+    app: terminator-mcp-agent
+    component: rbac
+subjects:
+- kind: ServiceAccount
+  name: terminator-mcp-sa
+  namespace: terminator
+roleRef:
+  kind: Role
+  name: terminator-mcp-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# Optional: ClusterRole for cross-namespace access (if needed)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: terminator-mcp-cluster-role
+  labels:
+    app: terminator-mcp-agent
+    component: rbac
+rules:
+# Allow reading Nodes for Windows node discovery
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "watch"]
+# Allow reading cluster-wide ConfigMaps (if needed)
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list"]
+  resourceNames: ["cluster-info"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: terminator-mcp-cluster-rolebinding
+  labels:
+    app: terminator-mcp-agent
+    component: rbac
+subjects:
+- kind: ServiceAccount
+  name: terminator-mcp-sa
+  namespace: terminator
+roleRef:
+  kind: ClusterRole
+  name: terminator-mcp-cluster-role
+  apiGroup: rbac.authorization.k8s.io

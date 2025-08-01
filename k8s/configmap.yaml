@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: terminator-mcp-config
+  namespace: terminator
+  labels:
+    app: terminator-mcp-agent
+    component: config
+data:
+  # MCP Agent Configuration
+  RUST_LOG: "info"
+  NODE_ENV: "production"
+  MCP_HOST: "0.0.0.0"
+  MCP_PORT: "8080"
+  MCP_TRANSPORT: "http"
+  MCP_CORS_ENABLED: "true"
+  
+  # Kubernetes-specific settings
+  KUBERNETES_DEPLOYMENT: "true"
+  HEALTH_CHECK_INTERVAL: "30"
+  READINESS_TIMEOUT: "60"
+  
+  # Optional: Custom startup script for Kubernetes
+  startup-script.ps1: |
+    Write-Host "🚀 Starting Terminator MCP Agent in Kubernetes..." -ForegroundColor Cyan
+    Write-Host "📦 Platform: win32-x64 (Kubernetes Windows Node)" -ForegroundColor Green
+    Write-Host "🌐 HTTP Transport Mode with CORS enabled" -ForegroundColor Green
+    Write-Host "🔗 MCP Endpoint: http://service-ip:8080/mcp" -ForegroundColor Yellow
+    Write-Host "💚 Health Check: http://service-ip:8080/health" -ForegroundColor Yellow
+    Write-Host "🎯 Kubernetes Namespace: $env:KUBERNETES_NAMESPACE" -ForegroundColor Blue
+    Write-Host "🏷️  Pod Name: $env:HOSTNAME" -ForegroundColor Blue
+    Write-Host "" 
+    
+    # Set environment variables from ConfigMap
+    $env:RUST_LOG = $env:RUST_LOG
+    $env:NODE_ENV = $env:NODE_ENV
+    
+    # Start the MCP agent with Kubernetes-optimized settings
+    Write-Host "🔄 Starting MCP Agent..." -ForegroundColor Cyan
+    node index.js -t $env:MCP_TRANSPORT --host $env:MCP_HOST --port $env:MCP_PORT --cors

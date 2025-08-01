@@ -1,0 +1,193 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: terminator-mcp-agent
+  namespace: terminator
+  labels:
+    app: terminator-mcp-agent
+    version: v1.0.0
+    component: mcp-server
+    platform: windows
+spec:
+  replicas: 2  # Start with 2 replicas for high availability
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: terminator-mcp-agent
+  template:
+    metadata:
+      labels:
+        app: terminator-mcp-agent
+        version: v1.0.0
+        component: mcp-server
+        platform: windows
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/health"
+    spec:
+      # Windows node selection and tolerations
+      nodeSelector:
+        kubernetes.io/os: windows
+        kubernetes.io/arch: amd64
+      tolerations:
+      - key: "os"
+        operator: "Equal"
+        value: "windows"
+        effect: "NoSchedule"
+      - key: "kubernetes.io/os"
+        operator: "Equal"
+        value: "windows"
+        effect: "NoSchedule"
+      
+      # Security context for Windows containers
+      securityContext:
+        windowsOptions:
+          gmsaCredentialSpecName: ""
+          gmsaCredentialSpec: ""
+          runAsUserName: "ContainerUser"
+      
+      # Service account (if needed for RBAC)
+      serviceAccountName: terminator-mcp-sa
+      
+      containers:
+      - name: terminator-mcp-agent
+        image: ghcr.io/mediar-ai/terminator-mcp-agent-windows:latest
+        imagePullPolicy: Always
+        
+        # Container ports
+        ports:
+        - name: mcp-http
+          containerPort: 8080
+          protocol: TCP
+        - name: health
+          containerPort: 8080
+          protocol: TCP
+        
+        # Environment variables from ConfigMap
+        envFrom:
+        - configMapRef:
+            name: terminator-mcp-config
+        env:
+        - name: KUBERNETES_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        
+        # Resource limits and requests
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: mcp-http
+            scheme: HTTP
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          successThreshold: 1
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: mcp-http
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        
+        # Startup probe for slow-starting containers
+        startupProbe:
+          httpGet:
+            path: /health
+            port: mcp-http
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 12  # Allow up to 2 minutes for startup
+        
+        # Volume mounts
+        volumeMounts:
+        - name: config-volume
+          mountPath: C:\app\config
+          readOnly: true
+        - name: data-volume
+          mountPath: C:\app\data
+        - name: logs-volume
+          mountPath: C:\app\logs
+        
+        # Windows-specific configuration
+        securityContext:
+          windowsOptions:
+            runAsUserName: "ContainerUser"
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+        
+        # Lifecycle hooks
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - powershell
+              - -c
+              - "Write-Host 'Gracefully shutting down MCP Agent...'; Start-Sleep -Seconds 5"
+      
+      # Volumes
+      volumes:
+      - name: config-volume
+        configMap:
+          name: terminator-mcp-config
+          items:
+          - key: startup-script.ps1
+            path: startup-script.ps1
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: terminator-mcp-data
+      - name: logs-volume
+        emptyDir: {}
+      
+      # DNS configuration
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+        - name: ndots
+          value: "2"
+        - name: edns0
+      
+      # Restart policy
+      restartPolicy: Always
+      
+      # Termination grace period
+      terminationGracePeriodSeconds: 30
+      
+      # Image pull secrets (if using private registry)
+      imagePullSecrets:
+      - name: ghcr-secret

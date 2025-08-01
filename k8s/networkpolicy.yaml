@@ -1,0 +1,75 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: terminator-mcp-netpol
+  namespace: terminator
+  labels:
+    app: terminator-mcp-agent
+    component: security
+spec:
+  podSelector:
+    matchLabels:
+      app: terminator-mcp-agent
+  policyTypes:
+  - Ingress
+  - Egress
+  
+  # Ingress rules - what can connect to our pods
+  ingress:
+  # Allow traffic from other pods in the same namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: terminator
+    ports:
+    - protocol: TCP
+      port: 8080
+  
+  # Allow traffic from specific namespaces (e.g., monitoring)
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8080
+  
+  # Allow traffic from load balancer/ingress
+  - from: []  # Allow from anywhere for LoadBalancer service
+    ports:
+    - protocol: TCP
+      port: 8080
+  
+  # Egress rules - what our pods can connect to
+  egress:
+  # Allow DNS resolution
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  
+  # Allow HTTPS for external API calls (if needed)
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+  
+  # Allow HTTP for health checks and external services
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 80
+  
+  # Allow communication within the namespace
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: terminator
+  
+  # Allow communication to Kubernetes API server
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 6443
