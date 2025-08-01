@@ -503,6 +503,12 @@ pub struct SequenceStep {
         description = "Optional id of the step to jump to if this step ultimately fails after all retries. This enables robust fallback flows without relying on numeric indices."
     )]
     pub fallback_id: Option<String>,
+    
+    // Simplified parallel execution
+    #[schemars(
+        description = "Whether this tool can be executed in parallel with other parallel tools. Default: false"
+    )]
+    pub parallel: Option<bool>,
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize, Clone, Default, JsonSchema)]
@@ -531,6 +537,12 @@ pub struct ExecuteSequenceArgs {
         description = "An optional, structured parser to process the final tool output and extract structured data."
     )]
     pub output_parser: Option<serde_json::Value>,
+
+    // Simplified parallel execution
+    #[schemars(
+        description = "Enable parallel execution for tools marked with 'parallel: true'. Default: false"
+    )]
+    pub parallel_execution: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema, Clone)]
@@ -1089,4 +1101,35 @@ pub struct WaitForOutputParserArgs {
     pub success_criteria: Option<serde_json::Value>,
     /// Whether to include full UI tree in the response (default: false)
     pub include_tree: Option<bool>,
+}
+
+// Simple parallel execution support
+
+/// Simple execution plan: group consecutive parallel steps together
+pub fn create_simple_execution_plan(steps: &[SequenceStep]) -> (Vec<usize>, Vec<Vec<usize>>) {
+    let mut sequential_steps = Vec::new();
+    let mut parallel_groups = Vec::new();
+    let mut current_parallel_group = Vec::new();
+    
+    for (i, step) in steps.iter().enumerate() {
+        if step.parallel.unwrap_or(false) {
+            // Add to current parallel group
+            current_parallel_group.push(i);
+        } else {
+            // Finish any current parallel group
+            if !current_parallel_group.is_empty() {
+                parallel_groups.push(current_parallel_group);
+                current_parallel_group = Vec::new();
+            }
+            // Add as sequential step
+            sequential_steps.push(i);
+        }
+    }
+    
+    // Don't forget the last parallel group
+    if !current_parallel_group.is_empty() {
+        parallel_groups.push(current_parallel_group);
+    }
+    
+    (sequential_steps, parallel_groups)
 }
