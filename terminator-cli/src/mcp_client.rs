@@ -1,82 +1,47 @@
-use anyhow::Result;
-use rmcp::{
-    model::{CallToolRequestParam, ClientCapabilities, ClientInfo, Implementation},
-    object,
-    transport::{StreamableHttpClientTransport, TokioChildProcess},
-    ServiceExt,
-};
-use std::io::{self, Write};
-use tokio::process::Command;
 use tracing::info;
-
-use anthropic_sdk::{Client as AnthropicClient, ToolChoice};
+use anyhow::Result;
 use serde_json::json;
+use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
+use anthropic_sdk::{
+    Client as AnthropicClient,
+    ToolChoice
+};
+use rmcp::{
+    object,
+    ServiceExt,
+    model::{
+        ClientInfo,
+        Implementation,
+        CallToolRequestParam,
+        ClientCapabilities,
+    },
+    transport::{
+        TokioChildProcess,
+        StreamableHttpClientTransport,
+    },
+};
+use crate::cli::AIProvider;
+use crate::utils::{
+    find_executable,
+    init_logging,
+};
+use crate::command::create_command;
+use openai_api_rs::v1::{
+    types,
+    api::OpenAIClient,
+    common::GPT4_O,             // for function call
+    chat_completion::{
+        self,
+        ChatCompletionRequest,
+        ChatCompletionResponse,
+        ChatCompletionChoice,
+    },
+};
 
 pub enum Transport {
     Http(String),
     Stdio(Vec<String>),
-}
-
-/// Check if the path is a Windows batch file
-fn is_batch_file(path: &str) -> bool {
-    path.ends_with(".bat") || path.ends_with(".cmd")
-}
-
-/// Create command with proper handling for batch files on Windows
-fn create_command(executable: &str, args: &[String]) -> Command {
-    let mut cmd = if cfg!(windows) && is_batch_file(executable) {
-        // For batch files on Windows, use cmd.exe /c
-        let mut cmd = Command::new("cmd");
-        cmd.arg("/c");
-        cmd.arg(executable);
-        cmd
-    } else {
-        Command::new(executable)
-    };
-
-    if !args.is_empty() {
-        cmd.args(args);
-    }
-
-    cmd
-}
-
-/// Find executable with cross-platform path resolution
-fn find_executable(name: &str) -> Option<String> {
-    use std::env;
-    use std::path::Path;
-
-    // On Windows, try multiple extensions, prioritizing executable types
-    let candidates = if cfg!(windows) {
-        vec![
-            format!("{}.exe", name),
-            format!("{}.cmd", name),
-            format!("{}.bat", name),
-            name.to_string(),
-        ]
-    } else {
-        vec![name.to_string()]
-    };
-
-    // Check each candidate in PATH
-    if let Ok(path_var) = env::var("PATH") {
-        let separator = if cfg!(windows) { ";" } else { ":" };
-
-        for path_dir in path_var.split(separator) {
-            let path_dir = Path::new(path_dir);
-
-            for candidate in &candidates {
-                let full_path = path_dir.join(candidate);
-                if full_path.exists() && full_path.is_file() {
-                    return Some(full_path.to_string_lossy().to_string());
-                }
-            }
-        }
-    }
-
-    // Fallback: try the name as-is (might work on some systems)
-    Some(name.to_string())
 }
 
 pub async fn interactive_chat(transport: Transport) -> Result<()> {
@@ -482,23 +447,23 @@ pub async fn execute_command(
     Ok(())
 }
 
-fn init_logging() {
-    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
-    let _ = tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .try_init();
-}
-
-pub async fn natural_language_chat(transport: Transport) -> Result<()> {
+pub async fn natural_language_chat(transport: Transport, provider: AIProvider) -> Result<()> {
     println!("🤖 Terminator Natural Language Chat Client");
     println!("==========================================");
 
     // Load Anthropic API Key
     dotenvy::dotenv().ok();
+
+    let api_key = match provider {
+        AIProvider::Anthropic => std::env::var("ANTHROPIC_API_KEY"),
+        AIProvider::OpenAI => std::env::var("OPENAI_API_KEY"),
+        AIProvider::Gemini => std::env::var("GEMINI_API_KEY"),
+    }.map_err(|_| {
+        println!("Please set it in a .env file.");
+        anyhow::anyhow!("❌ API key not set for selected provider. \
+                        missing env var `GEMINI_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY`.");
+    });
+
     let api_key = match std::env::var("ANTHROPIC_API_KEY") {
         Ok(key) => key,
         Err(_) => {
