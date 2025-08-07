@@ -471,7 +471,11 @@ impl AccessibilityEngine for WindowsEngine {
                 if let Some(name) = name {
                     // use contains_name, its undetermined right now
                     // wheather we should use `name` or `contains_name`
-                    matcher_builder = matcher_builder.contains_name(name);
+                    matcher_builder = matcher_builder.filter(Box::new(NameFilter {
+                        value: name.clone(),
+                        casesensitive: false,
+                        partial: true,
+                    }));
                 }
 
                 let elements = matcher_builder.find_all().map_err(|e| {
@@ -871,7 +875,7 @@ impl AccessibilityEngine for WindowsEngine {
             | Selector::Below(inner_selector)
             | Selector::Near(inner_selector) => {
                 // 1. Find the anchor element. Must be a single element.
-                let anchor_element = self.find_element(inner_selector, root, timeout)?;
+                let anchor_element = self.find_element(inner_selector, root, timeout, Some(50_usize))?;
                 let anchor_bounds = anchor_element.bounds()?; // (x, y, width, height)
 
                 // 2. Get all candidate elements within the same root.
@@ -1016,6 +1020,7 @@ impl AccessibilityEngine for WindowsEngine {
         selector: &Selector,
         root: Option<&UIElement>,
         timeout: Option<Duration>,
+        depth: Option<usize>,
     ) -> Result<UIElement, AutomationError> {
         let root_ele = if let Some(el) = root {
             if let Some(ele) = el.as_any().downcast_ref::<WindowsUIElement>() {
@@ -1033,12 +1038,13 @@ impl AccessibilityEngine for WindowsEngine {
             Selector::Role { role, name } => {
                 let win_control_type = map_generic_role_to_win_roles(role);
                 debug!(
-                    "searching element by role: {:?} (from: {}), name_filter: {:?}, timeout: {}ms, within: {:?}",
+                    "searching element by role: {:?} (from: {}), name_filter: {:?}, timeout: {}ms, within: {:?}, depth: {:?}",
                     win_control_type,
                     role,
                     name,
                     timeout_ms,
-                    root_ele.get_name().unwrap_or_default()
+                    root_ele.get_name().unwrap_or_default(),
+                    depth
                 );
 
                 let mut matcher_builder = self
@@ -1047,7 +1053,7 @@ impl AccessibilityEngine for WindowsEngine {
                     .create_matcher()
                     .from_ref(root_ele)
                     .control_type(win_control_type)
-                    .depth(50) // Default depth for find_element
+                    .depth(depth.unwrap_or(50) as u32)
                     .timeout(timeout_ms as u64);
 
                 if let Some(name) = name {
@@ -1080,7 +1086,7 @@ impl AccessibilityEngine for WindowsEngine {
                     .0
                     .create_matcher()
                     .from_ref(root_ele)
-                    .depth(50)
+                    .depth(depth.unwrap_or(50) as u32)
                     .filter_fn(Box::new(move |e: &uiautomation::UIElement| {
                         // Use the common function to generate ID
                         match generate_element_id(e)
@@ -1124,7 +1130,7 @@ impl AccessibilityEngine for WindowsEngine {
                     .create_matcher()
                     .from_ref(root_ele)
                     .contains_name(name)
-                    .depth(50)
+                    .depth(depth.unwrap_or(50) as u32)
                     .timeout(timeout_ms as u64);
 
                 let element = matcher.find_first().map_err(|e| {
@@ -1185,7 +1191,7 @@ impl AccessibilityEngine for WindowsEngine {
                     .0
                     .create_matcher()
                     .from_ref(root_ele)
-                    .depth(50) // Add depth limit
+                    .depth(depth.unwrap_or(50) as u32)
                     .filter_fn(Box::new(move |e: &uiautomation::UIElement| {
                         match e.get_automation_id() {
                             Ok(id) => {
@@ -1224,7 +1230,7 @@ impl AccessibilityEngine for WindowsEngine {
                     .0
                     .create_matcher()
                     .from_ref(root_ele)
-                    .depth(50)
+                    .depth(depth.unwrap_or(50) as u32)
                     .filter_fn({
                         let attributes = attributes.clone();
                         Box::new(move |e: &uiautomation::UIElement| {
@@ -1270,7 +1276,7 @@ impl AccessibilityEngine for WindowsEngine {
                 }
 
                 // Start with all elements matching the first selector in the chain.
-                let mut current_results = self.find_elements(&selectors[0], root, timeout, None)?;
+                let mut current_results = self.find_elements(&selectors[0], root, timeout, depth.or(None))?;
 
                 // Sequentially apply the rest of the selectors.
                 for (i, selector) in selectors.iter().skip(1).enumerate() {
@@ -1344,7 +1350,7 @@ impl AccessibilityEngine for WindowsEngine {
                     .filter(Box::new(ClassNameFilter {
                         classname: classname.clone(),
                     }))
-                    .depth(50)
+                    .depth(depth.unwrap_or(50) as u32)
                     .timeout(timeout_ms as u64);
                 let element = matcher.find_first().map_err(|e| {
                     AutomationError::ElementNotFound(format!("ClassName: '{classname}', Err: {e}"))
@@ -1361,7 +1367,7 @@ impl AccessibilityEngine for WindowsEngine {
                     .0
                     .create_matcher()
                     .from_ref(root_ele)
-                    .depth(50)
+                    .depth(depth.unwrap_or(50) as u32)
                     .filter_fn(Box::new(move |e: &uiautomation::UIElement| {
                         match e.is_offscreen() {
                             Ok(is_offscreen) => Ok(is_offscreen != visibility),
@@ -1393,7 +1399,7 @@ impl AccessibilityEngine for WindowsEngine {
                             Err(_) => Ok(false),
                         }
                     }))
-                    .depth(50)
+                    .depth(depth.unwrap_or(50) as u32)
                     .timeout(timeout_ms as u64);
                 let element = matcher.find_first().map_err(|e| {
                     AutomationError::ElementNotFound(format!(
@@ -1435,7 +1441,7 @@ impl AccessibilityEngine for WindowsEngine {
                     _ => unreachable!(),
                 };
 
-                let anchor_element = self.find_element(inner_selector, root, timeout)?;
+                let anchor_element = self.find_element(inner_selector, root, timeout, Some(50_usize))?;
                 let anchor_bounds = anchor_element.bounds()?;
                 let anchor_center_x = anchor_bounds.0 + anchor_bounds.2 / 2.0;
                 let anchor_center_y = anchor_bounds.1 + anchor_bounds.3 / 2.0;

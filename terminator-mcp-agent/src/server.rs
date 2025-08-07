@@ -359,7 +359,7 @@ impl DesktopWrapper {
                 .desktop
                 .locator(Selector::from(successful_selector.as_str()));
             if let Ok(updated_element) = verification_locator
-                .wait(Some(std::time::Duration::from_millis(500)))
+                .wait(Some(std::time::Duration::from_millis(500)), Some(50_usize)) // default depth
                 .await
             {
                 let current_text = updated_element.text(0).unwrap_or_default();
@@ -953,21 +953,22 @@ impl DesktopWrapper {
         Parameters(args): Parameters<WaitForElementArgs>,
     ) -> Result<CallToolResult, McpError> {
         info!(
-            "[wait_for_element] Called with selector: '{}', condition: '{}', timeout_ms: {:?}, include_tree: {:?}",
-            args.selector, args.condition, args.timeout_ms, args.include_tree
+            "[wait_for_element] Called with selector: '{}', condition: '{}', timeout_ms: {:?}, include_tree: {:?}, depth: {:?}",
+            args.selector, args.condition, args.timeout_ms, args.include_tree, args.depth
         );
 
         let locator = self.desktop.locator(Selector::from(args.selector.as_str()));
         let timeout = get_timeout(args.timeout_ms);
         let condition_lower = args.condition.to_lowercase();
+        let depth = args.depth;
 
         // For the "exists" condition, we can use the standard wait
         if condition_lower == "exists" {
             info!(
-                "[wait_for_element] Waiting for element to exist: selector='{}', timeout={:?}",
-                args.selector, timeout
+                "[wait_for_element] Waiting for element to exist: selector='{}', timeout={:?} depth='{:?}'",
+                args.selector, timeout, depth
             );
-            match locator.wait(timeout).await {
+            match locator.wait(timeout, depth).await {
                 Ok(element) => {
                     info!(
                         "[wait_for_element] Element found for selector='{}' within timeout.",
@@ -1045,7 +1046,7 @@ impl DesktopWrapper {
 
             // Try to find the element with a short timeout
             match locator
-                .wait(Some(std::time::Duration::from_millis(100)))
+                .wait(Some(std::time::Duration::from_millis(100)), Some(50_usize)) // default depth
                 .await
             {
                 Ok(element) => {
