@@ -35,7 +35,7 @@ pub async fn execute_script(
     info!("🔍 Finding console prompt using name:Console prompt");
     let console_prompt = desktop
         .locator("role:document|name:DevTools >> name:Console prompt")
-        .first(None, Some(50_usize))
+        .first(None)
         .await?;
 
     info!("⌨️ Typing JavaScript into console prompt");

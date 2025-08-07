@@ -261,7 +261,7 @@ pub async fn wait_for_ui_change(
         // Check 2: Did the original element disappear? (e.g., a dialog closed)
         if desktop
             .locator(original_selector.clone())
-            .first(Some(Duration::from_millis(20)), Some(50_usize)) // default depth
+            .first(Some(Duration::from_millis(20)))
             .await
             .is_err()
         {

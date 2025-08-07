@@ -899,7 +899,7 @@ pub async fn find_element_with_fallbacks(
     // FAST PATH: If no alternatives or fallbacks are provided, just use the primary selector directly.
     if alternative_selectors.is_none() && fallback_selectors.is_none() {
         let locator = desktop.locator(terminator::Selector::from(primary_selector));
-        return match locator.first(Some(timeout_duration), Some(50_usize)).await {    // default depth
+        return match locator.first(Some(timeout_duration)).await {
             Ok(element) => Ok((element, primary_selector.to_string())),
             Err(e) => Err(terminator::AutomationError::ElementNotFound(format!(
                 "Primary selector '{primary_selector}' failed: {e}"
@@ -928,7 +928,7 @@ pub async fn find_element_with_fallbacks(
     let primary_clone = primary_selector.to_string();
     let primary_task = tokio::spawn(async move {
         let locator = desktop_clone.locator(terminator::Selector::from(primary_clone.as_str()));
-        match locator.first(Some(timeout_duration), Some(50_usize)).await {
+        match locator.first(Some(timeout_duration)).await {
             Ok(element) => Ok((element, primary_clone)),
             Err(e) => Err((primary_clone, e)),
         }
@@ -943,7 +943,7 @@ pub async fn find_element_with_fallbacks(
             let task = tokio::spawn(async move {
                 let locator =
                     desktop_clone.locator(terminator::Selector::from(selector_clone.as_str()));
-                match locator.first(Some(timeout_duration), Some(50_usize)).await {
+                match locator.first(Some(timeout_duration)).await {
                     Ok(element) => Ok((element, selector_clone)),
                     Err(e) => Err((selector_clone, e)),
                 }
@@ -981,7 +981,7 @@ pub async fn find_element_with_fallbacks(
                     match tokio::time::timeout(Duration::from_millis(10), async move {
                         let locator = desktop_clone
                             .locator(terminator::Selector::from(primary_clone.as_str()));
-                        locator.first(Some(Duration::from_millis(1)), Some(50_usize)).await
+                        locator.first(Some(Duration::from_millis(1))).await
                     })
                     .await
                     {
@@ -1011,7 +1011,7 @@ pub async fn find_element_with_fallbacks(
     if let Some(fallbacks) = fallback_selectors_vec {
         for fb_selector in fallbacks {
             let locator = desktop.locator(terminator::Selector::from(fb_selector.as_str()));
-            match locator.first(Some(timeout_duration), Some(50_usize)).await {
+            match locator.first(Some(timeout_duration)).await {
                 Ok(element) => {
                     return Ok((element, fb_selector));
                 }

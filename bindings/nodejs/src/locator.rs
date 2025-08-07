@@ -61,14 +61,14 @@ impl Locator {
 
     /// (async) Wait for the first matching element.
     ///
-    /// @param {number} [timeoutMs] - Timeout in milliseconds.
+    /// @param {number} [timeoutMs] [depth] - Timeout in milliseconds.
     /// @returns {Promise<Element>} The first matching element.
     #[napi]
-    pub async fn wait(&self, timeout_ms: Option<f64>) -> napi::Result<Element> {
+    pub async fn wait(&self, timeout_ms: Option<f64>, depth: Option<u32>) -> napi::Result<Element> {
         use std::time::Duration;
         let timeout = timeout_ms.map(|ms| Duration::from_millis(ms as u64));
         self.inner
-            .wait(timeout)
+            .wait(timeout, Some(depth.unwrap_or(50) as usize))
             .await
             .map(Element::from)
             .map_err(map_error)

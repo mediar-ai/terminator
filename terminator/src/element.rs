@@ -1156,7 +1156,7 @@ impl<'de> Deserialize<'de> for UIElement {
         let serializable = SerializableUIElement::deserialize(deserializer)?;
 
         // Try to find the actual live element
-        find_live_element(&serializable, Some(50_usize)).ok_or_else(|| {                 // default depth
+        find_live_element(&serializable).ok_or_else(|| {
             Error::custom(format!(
                 "Could not find UI element with role '{}' and name '{:?}' in current UI tree",
                 serializable.role, serializable.name
@@ -1166,7 +1166,7 @@ impl<'de> Deserialize<'de> for UIElement {
 }
 
 /// Attempts to find a live UI element matching the serializable data
-fn find_live_element(serializable: &SerializableUIElement, depth: Option<usize>) -> Option<UIElement> {
+fn find_live_element(serializable: &SerializableUIElement) -> Option<UIElement> {
     // Try to create a Desktop instance and search the UI tree
     // If any step fails (Desktop creation or element search), return None
     std::panic::catch_unwind(|| {
@@ -1174,7 +1174,7 @@ fn find_live_element(serializable: &SerializableUIElement, depth: Option<usize>)
         let desktop = crate::Desktop::new(false, false).ok()?;
         // find_element_in_tree is still async, so we need a runtime only for that
         let rt = tokio::runtime::Runtime::new().ok()?;
-        rt.block_on(async { find_element_in_tree(&desktop, serializable, depth).await })
+        rt.block_on(async { find_element_in_tree(&desktop, serializable).await })
     })
     .unwrap_or(None)
 }
@@ -1183,14 +1183,13 @@ fn find_live_element(serializable: &SerializableUIElement, depth: Option<usize>)
 async fn find_element_in_tree(
     desktop: &crate::Desktop,
     serializable: &SerializableUIElement,
-    depth: Option<usize>
 ) -> Option<crate::UIElement> {
     // Try to find by ID first
     if let Some(ref id) = serializable.id {
         let id_selector = format!("#{id}");
         if let Ok(element) = desktop
             .locator(id_selector.as_str())
-            .first(Some(std::time::Duration::from_secs(1)), depth)
+            .first(Some(std::time::Duration::from_secs(1)))
             .await
         {
             return Some(element);
@@ -1205,7 +1204,7 @@ async fn find_element_in_tree(
 
     if let Ok(element) = desktop
         .locator(selector.as_str())
-        .first(Some(std::time::Duration::from_secs(1)), depth)
+        .first(Some(std::time::Duration::from_secs(1)))
         .await
     {
         // Verify bounds match (with tolerance) if available

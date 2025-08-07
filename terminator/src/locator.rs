@@ -64,8 +64,8 @@ impl Locator {
         )
     }
 
-    pub async fn first(&self, timeout: Option<Duration>, depth: Option<usize>) -> Result<UIElement, AutomationError> {
-        let element = self.wait(timeout, depth).await?;
+    pub async fn first(&self, timeout: Option<Duration>) -> Result<UIElement, AutomationError> {
+        let element = self.wait(timeout, Some(50_usize)).await?;  // default depth
         Ok(element)
     }
 

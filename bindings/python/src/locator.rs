@@ -78,7 +78,7 @@ impl Locator {
         let locator = self.inner.clone();
         pyo3_tokio::future_into_py_with_locals(py, TaskLocals::with_running_loop(py)?, async move {
             let element = locator
-                .wait(timeout_ms.map(std::time::Duration::from_millis))
+                .wait(timeout_ms.map(std::time::Duration::from_millis), Some(50_usize))
                 .await
                 .map_err(automation_error_to_pyerr)?;
             Ok(UIElement { inner: element })
