@@ -100,3 +100,364 @@ Use this as a living backlog of workflow products and automations. Prioritize id
 
 ## Next steps
 - Pick 3 ideas → fill the evaluation template → build the 1-week MVP for the top 1.
+
+## Appendix: Example workflow YAML (anonymized)
+
+This illustrative example shows how a browser automation workflow could collect insurance quotes end-to-end without using any private data, proprietary URLs, or selectors. Adapt the selectors to your target application.
+
+```yaml
+tool_name: execute_sequence
+arguments:
+  variables:
+    url:
+      type: string
+      label: URL
+      description: Public demo or test URL for the quoting app.
+      default: https://example-insurance-quoter.test/
+    applicant_dob:
+      type: string
+      label: Applicant DOB
+      description: MM/DD/YYYY
+      default: 01/01/1980
+      regex: "(0[1-9]|1[0-2])\\/(0[1-9]|[12][0-9]|3[01])\\/\\d{4}"
+      validation_message: Use MM/DD/YYYY.
+    applicant_height:
+      type: string
+      label: Height (ft in)
+      description: Feet and inches separated by a space, e.g., "5 11".
+      default: "5 11"
+      regex: "^\\d \\d{1,2}$"
+      validation_message: Height must be like "5 11".
+    applicant_weight:
+      type: string
+      label: Weight (lbs)
+      default: "175"
+      regex: "^\\d{2,3}$"
+      validation_message: Enter 2–3 digit pounds.
+    applicant_gender:
+      type: enum
+      label: Gender
+      default: Male
+      options: [Male, Female]
+    applicant_state:
+      type: enum
+      label: State
+      default: California
+      options: [Alabama, Alaska, Arizona, Arkansas, California, Colorado, Connecticut, Delaware, Florida, Georgia, Hawaii, Idaho, Illinois, Indiana, Iowa, Kansas, Kentucky, Louisiana, Maine, Maryland, Massachusetts, Michigan, Minnesota, Mississippi, Missouri, Montana, Nebraska, Nevada, New Hampshire, New Jersey, New Mexico, New York, North Carolina, North Dakota, Ohio, Oklahoma, Oregon, Pennsylvania, Rhode Island, South Carolina, South Dakota, Tennessee, Texas, Utah, Vermont, Virginia, Washington, West Virginia, Wisconsin, Wyoming]
+    applicant_zip_code:
+      type: string
+      label: ZIP Code
+      default: "94105"
+      regex: "^\\d{5}$"
+      validation_message: 5-digit ZIP only.
+    applicant_tobacco_usage:
+      type: enum
+      label: Tobacco/Nicotine Use (last 12 months)
+      default: Never
+      options:
+        - Never
+        - Daily
+        - Weekly
+        - Monthly
+        - A few times a year
+    open_enrollment_status:
+      type: enum
+      label: Open Enrollment
+      default: "Yes"
+      options: ["Yes", "No"]
+    product_types:
+      type: array
+      label: Product Types
+      default: [FEX, MedSup, Preneed, Term]
+      options: [FEX, MedSup, Preneed, Term]
+    policy_coverage_type:
+      type: enum
+      label: Coverage Type
+      default: "Best Case: Graded Coverage"
+      options:
+        - Default
+        - "Best Case: Graded Coverage"
+        - "Best Case: ROP Coverage"
+        - "Guaranteed Issue ONLY"
+    quote_type:
+      type: enum
+      label: Quote By
+      default: Face Value
+      options: ["Max Monthly Budget", "Face Value"]
+    quote_value:
+      type: string
+      label: Quote Value
+      description: Whole number only (budget dollars or face amount).
+      default: "5000"
+      regex: "^\\d+$"
+      validation_message: Whole number only (no $ or commas).
+    quote_parser:
+      type: object
+      label: Quote Results Parser
+      default:
+        ui_tree_source_step_id: capture_quotes_tree
+        javascript_code: |
+          // Simple, generic parser: collects groups that look like quote cards
+          function isLikelyQuoteGroup(node) {
+            if (!node || !node.attributes) return false;
+            if (node.attributes.role !== 'Group') return false;
+            const children = node.children || [];
+            const hasText = children.some(c => c.attributes?.role === 'Text');
+            const hasImage = children.some(c => c.attributes?.role === 'Image');
+            return hasText && hasImage;
+          }
+
+          function extractText(node) {
+            const out = [];
+            (function walk(n){
+              if (!n) return;
+              if (n.attributes?.role === 'Text' && n.attributes?.name) out.push(n.attributes.name);
+              (n.children||[]).forEach(walk);
+            })(node);
+            return out.join(' ').trim();
+          }
+
+          const results = [];
+          (function walk(node){
+            if (!node) return;
+            if (isLikelyQuoteGroup(node)) {
+              const text = extractText(node);
+              if (text && !/ineligible|no options|unavailable/i.test(text)) {
+                const priceMatch = text.match(/\$?\d{2,4}(?:\.\d{2})?\s*(?:\/\s*mo|per month|monthly)?/i);
+                const faceMatch = text.match(/\$?\d{4,7}(?:,\d{3})*(?:\.\d{2})?/);
+                results.push({
+                  summary: text.slice(0, 140),
+                  price: priceMatch ? priceMatch[0] : 'N/A',
+                  faceAmount: faceMatch ? faceMatch[0] : 'N/A',
+                  status: 'Available'
+                });
+              }
+            }
+            (node.children||[]).forEach(walk);
+          })(tree);
+
+          return results;
+  inputs:
+    url: https://example-insurance-quoter.test/
+    applicant_dob: 01/01/1980
+    applicant_height: "5 11"
+    applicant_weight: "175"
+    applicant_gender: Male
+    applicant_state: California
+    applicant_zip_code: "94105"
+    applicant_tobacco_usage: Never
+    open_enrollment_status: "Yes"
+    product_types: [FEX, MedSup, Preneed, Term]
+    policy_coverage_type: "Best Case: Graded Coverage"
+    quote_type: Face Value
+    quote_value: "5000"
+  selectors:
+    browser_window: role:Window|name:Chromium
+    accept_button: role:button|name:Accept
+    dob_field: role:Edit|name:DOB
+    height_field: role:Edit|name:Height
+    weight_field: role:Edit|name:Weight
+    state_field: role:combobox|name:State
+    zip_field: role:Edit|name:ZIP
+    gender_radio_male: role:RadioButton|name:Male
+    gender_radio_female: role:RadioButton|name:Female
+    tobacco_usage_dropdown: role:combobox|name:Tobacco usage
+    max_monthly_budget_toggle: role:tab|name:Budget
+    face_value_toggle: role:tab|name:Face Amount
+    monthly_budget_field: role:Edit|name:Budget
+    face_value_field: role:Edit|name:Face Amount
+    coverage_type_dropdown: role:combobox|name:Coverage
+    run_quote_button: role:button|name:Run Quote
+    results_ready_marker: role:text|name:Results
+    results_per_page_dropdown: role:combobox|name:Results per page
+    product_fex_checkbox: role:checkbox|name:FEX
+    product_medsup_checkbox: role:checkbox|name:MedSup
+    product_preneed_checkbox: role:checkbox|name:Preneed
+    product_term_checkbox: role:checkbox|name:Term
+  steps:
+  - tool_name: navigate_browser
+    arguments:
+      url: "${{url}}"
+      include_tree: false
+      delay_ms: 800
+  - group_name: Set Window State (Skippable)
+    skippable: true
+    steps:
+    - tool_name: maximize_window
+      arguments:
+        selector: "${{selectors.browser_window}}"
+        include_tree: false
+      continue_on_error: true
+      delay_ms: 300
+  - group_name: Accept Notices (Skippable)
+    skippable: true
+    steps:
+    - tool_name: click_element
+      arguments:
+        selector: "${{selectors.accept_button}}"
+        timeout_ms: 1000
+        include_tree: false
+      continue_on_error: true
+  - group_name: Fill Application
+    skippable: false
+    steps:
+    - tool_name: set_value
+      arguments:
+        selector: "${{selectors.dob_field}}"
+        value: "${{applicant_dob}}"
+        timeout_ms: 500
+        include_tree: false
+    - tool_name: set_value
+      arguments:
+        selector: "${{selectors.height_field}}"
+        value: "${{applicant_height}}"
+        timeout_ms: 500
+        include_tree: false
+    - tool_name: set_value
+      arguments:
+        selector: "${{selectors.weight_field}}"
+        value: "${{applicant_weight}}"
+        timeout_ms: 500
+        include_tree: false
+    - tool_name: set_selected
+      arguments:
+        selector: role:RadioButton|name:${{applicant_gender}}
+        state: true
+        timeout_ms: 600
+        include_tree: false
+    - tool_name: set_value
+      arguments:
+        selector: "${{selectors.state_field}}"
+        value: "${{applicant_state}}"
+        timeout_ms: 600
+        include_tree: false
+    - tool_name: set_value
+      arguments:
+        selector: "${{selectors.zip_field}}"
+        value: "${{applicant_zip_code}}"
+        timeout_ms: 600
+        include_tree: false
+    - tool_name: set_selected
+      arguments:
+        selector: "${{selectors.tobacco_usage_dropdown}}"
+        option: "${{applicant_tobacco_usage}}"
+        timeout_ms: 800
+        include_tree: false
+  - group_name: Ensure Products
+    skippable: true
+    steps:
+    - tool_name: click_element
+      arguments:
+        selector: "${{selectors.product_fex_checkbox}}"
+        include_tree: false
+      if: "!contains(product_types, 'FEX')"
+      continue_on_error: true
+    - tool_name: click_element
+      arguments:
+        selector: "${{selectors.product_medsup_checkbox}}"
+        include_tree: false
+      if: "!contains(product_types, 'MedSup')"
+      continue_on_error: true
+    - tool_name: click_element
+      arguments:
+        selector: "${{selectors.product_preneed_checkbox}}"
+        include_tree: false
+      if: "!contains(product_types, 'Preneed')"
+      continue_on_error: true
+    - tool_name: click_element
+      arguments:
+        selector: "${{selectors.product_term_checkbox}}"
+        include_tree: false
+      if: "!contains(product_types, 'Term')"
+      continue_on_error: true
+  - group_name: Enter Quote Value (Monthly)
+    if: quote_type == 'Max Monthly Budget'
+    skippable: false
+    steps:
+    - tool_name: click_element
+      arguments:
+        selector: "${{selectors.max_monthly_budget_toggle}}"
+        timeout_ms: 1000
+        include_tree: false
+    - tool_name: set_value
+      arguments:
+        selector: "${{selectors.monthly_budget_field}}"
+        value: "${{quote_value}}"
+        timeout_ms: 500
+        include_tree: false
+  - group_name: Enter Quote Value (Face Amount)
+    if: quote_type == 'Face Value'
+    skippable: false
+    steps:
+    - tool_name: click_element
+      arguments:
+        selector: "${{selectors.face_value_toggle}}"
+        timeout_ms: 1000
+        include_tree: false
+    - tool_name: set_value
+      arguments:
+        selector: "${{selectors.face_value_field}}"
+        value: "${{quote_value}}"
+        timeout_ms: 500
+        include_tree: false
+  - group_name: Set Coverage and Generate Quote
+    skippable: false
+    steps:
+    - tool_name: click_element
+      arguments:
+        selector: "${{selectors.coverage_type_dropdown}}"
+        timeout_ms: 1200
+        include_tree: false
+      delay_ms: 100
+    - tool_name: click_element
+      arguments:
+        selector: role:ListItem|name:${{policy_coverage_type}}
+        timeout_ms: 1500
+        include_tree: false
+      delay_ms: 100
+    - tool_name: click_element
+      arguments:
+        selector: "${{selectors.run_quote_button}}"
+        timeout_ms: 1000
+        include_tree: false
+    - tool_name: wait_for_element
+      arguments:
+        selector: "${{selectors.results_ready_marker}}"
+        condition: exists
+        timeout_ms: 60000
+        include_tree: false
+      continue_on_error: true
+      delay_ms: 1200
+    - tool_name: click_element
+      arguments:
+        selector: "${{selectors.results_per_page_dropdown}}"
+        timeout_ms: 1000
+        include_tree: false
+      continue_on_error: true
+      delay_ms: 200
+    - tool_name: click_element
+      arguments:
+        selector: role:ListItem|name:25
+        timeout_ms: 1500
+        include_tree: false
+      continue_on_error: true
+      delay_ms: 400
+    - tool_name: get_focused_window_tree
+      arguments: {}
+      id: capture_quotes_tree
+  - group_name: Close Window
+    if: always()
+    skippable: true
+    steps:
+    - tool_name: close_element
+      arguments:
+        selector: "${{selectors.browser_window}}"
+        include_tree: false
+      delay_ms: 100
+  output_parser: "${{quote_parser}}"
+```
+
+Notes:
+- Replace the `url` with your own test or demo environment.
+- Update `selectors` to match your UI roles/names. The values here are placeholders that illustrate the pattern.
+- The `quote_parser` is intentionally generic and avoids any app-specific assumptions; refine it for your UI tree.
