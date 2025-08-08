@@ -88,35 +88,12 @@ impl From<&str> for Selector {
                 return if parts.len() == 1 { parts.into_iter().next().unwrap() } else { Selector::And(parts) };
             }
 
-            // Special role|name pairing (preferred precise format)
-            if s.contains('|') {
-                let parts: Vec<&str> = s.split('|').collect();
-                if parts.len() >= 2 {
-                    let role_part = parts[0].trim();
-                    let name_part = parts[1].trim();
-
-                    // Handle role:abcd|name:abcd format
-                    let role = role_part
-                        .strip_prefix("role:")
-                        .unwrap_or(role_part)
-                        .to_string();
-                    
-                    // Handle name: and contains: prefixes (including nested name:contains:)
-                    let mut name = name_part
-                        .strip_prefix("name:")
-                        .unwrap_or(name_part);
-                    
-                    // If after stripping name: we still have contains:, strip that too
-                    name = name.strip_prefix("contains:")
-                        .unwrap_or(name);
-                    
-                    let name = name.to_string();
-
-                    return Selector::Role {
-                        role,
-                        name: Some(name),
-                    };
-                }
+            // Single '|' is not supported; guide to use && instead of role|name
+            if s.contains('|') && !s.contains("||") {
+                return Selector::Invalid(
+                    "Use '&&' to combine conditions, e.g., 'role:button && name:Submit'"
+                        .to_string(),
+                );
             }
 
             // Make common UI roles like "window", "button", etc. default to Role selectors
