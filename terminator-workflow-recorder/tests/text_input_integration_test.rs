@@ -177,7 +177,7 @@ async fn test_text_input_completion_comprehensive() -> Result<(), Box<dyn std::e
             WorkflowEvent::TextInputCompleted(_) => "TextInputCompleted",
             WorkflowEvent::ApplicationSwitch(_) => "ApplicationSwitch",
             WorkflowEvent::BrowserTabNavigation(_) => "BrowserTabNavigation",
-            WorkflowEvent::ButtonClick(_) => "ButtonClick",
+            WorkflowEvent::Click(_) => "Click",
             WorkflowEvent::Hotkey(_) => "Hotkey",
             _ => "Other",
         };
@@ -594,7 +594,7 @@ async fn test_text_input_run_dialog() -> Result<(), Box<dyn std::error::Error>> 
             WorkflowEvent::TextInputCompleted(_) => "TextInputCompleted",
             WorkflowEvent::ApplicationSwitch(_) => "ApplicationSwitch",
             WorkflowEvent::BrowserTabNavigation(_) => "BrowserTabNavigation",
-            WorkflowEvent::ButtonClick(_) => "ButtonClick",
+            WorkflowEvent::Click(_) => "Click",
             WorkflowEvent::Hotkey(_) => "Hotkey",
             _ => "Other",
         };
@@ -732,7 +732,7 @@ async fn test_autocomplete_suggestion_selection() -> Result<(), Box<dyn std::err
 
     // Ensure no spurious ButtonClick event was fired from interacting with the suggestion list
     assert_no_event(&mut event_stream, "Check for spurious button click", |e| {
-        matches!(e, WorkflowEvent::ButtonClick(_))
+        matches!(e, WorkflowEvent::Click(_))
     })
     .await;
 

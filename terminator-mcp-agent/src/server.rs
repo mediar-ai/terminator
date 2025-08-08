@@ -1922,7 +1922,11 @@ impl DesktopWrapper {
 
                 let file_content = std::fs::read_to_string(&file_path).unwrap_or_default();
 
+<<<<<<< HEAD
                 // Generate MCP-ready workflow sequence
+=======
+                // Generate MCP-ready workflow sequence if available
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
                 let mcp_workflow = {
                     let workflow = recorder.workflow.lock().unwrap();
                     workflow.generate_mcp_workflow()
@@ -1937,8 +1941,13 @@ impl DesktopWrapper {
                     "file_content": file_content
                 });
 
+<<<<<<< HEAD
                 // Add MCP workflow if available
                 if let Some(mcp_workflow) = mcp_workflow {
+=======
+                if let Some(mcp_workflow) = mcp_workflow {
+                    tracing::info!("Including MCP workflow sequence in response");
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
                     response["mcp_workflow"] = mcp_workflow;
                 }
 

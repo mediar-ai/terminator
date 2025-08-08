@@ -1382,9 +1382,22 @@ impl AccessibilityEngine for WindowsEngine {
                     }
                 }
 
+<<<<<<< HEAD
                 // After the chain, we expect exactly one element for find_element.
                 // If multiple elements are found, take the first one (useful for click actions)
                 if current_results.len() == 1 {
+=======
+                // After the chain, we expect at least one element for find_element.
+                // If multiple elements are found, take the first one (useful for quick click flows)
+                if !current_results.is_empty() {
+                    if current_results.len() > 1 {
+                        debug!(
+                            "Selector chain `{:?}` resolved to {} elements, using the first one.",
+                            selectors,
+                            current_results.len()
+                        );
+                    }
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
                     Ok(current_results.remove(0))
                 } else if current_results.len() > 1 {
                     debug!(

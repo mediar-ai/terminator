@@ -312,6 +312,13 @@ pub struct ClickEvent {
     /// Text content from all child elements (unlimited depth traversal)
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub child_text_content: Vec<String>,
+<<<<<<< HEAD
+=======
+
+    /// How the UI element for this click was resolved: "deepest" or "legacy"
+    #[serde(skip_serializing_if = "is_empty_string")]
+    pub resolver: Option<String>,
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
 
     /// Event metadata with UI element context
     pub metadata: EventMetadata,

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # MCP Record Workflow Tool Documentation
 
 ## Overview
@@ -33,11 +34,45 @@ const result = await mcp.callTool("record_workflow", {
 });
 
 // Execute the recorded workflow immediately
+=======
+### MCP Record Workflow Tool
+
+## Overview
+
+`record_workflow` captures Windows UI interactions and converts them into executable MCP tool sequences. It now generates scoped selectors, detects Chrome panes, tags how elements were resolved (deepest vs legacy), and supports a low-energy recording mode.
+
+- ✅ Scoped selectors with `>>` for precise targeting
+- ✅ Chrome-aware window scoping (`role:Pane`)
+- ✅ Resolver tagging: `resolver = deepest | legacy | focused`
+- ✅ Optional low-energy mode for long sessions
+- ✅ Ready-to-execute MCP sequences
+
+## Quick Start
+
+1. Start recording
+
+```typescript
+await mcp.callTool("record_workflow", {
+  action: "start",
+  workflow_name: "My Demo Workflow",
+  // optional
+  low_energy_mode: false,
+});
+```
+
+2. Perform actions: clicks, typing, app/tab switches
+
+3. Stop and execute
+
+```typescript
+const result = await mcp.callTool("record_workflow", { action: "stop" });
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
 if (result.mcp_workflow) {
   await mcp.callTool("execute_sequence", result.mcp_workflow.arguments);
 }
 ```
 
+<<<<<<< HEAD
 ## Tool Parameters
 
 | Parameter | Type | Required | Description |
@@ -75,6 +110,21 @@ The recorder automatically detects Chrome applications and generates optimized s
 ## Generated MCP Sequences
 
 ### Button Clicks
+=======
+## Parameters
+
+| Parameter         | Type    | Required      | Description                     |
+| ----------------- | ------- | ------------- | ------------------------------- |
+| `action`          | string  | ✅            | `"start"` or `"stop"`           |
+| `workflow_name`   | string  | When starting | Human-friendly name             |
+| `file_path`       | string  | ❌            | Custom save path                |
+| `low_energy_mode` | boolean | ❌            | Reduce event rate and CPU usage |
+
+## What It Generates
+
+### Clicks
+
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
 ```json
 {
   "tool_name": "click_element",
@@ -86,18 +136,32 @@ The recorder automatically detects Chrome applications and generates optimized s
 }
 ```
 
+<<<<<<< HEAD
 ### Text Input
 ```json
 [
   {
     "tool_name": "click_element", 
     "arguments": { "selector": "Edit|Email" },
+=======
+### Text input
+
+```json
+[
+  {
+    "tool_name": "click_element",
+    "arguments": { "selector": "role:Edit|name:Email" },
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
     "delay_ms": 100
   },
   {
     "tool_name": "type_into_element",
     "arguments": {
+<<<<<<< HEAD
       "selector": "Edit|Email",
+=======
+      "selector": "role:Edit|name:Email",
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
       "text_to_type": "user@example.com",
       "clear_before_typing": true
     },
@@ -106,6 +170,7 @@ The recorder automatically detects Chrome applications and generates optimized s
 ]
 ```
 
+<<<<<<< HEAD
 ### Application Switching
 ```json
 {
@@ -272,3 +337,77 @@ role:Pane|name:contains:Window Title >> role:element_type|name:Element Name
 - Basic event recording
 - Manual selector conversion required
 - Limited browser support
+=======
+### Application focus/switch
+
+```json
+{
+  "tool_name": "activate_element",
+  "arguments": { "selector": "role:Window|name:contains:Notepad" },
+  "delay_ms": 800
+}
+```
+
+## Resolver Transparency
+
+- Deepest: element chosen via deepest hit-test at click point
+- Legacy: fallback to legacy `get_element_from_point` path
+- Focused: element inferred from focus-based activation
+
+This metadata is stored with click events to aid debugging and selector tuning.
+
+Example event metadata captured during recording reflects this in the `resolver` field of click events. The generated MCP sequence itself does not include this field; it is used only for debugging and `conversion_notes`.
+
+## Chrome Support
+
+Window scope uses `role:Pane` for Chromium-based apps; other apps use `role:Window`. Selectors are emitted in scoped form: `window >> element`.
+
+```text
+role:Pane|name:contains:Window Title >> role:element_type|name:Element Name
+```
+
+## Response Shape
+
+```typescript
+{
+  action: "record_workflow",
+  status: "stopped",
+  workflow_name: "My Demo Workflow",
+  file_path: "/path/to/workflow.json",
+  mcp_workflow: {
+    tool_name: "execute_sequence",
+    arguments: {
+      items: [ /* steps */ ],
+      stop_on_error: true,
+      include_detailed_results: true
+    },
+    conversion_notes: [ /* strings explaining conversion */ ],
+    total_steps: 2,
+    workflow_name: "My Demo Workflow"
+  },
+  file_content: "{\"events\": [...]}"
+}
+```
+
+Notes:
+
+- The response does not include a confidence score. Any prior references to `confidence_score` are deprecated and not part of the current implementation.
+
+## Logging & Debugging
+
+- Enable logs (PowerShell):
+  - `setx RUST_LOG info` then restart Cursor/terminal, or
+  - `$env:RUST_LOG = "info"` for the current session
+- Look for info lines indicating Chrome pane handling, scoped selector generation, and resolver type.
+
+## Troubleshooting
+
+- Chrome elements not found: ensure window scope is `role:Pane`
+- Execution fails: confirm app focus and matching window title
+
+## Notes
+
+- Low-energy mode reduces event rate and is ideal for long recordings or VMs.
+- In low-energy mode, text input completion tracking is disabled to minimize overhead.
+- Desktop context detection improves reliability when clicking on the desktop/background elements.
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)

@@ -47,7 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // performance_mode: PerformanceMode::LowEnergy,
         // event_processing_delay_ms: Some(100),
         // max_events_per_second: Some(100),
-        // filter_mouse_noise: true,
+        filter_mouse_noise: true,
         // filter_keyboard_noise: true,
         // reduce_ui_element_capture: true,
         ..Default::default()
@@ -128,7 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Display different event types with appropriate detail levels
             match &event {
-                terminator_workflow_recorder::WorkflowEvent::ButtonClick(button_event) => {
+                terminator_workflow_recorder::WorkflowEvent::Click(button_event) => {
                     let interaction_icon = match button_event.interaction_type {
                         terminator_workflow_recorder::ButtonInteractionType::Click => "🔘",
                         terminator_workflow_recorder::ButtonInteractionType::Toggle => "🔄",
@@ -141,7 +141,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "{} BUTTON CLICK {}: \"{}\" ({:?}) (Latency: {:?})",
                         interaction_icon,
                         event_count,
-                        button_event.button_text,
+                        button_event.element_text,
                         button_event.interaction_type,
                         latency
                     );
@@ -149,9 +149,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(position) = button_event.click_position {
                         println!("     └─ Position: ({}, {})", position.x, position.y);
                     }
-                    println!("     └─ Role: {}", button_event.button_role);
+                    println!("     └─ Role: {}", button_event.element_role);
 
-                    if let Some(ref description) = button_event.button_description {
+                    if let Some(ref description) = button_event.element_description {
                         println!("     └─ Description: \"{description}\"");
                     }
 

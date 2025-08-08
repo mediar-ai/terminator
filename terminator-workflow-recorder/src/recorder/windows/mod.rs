@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 use crate::events::{ButtonInteractionType, ClickEvent};
+=======
+﻿use crate::events::{ButtonInteractionType, ClickEvent};
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
 use crate::{
     ApplicationSwitchMethod, BrowserTabNavigationEvent, ClipboardAction, ClipboardEvent,
     EventMetadata, HotkeyEvent, KeyboardEvent, MouseButton, MouseEvent, MouseEventType, Position,
@@ -91,6 +95,7 @@ impl WindowsRecorder {
             .as_millis() as u64
     }
 
+<<<<<<< HEAD
     /// Collect text content from only direct children (no recursion for deepest element approach)
     fn collect_direct_child_text_content(element: &UIElement) -> Vec<String> {
         let mut child_texts = Vec::new();
@@ -109,6 +114,23 @@ impl WindowsRecorder {
         }
 
         // Remove duplicates and empty strings
+=======
+    /// Collect text content from only direct children (no recursion)
+    fn collect_direct_child_text_content(element: &UIElement) -> Vec<String> {
+        let mut child_texts: Vec<String> = Vec::new();
+
+        if let Ok(children) = element.children() {
+            for child in children {
+                if let Some(child_name) = child.name() {
+                    let trimmed = child_name.trim();
+                    if !trimmed.is_empty() {
+                        child_texts.push(trimmed.to_string());
+                    }
+                }
+            }
+        }
+
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
         child_texts.sort();
         child_texts.dedup();
         child_texts
@@ -117,6 +139,7 @@ impl WindowsRecorder {
             .collect()
     }
 
+<<<<<<< HEAD
     /// Recursively collect text content from all child elements (unlimited depth) - legacy method
     fn collect_child_text_content(element: &UIElement) -> Vec<String> {
         let mut child_texts = Vec::new();
@@ -138,6 +161,25 @@ impl WindowsRecorder {
         }
 
         // Remove duplicates and empty strings
+=======
+    /// Recursively collect text content from all child elements (unlimited depth)
+    fn collect_child_text_content(element: &UIElement) -> Vec<String> {
+        let mut child_texts: Vec<String> = Vec::new();
+
+        if let Ok(children) = element.children() {
+            for child in children {
+                if let Some(child_name) = child.name() {
+                    let trimmed = child_name.trim();
+                    if !trimmed.is_empty() {
+                        child_texts.push(trimmed.to_string());
+                    }
+                }
+                let deeper = Self::collect_child_text_content(&child);
+                child_texts.extend(deeper);
+            }
+        }
+
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
         child_texts.sort();
         child_texts.dedup();
         child_texts
@@ -1292,8 +1334,39 @@ impl WindowsRecorder {
             WorkflowEvent::Mouse(mouse_event) => {
                 matches!(mouse_event.event_type, MouseEventType::Move)
             }
+<<<<<<< HEAD
             // Don't filter other events
             _ => false,
+=======
+            WorkflowEvent::Keyboard(keyboard_event) => {
+                if config.should_filter_keyboard_noise() {
+                    // Filter key-down events and non-printable keys
+                    if keyboard_event.is_key_down {
+                        // Keep printable characters (32-126) and common editing keys
+                        !((keyboard_event.key_code >= 32 && keyboard_event.key_code <= 126)
+                            || matches!(
+                                keyboard_event.key_code,
+                                0x08 | // Backspace
+                            0x2E | // Delete
+                            0x20 | // Space
+                            0x0D | // Enter
+                            0x09 // Tab
+                            ))
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            }
+            // Never filter high-value events
+            WorkflowEvent::ApplicationSwitch(_)
+            | WorkflowEvent::Click(_)
+            | WorkflowEvent::Clipboard(_) => false,
+
+            // Other events can be filtered in LowEnergy mode
+            _ => matches!(config.performance_mode, crate::PerformanceMode::LowEnergy),
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
         };
 
         if !should_filter {
@@ -1626,11 +1699,31 @@ impl WindowsRecorder {
             false
         };
 
+<<<<<<< HEAD
         let ui_element = if config.capture_ui_elements {
             // Use deepest element finder for more precise click detection
             Self::get_deepest_element_from_point_with_timeout(config, *position, 100)
+=======
+        let (ui_element, resolver_method) = if config.capture_ui_elements {
+            // Prefer deepest element for precision; fall back to legacy resolver
+            {
+                let deepest =
+                    Self::get_deepest_element_from_point_with_timeout(config, *position, 100);
+                if let Some(el) = deepest {
+                    (Some(el), String::from("deepest"))
+                } else {
+                    debug!(
+                        "Deepest resolver returned None/timeout; falling back to legacy point resolver"
+                    );
+                    (
+                        Self::get_element_from_point_with_timeout(config, *position, 80),
+                        String::from("legacy"),
+                    )
+                }
+            }
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
         } else {
-            None
+            (None, String::from("none"))
         };
 
         // If this is a double click, emit the double click event
@@ -1872,6 +1965,7 @@ impl WindowsRecorder {
                     child_text_content
                 );
 
+<<<<<<< HEAD
                 let click_event = ClickEvent {
                     element_text: element_name,
                     interaction_type,
@@ -1891,6 +1985,32 @@ impl WindowsRecorder {
                     debug!("Failed to send click event: {}", e);
                 } else {
                     debug!("Γ£à Click event sent successfully");
+=======
+                    let click_event = ClickEvent {
+                        element_text: element_name,
+                        interaction_type,
+                        element_role: element_role.clone(),
+                        was_enabled: element.is_enabled().unwrap_or(true),
+                        click_position: Some(*position),
+                        element_description: if element_desc.is_empty() {
+                            None
+                        } else {
+                            Some(element_desc)
+                        },
+                        // Collect direct children to avoid excessive noise
+                        child_text_content: Self::collect_direct_child_text_content(&element),
+                        resolver: Some(resolver_method.clone()),
+                        metadata: EventMetadata::with_ui_element_and_timestamp(Some(
+                            element.clone(),
+                        )),
+                    };
+
+                    if let Err(e) = event_tx.send(WorkflowEvent::Click(click_event)) {
+                        debug!("Failed to send click event: {}", e);
+                    } else {
+                        debug!("✅ Click event sent successfully");
+                    }
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
                 }
             }
         }
@@ -1924,10 +2044,25 @@ impl WindowsRecorder {
         performance_last_event_time: &Arc<Mutex<Instant>>,
         performance_events_counter: &Arc<Mutex<(u32, Instant)>>,
     ) {
-        let ui_element = if config.capture_ui_elements {
-            Self::get_element_from_point_with_timeout(config, *position, 100)
+        let (ui_element, _resolver_release) = if config.capture_ui_elements {
+            // Prefer deepest element for precision; fall back to legacy resolver
+            {
+                let deepest =
+                    Self::get_deepest_element_from_point_with_timeout(config, *position, 100);
+                if let Some(el) = deepest {
+                    (Some(el), String::from("deepest"))
+                } else {
+                    debug!(
+                        "Deepest resolver returned None/timeout; falling back to legacy point resolver"
+                    );
+                    (
+                        Self::get_element_from_point_with_timeout(config, *position, 80),
+                        String::from("legacy"),
+                    )
+                }
+            }
         } else {
-            None
+            (None, String::from("none"))
         };
 
         let mouse_event = MouseEvent {
@@ -1950,8 +2085,12 @@ impl WindowsRecorder {
         );
     }
 
+<<<<<<< HEAD
     /// Find the deepest/most specific element at the given coordinates.
     /// This drills down through the UI hierarchy to find the smallest element that contains the click point.
+=======
+    /// Find the deepest/most specific element at the given coordinates with a hard timeout.
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
     fn get_deepest_element_from_point_with_timeout(
         config: &WorkflowRecorderConfig,
         position: Position,
@@ -1967,15 +2106,22 @@ impl WindowsRecorder {
                 let element = automation.element_from_point(point).ok()?;
                 let terminator_element = convert_uiautomation_element_to_terminator(element);
 
+<<<<<<< HEAD
                 // Find the deepest element that contains our click point
+=======
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
                 Self::find_deepest_element_at_coordinates(&terminator_element, position)
             })();
             let _ = tx.send(result);
         });
 
         match rx.recv_timeout(Duration::from_millis(timeout_ms)) {
+<<<<<<< HEAD
             Ok(Some(element)) => Some(element),
             Ok(None) => None,
+=======
+            Ok(result) => result,
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
             Err(_) => {
                 debug!(
                     "UIA call to get deepest element from point timed out after {}ms.",
@@ -1991,6 +2137,7 @@ impl WindowsRecorder {
         element: &UIElement,
         position: Position,
     ) -> Option<UIElement> {
+<<<<<<< HEAD
         debug!(
             "≡ƒöì Checking element '{}' (role: {}) for coordinates ({}, {})",
             element.name().unwrap_or_default(),
@@ -2007,11 +2154,15 @@ impl WindowsRecorder {
             );
 
             // If current element doesn't contain our point, return None
+=======
+        if let Ok(bounds) = element.bounds() {
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
             if !(bounds.0 <= position.x as f64
                 && position.x as f64 <= bounds.0 + bounds.2
                 && bounds.1 <= position.y as f64
                 && position.y as f64 <= bounds.1 + bounds.3)
             {
+<<<<<<< HEAD
                 debug!("   Γ¥î Point is outside element bounds");
                 return None;
             }
@@ -2033,10 +2184,21 @@ impl WindowsRecorder {
                         deeper_element.role()
                     );
                     return Some(deeper_element);
+=======
+                return None;
+            }
+        }
+
+        if let Ok(children) = element.children() {
+            for child in children {
+                if let Some(deeper) = Self::find_deepest_element_at_coordinates(&child, position) {
+                    return Some(deeper);
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
                 }
             }
         }
 
+<<<<<<< HEAD
         // No deeper element found, this is the deepest one
         debug!(
             "   ≡ƒÄ» Using this element as deepest: '{}' (role: {})",
@@ -2047,6 +2209,12 @@ impl WindowsRecorder {
     }
 
     /// Get element from a specific point with a hard timeout (legacy method for compatibility).
+=======
+        Some(element.clone())
+    }
+
+    /// Get element from a specific point with a hard timeout (legacy fallback).
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
     fn get_element_from_point_with_timeout(
         config: &WorkflowRecorderConfig,
         position: Position,
@@ -2150,6 +2318,7 @@ impl WindowsRecorder {
                 let is_enabled = element.is_enabled().unwrap_or(true);
                 let bounds = element.bounds().unwrap_or_default();
 
+<<<<<<< HEAD
                 // Collect child text content with unlimited depth traversal
                 let child_text_content = Self::collect_child_text_content(&element);
                 info!(
@@ -2158,6 +2327,8 @@ impl WindowsRecorder {
                     child_text_content
                 );
 
+=======
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
                 let click_event = ClickEvent {
                     element_text: element_name.clone(),
                     interaction_type,
@@ -2172,7 +2343,13 @@ impl WindowsRecorder {
                     } else {
                         Some(element_desc.clone())
                     },
+<<<<<<< HEAD
                     child_text_content,
+=======
+                    // For key press activation, use recursive collection for broader context
+                    child_text_content: Self::collect_child_text_content(&element),
+                    resolver: Some(String::from("focused")),
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
                     metadata: EventMetadata::with_ui_element_and_timestamp(Some(element.clone())),
                 };
 

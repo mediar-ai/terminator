@@ -1039,30 +1039,52 @@ impl UIElementImpl for WindowsUIElement {
         let mut current_element_arc = Arc::clone(&self.element.0); // Start with the current element's Arc<uiautomation::UIElement>
         const MAX_DEPTH: usize = 20; // Safety break for parent traversal
 
+<<<<<<< HEAD
         // Strategy: Find the FIRST Pane, or fall back to the FIRST Window
         // This prioritizes finding the closest application container (Pane) over system containers (Window)
+=======
+        // Strategy: Prefer the first Pane (common for browser/app content roots),
+        // fall back to the first Window if no Pane was encountered.
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
         let mut first_pane: Option<Arc<uiautomation::UIElement>> = None;
         let mut first_window: Option<Arc<uiautomation::UIElement>> = None;
 
         for i in 0..MAX_DEPTH {
-            // Check current element's control type
             match current_element_arc.get_control_type() {
                 Ok(control_type) => {
                     match control_type {
                         ControlType::Pane => {
                             if first_pane.is_none() {
+<<<<<<< HEAD
                                 first_pane = Some(Arc::clone(&current_element_arc));
                                 // Found a Pane - this is what we want for Chrome, stop here
                                 break;
+=======
+                                debug!("Found Pane ancestor at depth {} – preferring Pane as app container", i);
+                                first_pane = Some(Arc::clone(&current_element_arc));
+                                break; // Prefer Pane immediately
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
                             }
                         }
                         ControlType::Window => {
                             if first_window.is_none() {
+<<<<<<< HEAD
                                 first_window = Some(Arc::clone(&current_element_arc));
                                 // Don't break - keep looking for a Pane
                             }
                         }
                         _ => {} // Continue traversing for other control types
+=======
+                                debug!(
+                                    "Found Window ancestor at depth {} – recording as fallback",
+                                    i
+                                );
+                                first_window = Some(Arc::clone(&current_element_arc));
+                                // Do not break; keep walking to see if a Pane exists above
+                            }
+                        }
+                        _ => { /* continue walking */ }
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
                     }
                 }
                 Err(e) => {
@@ -1072,11 +1094,9 @@ impl UIElementImpl for WindowsUIElement {
                 }
             }
 
-            // Try to get the parent
+            // Ascend to parent
             match current_element_arc.get_cached_parent() {
                 Ok(parent_uia_element) => {
-                    // Check if parent is same as current (e.g. desktop root's parent is itself)
-                    // This requires getting runtime IDs, which can also fail.
                     let current_runtime_id = current_element_arc.get_runtime_id().map_err(|e| {
                         AutomationError::PlatformError(format!(
                             "Failed to get runtime_id for current element: {e}"
@@ -1089,19 +1109,16 @@ impl UIElementImpl for WindowsUIElement {
                     })?;
 
                     if parent_runtime_id == current_runtime_id {
-                        debug!(
-                            "Parent element has same runtime ID as current, stopping window search."
-                        );
-                        break; // Reached the top or a cycle.
+                        debug!("Reached root while searching for Pane/Window ancestor; stopping.");
+                        break;
                     }
-                    current_element_arc = Arc::new(parent_uia_element); // Move to the parent
+                    current_element_arc = Arc::new(parent_uia_element);
                 }
-                Err(_) => {
-                    break;
-                }
+                Err(_) => break,
             }
         }
 
+<<<<<<< HEAD
         // Return the best candidate we found (prefer first Pane over first Window)
         let chosen_element = first_pane.or(first_window);
 
@@ -1114,6 +1131,25 @@ impl UIElementImpl for WindowsUIElement {
             // If loop finishes, no element with ControlType::Window or Pane was found.
             Ok(None)
         }
+=======
+        if let Some(pane) = first_pane {
+            debug!("Selecting Pane ancestor as window(): best app container.");
+            let window_ui_element = WindowsUIElement {
+                element: ThreadSafeWinUIElement(pane),
+            };
+            return Ok(Some(UIElement::new(Box::new(window_ui_element))));
+        }
+        if let Some(win) = first_window {
+            debug!("Pane not found; falling back to Window ancestor.");
+            let window_ui_element = WindowsUIElement {
+                element: ThreadSafeWinUIElement(win),
+            };
+            return Ok(Some(UIElement::new(Box::new(window_ui_element))));
+        }
+
+        debug!("No Pane or Window ancestor found within max depth.");
+        Ok(None)
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
     }
 
     fn highlight(

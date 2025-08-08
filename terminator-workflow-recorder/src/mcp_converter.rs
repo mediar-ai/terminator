@@ -1,4 +1,5 @@
 use crate::events::{
+<<<<<<< HEAD
     ClickEvent, EnhancedUIElement, InteractionContext, McpToolStep, TextInputCompletedEvent,
     WorkflowEvent,
 };
@@ -6,6 +7,13 @@ use anyhow::Result;
 use serde_json::json;
 use std::collections::HashMap;
 use terminator::UIElement;
+=======
+    ClickEvent, EnhancedUIElement, McpToolStep, TextInputCompletedEvent, WorkflowEvent,
+};
+use anyhow::Result;
+use serde_json::json;
+
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
 use tracing::{debug, warn};
 
 /// Configuration for MCP conversion behavior
@@ -49,12 +57,15 @@ pub struct ConversionResult {
 #[derive(Clone)]
 pub struct McpConverter {
     config: ConversionConfig,
+<<<<<<< HEAD
     #[allow(dead_code)] // TODO: Will be used for future UI pattern analysis
     ui_analyzer: UIPatternAnalyzer,
     #[allow(dead_code)] // TODO: Will be used for future selector generation
     selector_generator: SelectorGenerator,
     #[allow(dead_code)] // TODO: Will be used for future sequence optimization
     sequence_optimizer: SequenceOptimizer,
+=======
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
 }
 
 impl McpConverter {
@@ -65,12 +76,16 @@ impl McpConverter {
 
     /// Create a new MCP converter with custom configuration
     pub fn with_config(config: ConversionConfig) -> Self {
+<<<<<<< HEAD
         Self {
             config,
             ui_analyzer: UIPatternAnalyzer::new(),
             selector_generator: SelectorGenerator::new(),
             sequence_optimizer: SequenceOptimizer::new(),
         }
+=======
+        Self { config }
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
     }
 
     /// Convert a workflow event to MCP sequences
@@ -416,6 +431,7 @@ impl McpConverter {
         }
     }
 
+<<<<<<< HEAD
     /// Generate primary selector for element clicks - prefers child text when more specific
     #[allow(dead_code)] // TODO: Will be used for enhanced selector generation
     fn generate_primary_selector(&self, event: &ClickEvent) -> String {
@@ -466,6 +482,8 @@ impl McpConverter {
         }
     }
 
+=======
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
     /// Generate scoped selector using >> operator for better targeting
     fn generate_scoped_selector(
         &self,
@@ -546,6 +564,7 @@ impl McpConverter {
         }
     }
 
+<<<<<<< HEAD
     /// Generate activation step for window/application targeting
     #[allow(dead_code)] // TODO: Will be used for application switching
     fn generate_activation_step(
@@ -603,6 +622,8 @@ impl McpConverter {
         }
     }
 
+=======
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
     /// Extract meaningful title part from full window title
     fn extract_meaningful_title(&self, full_title: &str) -> Option<String> {
         // Split on common patterns: " - ", " – ", " | "
@@ -635,6 +656,7 @@ impl McpConverter {
         app_lower.contains("progman") // Program Manager (desktop)
     }
 
+<<<<<<< HEAD
     /// Generate fallback sequences for element clicks
     #[allow(dead_code)] // TODO: Will be used for robust click fallback strategies
     async fn generate_click_fallbacks(
@@ -700,6 +722,9 @@ impl McpConverter {
 
         Ok(fallbacks)
     }
+=======
+    // Removed generate_click_fallbacks to eliminate dead_code warnings
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
 }
 
 /// Internal strategy result for text input conversion
@@ -966,6 +991,7 @@ impl McpConverter {
     }
 }
 
+<<<<<<< HEAD
 /// Analyzes UI patterns for intelligent conversion
 #[derive(Clone)]
 pub struct UIPatternAnalyzer {
@@ -1081,3 +1107,6 @@ impl SequenceOptimizer {
         sequence
     }
 }
+=======
+// Removed unused analyzer/selector/optimizer helpers to eliminate warnings.
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)

@@ -1,7 +1,7 @@
 use std::time::Duration;
 use terminator::Desktop;
 use terminator_workflow_recorder::{
-    BrowserTabNavigationEvent, ButtonClickEvent, TextInputCompletedEvent, WorkflowEvent,
+    BrowserTabNavigationEvent, ClickEvent, TextInputCompletedEvent, WorkflowEvent,
     WorkflowRecorder, WorkflowRecorderConfig,
 };
 use tokio_stream::{Stream, StreamExt};
@@ -147,7 +147,7 @@ async fn test_browser_navigation_shortcuts() {
 
     for event in &captured_events {
         match event {
-            WorkflowEvent::ButtonClick(button_event) => {
+            WorkflowEvent::Click(button_event) => {
                 button_click_events.push(button_event);
             }
             WorkflowEvent::BrowserTabNavigation(nav_event) => {
@@ -386,18 +386,18 @@ async fn test_browser_form_interactions() {
     submit_button.click().unwrap();
 
     let button_event = expect_event(&mut event_stream, "Wait for submit button click", |e| {
-        if let WorkflowEvent::ButtonClick(evt) = e {
-            evt.button_text.contains("Download the report")
+        if let WorkflowEvent::Click(evt) = e {
+            evt.element_text.contains("Download the report")
         } else {
             false
         }
     })
     .await;
 
-    if let WorkflowEvent::ButtonClick(ButtonClickEvent { button_text, .. }) = button_event {
-        assert!(button_text.contains("Download the report"));
+    if let WorkflowEvent::Click(ClickEvent { element_text, .. }) = button_event {
+        assert!(element_text.contains("Download the report"));
     } else {
-        panic!("Expected ButtonClickEvent for submit");
+        panic!("Expected ClickEvent for submit");
     }
 
     // Stop recording
@@ -510,7 +510,7 @@ async fn test_browser_mouse_interactions() {
     for event in &captured_events {
         match event {
             WorkflowEvent::Mouse(_) => mouse_events += 1,
-            WorkflowEvent::ButtonClick(button_event) => {
+            WorkflowEvent::Click(button_event) => {
                 button_click_events.push(button_event);
             }
             WorkflowEvent::BrowserTabNavigation(nav_event) => {

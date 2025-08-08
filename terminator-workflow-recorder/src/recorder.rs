@@ -327,7 +327,12 @@ impl WorkflowRecorder {
         let workflow = Arc::new(Mutex::new(RecordedWorkflow::new(name)));
         let (event_tx, _) = broadcast::channel(100); // Buffer size of 100 events
 
+<<<<<<< HEAD
         // Create MCP converter with default settings
+=======
+        // Initialize MCP converter with default configuration so that
+        // we can enrich recorded events with MCP-ready sequences.
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
         let conversion_config = ConversionConfig::default();
         let mcp_converter = Some(McpConverter::with_config(conversion_config));
 
@@ -423,7 +428,12 @@ impl WorkflowRecorder {
         mcp_converter: Option<McpConverter>,
     ) {
         while let Ok(event) = event_rx.recv().await {
+<<<<<<< HEAD
             // If MCP conversion is enabled, enhance the event
+=======
+            // If MCP conversion is enabled, try to enrich the event. Fall back to
+            // recording the original event on failure to preserve behavior.
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
             let recorded_event = if let Some(ref converter) = mcp_converter {
                 match converter.convert_event(&event, None).await {
                     Ok(conversion_result) => {
@@ -440,11 +450,18 @@ impl WorkflowRecorder {
                             mcp_sequence: Some(conversion_result.primary_sequence),
                             semantic_action: Some(conversion_result.semantic_action),
                             fallback_sequences: Some(conversion_result.fallback_sequences),
+<<<<<<< HEAD
                             enhanced_ui_context: None, // TODO: Add UI context analysis
                         }
                     }
                     Err(e) => {
                         // Log conversion error but still record the original event
+=======
+                            enhanced_ui_context: None,
+                        }
+                    }
+                    Err(e) => {
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
                         tracing::warn!("MCP conversion failed: {}", e);
                         let timestamp = event.timestamp().unwrap_or_else(|| {
                             std::time::SystemTime::now()
@@ -464,7 +481,10 @@ impl WorkflowRecorder {
                     }
                 }
             } else {
+<<<<<<< HEAD
                 // No MCP conversion, create basic recorded event
+=======
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
                 let timestamp = event.timestamp().unwrap_or_else(|| {
                     std::time::SystemTime::now()
                         .duration_since(std::time::SystemTime::UNIX_EPOCH)
@@ -482,7 +502,10 @@ impl WorkflowRecorder {
                 }
             };
 
+<<<<<<< HEAD
             // Add the event to the workflow (keep lock scope minimal)
+=======
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
             if let Ok(mut workflow_guard) = workflow.lock() {
                 workflow_guard.add_enhanced_event(recorded_event);
             }

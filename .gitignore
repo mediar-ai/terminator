@@ -26,5 +26,10 @@ dist/
 # Terminator workflow recorder debug files
 terminator-workflow-recorder/*.txt
 
+<<<<<<< HEAD
 # Development scripts (user-specific paths)
 scripts/copy-mcp-binary.ps1
+=======
+# Local-only helper scripts
+scripts/local/**
+>>>>>>> 2c7b68c (recorder: restore core features; migrate ButtonClick->ClickEvent; add resolver; retain performance modes; docs: update record_workflow; mcp_converter: remove unused; tests/examples updated; .gitignore: recorder logs, scripts/local/**)
