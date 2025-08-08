@@ -21,11 +21,12 @@
   "workbench.editor.enablePreviewFromTab": false,
   "workbench.editor.splitOnDragAndDrop": false,
   "workbench.editor.closeOnFileDelete": false,
-  "workbench.editor.doubleClickTabToToggleEditorGroupSizes": false,
+  "workbench.editor.doubleClickTabToToggleEditorGroupSizes": "off",
   "workbench.editor.centeredLayoutAutoResize": false,
   "window.openFoldersInNewWindow": "off",
   "window.restoreWindows": "one",
   "explorer.openEditors.visible": 0,
   "workbench.editor.pinnedTabSizing": "normal",
-  "workbench.startupEditor": "none"
+  "workbench.startupEditor": "none",
+  "workbench.editor.tabActionLocation": "right"
 }

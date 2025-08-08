@@ -674,6 +674,43 @@ fn find_elements_inner<'a>(
     Box::pin(async move {
         use crate::Selector;
         match selector {
+            Selector::Or(options) => {
+                // Union of results
+                let mut seen = std::collections::HashSet::new();
+                let mut results = Vec::new();
+                for opt in options {
+                    match find_elements_inner(linux_engine, opt, root, depth).await {
+                        Ok(elements) => {
+                            for el in elements {
+                                if seen.insert(el.clone()) {
+                                    results.push(el);
+                                }
+                            }
+                        }
+                        Err(AutomationError::ElementNotFound(_)) => {}
+                        Err(e) => return Err(e),
+                    }
+                }
+                return Ok(results);
+            }
+            Selector::And(options) => {
+                if options.is_empty() {
+                    return Ok(Vec::new());
+                }
+                let mut iter = options.iter();
+                let first_sel = iter.next().unwrap();
+                let mut current: std::collections::HashSet<UIElement> = find_elements_inner(linux_engine, first_sel, root, depth).await?.into_iter().collect();
+                for opt in iter {
+                    let next_set: std::collections::HashSet<UIElement> = match find_elements_inner(linux_engine, opt, root, depth).await {
+                        Ok(v) => v.into_iter().collect(),
+                        Err(AutomationError::ElementNotFound(_)) => std::collections::HashSet::new(),
+                        Err(e) => return Err(e),
+                    };
+                    current = current.into_iter().filter(|el| next_set.contains(el)).collect();
+                    if current.is_empty() { break; }
+                }
+                return Ok(current.into_iter().collect());
+            }
             Selector::Attributes(_) => {
                 return Err(AutomationError::UnsupportedPlatform(
                     "Selector::Attributes is not implemented for Linux".to_string(),
@@ -1321,11 +1358,41 @@ impl AccessibilityEngine for LinuxEngine {
         root: Option<&UIElement>,
         timeout: Option<Duration>,
     ) -> Result<UIElement, AutomationError> {
-        let elements = find_elements_sync(self, selector, root, timeout, Some(1))?;
-        elements
-            .into_iter()
-            .next()
-            .ok_or_else(|| AutomationError::ElementNotFound("No element found".to_string()))
+        match selector {
+            Selector::Or(options) => {
+                for opt in options {
+                    if let Ok(el) = self.find_element(opt, root, timeout) {
+                        return Ok(el);
+                    }
+                }
+                Err(AutomationError::ElementNotFound("No element matched any of the OR options".to_string()))
+            }
+            Selector::And(options) => {
+                if options.is_empty() {
+                    return Err(AutomationError::ElementNotFound("Empty AND selector".to_string()));
+                }
+                let mut iter = options.iter();
+                let first_sel = iter.next().unwrap();
+                let mut current: std::collections::HashSet<UIElement> = find_elements_sync(self, first_sel, root, timeout, Some(10))?.into_iter().collect();
+                for opt in iter {
+                    let next_set: std::collections::HashSet<UIElement> = match find_elements_sync(self, opt, root, timeout, Some(10)) {
+                        Ok(v) => v.into_iter().collect(),
+                        Err(AutomationError::ElementNotFound(_)) => std::collections::HashSet::new(),
+                        Err(e) => return Err(e),
+                    };
+                    current = current.into_iter().filter(|el| next_set.contains(el)).collect();
+                    if current.is_empty() { break; }
+                }
+                current.into_iter().next().ok_or_else(|| AutomationError::ElementNotFound("No element matched all AND conditions".to_string()))
+            }
+            _ => {
+                let elements = find_elements_sync(self, selector, root, timeout, Some(1))?;
+                elements
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| AutomationError::ElementNotFound("No element found".to_string()))
+            }
+        }
     }
 
     fn find_elements(
