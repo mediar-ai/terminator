@@ -65,14 +65,14 @@ impl Locator {
     }
 
     pub async fn first(&self, timeout: Option<Duration>) -> Result<UIElement, AutomationError> {
-        let element = self.wait(timeout).await?;
+        let element = self.wait(timeout, Some(50_usize)).await?;  // default depth
         Ok(element)
     }
 
     /// Wait for an element matching the locator to appear, up to the specified timeout.
     /// If no timeout is provided, uses the locator's default timeout.
     #[instrument(level = "debug", skip(self, timeout))]
-    pub async fn wait(&self, timeout: Option<Duration>) -> Result<UIElement, AutomationError> {
+    pub async fn wait(&self, timeout: Option<Duration>, depth: Option<usize>) -> Result<UIElement, AutomationError> {
         debug!("Waiting for element matching selector: {:?}", self.selector);
 
         if let Selector::Invalid(reason) = &self.selector {
@@ -89,7 +89,7 @@ impl Locator {
         let root = self.root.clone();
 
         task::spawn_blocking(move || {
-            engine.find_element(&selector, root.as_ref(), Some(effective_timeout))
+            engine.find_element(&selector, root.as_ref(), Some(effective_timeout), depth)
         })
         .await
         .map_err(|e| AutomationError::PlatformError(format!("Task join error: {e}")))?

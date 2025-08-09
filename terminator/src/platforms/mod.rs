@@ -67,6 +67,7 @@ pub trait AccessibilityEngine: Send + Sync {
         selector: &Selector,
         root: Option<&UIElement>,
         timeout: Option<Duration>,
+        depth: Option<usize>,
     ) -> Result<UIElement, AutomationError>;
 
     /// Find all elements matching a selector

@@ -1,0 +1,123 @@
+tool_name: execute_sequence
+arguments:
+  variables:
+    url:
+      type: string
+      label: "x.com url" 
+      default: "https://x.com"
+
+    scroll_times:
+      type: number
+      label: number of scrolls
+      default: 1
+
+  inputs:
+    url: "https://x.com"
+    scroll_times: 1
+
+  selectors:
+    home_timeline_grp: "role:group|name:Home timeline"
+    follow_button: "role:document|name:Home >> role:group >> nth=1 >> role:menuitem|name:Follow >> nth=0"
+    more_button: "role:group|name:Home timeline >> role:group|name:Your Home Timeline >> role:button|name:More >> nth=0"
+    more_button2: "role:group|name:Home timeline >> role:group|name:Your Home Timeline >> role:button|name:More >> nth=1"
+    more_button3: "role:group|name:Home timeline >> role:group|name:Your Home Timeline >> role:button|name:More >> nth=2"
+    more_button4: "role:group|name:Home timeline >> role:group|name:Your Home Timeline >> role:button|name:More >> nth=3"
+
+  steps:
+    - tool_name: navigate_browser
+      arguments:
+        browser: firefox
+        url: "${{url}}"
+        include_tree: false
+
+    - group_name: "click and scroll"
+      steps:
+        - tool_name: wait_for_element 
+          arguments:
+            selector: "${{selectors.home_timeline_grp}}"
+            condition: "exists"
+            depth: 500
+            timeout_ms: 5000
+            include_tree: false
+
+        - tool_name: click_element
+          arguments:
+            selector: "${{selectors.more_button}}"
+            timeout_ms: 2000
+            include_tree: false
+
+        - tool_name: click_element
+          arguments:
+            selector: "${{selectors.follow_button}}"
+            timeout_ms: 1500
+            include_tree: false
+
+        - tool_name: scroll_element 
+          arguments:
+            selector: "${{selectors.home_timeline_grp}}"
+            amount: "${{scroll_times}}"
+            direction: "down"
+            include_tree: false
+
+    - group_name: "click and scroll 2nd post"
+      steps:
+        - tool_name: click_element
+          arguments:
+            selector: "${{selectors.more_button2}}"
+            timeout_ms: 2000
+            include_tree: false
+
+        - tool_name: click_element
+          arguments:
+            selector: "${{selectors.follow_button}}"
+            timeout_ms: 1500
+            include_tree: false
+
+        - tool_name: scroll_element 
+          arguments:
+            selector: "${{selectors.home_timeline_grp}}"
+            amount: "${{scroll_times}}"
+            direction: "down"
+            include_tree: false
+
+    - group_name: "click and scroll 3rd post"
+      steps:
+        - tool_name: click_element
+          arguments:
+            selector: "${{selectors.more_button3}}"
+            timeout_ms: 2000
+            include_tree: false
+
+        - tool_name: click_element
+          arguments:
+            selector: "${{selectors.follow_button}}"
+            timeout_ms: 1500
+            include_tree: false
+
+        - tool_name: scroll_element 
+          arguments:
+            selector: "${{selectors.home_timeline_grp}}"
+            amount: "${{scroll_times}}"
+            direction: "down"
+            include_tree: false
+
+    - group_name: "click and scroll 4th post"
+      steps:
+        - tool_name: click_element
+          arguments:
+            selector: "${{selectors.more_button4}}"
+            timeout_ms: 2000
+            include_tree: false
+
+        - tool_name: click_element
+          arguments:
+            selector: "${{selectors.follow_button}}"
+            timeout_ms: 1500
+            include_tree: false
+
+        - tool_name: scroll_element 
+          arguments:
+            selector: "${{selectors.home_timeline_grp}}"
+            amount: "${{scroll_times}}"
+            direction: "down"
+            include_tree: false

@@ -320,6 +320,8 @@ pub struct WaitForElementArgs {
     pub condition: String,
     #[schemars(description = "Optional timeout in milliseconds")]
     pub timeout_ms: Option<u64>,
+    #[schemars(description = "Maximum depth for finding an ui element")]
+    pub depth: Option<usize>,
     #[schemars(description = "Whether to include full UI tree in the response (verbose mode)")]
     pub include_tree: Option<bool>,
     #[schemars(
