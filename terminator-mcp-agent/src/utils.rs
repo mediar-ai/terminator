@@ -1,3 +1,4 @@
+use crate::mcp_types::{FontStyle, TextPosition};
 use anyhow::Result;
 use rmcp::{schemars, schemars::JsonSchema};
 use serde::{Deserialize, Serialize};
@@ -28,6 +29,10 @@ fn default_desktop() -> Arc<Desktop> {
     Arc::new(desktop)
 }
 
+fn default_scroll_amount() -> f64 {
+    3.0
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct DesktopWrapper {
     #[serde(skip, default = "default_desktop")]
@@ -52,15 +57,18 @@ pub struct GetWindowTreeArgs {
     pub pid: u32,
     #[schemars(description = "Optional window title filter")]
     pub title: Option<String>,
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.). Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct GetFocusedWindowTreeArgs {}
-
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct GetWindowsArgs {
-    #[schemars(description = "Name of the application to get windows for")]
-    pub app_name: String,
+pub struct GetFocusedWindowTreeArgs {
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.). Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -69,6 +77,10 @@ pub struct GetApplicationsArgs {
         description = "Whether to include the full UI tree for each application. Defaults to false."
     )]
     pub include_tree: Option<bool>,
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -89,6 +101,10 @@ pub struct LocatorArgs {
     pub timeout_ms: Option<u64>,
     #[schemars(description = "Whether to include full UI tree in the response.")]
     pub include_tree: Option<bool>,
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
     pub retries: Option<u32>,
 }
 
@@ -110,6 +126,10 @@ pub struct ClickElementArgs {
     pub timeout_ms: Option<u64>,
     #[schemars(description = "Whether to include full UI tree in the response. Defaults to true.")]
     pub include_tree: Option<bool>,
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
     pub retries: Option<u32>,
 }
 
@@ -137,6 +157,10 @@ pub struct TypeIntoElementArgs {
     pub clear_before_typing: Option<bool>,
     #[schemars(description = "Whether to include full UI tree in the response. Defaults to true.")]
     pub include_tree: Option<bool>,
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
     pub retries: Option<u32>,
 }
 
@@ -160,6 +184,10 @@ pub struct PressKeyArgs {
     pub timeout_ms: Option<u64>,
     #[schemars(description = "Whether to include full UI tree in the response. Defaults to true.")]
     pub include_tree: Option<bool>,
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
     pub retries: Option<u32>,
 }
 
@@ -205,6 +233,10 @@ pub struct MouseDragArgs {
     pub timeout_ms: Option<u64>,
     #[schemars(description = "Whether to include full UI tree in the response (verbose mode)")]
     pub include_tree: Option<bool>,
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
     pub retries: Option<u32>,
 }
 
@@ -226,6 +258,10 @@ pub struct ValidateElementArgs {
     pub timeout_ms: Option<u64>,
     #[schemars(description = "Whether to include full UI tree in the response (verbose mode)")]
     pub include_tree: Option<bool>,
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
     pub retries: Option<u32>,
 }
 
@@ -247,10 +283,22 @@ pub struct HighlightElementArgs {
     pub color: Option<u32>,
     #[schemars(description = "Duration in milliseconds (optional, default 1000ms)")]
     pub duration_ms: Option<u64>,
+    #[schemars(
+        description = "Optional text to display as overlay. Text will be truncated to 10 characters."
+    )]
+    pub text: Option<String>,
+    #[schemars(description = "Position of text overlay relative to the highlighted element")]
+    pub text_position: Option<TextPosition>,
+    #[schemars(description = "Font styling options for text overlay")]
+    pub font_style: Option<FontStyle>,
     #[schemars(description = "Optional timeout in milliseconds")]
     pub timeout_ms: Option<u64>,
     #[schemars(description = "Whether to include full UI tree in the response (verbose mode)")]
     pub include_tree: Option<bool>,
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
     pub retries: Option<u32>,
 }
 
@@ -274,6 +322,10 @@ pub struct WaitForElementArgs {
     pub timeout_ms: Option<u64>,
     #[schemars(description = "Whether to include full UI tree in the response (verbose mode)")]
     pub include_tree: Option<bool>,
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
     pub retries: Option<u32>,
 }
 
@@ -285,6 +337,40 @@ pub struct NavigateBrowserArgs {
     pub browser: Option<String>,
     #[schemars(description = "Whether to include full UI tree in the response (verbose mode)")]
     pub include_tree: Option<bool>,
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ExecuteBrowserScriptArgs {
+    #[schemars(
+        description = "A string selector to locate the browser element. Can be chained with ` >> `."
+    )]
+    pub selector: String,
+    #[schemars(description = "The JavaScript code to execute in the browser console")]
+    pub script: String,
+    #[schemars(
+        description = "Optional alternative selectors to try in parallel. The first selector that finds an element will be used."
+    )]
+    pub alternative_selectors: Option<String>,
+    #[schemars(
+        description = "Optional fallback selectors to try sequentially if the primary selector fails.  These selectors are **only** attempted after the primary selector (and any parallel alternatives) time-out.  List can be comma-separated."
+    )]
+    pub fallback_selectors: Option<String>,
+    #[schemars(
+        description = "Whether to include full UI tree in the response. Defaults to false."
+    )]
+    pub include_tree: Option<bool>,
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
+    #[schemars(description = "Optional timeout in milliseconds for the action")]
+    pub timeout_ms: Option<u64>,
+    #[schemars(description = "Number of times to retry this step on failure.")]
+    pub retries: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -309,6 +395,10 @@ pub struct SelectOptionArgs {
     pub timeout_ms: Option<u64>,
     #[schemars(description = "Whether to include full UI tree in the response.")]
     pub include_tree: Option<bool>,
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
     pub retries: Option<u32>,
 }
 
@@ -328,6 +418,10 @@ pub struct SetToggledArgs {
     pub timeout_ms: Option<u64>,
     #[schemars(description = "Whether to include full UI tree in the response.")]
     pub include_tree: Option<bool>,
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
     pub retries: Option<u32>,
 }
 
@@ -340,6 +434,10 @@ pub struct MaximizeWindowArgs {
     )]
     pub fallback_selectors: Option<String>,
     pub include_tree: Option<bool>,
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
     pub timeout_ms: Option<u64>,
     pub retries: Option<u32>,
 }
@@ -353,6 +451,10 @@ pub struct MinimizeWindowArgs {
     )]
     pub fallback_selectors: Option<String>,
     pub include_tree: Option<bool>,
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
     pub timeout_ms: Option<u64>,
     pub retries: Option<u32>,
 }
@@ -373,6 +475,10 @@ pub struct SetRangeValueArgs {
     pub timeout_ms: Option<u64>,
     #[schemars(description = "Whether to include full UI tree in the response.")]
     pub include_tree: Option<bool>,
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
     pub retries: Option<u32>,
 }
 
@@ -392,6 +498,10 @@ pub struct SetValueArgs {
     pub timeout_ms: Option<u64>,
     #[schemars(description = "Whether to include full UI tree in the response.")]
     pub include_tree: Option<bool>,
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
     pub retries: Option<u32>,
 }
 
@@ -411,6 +521,10 @@ pub struct SetSelectedArgs {
     pub timeout_ms: Option<u64>,
     #[schemars(description = "Whether to include full UI tree in the response.")]
     pub include_tree: Option<bool>,
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
     pub retries: Option<u32>,
 }
 
@@ -429,12 +543,16 @@ pub struct ScrollElementArgs {
     #[serde(default)]
     #[schemars(description = "Direction to scroll: 'up', 'down', 'left', 'right'")]
     pub direction: String,
-    #[serde(default)]
-    #[schemars(description = "Amount to scroll (number of lines or pages)")]
+    #[serde(default = "default_scroll_amount")]
+    #[schemars(description = "Amount to scroll (number of lines or pages, default: 3)")]
     pub amount: f64,
     pub timeout_ms: Option<u64>,
     #[schemars(description = "Whether to include full UI tree in the response (verbose mode)")]
     pub include_tree: Option<bool>,
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
     pub retries: Option<u32>,
 }
 
@@ -452,6 +570,10 @@ pub struct ActivateElementArgs {
     pub timeout_ms: Option<u64>,
     #[schemars(description = "Whether to include full UI tree in the response. Defaults to true.")]
     pub include_tree: Option<bool>,
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
     pub retries: Option<u32>,
 }
 
@@ -589,6 +711,10 @@ pub struct CloseElementArgs {
     pub fallback_selectors: Option<String>,
     pub timeout_ms: Option<u64>,
     pub include_tree: Option<bool>,
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
     pub retries: Option<u32>,
 }
 
@@ -605,6 +731,10 @@ pub struct SetZoomArgs {
     pub percentage: u32,
     #[schemars(description = "Whether to include full UI tree in the response (verbose mode)")]
     pub include_tree: Option<bool>,
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
 }
 
 #[derive(Debug)]
@@ -711,12 +841,14 @@ pub fn validate_output_parser(parser: &serde_json::Value) -> Result<(), Validati
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct RunJavascriptArgs {
-    #[schemars(description = "JavaScript source code to execute inside the embedded engine.")]
-    pub script: String,
     #[schemars(
-        description = "Optional preferred runtime engine ('quickjs' | 'node' | 'bun' | 'deno'). Currently only 'quickjs' is supported and will be used as default."
+        description = "JavaScript source code to execute inside the embedded engine. Either this or script_file_path must be provided."
     )]
-    pub engine: Option<String>,
+    pub script: Option<String>,
+    #[schemars(
+        description = "Path to a JavaScript file to execute. Either this or script must be provided."
+    )]
+    pub script_file_path: Option<String>,
     #[schemars(
         description = "Optional timeout in milliseconds before the script execution is aborted."
     )]
@@ -904,7 +1036,7 @@ pub async fn find_element_with_fallbacks(
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ExportWorkflowSequenceArgs {
-    #[schemars(description = "Path to the workflow file to create or edit")]
+    #[schemars(description = "Absolute path to the workflow file to create or edit")]
     pub file_path: String,
 
     #[schemars(description = "Text content to add to the workflow file")]
@@ -920,6 +1052,15 @@ pub struct ExportWorkflowSequenceArgs {
 
     #[schemars(description = "Create new file if it doesn't exist (default: true)")]
     pub create_if_missing: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ImportWorkflowSequenceArgs {
+    #[schemars(description = "Path to specific YAML workflow file to load")]
+    pub file_path: Option<String>,
+
+    #[schemars(description = "Path to folder to scan for YAML workflow files")]
+    pub folder_path: Option<String>,
 }
 
 /// A robust helper that finds a UI element and executes a provided action on it,
@@ -1072,23 +1213,4 @@ pub struct RecordWorkflowArgs {
     pub file_path: Option<String>,
     /// Sets the recording to a low-energy mode to reduce system load, which can help prevent lag on less powerful machines.
     pub low_energy_mode: Option<bool>,
-}
-
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-pub struct WaitForOutputParserArgs {
-    /// The output parser configuration to run on each UI tree poll
-    #[schemars(
-        description = "The output parser configuration. **Must be an object** with required fields: uiTreeJsonPath, itemContainerDefinition, fieldsToExtract."
-    )]
-    pub output_parser: serde_json::Value,
-    /// Optional selector to scope the UI tree to a specific element. If not provided, uses focused window.
-    pub selector: Option<String>,
-    /// Maximum time to wait in milliseconds (default: 10000)
-    pub timeout_ms: Option<u64>,
-    /// Time between polls in milliseconds (default: 1000)
-    pub poll_interval_ms: Option<u64>,
-    /// Success criteria to validate extracted data
-    pub success_criteria: Option<serde_json::Value>,
-    /// Whether to include full UI tree in the response (default: false)
-    pub include_tree: Option<bool>,
 }

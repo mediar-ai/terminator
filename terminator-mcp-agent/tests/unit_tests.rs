@@ -361,7 +361,7 @@ fn test_windows_batch_file_execution() {
 
     // Test direct npm execution (should fail with our old approach)
     let npm_path = find_executable("npm").unwrap();
-    println!("Testing npm execution at: {}", npm_path);
+    println!("Testing npm execution at: {npm_path}");
 
     // Test cmd.exe approach (should work)
     let cmd_result = Command::new("cmd")
@@ -376,17 +376,17 @@ fn test_windows_batch_file_execution() {
                 assert!(!version.trim().is_empty(), "Should get npm version");
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                println!("⚠ npm via cmd.exe failed: {}", stderr);
+                println!("⚠ npm via cmd.exe failed: {stderr}");
             }
         }
         Err(e) => {
-            println!("⚠ Failed to test npm via cmd.exe: {}", e);
+            println!("⚠ Failed to test npm via cmd.exe: {e}");
         }
     }
 
     // Test node.exe execution (should work directly)
     let node_path = find_executable("node").unwrap();
-    println!("Testing node execution at: {}", node_path);
+    println!("Testing node execution at: {node_path}");
 
     if node_path.ends_with(".exe") {
         let node_result = Command::new(&node_path)
@@ -401,11 +401,11 @@ fn test_windows_batch_file_execution() {
                     assert!(stdout.contains("Node.js test successful"));
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    println!("⚠ node.exe direct execution failed: {}", stderr);
+                    println!("⚠ node.exe direct execution failed: {stderr}");
                 }
             }
             Err(e) => {
-                println!("⚠ Failed to test node.exe directly: {}", e);
+                println!("⚠ Failed to test node.exe directly: {e}");
             }
         }
     }
@@ -447,11 +447,11 @@ async fn test_cross_platform_command_execution() {
                 );
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                println!("⚠ Cross-platform node execution failed: {}", stderr);
+                println!("⚠ Cross-platform node execution failed: {stderr}");
             }
         }
         Err(e) => {
-            println!("⚠ Failed cross-platform node test: {}", e);
+            println!("⚠ Failed cross-platform node test: {e}");
         }
     }
 }
@@ -585,13 +585,13 @@ try {
     // Read all output
     tokio::spawn(async move {
         while let Ok(Some(line)) = stderr.next_line().await {
-            println!("STDERR: {}", line);
+            println!("STDERR: {line}");
         }
     });
 
     let mut result: Option<serde_json::Value> = None;
     while let Ok(Some(line)) = stdout.next_line().await {
-        println!("STDOUT: {}", line);
+        println!("STDOUT: {line}");
 
         if line.starts_with("__RESULT__") && line.ends_with("__END__") {
             let result_json = line.replace("__RESULT__", "").replace("__END__", "");
@@ -688,8 +688,8 @@ try {
             }
         }
         Err(e) => {
-            println!("❌ Script execution failed: {}", e);
-            panic!("Node.js script execution should succeed: {}", e);
+            println!("❌ Script execution failed: {e}");
+            panic!("Node.js script execution should succeed: {e}");
         }
     }
 }
@@ -825,13 +825,13 @@ try {
     // Read all output
     tokio::spawn(async move {
         while let Ok(Some(line)) = stderr.next_line().await {
-            println!("STDERR: {}", line);
+            println!("STDERR: {line}");
         }
     });
 
     let mut result: Option<serde_json::Value> = None;
     while let Ok(Some(line)) = stdout.next_line().await {
-        println!("STDOUT: {}", line);
+        println!("STDOUT: {line}");
 
         if line.starts_with("__RESULT__") && line.ends_with("__END__") {
             let result_json = line.replace("__RESULT__", "").replace("__END__", "");
@@ -885,7 +885,7 @@ async fn test_nodejs_execution_with_local_bindings() {
     let local_bindings_path = workspace_root.join("bindings").join("nodejs");
 
     // Verify the local bindings directory exists
-    if !tokio::fs::metadata(&local_bindings_path).await.is_ok() {
+    if tokio::fs::metadata(&local_bindings_path).await.is_err() {
         panic!(
             "❌ Local bindings directory not found at: {}",
             local_bindings_path.display()
@@ -917,7 +917,7 @@ async fn test_nodejs_execution_with_local_bindings() {
         Ok(output) => {
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                println!("⚠️ Build failed: {}", stderr);
+                println!("⚠️ Build failed: {stderr}");
                 println!(
                     "📄 Build stdout: {}",
                     String::from_utf8_lossy(&output.stdout)
@@ -929,7 +929,7 @@ async fn test_nodejs_execution_with_local_bindings() {
             }
         }
         Err(e) => {
-            println!("⚠️ Failed to run build command: {}", e);
+            println!("⚠️ Failed to run build command: {e}");
             println!("⚠️ Continuing with existing build...");
         }
     }
@@ -1097,14 +1097,14 @@ try {
     // Read stderr in background
     tokio::spawn(async move {
         while let Ok(Some(line)) = stderr.next_line().await {
-            println!("STDERR: {}", line);
+            println!("STDERR: {line}");
         }
     });
 
     // Read stdout and look for result
     let mut result: Option<serde_json::Value> = None;
     while let Ok(Some(line)) = stdout.next_line().await {
-        println!("STDOUT: {}", line);
+        println!("STDOUT: {line}");
 
         if line.starts_with("__RESULT__") && line.ends_with("__END__") {
             let result_json = line.replace("__RESULT__", "").replace("__END__", "");
@@ -1150,12 +1150,10 @@ try {
                 );
 
                 println!("✅ All assertions passed for local bindings test!");
+            } else if let Some(error) = res.get("error") {
+                panic!("❌ Local bindings test failed: {error}");
             } else {
-                if let Some(error) = res.get("error") {
-                    panic!("❌ Local bindings test failed: {}", error);
-                } else {
-                    panic!("❌ Local bindings test failed with unknown error");
-                }
+                panic!("❌ Local bindings test failed with unknown error");
             }
         }
         None => {
@@ -1245,8 +1243,8 @@ try {
             }
         }
         Err(e) => {
-            println!("❌ Scripting engine test failed: {}", e);
-            panic!("Scripting engine with local bindings should succeed: {}", e);
+            println!("❌ Scripting engine test failed: {e}");
+            panic!("Scripting engine with local bindings should succeed: {e}");
         }
     }
 }
@@ -1260,7 +1258,7 @@ async fn test_workflow_editor_create_new_file() {
         .to_string_lossy()
         .to_string();
 
-    let server = DesktopWrapper::new().await.unwrap();
+    let server = DesktopWrapper::new().unwrap();
     let args = ExportWorkflowSequenceArgs {
         file_path: file_path.clone(),
         content: "tool_name: execute_sequence\narguments:\n  steps: []\n".to_string(),
@@ -1290,7 +1288,7 @@ async fn test_workflow_editor_append_to_existing() {
     // Create initial file
     fs::write(&file_path, "existing_content:\n  data: value\n").unwrap();
 
-    let server = DesktopWrapper::new().await.unwrap();
+    let server = DesktopWrapper::new().unwrap();
     let args = ExportWorkflowSequenceArgs {
         file_path: file_path.clone(),
         content: "new_section:\n  additional: data".to_string(),
@@ -1325,7 +1323,7 @@ async fn test_workflow_editor_simple_string_replace() {
     )
     .unwrap();
 
-    let server = DesktopWrapper::new().await.unwrap();
+    let server = DesktopWrapper::new().unwrap();
     let args = ExportWorkflowSequenceArgs {
         file_path: file_path.clone(),
         content: "new_tool".to_string(),
@@ -1359,7 +1357,7 @@ async fn test_workflow_editor_regex_replace() {
     )
     .unwrap();
 
-    let server = DesktopWrapper::new().await.unwrap();
+    let server = DesktopWrapper::new().unwrap();
     let args = ExportWorkflowSequenceArgs {
         file_path: file_path.clone(),
         content: "action_$1".to_string(),
@@ -1391,7 +1389,7 @@ async fn test_workflow_editor_pattern_not_found() {
     // Create initial file without the pattern we're looking for
     fs::write(&file_path, "tool_name: existing_tool\narguments: {}").unwrap();
 
-    let server = DesktopWrapper::new().await.unwrap();
+    let server = DesktopWrapper::new().unwrap();
     let args = ExportWorkflowSequenceArgs {
         file_path: file_path.clone(),
         content: "replacement".to_string(),
@@ -1420,7 +1418,7 @@ async fn test_workflow_editor_invalid_regex() {
     // Create initial file
     fs::write(&file_path, "some content").unwrap();
 
-    let server = DesktopWrapper::new().await.unwrap();
+    let server = DesktopWrapper::new().unwrap();
     let args = ExportWorkflowSequenceArgs {
         file_path: file_path.clone(),
         content: "replacement".to_string(),
@@ -1446,7 +1444,7 @@ async fn test_workflow_editor_create_if_missing_false() {
         .to_string_lossy()
         .to_string();
 
-    let server = DesktopWrapper::new().await.unwrap();
+    let server = DesktopWrapper::new().unwrap();
     let args = ExportWorkflowSequenceArgs {
         file_path: file_path.clone(),
         content: "new content".to_string(),
@@ -1475,7 +1473,7 @@ async fn test_workflow_editor_empty_file_append() {
     // Create empty file
     fs::write(&file_path, "").unwrap();
 
-    let server = DesktopWrapper::new().await.unwrap();
+    let server = DesktopWrapper::new().unwrap();
     let args = ExportWorkflowSequenceArgs {
         file_path: file_path.clone(),
         content: "first_content".to_string(),
@@ -1504,7 +1502,7 @@ async fn test_workflow_editor_no_trailing_newline() {
     // Create file without trailing newline
     fs::write(&file_path, "existing_content").unwrap();
 
-    let server = DesktopWrapper::new().await.unwrap();
+    let server = DesktopWrapper::new().unwrap();
     let args = ExportWorkflowSequenceArgs {
         file_path: file_path.clone(),
         content: "appended_content".to_string(),
@@ -1533,7 +1531,7 @@ async fn test_workflow_editor_with_trailing_newline() {
     // Create file with trailing newline
     fs::write(&file_path, "existing_content\n").unwrap();
 
-    let server = DesktopWrapper::new().await.unwrap();
+    let server = DesktopWrapper::new().unwrap();
     let args = ExportWorkflowSequenceArgs {
         file_path: file_path.clone(),
         content: "appended_content".to_string(),
@@ -1566,7 +1564,7 @@ async fn test_workflow_editor_multiline_replacement() {
     )
     .unwrap();
 
-    let server = DesktopWrapper::new().await.unwrap();
+    let server = DesktopWrapper::new().unwrap();
     let args = ExportWorkflowSequenceArgs {
         file_path: file_path.clone(),
         content: "section_a:\n  new_data: updated_value\n  additional: info".to_string(),

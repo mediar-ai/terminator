@@ -21,7 +21,7 @@ tracing = { workspace = true }
 terminator = { workspace = true }
 serde_json = { workspace = true }
 tracing-subscriber = { workspace = true }
-rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", rev = "b9d7d61ebd6e8385cbc4aa105d4e25774fc1a59c", features = [
+rmcp = { version = "0.4.0", features = [
     "server",
     "client",
     "transport-sse-server",
@@ -36,10 +36,8 @@ clap = { version = "4.5", features = ["derive"] }
 axum = "0.8"
 tower-http = { version = "0.6", features = ["cors"] }
 terminator-workflow-recorder = { path = "../terminator-workflow-recorder" }
-jsonpath_lib = "0.3.0"
-regex = { workspace = true }
 
-boa_engine = "0.20.0"
+regex = { workspace = true }
 tempfile = "3"
 
 reqwest = { version = "0.12.5", features = ["json"] }
@@ -51,7 +49,7 @@ serde_yaml = "0.9"
 ollama-rs = "0.3.2"
 arboard = "3.6.0"
 rdev = "0.5.3"
-which = "4"
+
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -59,8 +57,4 @@ rand = "0.8"
 
 [[example]]
 name = "terminator-ai-summarizer"
-path = "examples/terminator-ai-summarizer/src/main.rs"
-
-[[bin]]
-name = "ai-summarizer"                                 # Your custom CLI name here
 path = "examples/terminator-ai-summarizer/src/main.rs"

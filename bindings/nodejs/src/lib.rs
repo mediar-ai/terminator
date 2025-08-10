@@ -11,8 +11,9 @@ pub use element::Element;
 pub use locator::Locator;
 pub use selector::Selector;
 pub use types::{
-    Bounds, ClickResult, CommandOutput, Coordinates, Monitor, MonitorScreenshotPair,
-    PropertyLoadingMode, ScreenshotResult, TreeBuildConfig, UIElementAttributes, UINode,
+    Bounds, ClickResult, CommandOutput, Coordinates, FontStyle, HighlightHandle, Monitor,
+    MonitorScreenshotPair, PropertyLoadingMode, ScreenshotResult, TextPosition, TreeBuildConfig,
+    UIElementAttributes, UINode,
 };
 
 // Error handling - see exceptions.rs for detailed architecture

@@ -95,6 +95,26 @@ pub struct SerializableUIElement {
     pub process_id: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub children: Option<Vec<SerializableUIElement>>,
+
+    // Additional fields for better LLM understanding of UI state
+    #[serde(skip_serializing_if = "is_empty_string")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "is_empty_string")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "is_false_bool")]
+    pub is_keyboard_focusable: Option<bool>,
+    #[serde(skip_serializing_if = "is_false_bool")]
+    pub is_focused: Option<bool>,
+    #[serde(skip_serializing_if = "is_false_bool")]
+    pub is_toggled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "is_false_bool")]
+    pub is_selected: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub child_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index_in_parent: Option<usize>,
 }
 
 impl From<&UIElement> for SerializableUIElement {
@@ -114,6 +134,17 @@ impl From<&UIElement> for SerializableUIElement {
             url: element.url(),
             process_id: element.process_id().ok(),
             children: None,
+
+            // Additional fields for better LLM understanding of UI state
+            label: attrs.label,
+            text: attrs.text,
+            is_keyboard_focusable: attrs.is_keyboard_focusable,
+            is_focused: attrs.is_focused,
+            is_toggled: attrs.is_toggled,
+            enabled: attrs.enabled,
+            is_selected: attrs.is_selected,
+            child_count: attrs.child_count,
+            index_in_parent: attrs.index_in_parent,
         }
     }
 }
@@ -133,6 +164,17 @@ impl SerializableUIElement {
             url: None,
             process_id: None,
             children: None,
+
+            // Additional fields for better LLM understanding of UI state
+            label: None,
+            text: None,
+            is_keyboard_focusable: None,
+            is_focused: None,
+            is_toggled: None,
+            enabled: None,
+            is_selected: None,
+            child_count: None,
+            index_in_parent: None,
         }
     }
 
@@ -357,12 +399,15 @@ pub trait UIElementImpl: Send + Sync + Debug {
     fn application(&self) -> Result<Option<UIElement>, AutomationError>;
     fn window(&self) -> Result<Option<UIElement>, AutomationError>;
 
-    // New method to highlight the element
+    // New method to highlight the element with optional text overlay
     fn highlight(
         &self,
         color: Option<u32>,
         duration: Option<std::time::Duration>,
-    ) -> Result<(), AutomationError>;
+        text: Option<&str>,
+        text_position: Option<crate::TextPosition>,
+        font_style: Option<crate::FontStyle>,
+    ) -> Result<crate::HighlightHandle, AutomationError>;
 
     /// Sets the transparency of the window.
     /// The percentage value ranges from 0 (completely transparent) to 100 (completely opaque).
@@ -711,22 +756,97 @@ impl UIElement {
         self.inner.window()
     }
 
-    /// Highlights the element with a colored border.
+    /// Highlights the element with a colored border and optional text overlay.
     ///
     /// # Arguments
     /// * `color` - Optional BGR color code (32-bit integer). Default: 0x0000FF (red)
     /// * `duration` - Optional duration for the highlight.
+    /// * `text` - Optional text to display as overlay. Text will be truncated to 30 characters.
+    /// * `text_position` - Optional position for the text overlay (Top, Bottom, etc.)
+    /// * `font_style` - Optional font styling (size, bold, color)
+    #[cfg(target_os = "windows")]
     pub fn highlight(
         &self,
         color: Option<u32>,
         duration: Option<std::time::Duration>,
-    ) -> Result<(), AutomationError> {
-        self.inner.highlight(color, duration)
+        text: Option<&str>,
+        text_position: Option<crate::TextPosition>,
+        font_style: Option<crate::FontStyle>,
+    ) -> Result<crate::HighlightHandle, AutomationError> {
+        self.inner
+            .highlight(color, duration, text, text_position, font_style)
+    }
+
+    /// Highlights the element with a colored border (simplified version for non-Windows platforms).
+    ///
+    /// # Arguments
+    /// * `color` - Optional BGR color code (32-bit integer). Default: 0x0000FF (red)
+    /// * `duration` - Optional duration for the highlight.
+    #[cfg(not(target_os = "windows"))]
+    pub fn highlight(
+        &self,
+        color: Option<u32>,
+        duration: Option<std::time::Duration>,
+        _text: Option<&str>,
+        _text_position: Option<crate::TextPosition>,
+        _font_style: Option<crate::FontStyle>,
+    ) -> Result<crate::HighlightHandle, AutomationError> {
+        // For non-Windows platforms, ignore text parameters and create dummy handle
+        self.inner.highlight(color, duration, None, None, None)
     }
 
     /// Capture a screenshot of the element
     pub fn capture(&self) -> Result<ScreenshotResult, AutomationError> {
         self.inner.capture()
+    }
+
+    /// Capture a screenshot of the element and perform OCR to extract text
+    ///
+    /// # Returns
+    /// * `Ok(String)` - The extracted text from the element screenshot
+    /// * `Err(AutomationError)` - If screenshot capture or OCR fails
+    ///
+    /// # Examples
+    /// ```rust
+    /// use terminator::Desktop;
+    ///
+    /// # async fn example() -> Result<(), terminator::AutomationError> {
+    /// let desktop = Desktop::new(false, false)?;
+    /// let element = desktop.locator("role:Button").first(None).await?;
+    /// let text = element.ocr().await?;
+    /// println!("Button text: {}", text);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn ocr(&self) -> Result<String, AutomationError> {
+        // First capture the element screenshot
+        let screenshot = self.capture()?;
+
+        // Convert the screenshot to a DynamicImage
+        let img_buffer = image::ImageBuffer::from_raw(
+            screenshot.width,
+            screenshot.height,
+            screenshot.image_data,
+        )
+        .ok_or_else(|| {
+            AutomationError::PlatformError(
+                "Failed to create image buffer from screenshot data".to_string(),
+            )
+        })?;
+
+        let dynamic_image = image::DynamicImage::ImageRgba8(img_buffer);
+
+        // Perform OCR using uni_ocr directly
+        let engine = uni_ocr::OcrEngine::new(uni_ocr::OcrProvider::Auto).map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to create OCR engine: {e}"))
+        })?;
+
+        let (text, _language, _confidence) = engine
+            .recognize_image(&dynamic_image)
+            .await
+            .map_err(|e| AutomationError::PlatformError(format!("OCR recognition failed: {e}")))?;
+
+        Ok(text)
     }
 
     /// Close the element if it's closable (like windows, applications)
@@ -841,21 +961,6 @@ impl UIElement {
         SerializableUIElement::from(self)
     }
 
-    /// Explore this element and its direct children
-    /// // mark deprecated
-    #[deprecated(since = "0.3.5")]
-    pub fn explore(&self) -> Result<ExploreResponse, AutomationError> {
-        let mut children = Vec::new();
-        for child in self.children()? {
-            children.push(ExploredElementDetail::from_element(&child, self.id())?);
-        }
-
-        Ok(ExploreResponse {
-            parent: self.clone(),
-            children,
-        })
-    }
-
     /// Sets the transparency of the window.
     /// The percentage value ranges from 0 (completely transparent) to 100 (completely opaque).
     pub fn set_transparency(&self, percentage: u8) -> Result<(), AutomationError> {
@@ -918,6 +1023,12 @@ impl UIElement {
             serializable
         }
         build(self, 0, max_depth)
+    }
+
+    /// Execute JavaScript in the browser using dev tools console
+    /// Opens dev tools with F12, switches to console, runs script, extracts result
+    pub async fn execute_browser_script(&self, script: &str) -> Result<String, AutomationError> {
+        crate::browser_script::execute_script(self, script).await
     }
 }
 

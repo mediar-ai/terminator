@@ -29,18 +29,12 @@ impl AppFixture {
                     // Maximize the window to ensure a consistent UI layout for tests
                     if let Err(e) = app.maximize_window() {
                         // Log a warning if maximizing fails, but don't panic the test
-                        eprintln!(
-                            "Warning: Could not maximize window for '{}': {}",
-                            app_name, e
-                        );
+                        eprintln!("Warning: Could not maximize window for '{app_name}': {e}");
                     }
                     Some(app)
                 }
                 Err(e) => {
-                    panic!(
-                        "Failed to open application '{}' for testing: {}",
-                        app_name, e
-                    );
+                    panic!("Failed to open application '{app_name}' for testing: {e}");
                 }
             }
         });
@@ -116,7 +110,7 @@ fn test_id_selector_finds_element() {
 fn test_stable_id_across_sessions() {
     // Helper function to run the stability check on a given app
     fn check_id_stability(app_name: &str, selector: Selector, element_description: &str) {
-        println!("\n--- Testing ID stability for {} ---", app_name);
+        println!("\n--- Testing ID stability for {app_name} ---");
         let fixture = AppFixture::new(app_name);
         let desktop = fixture.desktop.clone();
         let rt = &fixture.rt;
@@ -373,7 +367,7 @@ fn test_web_id_uniqueness_across_windows() {
 
     rt.block_on(async {
         // --- Open first window ---
-        println!("-- Opening first browser window to {} --", url);
+        println!("-- Opening first browser window to {url} --");
         let app1 = desktop
             .open_url(url, Some(crate::Browser::Edge))
             .expect("Failed to open URL in first window.");
@@ -386,10 +380,10 @@ fn test_web_id_uniqueness_across_windows() {
             .await
             .expect("Could not find element in first window.");
         let id1 = element1.id().expect("Element 1 should have an ID.");
-        println!("Found '{}' in window 1. ID: {}", element_description, id1);
+        println!("Found '{element_description}' in window 1. ID: {id1}");
 
         // --- Open second window ---
-        println!("-- Opening second browser window to {} --", url);
+        println!("-- Opening second browser window to {url} --");
         let app2 = desktop
             .open_url(url, Some(crate::Browser::Edge))
             .expect("Failed to open URL in second window.");
@@ -402,7 +396,7 @@ fn test_web_id_uniqueness_across_windows() {
             .await
             .expect("Could not find element in second window.");
         let id2 = element2.id().expect("Element 2 should have an ID.");
-        println!("Found '{}' in window 2. ID: {}", element_description, id2);
+        println!("Found '{element_description}' in window 2. ID: {id2}");
 
         // --- Assert IDs are different ---
         assert_ne!(

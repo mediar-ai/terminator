@@ -1,7 +1,11 @@
 use crate::exceptions::automation_error_to_pyerr;
-use crate::types::{Bounds, ClickResult, UIElementAttributes};
+use crate::types::{
+    Bounds, ClickResult, FontStyle, HighlightHandle, TextPosition, UIElementAttributes,
+};
 use ::terminator_core::element::UIElement as TerminatorUIElement;
 use pyo3::prelude::*;
+use pyo3_async_runtimes::tokio as pyo3_tokio;
+use pyo3_async_runtimes::TaskLocals;
 use pyo3_stub_gen::derive::*;
 use serde::ser::{Serialize, SerializeStruct, Serializer};
 
@@ -442,21 +446,43 @@ impl UIElement {
         self.inner.process_id().map_err(automation_error_to_pyerr)
     }
 
-    #[pyo3(name = "highlight", signature = (color=None, duration_ms=None))]
-    #[pyo3(text_signature = "($self, color, duration_ms)")]
-    /// Highlights the element with a colored border.
+    #[pyo3(name = "highlight", signature = (color=None, duration_ms=None, text=None, text_position=None, font_style=None))]
+    #[pyo3(text_signature = "($self, color, duration_ms, text, text_position, font_style)")]
+    /// Highlights the element with a colored border and optional text overlay.
     ///
     /// Args:
     ///     color (Optional[int]): BGR color code (32-bit integer). Default: 0x0000FF (red)
     ///     duration_ms (Optional[int]): Duration in milliseconds.
+    ///     text (Optional[str]): Optional text to display. Text will be truncated to 10 characters.
+    ///     text_position (Optional[TextPosition]): Optional position for the text overlay (default: Top)
+    ///     font_style (Optional[FontStyle]): Optional font styling for the text
     ///
     /// Returns:
-    ///     None
-    pub fn highlight(&self, color: Option<u32>, duration_ms: Option<u64>) -> PyResult<()> {
+    ///     HighlightHandle: Handle that can be used to close the highlight early
+    pub fn highlight(
+        &self,
+        color: Option<u32>,
+        duration_ms: Option<u64>,
+        text: Option<String>,
+        text_position: Option<TextPosition>,
+        font_style: Option<FontStyle>,
+    ) -> PyResult<HighlightHandle> {
         let duration = duration_ms.map(std::time::Duration::from_millis);
-        self.inner
-            .highlight(color, duration)
-            .map_err(automation_error_to_pyerr)
+        let rust_text_position = text_position.map(|pos| pos.into());
+        let rust_font_style = font_style.map(|style| style.into());
+
+        let handle = self
+            .inner
+            .highlight(
+                color,
+                duration,
+                text.as_deref(),
+                rust_text_position,
+                rust_font_style,
+            )
+            .map_err(automation_error_to_pyerr)?;
+
+        Ok(HighlightHandle::new(handle))
     }
 
     #[pyo3(name = "capture", text_signature = "($self)")]
@@ -557,5 +583,86 @@ impl UIElement {
         self.inner
             .set_toggled(state)
             .map_err(automation_error_to_pyerr)
+    }
+
+    #[pyo3(name = "execute_browser_script", text_signature = "($self, script)")]
+    /// Execute JavaScript in web browser using dev tools console.
+    /// Returns the result of script execution.
+    ///
+    /// Args:
+    ///     script (str): The JavaScript code to execute.
+    ///
+    /// Returns:
+    ///     str: The result of script execution.
+    pub fn execute_browser_script<'py>(
+        &self,
+        py: Python<'py>,
+        script: &str,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner.clone();
+        let script = script.to_string();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            inner
+                .execute_browser_script(&script)
+                .await
+                .map_err(automation_error_to_pyerr)
+        })
+    }
+
+    #[pyo3(name = "url", text_signature = "($self)")]
+    /// Get the URL if the element is in a browser window.
+    ///
+    /// Returns:
+    ///     Optional[str]: The URL, if available.
+    pub fn url(&self) -> Option<String> {
+        self.inner.url()
+    }
+
+    #[pyo3(name = "get_range_value", text_signature = "($self)")]
+    /// Gets the current value from a range-based control like a slider or progress bar.
+    ///
+    /// Returns:
+    ///     float: The current range value.
+    pub fn get_range_value(&self) -> PyResult<f64> {
+        self.inner
+            .get_range_value()
+            .map_err(automation_error_to_pyerr)
+    }
+
+    #[pyo3(name = "set_range_value", text_signature = "($self, value)")]
+    /// Sets the value of a range-based control like a slider.
+    ///
+    /// Args:
+    ///     value (float): The value to set.
+    ///
+    /// Returns:
+    ///     None
+    pub fn set_range_value(&self, value: f64) -> PyResult<()> {
+        self.inner
+            .set_range_value(value)
+            .map_err(automation_error_to_pyerr)
+    }
+
+    #[pyo3(name = "is_selected", text_signature = "($self)")]
+    /// Checks if a selectable item (e.g., in a calendar, list, or tab) is currently selected.
+    ///
+    /// Returns:
+    ///     bool: True if the item is selected.
+    pub fn is_selected(&self) -> PyResult<bool> {
+        self.inner.is_selected().map_err(automation_error_to_pyerr)
+    }
+
+    #[pyo3(name = "ocr", text_signature = "($self)")]
+    /// (async) Capture a screenshot of the element and perform OCR to extract text.
+    ///
+    /// Returns:
+    ///     str: The extracted text from the element screenshot.
+    pub fn ocr<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let element = self.inner.clone();
+        pyo3_tokio::future_into_py_with_locals(py, TaskLocals::with_running_loop(py)?, async move {
+            let result = element.ocr().await.map_err(automation_error_to_pyerr)?;
+            Ok(result)
+        })
     }
 }

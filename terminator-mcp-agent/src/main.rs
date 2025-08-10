@@ -63,7 +63,7 @@ async fn main() -> Result<()> {
     match args.transport {
         TransportMode::Stdio => {
             tracing::info!("Starting stdio transport...");
-            let desktop = server::DesktopWrapper::new().await?;
+            let desktop = server::DesktopWrapper::new()?;
             let service = desktop.serve(stdio()).await.inspect_err(|e| {
                 tracing::error!("Serving error: {:?}", e);
             })?;
@@ -85,7 +85,7 @@ async fn main() -> Result<()> {
                 return Ok(());
             }
 
-            let desktop = server::DesktopWrapper::new().await?;
+            let desktop = server::DesktopWrapper::new()?;
             let ct = SseServer::serve(addr)
                 .await?
                 .with_service(move || desktop.clone());
@@ -104,7 +104,7 @@ async fn main() -> Result<()> {
             let addr: SocketAddr = format!("{}:{}", args.host, args.port).parse()?;
             tracing::info!("Starting streamable HTTP server on http://{}", addr);
 
-            let desktop = server::DesktopWrapper::new().await?;
+            let desktop = server::DesktopWrapper::new()?;
             let service = StreamableHttpService::new(
                 move || Ok(desktop.clone()),
                 LocalSessionManager::default().into(),

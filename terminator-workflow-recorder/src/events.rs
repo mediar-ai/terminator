@@ -288,26 +288,30 @@ pub enum ButtonInteractionType {
 
 /// Represents a high-level button click event
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ButtonClickEvent {
-    /// The text/label of the button
-    pub button_text: String,
+pub struct ClickEvent {
+    /// The text/label of the clicked element
+    pub element_text: String,
 
-    /// The type of button interaction
+    /// The type of click interaction
     pub interaction_type: ButtonInteractionType,
 
-    /// The role/type of the button element
-    pub button_role: String,
+    /// The role/type of the clicked element
+    pub element_role: String,
 
-    /// Whether the button was enabled when clicked
+    /// Whether the element was enabled when clicked
     pub was_enabled: bool,
 
-    /// The position where the button was clicked
+    /// The position where the element was clicked
     #[serde(skip_serializing_if = "Option::is_none")]
     pub click_position: Option<Position>,
 
-    /// Additional context about the button's function
+    /// Additional context about the element's function
     #[serde(skip_serializing_if = "is_empty_string")]
-    pub button_description: Option<String>,
+    pub element_description: Option<String>,
+
+    /// Text content from all child elements (unlimited depth traversal)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub child_text_content: Vec<String>,
 
     /// Event metadata with UI element context
     pub metadata: EventMetadata,
@@ -343,8 +347,8 @@ pub enum WorkflowEvent {
     /// High-level browser tab navigation event
     BrowserTabNavigation(BrowserTabNavigationEvent),
 
-    /// High-level button click event
-    ButtonClick(ButtonClickEvent),
+    /// High-level click event
+    Click(ClickEvent),
 }
 
 impl WorkflowEvent {
@@ -360,7 +364,7 @@ impl WorkflowEvent {
             WorkflowEvent::TextInputCompleted(e) => &e.metadata,
             WorkflowEvent::ApplicationSwitch(e) => &e.metadata,
             WorkflowEvent::BrowserTabNavigation(e) => &e.metadata,
-            WorkflowEvent::ButtonClick(e) => &e.metadata,
+            WorkflowEvent::Click(e) => &e.metadata,
         }
     }
 
@@ -376,7 +380,7 @@ impl WorkflowEvent {
             WorkflowEvent::TextInputCompleted(e) => &mut e.metadata,
             WorkflowEvent::ApplicationSwitch(e) => &mut e.metadata,
             WorkflowEvent::BrowserTabNavigation(e) => &mut e.metadata,
-            WorkflowEvent::ButtonClick(e) => &mut e.metadata,
+            WorkflowEvent::Click(e) => &mut e.metadata,
         }
     }
 
@@ -391,14 +395,94 @@ impl WorkflowEvent {
     }
 }
 
-/// Represents a recorded event with timestamp
+/// Represents an MCP tool step for execution
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpToolStep {
+    /// The name of the MCP tool to call
+    pub tool_name: String,
+    /// Arguments to pass to the tool
+    pub arguments: serde_json::Value,
+    /// Human-readable description of this step
+    pub description: String,
+    /// Optional timeout for this step in milliseconds
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
+    /// Whether to continue execution if this step fails
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub continue_on_error: Option<bool>,
+    /// Delay after this step in milliseconds
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delay_ms: Option<u64>,
+}
+
+/// Represents the interaction context for UI element analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InteractionContext {
+    /// Type of interaction performed (e.g., "simple_click", "dropdown_selection")
+    pub interaction_type: String,
+    /// UI pattern detected (e.g., "button", "dropdown", "menu", "autocomplete")
+    pub ui_pattern: String,
+    /// UI state before the interaction
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state_before: Option<String>,
+    /// UI state after the interaction
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state_after: Option<String>,
+    /// Related UI elements involved in the interaction
+    pub related_elements: Vec<UIElementInfo>,
+}
+
+/// Simplified UI element info for interaction context
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UIElementInfo {
+    /// Element role
+    pub role: String,
+    /// Element name/label
+    #[serde(skip_serializing_if = "is_empty_string")]
+    pub name: Option<String>,
+    /// Element bounds [x, y, width, height]
+    pub bounds: [f64; 4],
+    /// Generated selectors for this element
+    pub suggested_selectors: Vec<String>,
+}
+
+/// Enhanced UI element capture with MCP context
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnhancedUIElement {
+    /// Original UI element data
+    pub ui_element: UIElement,
+    /// Generated selector options for MCP tools
+    pub suggested_selectors: Vec<String>,
+    /// Parent hierarchy for context
+    pub parent_hierarchy: Vec<UIElementInfo>,
+    /// Interaction context analysis
+    pub interaction_context: InteractionContext,
+}
+
+/// Represents a recorded event with timestamp and MCP conversion
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecordedEvent {
     /// The timestamp of the event (milliseconds since epoch)
     pub timestamp: u64,
 
-    /// The event
+    /// The original workflow event
     pub event: WorkflowEvent,
+
+    /// MCP-ready tool sequence for this event
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mcp_sequence: Option<Vec<McpToolStep>>,
+
+    /// Semantic action description (e.g., "select_from_dropdown", "button_click")
+    #[serde(skip_serializing_if = "is_empty_string")]
+    pub semantic_action: Option<String>,
+
+    /// Alternative MCP sequences as fallback options
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_sequences: Option<Vec<Vec<McpToolStep>>>,
+
+    /// Enhanced UI element context if available
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enhanced_ui_context: Option<EnhancedUIElement>,
 }
 
 /// Represents a recorded workflow
@@ -445,7 +529,19 @@ impl RecordedWorkflow {
                 .as_millis() as u64
         });
 
-        self.events.push(RecordedEvent { timestamp, event });
+        self.events.push(RecordedEvent {
+            timestamp,
+            event,
+            mcp_sequence: None,
+            semantic_action: None,
+            fallback_sequences: None,
+            enhanced_ui_context: None,
+        });
+    }
+
+    /// Add an enhanced event with MCP conversion data to the workflow
+    pub fn add_enhanced_event(&mut self, recorded_event: RecordedEvent) {
+        self.events.push(recorded_event);
     }
 
     /// Finish the recording
@@ -456,6 +552,51 @@ impl RecordedWorkflow {
             .as_millis() as u64;
 
         self.end_time = Some(now);
+    }
+
+    /// Generate an MCP execute_sequence tool call from recorded events
+    pub fn generate_mcp_workflow(&self) -> Option<serde_json::Value> {
+        let mut sequence_items = Vec::new();
+        let mut conversion_notes = Vec::new();
+        let mut step_count = 0;
+
+        // Extract MCP sequences from events
+        for recorded_event in &self.events {
+            if let Some(ref mcp_sequence) = recorded_event.mcp_sequence {
+                // Add sequence items from this event
+                for step in mcp_sequence {
+                    sequence_items.push(serde_json::json!({
+                        "tool_name": step.tool_name,
+                        "arguments": step.arguments,
+                        "continue_on_error": step.continue_on_error.unwrap_or(false),
+                        "delay_ms": step.delay_ms.unwrap_or(200)
+                    }));
+                    step_count += 1;
+                }
+
+                // Collect semantic actions for notes
+                if let Some(ref semantic_action) = recorded_event.semantic_action {
+                    conversion_notes.push(format!("{}_{}", semantic_action, step_count));
+                }
+            }
+        }
+
+        // Only generate if we have meaningful sequences
+        if sequence_items.is_empty() {
+            return None;
+        }
+
+        Some(serde_json::json!({
+            "tool_name": "execute_sequence",
+            "arguments": {
+                "items": sequence_items,
+                "stop_on_error": true,
+                "include_detailed_results": true
+            },
+            "conversion_notes": conversion_notes,
+            "total_steps": sequence_items.len(),
+            "workflow_name": self.name
+        }))
     }
 
     /// Serialize the workflow to JSON string
@@ -1045,27 +1186,30 @@ impl From<&BrowserTabNavigationEvent> for SerializableBrowserTabNavigationEvent 
 
 /// Serializable version of ButtonClickEvent for JSON export
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SerializableButtonClickEvent {
-    pub button_text: String,
+pub struct SerializableClickEvent {
+    pub element_text: String,
     pub interaction_type: ButtonInteractionType,
-    pub button_role: String,
+    pub element_role: String,
     pub was_enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub click_position: Option<Position>,
     #[serde(skip_serializing_if = "is_empty_string")]
-    pub button_description: Option<String>,
+    pub element_description: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub child_text_content: Vec<String>,
     pub metadata: SerializableEventMetadata,
 }
 
-impl From<&ButtonClickEvent> for SerializableButtonClickEvent {
-    fn from(event: &ButtonClickEvent) -> Self {
+impl From<&ClickEvent> for SerializableClickEvent {
+    fn from(event: &ClickEvent) -> Self {
         Self {
-            button_text: event.button_text.clone(),
+            element_text: event.element_text.clone(),
             interaction_type: event.interaction_type.clone(),
-            button_role: event.button_role.clone(),
+            element_role: event.element_role.clone(),
             was_enabled: event.was_enabled,
             click_position: event.click_position,
-            button_description: event.button_description.clone(),
+            element_description: event.element_description.clone(),
+            child_text_content: event.child_text_content.clone(),
             metadata: (&event.metadata).into(),
         }
     }
@@ -1083,7 +1227,7 @@ pub enum SerializableWorkflowEvent {
     TextInputCompleted(SerializableTextInputCompletedEvent),
     ApplicationSwitch(SerializableApplicationSwitchEvent),
     BrowserTabNavigation(SerializableBrowserTabNavigationEvent),
-    ButtonClick(SerializableButtonClickEvent),
+    Click(SerializableClickEvent),
 }
 
 impl From<&WorkflowEvent> for SerializableWorkflowEvent {
@@ -1104,7 +1248,7 @@ impl From<&WorkflowEvent> for SerializableWorkflowEvent {
             WorkflowEvent::BrowserTabNavigation(e) => {
                 SerializableWorkflowEvent::BrowserTabNavigation(e.into())
             }
-            WorkflowEvent::ButtonClick(e) => SerializableWorkflowEvent::ButtonClick(e.into()),
+            WorkflowEvent::Click(e) => SerializableWorkflowEvent::Click(e.into()),
         }
     }
 }

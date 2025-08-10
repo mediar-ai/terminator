@@ -196,6 +196,89 @@ impl From<terminator::UIElementAttributes> for UIElementAttributes {
     }
 }
 
+#[napi(string_enum)]
+pub enum TextPosition {
+    Top,
+    TopRight,
+    Right,
+    BottomRight,
+    Bottom,
+    BottomLeft,
+    Left,
+    TopLeft,
+    Inside,
+}
+
+#[napi(object)]
+pub struct FontStyle {
+    pub size: u32,
+    pub bold: bool,
+    pub color: u32,
+}
+
+#[napi]
+pub struct HighlightHandle {
+    inner: Option<terminator::HighlightHandle>,
+}
+
+#[napi]
+impl HighlightHandle {
+    #[napi]
+    pub fn close(&mut self) {
+        if let Some(handle) = self.inner.take() {
+            handle.close();
+        }
+    }
+}
+
+impl HighlightHandle {
+    pub fn new(handle: terminator::HighlightHandle) -> Self {
+        Self {
+            inner: Some(handle),
+        }
+    }
+
+    pub fn new_dummy() -> Self {
+        Self { inner: None }
+    }
+}
+
+impl From<TextPosition> for terminator::TextPosition {
+    fn from(pos: TextPosition) -> Self {
+        match pos {
+            TextPosition::Top => terminator::TextPosition::Top,
+            TextPosition::TopRight => terminator::TextPosition::TopRight,
+            TextPosition::Right => terminator::TextPosition::Right,
+            TextPosition::BottomRight => terminator::TextPosition::BottomRight,
+            TextPosition::Bottom => terminator::TextPosition::Bottom,
+            TextPosition::BottomLeft => terminator::TextPosition::BottomLeft,
+            TextPosition::Left => terminator::TextPosition::Left,
+            TextPosition::TopLeft => terminator::TextPosition::TopLeft,
+            TextPosition::Inside => terminator::TextPosition::Inside,
+        }
+    }
+}
+
+impl From<FontStyle> for terminator::FontStyle {
+    fn from(style: FontStyle) -> Self {
+        terminator::FontStyle {
+            size: style.size,
+            bold: style.bold,
+            color: style.color,
+        }
+    }
+}
+
+impl Default for FontStyle {
+    fn default() -> Self {
+        Self {
+            size: 12,
+            bold: false,
+            color: 0x000000,
+        }
+    }
+}
+
 impl From<TreeBuildConfig> for terminator::platforms::TreeBuildConfig {
     fn from(config: TreeBuildConfig) -> Self {
         terminator::platforms::TreeBuildConfig {

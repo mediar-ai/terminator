@@ -92,6 +92,22 @@ export interface TreeBuildConfig {
   /** Optional batch size for processing elements */
   batchSize?: number
 }
+export const enum TextPosition {
+  Top = 'Top',
+  TopRight = 'TopRight',
+  Right = 'Right',
+  BottomRight = 'BottomRight',
+  Bottom = 'Bottom',
+  BottomLeft = 'BottomLeft',
+  Left = 'Left',
+  TopLeft = 'TopLeft',
+  Inside = 'Inside'
+}
+export interface FontStyle {
+  size: number
+  bold: boolean
+  color: number
+}
 /** Main entry point for desktop automation. */
 export declare class Desktop {
   /**
@@ -191,7 +207,7 @@ export declare class Desktop {
    * Open a URL in a browser.
    *
    * @param {string} url - The URL to open.
-   * @param {string} [browser] - The browser to use. Can be "Default", "Chrome", "Firefox", "Edge", "Brave", "Opera", "Vivaldi", "Arc", or a custom browser path.
+   * @param {string} [browser] - The browser to use. Can be "Default", "Chrome", "Firefox", "Edge", "Brave", "Opera", "Vivaldi", or a custom browser path.
    */
   openUrl(url: string, browser?: string | undefined | null): Element
   /**
@@ -405,6 +421,11 @@ export declare class Element {
    */
   performAction(action: string): void
   /**
+   * Invoke this element (triggers the default action).
+   * This is often more reliable than clicking for controls like radio buttons or menu items.
+   */
+  invoke(): void
+  /**
    * Scroll the element in a given direction.
    *
    * @param {string} direction - The direction to scroll.
@@ -475,13 +496,16 @@ export declare class Element {
    */
   window(): Element | null
   /**
-   * Highlights the element with a colored border.
+   * Highlights the element with a colored border and optional text overlay.
    *
    * @param {number} [color] - Optional BGR color code (32-bit integer). Default: 0x0000FF (red)
    * @param {number} [durationMs] - Optional duration in milliseconds.
-   * @returns {void}
+   * @param {string} [text] - Optional text to display. Text will be truncated to 10 characters.
+   * @param {TextPosition} [textPosition] - Optional position for the text overlay (default: Top)
+   * @param {FontStyle} [fontStyle] - Optional font styling for the text
+   * @returns {HighlightHandle} Handle that can be used to close the highlight early
    */
-  highlight(color?: number | undefined | null, durationMs?: number | undefined | null): void
+  highlight(color?: number | undefined | null, durationMs?: number | undefined | null, text?: string | undefined | null, textPosition?: TextPosition | undefined | null, fontStyle?: FontStyle | undefined | null): HighlightHandle
   /**
    * Capture a screenshot of this element.
    *
@@ -542,6 +566,14 @@ export declare class Element {
    * @returns {void}
    */
   setToggled(state: boolean): void
+  /**
+   * Execute JavaScript in web browser using dev tools console.
+   * Returns the result of the script execution as a string.
+   *
+   * @param {string} script - The JavaScript code to execute.
+   * @returns {Promise<string>} The result of script execution.
+   */
+  executeBrowserScript(script: string): Promise<string>
 }
 /** Locator for finding UI elements by selector. */
 export declare class Locator {
@@ -611,4 +643,23 @@ export declare class Selector {
   chain(other: Selector): Selector
   /** Filter by visibility. */
   visible(isVisible: boolean): Selector
+  /**
+   * Create a selector that selects the nth element from matches.
+   * Positive values are 0-based from the start (0 = first, 1 = second).
+   * Negative values are from the end (-1 = last, -2 = second-to-last).
+   */
+  static nth(index: number): Selector
+  /**
+   * Create a selector that matches elements having at least one descendant matching the inner selector.
+   * This is similar to Playwright's :has() pseudo-class.
+   */
+  static has(innerSelector: Selector): Selector
+  /**
+   * Create a selector that navigates to the parent element.
+   * This is similar to Playwright's .. syntax.
+   */
+  static parent(): Selector
+}
+export declare class HighlightHandle {
+  close(): void
 }

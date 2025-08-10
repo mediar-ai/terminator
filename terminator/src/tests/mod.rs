@@ -7,6 +7,8 @@ mod high_level_inputs_tests;
 #[cfg(all(test, target_os = "windows"))]
 mod id_stability_tests;
 #[cfg(test)]
+mod parent_navigation_tests;
+#[cfg(test)]
 mod performance_tests;
 #[cfg(all(test, target_os = "windows"))]
 mod selector_tests;

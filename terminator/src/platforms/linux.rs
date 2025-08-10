@@ -784,6 +784,66 @@ fn find_elements_inner<'a>(
                     "Selector::Has is not implemented for Linux".to_string(),
                 ));
             }
+            Selector::Parent => {
+                // Get parent element of the current root
+                if let Some(root_element) = root {
+                    if let Some(linux_element) =
+                        root_element.as_any().downcast_ref::<LinuxUIElement>()
+                    {
+                        let rt = tokio::runtime::Runtime::new()
+                            .map_err(|e| AutomationError::PlatformError(e.to_string()))?;
+                        let connection = Arc::clone(&linux_element.connection);
+                        let destination = linux_element.destination.clone();
+                        let path = linux_element.path.clone();
+
+                        let result: Result<Vec<UIElement>, AutomationError> =
+                            rt.block_on(async move {
+                                let proxy = AccessibleProxy::builder(&connection)
+                                    .destination(destination.as_str())
+                                    .map_err(|e| AutomationError::PlatformError(e.to_string()))?
+                                    .path(path.as_str())
+                                    .map_err(|e| AutomationError::PlatformError(e.to_string()))?
+                                    .build()
+                                    .await
+                                    .map_err(|e| AutomationError::PlatformError(e.to_string()))?;
+
+                                if let Ok(parent) = proxy.parent().await {
+                                    let parent_proxy = parent
+                                        .into_accessible_proxy(connection.as_ref())
+                                        .await
+                                        .map_err(|e: zbus::Error| {
+                                            AutomationError::PlatformError(e.to_string())
+                                        })?;
+
+                                    let parent_element = LinuxUIElement {
+                                        connection: Arc::clone(&connection),
+                                        destination: parent_proxy.inner().destination().to_string(),
+                                        path: parent_proxy.inner().path().to_string(),
+                                    };
+                                    Ok(vec![UIElement::new(Box::new(parent_element))])
+                                } else {
+                                    Ok(vec![]) // No parent found
+                                }
+                            });
+
+                        match result {
+                            Ok(parents) => return Ok(parents),
+                            Err(e) => {
+                                debug!("Failed to get parent element: {}", e);
+                                return Ok(vec![]); // No parent found
+                            }
+                        }
+                    } else {
+                        return Err(AutomationError::PlatformError(
+                            "Invalid element type for parent navigation".to_string(),
+                        ));
+                    }
+                } else {
+                    return Err(AutomationError::InvalidSelector(
+                        "Parent selector requires a starting element".to_string(),
+                    ));
+                }
+            }
         }
         // Only Role and Name selectors are supported below
         let root_binding = linux_engine.get_root_element();
@@ -2497,7 +2557,10 @@ impl UIElementImpl for LinuxUIElement {
         &self,
         _color: Option<u32>,
         _duration: Option<std::time::Duration>,
-    ) -> Result<(), AutomationError> {
+        _text: Option<&str>,
+        _text_position: Option<crate::TextPosition>,
+        _font_style: Option<crate::FontStyle>,
+    ) -> Result<crate::HighlightHandle, AutomationError> {
         Err(AutomationError::UnsupportedPlatform(
             "Linux implementation is not yet available".to_string(),
         ))

@@ -1,0 +1,190 @@
+---
+tool_name: execute_sequence
+arguments:
+  variables:
+    release_url:
+      type: string
+      label: GitHub Release asset URL (zip)
+      default: "https://github.com/mediar-ai/terminator/releases/latest/download/terminator-browser-extension.zip"
+
+    extension_dir:
+      type: string
+      label: Folder to load (will be created by the download step)
+      default: "%TEMP%\\terminator-bridge"
+
+    zip_path:
+      type: string
+      label: Path to downloaded zip
+      default: "%TEMP%\\terminator-browser-extension.zip"
+
+  selectors:
+    address_bar: "role:Edit|name:Address and search bar"
+    dev_mode_toggle: "role:Button|name:Developer mode"
+    load_unpacked: "role:Button|name:Load unpacked"
+    folder_field: "role:Edit|name:Folder:"
+    select_folder_btn: "role:Button|name:Select Folder"
+    reload_button: "role:Button|name:Reload"
+    extensions_doc: "role:Document|name:Extensions"
+
+  steps:
+    # Download the extension zip via JavaScript (NodeJS environment)
+    - tool_name: run_javascript
+      arguments:
+        script: |
+          const fs = require('fs');
+          const path = require('path');
+          const os = require('os');
+          (async () => {
+            const url = "${{ release_url }}";
+            if (!url || !url.trim()) throw new Error('release_url is empty');
+            const isWin = process.platform === 'win32';
+            const tmp = isWin ? (process.env.TEMP || os.tmpdir()) : os.tmpdir();
+            const zipPath = isWin ? path.join(tmp, 'terminator-browser-extension.zip') : path.join(tmp, 'terminator-browser-extension.zip');
+            const destDir = isWin ? path.join(tmp, 'terminator-bridge') : path.join(tmp, 'terminator-bridge');
+
+            try { fs.rmSync(destDir, { recursive: true, force: true }); } catch (_) {}
+            try { fs.mkdirSync(destDir, { recursive: true }); } catch (e) { throw new Error('Failed to create dest dir: ' + e.message); }
+
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`Download failed: ${res.status} ${res.statusText}`);
+            const arrayBuf = await res.arrayBuffer();
+            fs.writeFileSync(zipPath, Buffer.from(arrayBuf));
+
+            return { zipPath, destDir };
+          })();
+      delay_ms: 200
+
+    # Extract the downloaded zip to the destination folder (Windows + Unix)
+    - tool_name: run_command
+      arguments:
+        windows_command: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:TEMP 'terminator-browser-extension.zip'
+          $dest = ("${{ extension_dir }}" -replace '%TEMP%', $env:TEMP)
+          if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Expand-Archive -Path $zip -DestinationPath $dest -Force
+        unix_command: |
+          bash -lc '
+          set -euo pipefail
+          ZIP="${TMPDIR:-/tmp}/terminator-browser-extension.zip"
+          DEST="$(printf "%s" "${{ extension_dir }}" | sed "s|%TEMP%|${TMPDIR:-/tmp}|g")"
+          rm -rf "$DEST" && mkdir -p "$DEST"
+          unzip -o "$ZIP" -d "$DEST" >/dev/null
+          '
+      delay_ms: 400
+
+    # Open Chrome directly to the Extensions page
+    - tool_name: run_command
+      arguments:
+        windows_command: |
+          $ErrorActionPreference = 'Stop'
+          $cmd = Get-Command 'chrome.exe' -ErrorAction SilentlyContinue
+          if ($cmd) {
+            $chrome = $cmd.Path
+          } else {
+            $paths = @(
+              "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe",
+              "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+              "$env:ProgramFiles(x86)\Google\Chrome\Application\chrome.exe"
+            )
+            $chrome = $paths | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+          if (-not $chrome) { throw 'Google Chrome not found' }
+          Start-Process -FilePath $chrome -ArgumentList 'chrome://extensions'
+        unix_command: |
+          bash -lc '
+          set -euo pipefail
+          for C in google-chrome google-chrome-stable chromium chromium-browser; do
+            if command -v "$C" >/dev/null 2>&1; then nohup "$C" chrome://extensions >/dev/null 2>&1 & exit 0; fi
+          done
+          echo "Chrome/Chromium not found" >&2; exit 1
+          '
+      delay_ms: 1000
+
+    # Best-effort: bring Chrome to foreground (skippable)
+    - tool_name: activate_element
+      arguments:
+        selector: "role:Window|name:Google Chrome"
+        timeout_ms: 3000
+      continue_on_error: true
+      delay_ms: 400
+
+    # Ensure we actually land on chrome://extensions by forcing nav via address bar
+    - tool_name: wait_for_element
+      arguments:
+        selector: "${{ selectors.address_bar }}"
+        condition: "exists"
+        timeout_ms: 20000
+      continue_on_error: true
+
+    - tool_name: click_element
+      arguments:
+        selector: "${{ selectors.address_bar }}"
+      continue_on_error: true
+
+    - tool_name: type_into_element
+      arguments:
+        selector: "${{ selectors.address_bar }}"
+        text_to_type: "chrome://extensions"
+        clear_before_typing: true
+        verify_action: false
+      continue_on_error: true
+
+    - tool_name: press_key_global
+      arguments:
+        key: "{Enter}"
+      delay_ms: 1000
+      continue_on_error: true
+
+    # Ensure Developer mode is ON and click "Load unpacked" via JavaScript (conditional logic)
+    - tool_name: run_javascript
+      arguments:
+        script: |
+          // Use terminator.js via global 'desktop'
+          const toggleSel = "role:Button|name:Developer mode";
+          const loadSel = "role:Button|name:Load unpacked";
+
+          // Wait for Developer mode toggle to appear
+          const devToggle = await desktop.locator(toggleSel).wait(30000);
+
+          // Only enable if currently off (camelCase API)
+          const isOn = await devToggle.isToggled();
+          if (!isOn) {
+            await devToggle.setToggled(true);
+            await sleep(300);
+          }
+
+          // Click Load unpacked (wait if needed)
+          const loadBtn = await desktop.locator(loadSel).wait(10000);
+          await loadBtn.click();
+          await sleep(600);
+          return { devModeInitiallyOn: isOn };
+
+    # Folder picker dialog (Windows)
+    - tool_name: wait_for_element
+      arguments:
+        selector: "${{ selectors.folder_field }}"
+        condition: "exists"
+        timeout_ms: 10000
+
+    - tool_name: type_into_element
+      arguments:
+        selector: "${{ selectors.folder_field }}"
+        text_to_type: "${{ extension_dir }}"
+        clear_before_typing: true
+        verify_action: false
+
+    - tool_name: click_element
+      arguments:
+        selector: "${{ selectors.select_folder_btn }}"
+      delay_ms: 1200
+
+    # Verification: look for the Reload button that appears on unpacked extensions
+    - tool_name: wait_for_element
+      arguments:
+        selector: "${{ selectors.reload_button }}"
+        condition: "exists"
+        timeout_ms: 15000
+
+  stop_on_error: true

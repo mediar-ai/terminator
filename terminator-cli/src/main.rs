@@ -70,4 +70,3 @@ fn main() {
         Commands::Mcp(mcp_cmd) => handle_mcp_command(mcp_cmd),
     }
 }
-

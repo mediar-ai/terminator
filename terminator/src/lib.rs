@@ -8,19 +8,23 @@ use std::fmt;
 use std::sync::Arc;
 use tracing::{debug, error, instrument};
 
+pub mod browser_script;
 pub mod element;
 pub mod errors;
+pub mod extension_bridge;
 pub mod locator;
 pub mod platforms;
 pub mod selector;
 #[cfg(test)]
 mod tests;
+pub mod types;
 pub mod utils;
 
 pub use element::{SerializableUIElement, UIElement, UIElementAttributes};
 pub use errors::AutomationError;
 pub use locator::Locator;
 pub use selector::Selector;
+pub use types::{FontStyle, HighlightHandle, TextPosition};
 
 /// Recommend to use any of these: ["Default", "Chrome", "Firefox", "Edge", "Brave", "Opera", "Vivaldi"]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -241,7 +245,7 @@ impl Desktop {
         self.engine.get_root_element()
     }
 
-    #[instrument(skip(self, selector))]
+    #[instrument(level = "debug", skip(self, selector))]
     pub fn locator(&self, selector: impl Into<Selector>) -> Locator {
         let selector = selector.into();
         Locator::new(self.engine.clone(), selector)

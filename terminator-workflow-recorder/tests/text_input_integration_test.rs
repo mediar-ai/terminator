@@ -62,16 +62,7 @@ async fn test_text_input_completion_comprehensive() -> Result<(), Box<dyn std::e
     println!("🧪 Starting comprehensive text input completion test...");
 
     // Create recorder with text input completion enabled
-    let config = WorkflowRecorderConfig {
-        record_text_input_completion: true,
-        capture_ui_elements: true,
-        record_application_switches: true,
-        record_keyboard: true,
-        record_mouse: true,
-        record_clipboard: false, // Reduce noise
-        record_hotkeys: false,   // Reduce noise
-        ..Default::default()
-    };
+    let config = WorkflowRecorderConfig { ..Default::default() };
 
     let mut recorder = WorkflowRecorder::new("Text Input Test".to_string(), config);
     let mut event_stream = recorder.event_stream();
@@ -177,7 +168,7 @@ async fn test_text_input_completion_comprehensive() -> Result<(), Box<dyn std::e
             WorkflowEvent::TextInputCompleted(_) => "TextInputCompleted",
             WorkflowEvent::ApplicationSwitch(_) => "ApplicationSwitch",
             WorkflowEvent::BrowserTabNavigation(_) => "BrowserTabNavigation",
-            WorkflowEvent::ButtonClick(_) => "ButtonClick",
+            WorkflowEvent::Click(_) => "Click",
             WorkflowEvent::Hotkey(_) => "Hotkey",
             _ => "Other",
         };
@@ -302,16 +293,7 @@ async fn test_text_input_completion_comprehensive() -> Result<(), Box<dyn std::e
 async fn test_text_input_no_spurious_events() -> Result<(), Box<dyn std::error::Error>> {
     println!("🧪 Testing that empty/unchanged inputs don't generate spurious events...");
 
-    let config = WorkflowRecorderConfig {
-        record_text_input_completion: true,
-        capture_ui_elements: true,
-        record_application_switches: false, // Reduce noise
-        record_keyboard: false,             // Reduce noise
-        record_mouse: false,                // Reduce noise
-        record_clipboard: false,            // Reduce noise
-        record_hotkeys: false,              // Reduce noise
-        ..Default::default()
-    };
+    let config = WorkflowRecorderConfig { ..Default::default() };
 
     let mut recorder = WorkflowRecorder::new("No Spurious Events Test".to_string(), config);
     let mut event_stream = recorder.event_stream();
@@ -399,16 +381,7 @@ async fn test_basic_recording_works() -> Result<(), Box<dyn std::error::Error>> 
     println!("🧪 Testing basic recording functionality...");
 
     // Create recorder with minimal features
-    let config = WorkflowRecorderConfig {
-        record_text_input_completion: false, // Disable our new feature
-        capture_ui_elements: false,          // Disable UI capture
-        record_application_switches: false,  // Disable
-        record_keyboard: true,               // Keep basic keyboard
-        record_mouse: false,                 // Disable mouse
-        record_clipboard: false,             // Disable
-        record_hotkeys: false,               // Disable
-        ..Default::default()
-    };
+    let config = WorkflowRecorderConfig { ..Default::default() };
 
     let mut recorder = WorkflowRecorder::new("Basic Test".to_string(), config);
     let mut event_stream = recorder.event_stream();
@@ -481,16 +454,7 @@ async fn test_text_input_run_dialog() -> Result<(), Box<dyn std::error::Error>> 
     println!("🧪 Testing text input completion with Run dialog...");
 
     // Create recorder with text input completion enabled
-    let config = WorkflowRecorderConfig {
-        record_text_input_completion: true,
-        capture_ui_elements: true,
-        record_application_switches: false,
-        record_keyboard: true,
-        record_mouse: false,
-        record_clipboard: false,
-        record_hotkeys: false,
-        ..Default::default()
-    };
+    let config = WorkflowRecorderConfig { ..Default::default() };
 
     let mut recorder = WorkflowRecorder::new("Text Input Run Dialog Test".to_string(), config);
     let mut event_stream = recorder.event_stream();
@@ -594,7 +558,7 @@ async fn test_text_input_run_dialog() -> Result<(), Box<dyn std::error::Error>> 
             WorkflowEvent::TextInputCompleted(_) => "TextInputCompleted",
             WorkflowEvent::ApplicationSwitch(_) => "ApplicationSwitch",
             WorkflowEvent::BrowserTabNavigation(_) => "BrowserTabNavigation",
-            WorkflowEvent::ButtonClick(_) => "ButtonClick",
+            WorkflowEvent::Click(_) => "Click",
             WorkflowEvent::Hotkey(_) => "Hotkey",
             _ => "Other",
         };
@@ -732,7 +696,7 @@ async fn test_autocomplete_suggestion_selection() -> Result<(), Box<dyn std::err
 
     // Ensure no spurious ButtonClick event was fired from interacting with the suggestion list
     assert_no_event(&mut event_stream, "Check for spurious button click", |e| {
-        matches!(e, WorkflowEvent::ButtonClick(_))
+        matches!(e, WorkflowEvent::Click(_))
     })
     .await;
 

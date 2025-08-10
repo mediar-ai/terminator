@@ -1,0 +1,39 @@
+---
+description: "Safe git operations, pushing code, committing changes, git workflow protocols"
+---
+
+# Safe Git Push Protocol
+
+**CRITICAL**: Follow this exact sequence for ALL git operations. Never deviate.
+
+## Mandatory Pre-Push Checks
+```bash
+git status                    # Always check working directory first
+git log --oneline -5         # Review recent commits  
+git diff --stat              # Review changes scope
+```
+
+## Safe Push Sequence
+```bash
+git add .                    # Stage all changes
+git commit -m "descriptive message"  # Never use -m with empty/vague messages
+git push origin main         # Only push to main branch
+```
+
+## Forbidden Operations
+- `git push --force` or `git push -f` 
+- `git reset --hard`
+- `git rebase` in shared branches
+- Interactive commands requiring user input
+- Any command with `--force-with-lease`
+
+## Commit Message Format
+```
+type: brief description
+
+- Specific change 1
+- Specific change 2  
+- Impact/scope summary
+```
+
+**If ANY command fails, STOP immediately. Do not proceed.**

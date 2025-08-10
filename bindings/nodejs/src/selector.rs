@@ -112,4 +112,28 @@ impl Selector {
             TerminatorSelector::Visible(is_visible),
         ]))
     }
+
+    /// Create a selector that selects the nth element from matches.
+    /// Positive values are 0-based from the start (0 = first, 1 = second).
+    /// Negative values are from the end (-1 = last, -2 = second-to-last).
+    #[napi(factory)]
+    pub fn nth(index: i32) -> Self {
+        Selector::from(TerminatorSelector::Nth(index))
+    }
+
+    /// Create a selector that matches elements having at least one descendant matching the inner selector.
+    /// This is similar to Playwright's :has() pseudo-class.
+    #[napi(factory)]
+    pub fn has(inner_selector: &Selector) -> Self {
+        Selector::from(TerminatorSelector::Has(Box::new(
+            inner_selector.inner.clone(),
+        )))
+    }
+
+    /// Create a selector that navigates to the parent element.
+    /// This is similar to Playwright's .. syntax.
+    #[napi(factory)]
+    pub fn parent() -> Self {
+        Selector::from(TerminatorSelector::Parent)
+    }
 }

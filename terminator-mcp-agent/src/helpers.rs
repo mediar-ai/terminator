@@ -1,7 +1,7 @@
 use crate::expression_eval;
 use crate::utils::ToolCall;
 use regex::Regex;
-use rmcp::Error as McpError;
+use rmcp::ErrorData as McpError;
 use serde_json::{json, Value};
 use std::time::Duration;
 use terminator::{Desktop, Selector, UIElement}; // NEW: import expression evaluator
@@ -355,6 +355,7 @@ pub fn infer_expected_outcomes(tool_calls: &[ToolCall]) -> Vec<String> {
 pub fn maybe_attach_tree(
     desktop: &Desktop,
     include_tree: bool,
+    include_detailed_attributes: Option<bool>,
     pid_opt: Option<u32>,
     result_json: &mut Value,
 ) {
@@ -362,7 +363,20 @@ pub fn maybe_attach_tree(
         return;
     }
     if let Some(pid) = pid_opt {
-        if let Ok(tree) = desktop.get_window_tree(pid, None, None) {
+        // Create tree config based on include_detailed_attributes parameter
+        let include_detailed = include_detailed_attributes.unwrap_or(true);
+        let tree_config = if include_detailed {
+            terminator::platforms::TreeBuildConfig {
+                property_mode: terminator::platforms::PropertyLoadingMode::Complete,
+                timeout_per_operation_ms: Some(100), // Slightly higher timeout for detailed loading
+                yield_every_n_elements: Some(25),    // More frequent yielding for responsiveness
+                batch_size: Some(25),
+            }
+        } else {
+            terminator::platforms::TreeBuildConfig::default() // Fast mode
+        };
+
+        if let Ok(tree) = desktop.get_window_tree(pid, None, Some(tree_config)) {
             if let Ok(tree_val) = serde_json::to_value(tree) {
                 if let Some(obj) = result_json.as_object_mut() {
                     obj.insert("ui_tree".to_string(), tree_val);

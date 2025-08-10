@@ -7,11 +7,13 @@ Welcome to Terminator! We appreciate your interest in contributing to this AI-na
 We use a **cross-platform Rust CLI** for version management. The cleanest commands:
 
 ### Quick Release (Most Common)
+
 ```bash
 terminator release                     # Bump patch version + tag + push for CI
 ```
 
 ### Manual Workflow
+
 ```bash
 terminator status                      # Check current versions
 terminator patch                       # Bump patch version (x.y.Z+1)
@@ -20,24 +22,28 @@ terminator tag                         # Tag and push current version
 ```
 
 ### Installation (Run Once)
+
 ```bash
 cargo install --path terminator-cli   # Install globally to PATH
 ```
 
 ### CLI Help
+
 ```bash
 terminator --help                      # Show all commands and options
 ```
 
 ### Alternative Commands (More Verbose)
+
 ```bash
 cargo terminator status               # Same as: terminator status
 cargo run --bin terminator -- status  # Same as: terminator status
 ```
 
 ### What It Does Automatically
+
 1. **Version bumping** - Semantic versioning (patch/minor/major)
-2. **Syncs all packages** - Workspace → Node.js bindings → MCP agent → Platform packages  
+2. **Syncs all packages** - Workspace → Node.js bindings → MCP agent → Platform packages
 3. **Git operations** - Auto-commit, tag creation, push to trigger CI
 4. **Status checking** - See all versions at a glance
 
@@ -48,33 +54,95 @@ cargo run --bin terminator -- status  # Same as: terminator status
 - **Rust** (latest stable version) - [Install Rust](https://rustup.rs/)
 - **Node.js** (for TypeScript bindings) - [Install Node.js](https://nodejs.org/)
 - **Python 3.8+** (for Python bindings) - [Install Python](https://python.org/)
+
+### Optional: Speed Up Builds with sccache
+
+For faster compilation, you can optionally install [sccache](https://github.com/mozilla/sccache), a distributed compilation cache:
+
+#### Installation
+
+**Via Cargo:**
+
+```bash
+cargo install sccache
+```
+
+**Via Package Managers:**
+
+```bash
+# Windows (Chocolatey)
+choco install sccache
+
+# Windows (Scoop)
+scoop install sccache
+
+# macOS (Homebrew)
+brew install sccache
+
+# Linux (most distributions)
+# Download latest release from: https://github.com/mozilla/sccache/releases
+```
+
+#### Setup
+
+**Temporary (current session only):**
+
+```bash
+export RUSTC_WRAPPER=sccache
+```
+
+**Permanent setup:**
+
+Add to your shell profile (`~/.bashrc`, `~/.zshrc`, or PowerShell profile):
+
+```bash
+# Bash/Zsh
+export RUSTC_WRAPPER=sccache
+
+# PowerShell
+$env:RUSTC_WRAPPER = "sccache"
+```
+
+#### Verify Installation
+
+```bash
+sccache --version
+sccache --show-stats  # Shows cache statistics
+```
+
+**Note:** sccache is completely optional. The project builds fine without it, but it can significantly speed up compilation times, especially for incremental builds and when working across multiple projects.
+
 - **Git** - [Install Git](https://git-scm.com/)
 - **Windows 10/11** (for full testing, though development can happen on other platforms)
 
 ### Development Setup
 
 1. **Clone the repository:**
+
    ```bash
    git clone https://github.com/mediar-ai/terminator.git
    cd terminator
    ```
 
 2. **Build the workspace:**
+
    ```bash
    cargo build
    ```
 
 3. **Run tests:**
+
    ```bash
    cargo test
    ```
 
 4. **Set up language bindings:**
+
    ```bash
    # Python bindings
    cd bindings/python
    pip install -e .
-   
+
    # Node.js bindings
    cd ../nodejs
    npm install
@@ -102,6 +170,7 @@ Terminator uses a Cargo workspace with the following key components:
 ### Commit Messages
 
 Use conventional commits format:
+
 ```
 type(scope): description
 
@@ -157,27 +226,27 @@ cargo test --test integration_tests
 
 ### Documentation Format
 
-```rust
+````rust
 /// Locates an element on the desktop using the specified selector.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `selector` - A selector string (e.g., "name:Button", "id:submit")
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```rust
 /// let button = desktop.locator("name:Save").await?;
 /// button.click().await?;
 /// ```
-/// 
+///
 /// # Platform Notes
-/// 
+///
 /// On Windows, uses UIAutomation. On macOS, uses Accessibility APIs.
 pub async fn locator(&self, selector: &str) -> Result<Element> {
     // implementation
 }
-```
+````
 
 ## 🐛 Reporting Issues
 
@@ -241,18 +310,20 @@ All contributors will be recognized in our documentation and release notes. Than
 
 ---
 
-*Need help? Join our [Discord](https://discord.gg/dU9EBuw7Uq) or open an issue!*
+_Need help? Join our [Discord](https://discord.gg/dU9EBuw7Uq) or open an issue!_
 
 ## 🚀 Release Management
 
 We use a **cross-platform Rust CLI** for version management. All commands run from the workspace root.
 
 ### Quick Release (Most Common)
+
 ```bash
 cargo terminator release                  # Bump patch version + tag + push for CI
 ```
 
 ### Manual Workflow
+
 ```bash
 cargo terminator status                   # Check current versions
 cargo terminator patch                    # Bump patch version (x.y.Z+1)
@@ -261,6 +332,7 @@ cargo terminator tag                      # Tag and push current version
 ```
 
 ### Alternative (Verbose) Commands
+
 ```bash
 cargo run --bin terminator -- release    # Same as cargo terminator release
 cargo run --bin terminator -- status     # Same as cargo terminator status
@@ -268,8 +340,9 @@ cargo run --bin terminator -- status     # Same as cargo terminator status
 ```
 
 ### Available Commands
+
 - `patch` - Bump patch version (x.y.Z+1)
-- `minor` - Bump minor version (x.Y+1.0)  
+- `minor` - Bump minor version (x.Y+1.0)
 - `major` - Bump major version (X+1.0.0)
 - `sync` - Sync all package versions without bumping
 - `status` - Show current version status
@@ -277,25 +350,31 @@ cargo run --bin terminator -- status     # Same as cargo terminator status
 - `release` - Full release: bump patch + tag + push
 
 ### CLI Help
+
 ```bash
 cargo run --bin terminator -- --help     # Show all commands and options
 ```
 
 ### What It Does Automatically
+
 1. **Version bumping** - Semantic versioning (patch/minor/major)
-2. **Syncs all packages** - Workspace → Node.js bindings → MCP agent → Platform packages  
+2. **Syncs all packages** - Workspace → Node.js bindings → MCP agent → Platform packages
 3. **Git operations** - Auto-commit, tag creation, push to trigger CI
 4. **Status checking** - See all versions at a glance
 
 ### Version Sync Target
+
 The tool syncs these package versions:
+
 - ✅ **Workspace version** (`Cargo.toml`) - Main source of truth
-- ✅ **Node.js bindings** (`bindings/nodejs/package.json`) 
+- ✅ **Node.js bindings** (`bindings/nodejs/package.json`)
 - ✅ **MCP agent** (`terminator-mcp-agent/package.json`)
 - ✅ **Platform packages** (all `npm/*/package.json` files)
 
 ### CI/CD Triggers
+
 The release tool automatically triggers these workflows:
+
 - [publish-npm.yml](.github/workflows/publish-npm.yml) - Node.js packages
 - [publish-mcp.yml](.github/workflows/publish-mcp.yml) - MCP agent
 
@@ -329,6 +408,7 @@ cargo clippy
 ## 🧪 Testing
 
 Before submitting PRs:
+
 ```bash
 cargo fmt && cargo clippy && cargo test
 ```
@@ -342,16 +422,16 @@ cargo fmt && cargo clippy && cargo test
 ## 🎥 PR Requirements
 
 This project values video demos! When submitting changes:
+
 - Create a screen recording showing your changes (Cap.so, Screen.studio, etc.)
 - All tests must pass
 - Documentation updated if needed
 - Follow the pull request template
 
 ## 💡 Why Rust Release Tool?
+
 ✅ **Cross-platform** - Works on Windows, macOS, Linux  
 ✅ **No external dependencies** - Just `cargo`  
 ✅ **Type-safe** - Rust prevents runtime errors  
 ✅ **No shell compatibility issues** - Same syntax everywhere  
 ✅ **Fast** - Compiled binary vs interpreted scripts
-
-

@@ -1,4 +1,6 @@
-use crate::{RecordedWorkflow, Result, WorkflowEvent, WorkflowRecorderError};
+use crate::{
+    ConversionConfig, McpConverter, RecordedWorkflow, Result, WorkflowEvent, WorkflowRecorderError,
+};
 use std::{
     collections::HashSet,
     path::Path,
@@ -473,6 +475,9 @@ pub struct WorkflowRecorder {
     /// The configuration
     config: WorkflowRecorderConfig,
 
+    /// The MCP converter for generating tool sequences
+    mcp_converter: Option<McpConverter>,
+
     /// The platform-specific recorder
     #[cfg(target_os = "windows")]
     windows_recorder: Option<WindowsRecorder>,
@@ -484,10 +489,15 @@ impl WorkflowRecorder {
         let workflow = Arc::new(Mutex::new(RecordedWorkflow::new(name)));
         let (event_tx, _) = broadcast::channel(100); // Buffer size of 100 events
 
+        // Create MCP converter with default settings
+        let conversion_config = ConversionConfig::default();
+        let mcp_converter = Some(McpConverter::with_config(conversion_config));
+
         Self {
             workflow,
             event_tx,
             config,
+            mcp_converter,
             #[cfg(target_os = "windows")]
             windows_recorder: None,
         }
@@ -518,8 +528,9 @@ impl WorkflowRecorder {
 
             // Start the event processing task
             let event_rx = self.event_tx.subscribe();
+            let mcp_converter = self.mcp_converter.clone();
             tokio::spawn(async move {
-                Self::process_events(workflow, event_rx).await;
+                Self::process_events(workflow, event_rx, mcp_converter).await;
             });
 
             Ok(())
@@ -571,10 +582,71 @@ impl WorkflowRecorder {
     async fn process_events(
         workflow: Arc<Mutex<RecordedWorkflow>>,
         mut event_rx: broadcast::Receiver<WorkflowEvent>,
+        mcp_converter: Option<McpConverter>,
     ) {
         while let Ok(event) = event_rx.recv().await {
-            if let Ok(mut workflow) = workflow.lock() {
-                workflow.add_event(event);
+            // If MCP conversion is enabled, enhance the event
+            let recorded_event = if let Some(ref converter) = mcp_converter {
+                match converter.convert_event(&event, None).await {
+                    Ok(conversion_result) => {
+                        let timestamp = event.timestamp().unwrap_or_else(|| {
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as u64
+                        });
+
+                        crate::events::RecordedEvent {
+                            timestamp,
+                            event,
+                            mcp_sequence: Some(conversion_result.primary_sequence),
+                            semantic_action: Some(conversion_result.semantic_action),
+                            fallback_sequences: Some(conversion_result.fallback_sequences),
+                            enhanced_ui_context: None, // TODO: Add UI context analysis
+                        }
+                    }
+                    Err(e) => {
+                        // Log conversion error but still record the original event
+                        tracing::warn!("MCP conversion failed: {}", e);
+                        let timestamp = event.timestamp().unwrap_or_else(|| {
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as u64
+                        });
+
+                        crate::events::RecordedEvent {
+                            timestamp,
+                            event,
+                            mcp_sequence: None,
+                            semantic_action: None,
+                            fallback_sequences: None,
+                            enhanced_ui_context: None,
+                        }
+                    }
+                }
+            } else {
+                // No MCP conversion, create basic recorded event
+                let timestamp = event.timestamp().unwrap_or_else(|| {
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64
+                });
+
+                crate::events::RecordedEvent {
+                    timestamp,
+                    event,
+                    mcp_sequence: None,
+                    semantic_action: None,
+                    fallback_sequences: None,
+                    enhanced_ui_context: None,
+                }
+            };
+
+            // Add the event to the workflow (keep lock scope minimal)
+            if let Ok(mut workflow_guard) = workflow.lock() {
+                workflow_guard.add_enhanced_event(recorded_event);
             }
         }
     }

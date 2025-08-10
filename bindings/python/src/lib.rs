@@ -33,6 +33,9 @@ fn terminator(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Bounds>()?;
     m.add_class::<ExploreResponse>()?;
     m.add_class::<ExploredElementDetail>()?;
+    m.add_class::<TextPosition>()?;
+    m.add_class::<FontStyle>()?;
+    m.add_class::<HighlightHandle>()?;
 
     m.add(
         "ElementNotFoundError",

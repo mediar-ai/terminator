@@ -12,14 +12,14 @@ members = [
 
 # Shared metadata for workspace members
 [workspace.package]
-version = "0.10.4"
+version = "0.11.12"
 edition = "2021"         # From your original Cargo.toml
 license-file = "LICENSE"
 
 # Centralized dependency definitions
 [workspace.dependencies]
 # Terminator Core library itself (for other members to depend on)
-terminator = { version = "0.10.4", path = "./terminator", package = "terminator-rs" }
+terminator = { version = "0.11.12", path = "./terminator", package = "terminator-rs" }
 
 # Common dependencies from your original Cargo.toml
 serde = { version = "1.0.219", features = ["derive"] }
@@ -47,7 +47,9 @@ core-foundation = { version = "0.10.0" }
 core-graphics = { version = "0.24.0", features = ["highsierra"] }
 
 # Windows specific dependencies
-sysinfo = "0.34.2"
+sysinfo = "0.36.1   "
+windows = "0.61.3"
+uiautomation = "0.22.0"
 
 # Dev dependencies (can be used by examples or tests across the workspace)
 axum = "0.8.3"

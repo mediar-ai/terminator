@@ -28,6 +28,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 chrono = "0.4"
 ctrlc = "3.4"
+anyhow = "1.0"
 rdev = "0.5.2"
 notify = "8.0"
 arboard = "3.0"
@@ -36,17 +37,17 @@ arboard = "3.0"
 terminator = { workspace = true }
 tempfile = "3.0"
 criterion = "0.5"                 # For benchmarking
-sysinfo = "0.30"                  # For CPU monitoring
+sysinfo = { workspace = true }    # For CPU monitoring
 rand = "0.8"                      # For random element selection in benchmarks
 
 # Windows-specific dependencies
 [target.'cfg(target_os = "windows")'.dependencies]
-uiautomation = { version = "0.22.0", features = ["event", "pattern"] }
+uiautomation = { workspace = true, features = ["event", "pattern"] }
 # uiautomation = { git = "https://github.com/mediar-ai/uiautomation-rs", branch = "main", features = [
 #     "event",
 #     "pattern",
 # ] }
-windows = { version = "0.61.1", features = [
+windows = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
     "Win32_System_DataExchange",
@@ -65,7 +66,3 @@ path = "src/lib.rs"
 [[example]]
 name = "record_workflow"
 path = "examples/record_workflow.rs"
-
-[[example]]
-name = "simple_cpu_recorder"
-path = "examples/simple_cpu_recorder.rs"

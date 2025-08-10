@@ -3,7 +3,7 @@ use std::time::Instant;
 use terminator_workflow_recorder::{WorkflowRecorder, WorkflowRecorderConfig};
 use tokio::signal::ctrl_c;
 use tokio_stream::StreamExt;
-use tracing::{debug, info, Level};
+use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 // use std::panic::AssertUnwindSafe; // Not used due to async limitation
 
@@ -23,43 +23,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("[LOG] Setting up comprehensive recording configuration");
 
     // Create a comprehensive configuration for maximum workflow capture
-    let config = WorkflowRecorderConfig {
-        // Basic input recording
-        record_mouse: true,
-        record_keyboard: true,
-        capture_ui_elements: true, // PERFORMANCE: Set to false for max speed if you don't need UI context
+    let config = WorkflowRecorderConfig { ..Default::default() };
 
-        // Advanced workflow features
-        record_clipboard: true,
-        record_hotkeys: true,
-
-        // High-level semantic events
-        record_text_input_completion: true, // 🔥 NEW: High-level text input events
-
-        // Configuration tuning
-        max_clipboard_content_length: 2048, // 2KB max for clipboard content
-        track_modifier_states: true,
-        mouse_move_throttle_ms: 100, // PERFORMANCE: Increase throttle to reduce event spam
-        min_drag_distance: 5.0,      // 5 pixels minimum for drag detection
-        enable_multithreading: true,
-        record_browser_tab_navigation: true,
-
-        // performance_mode: PerformanceMode::LowEnergy,
-        // event_processing_delay_ms: Some(100),
-        // max_events_per_second: Some(100),
-        // filter_mouse_noise: true,
-        // filter_keyboard_noise: true,
-        // reduce_ui_element_capture: true,
-        ..Default::default()
-    };
-
-    debug!("Comprehensive recorder config: {:?}", config);
+    info!("Comprehensive recorder config: {:?}", config);
 
     // Create the comprehensive workflow recorder
     let mut recorder =
         WorkflowRecorder::new("Comprehensive Workflow Recording".to_string(), config);
 
-    debug!("Starting comprehensive recording...");
+    info!("Starting comprehensive recording...");
     let mut event_stream = recorder.event_stream();
     recorder
         .start()
@@ -128,8 +100,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Display different event types with appropriate detail levels
             match &event {
-                terminator_workflow_recorder::WorkflowEvent::ButtonClick(button_event) => {
-                    let interaction_icon = match button_event.interaction_type {
+                terminator_workflow_recorder::WorkflowEvent::Click(click_event) => {
+                    let interaction_icon = match click_event.interaction_type {
                         terminator_workflow_recorder::ButtonInteractionType::Click => "🔘",
                         terminator_workflow_recorder::ButtonInteractionType::Toggle => "🔄",
                         terminator_workflow_recorder::ButtonInteractionType::DropdownToggle => "📋",
@@ -141,21 +113,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "{} BUTTON CLICK {}: \"{}\" ({:?}) (Latency: {:?})",
                         interaction_icon,
                         event_count,
-                        button_event.button_text,
-                        button_event.interaction_type,
+                        click_event.element_text,
+                        click_event.interaction_type,
                         latency
                     );
 
-                    if let Some(position) = button_event.click_position {
+                    if let Some(position) = click_event.click_position {
                         println!("     └─ Position: ({}, {})", position.x, position.y);
                     }
-                    println!("     └─ Role: {}", button_event.button_role);
+                    println!("     └─ Role: {}", click_event.element_role);
 
-                    if let Some(ref description) = button_event.button_description {
+                    if let Some(ref description) = click_event.element_description {
                         println!("     └─ Description: \"{description}\"");
                     }
 
-                    if let Some(ref ui_element) = button_event.metadata.ui_element {
+                    if let Some(ref ui_element) = click_event.metadata.ui_element {
                         println!("     └─ App: {} 🎯", ui_element.application_name());
                     }
 
@@ -185,7 +157,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if let Some(ref ui_element) = kb_event.metadata.ui_element {
                             // Highlight the keyboard target element in red
                             // if let Err(e) = ui_element.highlight(Some(0xFF0000), None) {
-                            //     debug!("Error highlighting keyboard target UI element: {:?}", e);
+                            //     info!("Error highlighting keyboard target UI element: {:?}", e);
                             // }
 
                             println!(
@@ -230,7 +202,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(ref ui_element) = selection_event.metadata.ui_element {
                         // Highlight the text selection element in yellow
                         // if let Err(e) = ui_element.highlight(Some(0x00FFFF), None) {
-                        //     debug!("Error highlighting text selection UI element: {:?}", e);
+                        //     info!("Error highlighting text selection UI element: {:?}", e);
                         // }
 
                         println!(
@@ -265,7 +237,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(ref ui_element) = drag_event.metadata.ui_element {
                         // Highlight the drag source/target element in cyan
                         // if let Err(e) = ui_element.highlight(Some(0xFFFF00), None) {
-                        //     debug!("Error highlighting drag/drop UI element: {:?}", e);
+                        //     info!("Error highlighting drag/drop UI element: {:?}", e);
                         // }
 
                         println!(
@@ -316,7 +288,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(ref ui_element) = text_input_event.metadata.ui_element {
                         // Highlight the text input field in purple
                         // if let Err(e) = ui_element.highlight(Some(0xFF00FF), None) {
-                        //     debug!("Error highlighting text input UI element: {:?}", e);
+                        //     info!("Error highlighting text input UI element: {:?}", e);
                         // }
 
                         println!("     └─ App: {} 🎯", ui_element.application_name());
@@ -358,7 +330,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(ref ui_element) = app_switch_event.metadata.ui_element {
                         // Highlight the app switch element in lime green
                         // if let Err(e) = ui_element.highlight(Some(0x00FF80), None) {
-                        //     debug!("Error highlighting app switch UI element: {:?}", e);
+                        //     info!("Error highlighting app switch UI element: {:?}", e);
                         // }
 
                         println!(
@@ -402,7 +374,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if let Some(ref ui_element) = mouse_event.metadata.ui_element {
                             // Highlight the clicked element in blue/orange
                             // if let Err(e) = ui_element.highlight(Some(0xFF8000), None) {
-                            //     debug!("Error highlighting clicked UI element: {:?}", e);
+                            //     info!("Error highlighting clicked UI element: {:?}", e);
                             // }
 
                             println!(
@@ -506,7 +478,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(ref ui_element) = tab_nav_event.metadata.ui_element {
                         // Highlight the tab navigation element in aqua/cyan
                         // if let Err(e) = ui_element.highlight(Some(0xFFFF80), None) {
-                        //     debug!("Error highlighting tab navigation UI element: {:?}", e);
+                        //     info!("Error highlighting tab navigation UI element: {:?}", e);
                         // }
 
                         println!(
@@ -528,18 +500,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    debug!("Waiting for Ctrl+C signal...");
+    info!("Waiting for Ctrl+C signal...");
     ctrl_c().await.expect("Failed to wait for Ctrl+C");
 
     info!("🛑 Stop signal received, finalizing recording...");
-    debug!("Sending stop signal to recorder...");
+    info!("Sending stop signal to recorder...");
     recorder.stop().await.expect("Failed to stop recorder");
 
     // Cancel the event display task
     event_display_task.abort();
 
     let output_path = PathBuf::from("comprehensive_workflow_recording.json");
-    debug!("Saving comprehensive recording to {:?}", output_path);
+    info!("Saving comprehensive recording to {:?}", output_path);
     recorder
         .save(&output_path)
         .expect("Failed to save recording");

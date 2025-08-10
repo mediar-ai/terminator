@@ -40,28 +40,33 @@ pub async fn get_mcp_tool_result(
         tool_name, &result
     );
 
-    if let Some(first_content) = result.content.get(0) {
-        match &first_content.raw {
-            rmcp::model::RawContent::Text(raw_text_content) => {
-                let parsed_json: serde_json::Value = serde_json::from_str(&raw_text_content.text)?;
+    if let Some(content) = result.content {
+        if let Some(first_content) = content.first() {
+            match &first_content.raw {
+                rmcp::model::RawContent::Text(raw_text_content) => {
+                    let parsed_json: serde_json::Value =
+                        serde_json::from_str(&raw_text_content.text)?;
 
-                let ui_tree = parsed_json
-                    .get("ui_tree")
-                    .cloned()
-                    .ok_or_else(|| anyhow!("missing ui_tree"))?;
-                let focused_window = parsed_json
-                    .get("focused_window")
-                    .cloned()
-                    .ok_or_else(|| anyhow!("missing focused_window"))?;
+                    let ui_tree = parsed_json
+                        .get("ui_tree")
+                        .cloned()
+                        .ok_or_else(|| anyhow!("missing ui_tree"))?;
+                    let focused_window = parsed_json
+                        .get("focused_window")
+                        .cloned()
+                        .ok_or_else(|| anyhow!("missing focused_window"))?;
 
-                let filtered_result = json!({
-                    "ui_tree": ui_tree,
-                    "focused_window": focused_window
-                });
+                    let filtered_result = json!({
+                        "ui_tree": ui_tree,
+                        "focused_window": focused_window
+                    });
 
-                Ok(filtered_result)
+                    Ok(filtered_result)
+                }
+                _ => Err(anyhow!("expected text content in CallToolResult")),
             }
-            _ => Err(anyhow!("expected text content in CallToolResult")),
+        } else {
+            Err(anyhow!("no content in callToolResult"))
         }
     } else {
         Err(anyhow!("no content in callToolResult"))

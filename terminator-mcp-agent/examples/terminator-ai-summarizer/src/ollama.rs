@@ -10,7 +10,7 @@ pub async fn summrize_by_ollama(
     let ollama = Ollama::default();
     tracing::info!("sending context to ollama model: {}", model);
 
-    let prompt = format!("{}\n Screen ui element tree: {}", system_prompt, mcp_result);
+    let prompt = format!("{system_prompt}\n Screen ui element tree: {mcp_result}");
 
     let request = GenerationRequest::new(model.to_string(), prompt);
     let response = ollama.generate(request).await?;

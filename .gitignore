@@ -22,3 +22,9 @@ dist/
 .env 
 
 /workflows/
+
+# Terminator workflow recorder debug files
+terminator-workflow-recorder/*.txt
+
+# Development scripts (user-specific paths)
+scripts/copy-mcp-binary.ps1

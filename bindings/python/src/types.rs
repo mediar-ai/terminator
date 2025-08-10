@@ -215,6 +215,163 @@ pub struct TreeBuildConfig {
     pub batch_size: Option<usize>,
 }
 
+/// Position options for text overlays in highlighting
+#[gen_stub_pyclass]
+#[pyclass(name = "TextPosition")]
+#[derive(Clone, Serialize)]
+pub struct TextPosition {
+    #[pyo3(get)]
+    pub position: String,
+}
+
+#[gen_stub_pymethods]
+#[pymethods]
+impl TextPosition {
+    #[classmethod]
+    pub fn top(_cls: &Bound<'_, pyo3::types::PyType>) -> Self {
+        TextPosition {
+            position: "Top".to_string(),
+        }
+    }
+
+    #[classmethod]
+    pub fn top_right(_cls: &Bound<'_, pyo3::types::PyType>) -> Self {
+        TextPosition {
+            position: "TopRight".to_string(),
+        }
+    }
+
+    #[classmethod]
+    pub fn right(_cls: &Bound<'_, pyo3::types::PyType>) -> Self {
+        TextPosition {
+            position: "Right".to_string(),
+        }
+    }
+
+    #[classmethod]
+    pub fn bottom_right(_cls: &Bound<'_, pyo3::types::PyType>) -> Self {
+        TextPosition {
+            position: "BottomRight".to_string(),
+        }
+    }
+
+    #[classmethod]
+    pub fn bottom(_cls: &Bound<'_, pyo3::types::PyType>) -> Self {
+        TextPosition {
+            position: "Bottom".to_string(),
+        }
+    }
+
+    #[classmethod]
+    pub fn bottom_left(_cls: &Bound<'_, pyo3::types::PyType>) -> Self {
+        TextPosition {
+            position: "BottomLeft".to_string(),
+        }
+    }
+
+    #[classmethod]
+    pub fn left(_cls: &Bound<'_, pyo3::types::PyType>) -> Self {
+        TextPosition {
+            position: "Left".to_string(),
+        }
+    }
+
+    #[classmethod]
+    pub fn top_left(_cls: &Bound<'_, pyo3::types::PyType>) -> Self {
+        TextPosition {
+            position: "TopLeft".to_string(),
+        }
+    }
+
+    #[classmethod]
+    pub fn inside(_cls: &Bound<'_, pyo3::types::PyType>) -> Self {
+        TextPosition {
+            position: "Inside".to_string(),
+        }
+    }
+
+    fn __repr__(&self) -> PyResult<String> {
+        serde_json::to_string(self)
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+    }
+    fn __str__(&self) -> PyResult<String> {
+        serde_json::to_string_pretty(self)
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+    }
+}
+
+/// Font styling options for text overlays
+#[gen_stub_pyclass]
+#[pyclass(name = "FontStyle")]
+#[derive(Clone, Serialize)]
+pub struct FontStyle {
+    #[pyo3(get)]
+    pub size: u32,
+    #[pyo3(get)]
+    pub bold: bool,
+    #[pyo3(get)]
+    pub color: u32,
+}
+
+#[gen_stub_pymethods]
+#[pymethods]
+impl FontStyle {
+    #[new]
+    pub fn new(size: Option<u32>, bold: Option<bool>, color: Option<u32>) -> Self {
+        FontStyle {
+            size: size.unwrap_or(12),
+            bold: bold.unwrap_or(false),
+            color: color.unwrap_or(0x000000), // Black
+        }
+    }
+
+    fn __repr__(&self) -> PyResult<String> {
+        serde_json::to_string(self)
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+    }
+    fn __str__(&self) -> PyResult<String> {
+        serde_json::to_string_pretty(self)
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+    }
+}
+
+/// Handle for managing active highlights with cleanup
+#[gen_stub_pyclass]
+#[pyclass(name = "HighlightHandle")]
+pub struct HighlightHandle {
+    inner: Option<::terminator_core::HighlightHandle>,
+}
+
+#[gen_stub_pymethods]
+#[pymethods]
+impl HighlightHandle {
+    /// Manually close the highlight
+    pub fn close(&mut self) {
+        if let Some(handle) = self.inner.take() {
+            handle.close();
+        }
+    }
+
+    fn __repr__(&self) -> PyResult<String> {
+        Ok("HighlightHandle".to_string())
+    }
+    fn __str__(&self) -> PyResult<String> {
+        Ok("HighlightHandle".to_string())
+    }
+}
+
+impl HighlightHandle {
+    pub fn new(handle: ::terminator_core::HighlightHandle) -> Self {
+        Self {
+            inner: Some(handle),
+        }
+    }
+
+    pub fn new_dummy() -> Self {
+        Self { inner: None }
+    }
+}
+
 impl From<::terminator_core::Monitor> for Monitor {
     fn from(m: ::terminator_core::Monitor) -> Self {
         Monitor {
@@ -312,6 +469,33 @@ impl From<TreeBuildConfig> for ::terminator_core::platforms::TreeBuildConfig {
             timeout_per_operation_ms: config.timeout_per_operation_ms,
             yield_every_n_elements: config.yield_every_n_elements,
             batch_size: config.batch_size,
+        }
+    }
+}
+
+impl From<TextPosition> for ::terminator_core::TextPosition {
+    fn from(pos: TextPosition) -> Self {
+        match pos.position.as_str() {
+            "Top" => ::terminator_core::TextPosition::Top,
+            "TopRight" => ::terminator_core::TextPosition::TopRight,
+            "Right" => ::terminator_core::TextPosition::Right,
+            "BottomRight" => ::terminator_core::TextPosition::BottomRight,
+            "Bottom" => ::terminator_core::TextPosition::Bottom,
+            "BottomLeft" => ::terminator_core::TextPosition::BottomLeft,
+            "Left" => ::terminator_core::TextPosition::Left,
+            "TopLeft" => ::terminator_core::TextPosition::TopLeft,
+            "Inside" => ::terminator_core::TextPosition::Inside,
+            _ => ::terminator_core::TextPosition::Top, // default
+        }
+    }
+}
+
+impl From<FontStyle> for ::terminator_core::FontStyle {
+    fn from(style: FontStyle) -> Self {
+        ::terminator_core::FontStyle {
+            size: style.size,
+            bold: style.bold,
+            color: style.color,
         }
     }
 }

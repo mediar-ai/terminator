@@ -789,6 +789,56 @@ class UIElement:
         Returns:
             None
         """
+    async def execute_browser_script(self, script:builtins.str) -> builtins.str:
+        r"""
+        Execute JavaScript in web browser using dev tools console.
+        Returns the result of script execution.
+        
+        Args:
+            script (str): The JavaScript code to execute.
+        
+        Returns:
+            str: The result of script execution.
+        """
+    def url(self) -> typing.Optional[builtins.str]:
+        r"""
+        Get the URL if the element is in a browser window.
+        
+        Returns:
+            Optional[str]: The URL, if available.
+        """
+
+    def get_range_value(self) -> builtins.float:
+        r"""
+        Gets the current value from a range-based control like a slider or progress bar.
+        
+        Returns:
+            float: The current range value.
+        """
+    def set_range_value(self, value:builtins.float) -> None:
+        r"""
+        Sets the value of a range-based control like a slider.
+        
+        Args:
+            value (float): The value to set.
+        
+        Returns:
+            None
+        """
+    def is_selected(self) -> builtins.bool:
+        r"""
+        Checks if a selectable item (e.g., in a calendar, list, or tab) is currently selected.
+        
+        Returns:
+            bool: True if the item is selected.
+        """
+    async def ocr(self) -> builtins.str:
+        r"""
+        (async) Capture a screenshot of the element and perform OCR to extract text.
+        
+        Returns:
+            str: The extracted text from the element screenshot.
+        """
 
 class UIElementAttributes:
     r"""

@@ -1801,7 +1801,10 @@ impl UIElementImpl for MacOSUIElement {
         &self,
         _color: Option<u32>,
         _duration: Option<std::time::Duration>,
-    ) -> Result<(), AutomationError> {
+        _text: Option<&str>,
+        _text_position: Option<crate::TextPosition>,
+        _font_style: Option<crate::FontStyle>,
+    ) -> Result<crate::HighlightHandle, AutomationError> {
         Err(AutomationError::UnsupportedOperation(
             "highlight is not implemented for macOS yet".to_string(),
         ))
@@ -2899,6 +2902,31 @@ impl AccessibilityEngine for MacOSEngine {
             Selector::Has(_) => Err(AutomationError::UnsupportedOperation(
                 "Has selector not yet supported for macOS".to_string(),
             )),
+            Selector::Parent => {
+                // Get parent element of the current root
+                if let Some(root_element) = root {
+                    if let Some(macos_element) = root_element.as_any().downcast_ref::<MacOSUIElement>() {
+                        match macos_element.element.0.parent() {
+                            Ok(parent_native) => {
+                                let parent_element = MacOSUIElement {
+                                    element: ThreadSafeAXUIElement::new(parent_native),
+                                    use_background_apps: self.use_background_apps,
+                                    activate_app: self.activate_app,
+                                };
+                                Ok(vec![UIElement::new(Box::new(parent_element))])
+                            }
+                            Err(e) => {
+                                debug!("Failed to get parent element: {}", e);
+                                Ok(vec![]) // No parent found
+                            }
+                        }
+                    } else {
+                        Err(AutomationError::PlatformError("Invalid element type for parent navigation".to_string()))
+                    }
+                } else {
+                    Err(AutomationError::InvalidSelector("Parent selector requires a starting element".to_string()))
+                }
+            }
         }
     }
 
@@ -3192,6 +3220,30 @@ impl AccessibilityEngine for MacOSEngine {
             Selector::Has(_) => Err(AutomationError::UnsupportedOperation(
                 "Has selector not yet supported for macOS".to_string(),
             )),
+            Selector::Parent => {
+                // Get parent element of the current root
+                if let Some(root_element) = root {
+                    if let Some(macos_element) = root_element.as_any().downcast_ref::<MacOSUIElement>() {
+                        match macos_element.element.0.parent() {
+                            Ok(parent_native) => {
+                                let parent_element = MacOSUIElement {
+                                    element: ThreadSafeAXUIElement::new(parent_native),
+                                    use_background_apps: self.use_background_apps,
+                                    activate_app: self.activate_app,
+                                };
+                                Ok(UIElement::new(Box::new(parent_element)))
+                            }
+                            Err(e) => {
+                                Err(AutomationError::ElementNotFound(format!("Failed to get parent element: {}", e)))
+                            }
+                        }
+                    } else {
+                        Err(AutomationError::PlatformError("Invalid element type for parent navigation".to_string()))
+                    }
+                } else {
+                    Err(AutomationError::InvalidSelector("Parent selector requires a starting element".to_string()))
+                }
+            }
         }
     }
 

@@ -4,15 +4,14 @@ use crate::output_parser;
 use crate::scripting_engine;
 use crate::utils::find_and_execute_with_retry_with_fallback;
 pub use crate::utils::DesktopWrapper;
-use crate::utils::WaitForOutputParserArgs;
 use crate::utils::{
     get_timeout, ActivateElementArgs, ClickElementArgs, CloseElementArgs, DelayArgs,
-    ExecuteSequenceArgs, ExportWorkflowSequenceArgs, GetApplicationsArgs, GetFocusedWindowTreeArgs,
-    GetWindowTreeArgs, GetWindowsArgs, GlobalKeyArgs, HighlightElementArgs, LocatorArgs,
-    MaximizeWindowArgs, MinimizeWindowArgs, MouseDragArgs, NavigateBrowserArgs,
-    OpenApplicationArgs, PressKeyArgs, RecordWorkflowArgs, RunCommandArgs, RunJavascriptArgs,
-    ScrollElementArgs, SelectOptionArgs, SetRangeValueArgs, SetSelectedArgs, SetToggledArgs,
-    SetValueArgs, SetZoomArgs, ToolCall, TypeIntoElementArgs, ValidateElementArgs,
+    ExecuteBrowserScriptArgs, ExecuteSequenceArgs, ExportWorkflowSequenceArgs, GetApplicationsArgs,
+    GetFocusedWindowTreeArgs, GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs,
+    ImportWorkflowSequenceArgs, LocatorArgs, MaximizeWindowArgs, MinimizeWindowArgs, MouseDragArgs,
+    NavigateBrowserArgs, OpenApplicationArgs, PressKeyArgs, RecordWorkflowArgs, RunCommandArgs,
+    RunJavascriptArgs, ScrollElementArgs, SelectOptionArgs, SetRangeValueArgs, SetSelectedArgs,
+    SetToggledArgs, SetValueArgs, SetZoomArgs, TypeIntoElementArgs, ValidateElementArgs,
     WaitForElementArgs, ZoomArgs,
 };
 use image::{ExtendedColorType, ImageEncoder};
@@ -20,7 +19,7 @@ use rmcp::handler::server::tool::Parameters;
 use rmcp::model::{
     CallToolResult, Content, Implementation, ProtocolVersion, ServerCapabilities, ServerInfo,
 };
-use rmcp::{tool, Error as McpError, ServerHandler};
+use rmcp::{tool, ErrorData as McpError, ServerHandler};
 use rmcp::{tool_handler, tool_router};
 use serde_json::{json, Value};
 use std::future::Future;
@@ -36,56 +35,34 @@ use tracing::{info, warn};
 use base64::{engine::general_purpose, Engine as _};
 use image::codecs::png::PngEncoder;
 
-// Helper function to validate extracted data against success criteria
-fn is_valid_extraction(extracted_data: &serde_json::Value, criteria: &serde_json::Value) -> bool {
-    // Default validation: check if we have any data
-    if extracted_data.is_null() {
-        return false;
-    }
-
-    // If criteria is provided, validate against it
-    if let Some(min_items) = criteria.get("min_items").and_then(|v| v.as_u64()) {
-        let item_count = extracted_data.as_array().map_or(0, |arr| arr.len());
-        if (item_count as u64) < min_items {
-            return false;
-        }
-    }
-
-    // Check for required fields
-    if let Some(required_fields) = criteria.get("required_fields").and_then(|v| v.as_array()) {
-        if let Some(data_array) = extracted_data.as_array() {
-            if data_array.is_empty() {
-                return false;
-            }
-
-            // Check if at least one item has all required fields
-            let has_required_fields = data_array.iter().any(|item| {
-                if let Some(item_obj) = item.as_object() {
-                    required_fields.iter().all(|field| {
-                        if let Some(field_name) = field.as_str() {
-                            item_obj.contains_key(field_name)
-                                && !item_obj.get(field_name).unwrap().is_null()
-                        } else {
-                            false
-                        }
-                    })
-                } else {
-                    false
-                }
-            });
-
-            if !has_required_fields {
-                return false;
+/// Extracts JSON data from Content objects without double serialization
+pub fn extract_content_json(content: &Content) -> Result<serde_json::Value, serde_json::Error> {
+    // Handle the new rmcp 0.4.0 Content structure with Annotated<RawContent>
+    match &content.raw {
+        rmcp::model::RawContent::Text(text_content) => {
+            // Try to parse the text as JSON first
+            if let Ok(parsed_json) = serde_json::from_str::<serde_json::Value>(&text_content.text) {
+                Ok(parsed_json)
+            } else {
+                // If it's not JSON, return as a text object
+                Ok(json!({"type": "text", "text": text_content.text}))
             }
         }
+        rmcp::model::RawContent::Image(image_content) => Ok(
+            json!({"type": "image", "data": image_content.data, "mime_type": image_content.mime_type}),
+        ),
+        rmcp::model::RawContent::Resource(resource_content) => {
+            Ok(json!({"type": "resource", "resource": resource_content}))
+        }
+        rmcp::model::RawContent::Audio(audio_content) => Ok(
+            json!({"type": "audio", "data": audio_content.data, "mime_type": audio_content.mime_type}),
+        ),
     }
-
-    true
 }
 
 #[tool_router]
 impl DesktopWrapper {
-    pub async fn new() -> Result<Self, McpError> {
+    pub fn new() -> Result<Self, McpError> {
         #[cfg(any(target_os = "windows", target_os = "linux"))]
         let desktop = match Desktop::new(false, false) {
             Ok(d) => d,
@@ -115,6 +92,25 @@ impl DesktopWrapper {
         })
     }
 
+    /// Create TreeBuildConfig based on include_detailed_attributes parameter
+    /// Defaults to comprehensive attributes for LLM usage if include_detailed_attributes is not specified
+    fn create_tree_config(
+        include_detailed_attributes: Option<bool>,
+    ) -> terminator::platforms::TreeBuildConfig {
+        let include_detailed = include_detailed_attributes.unwrap_or(true);
+
+        if include_detailed {
+            terminator::platforms::TreeBuildConfig {
+                property_mode: terminator::platforms::PropertyLoadingMode::Complete,
+                timeout_per_operation_ms: Some(100), // Slightly higher timeout for detailed loading
+                yield_every_n_elements: Some(25),    // More frequent yielding for responsiveness
+                batch_size: Some(25),
+            }
+        } else {
+            terminator::platforms::TreeBuildConfig::default() // Fast mode
+        }
+    }
+
     #[tool(
         description = "Get the complete UI tree for an application by PID and optional window title. This is your primary tool for understanding the application's current state. This is a read-only operation."
     )]
@@ -122,13 +118,11 @@ impl DesktopWrapper {
         &self,
         Parameters(args): Parameters<GetWindowTreeArgs>,
     ) -> Result<CallToolResult, McpError> {
+        let tree_config = Self::create_tree_config(args.include_detailed_attributes);
+
         let tree = self
             .desktop
-            .get_window_tree(
-                args.pid,
-                args.title.as_deref(),
-                None, // Use default config for now
-            )
+            .get_window_tree(args.pid, args.title.as_deref(), Some(tree_config))
             .map_err(|e| {
                 McpError::resource_not_found(
                     "Failed to get window tree",
@@ -141,6 +135,7 @@ impl DesktopWrapper {
             "status": "success",
             "pid": args.pid,
             "title": args.title,
+            "detailed_attributes": args.include_detailed_attributes.unwrap_or(true),
             "timestamp": chrono::Utc::now().to_rfc3339(),
             "recommendation": "Prefer role|name selectors (e.g., 'button|Submit'). Use the element ID (e.g., '#12345') as a fallback if the name is missing or generic."
         });
@@ -160,8 +155,10 @@ impl DesktopWrapper {
     )]
     pub async fn get_focused_window_tree(
         &self,
-        Parameters(_args): Parameters<crate::utils::GetFocusedWindowTreeArgs>,
+        Parameters(args): Parameters<crate::utils::GetFocusedWindowTreeArgs>,
     ) -> Result<CallToolResult, McpError> {
+        let tree_config = Self::create_tree_config(args.include_detailed_attributes);
+
         // Get the currently focused element
         let focused_element = self.desktop.focused_element().map_err(|e| {
             McpError::internal_error(
@@ -186,11 +183,7 @@ impl DesktopWrapper {
         // Get the window tree for the focused application
         let tree = self
             .desktop
-            .get_window_tree(
-                pid,
-                Some(&window_title),
-                None, // Use default config
-            )
+            .get_window_tree(pid, Some(&window_title), Some(tree_config))
             .map_err(|e| {
                 McpError::resource_not_found(
                     "Failed to get window tree for focused window",
@@ -211,6 +204,7 @@ impl DesktopWrapper {
                 "window_title": window_title,
                 "application_name": app_name,
             },
+            "detailed_attributes": args.include_detailed_attributes.unwrap_or(true),
             "ui_tree": tree,
             "timestamp": chrono::Utc::now().to_rfc3339(),
             "recommendation": "Prefer role|name selectors (e.g., 'button|Submit'). Use the element ID (e.g., '#12345') as a fallback if the name is missing or generic."
@@ -234,6 +228,11 @@ impl DesktopWrapper {
         })?;
 
         let include_tree = args.include_tree.unwrap_or(false);
+        let tree_config = if include_tree {
+            Some(Self::create_tree_config(args.include_detailed_attributes))
+        } else {
+            None
+        };
 
         let app_info_futures: Vec<_> = apps
             .iter()
@@ -244,6 +243,7 @@ impl DesktopWrapper {
                 let app_role = app.role();
                 let app_pid = app.process_id().unwrap_or(0);
                 let is_focused = app.is_focused().unwrap_or(false);
+                let config = tree_config.clone();
 
                 let suggested_selector = if !app_name.is_empty() {
                     format!("{}|{}", &app_role, &app_name)
@@ -253,7 +253,7 @@ impl DesktopWrapper {
 
                 tokio::spawn(async move {
                     let tree = if include_tree && app_pid > 0 {
-                        desktop.get_window_tree(app_pid, None, None).ok()
+                        desktop.get_window_tree(app_pid, None, config).ok()
                     } else {
                         None
                     };
@@ -265,62 +265,34 @@ impl DesktopWrapper {
                         "pid": app_pid,
                         "is_focused": is_focused,
                         "suggested_selector": suggested_selector,
-                        "alternative_selectors": [
-                            format!("#{}", app_id),
-                            format!("name:{}", app_name)
-                        ],
-                        "ui_tree": tree.and_then(|t| serde_json::to_value(t).ok())
+                        "ui_tree": tree
                     })
                 })
             })
             .collect();
 
-        let results = futures::future::join_all(app_info_futures).await;
-        let app_info: Vec<Value> = results.into_iter().filter_map(Result::ok).collect();
+        let app_info_results = futures::future::join_all(app_info_futures).await;
+        let mut applications = Vec::new();
 
-        Ok(CallToolResult::success(vec![Content::json(json!({
-            "applications": app_info,
-            "count": app_info.len(),
-            "recommendation": "For applications, the name is usually reliable. For elements inside the app, prefer role|name selectors and use the ID as a fallback. Use get_window_tree with the PID for details."
-        }))?]))
-    }
+        for result in app_info_results {
+            match result {
+                Ok(app_info) => applications.push(app_info),
+                Err(e) => {
+                    warn!("Failed to get app info: {}", e);
+                }
+            }
+        }
 
-    #[tool(description = "Get windows for a specific application by name.")]
-    async fn get_windows_for_application(
-        &self,
-        Parameters(args): Parameters<GetWindowsArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        let windows = self
-            .desktop
-            .windows_for_application(&args.app_name)
-            .await
-            .map_err(|e| {
-                McpError::resource_not_found(
-                    "Failed to get windows for application",
-                    Some(json!({"reason": e.to_string()})),
-                )
-            })?;
+        let result_json = json!({
+            "action": "get_applications",
+            "status": "success",
+            "include_tree": include_tree,
+            "detailed_attributes": args.include_detailed_attributes.unwrap_or(true),
+            "applications": applications,
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        });
 
-        let window_info: Vec<_> = windows
-            .iter()
-            .map(|window| {
-                json!({
-                    "title": window.name().unwrap_or_default(),
-                    "id": window.id().unwrap_or_default(),
-                    "role": window.role(),
-                    "bounds": window.bounds().map(|b| json!({
-                        "x": b.0, "y": b.1, "width": b.2, "height": b.3
-                    })).unwrap_or(json!(null)),
-                    "suggested_selector": format!("name:{}", window.name().unwrap_or_default())
-                })
-            })
-            .collect();
-
-        Ok(CallToolResult::success(vec![Content::json(json!({
-            "windows": window_info,
-            "count": windows.len(),
-            "application": args.app_name
-        }))?]))
+        Ok(CallToolResult::success(vec![Content::json(result_json)?]))
     }
 
     #[tool(
@@ -434,6 +406,7 @@ impl DesktopWrapper {
         maybe_attach_tree(
             &self.desktop,
             args.include_tree.unwrap_or(true),
+            args.include_detailed_attributes,
             Some(element.process_id().unwrap_or(0)),
             &mut result_json,
         );
@@ -444,58 +417,53 @@ impl DesktopWrapper {
     #[tool(
         description = "Clicks a UI element. This action requires the application to be focused and may change the UI."
     )]
-    async fn click_element(
+    pub async fn click_element(
         &self,
         Parameters(args): Parameters<ClickElementArgs>,
     ) -> Result<CallToolResult, McpError> {
-        let ((_click_result, element), successful_selector) =
-            match find_and_execute_with_retry_with_fallback(
+        tracing::info!("[click_element] Called with selector: '{}'", args.selector);
+
+        let ((_, element), successful_selector) =
+            crate::utils::find_and_execute_with_retry_with_fallback(
                 &self.desktop,
                 &args.selector,
                 args.alternative_selectors.as_deref(),
                 args.fallback_selectors.as_deref(),
                 args.timeout_ms,
                 args.retries,
-                |element| async move { element.click() },
+                |el| async move { el.click() },
             )
             .await
-            {
-                Ok(((result, element), selector)) => Ok(((result, element), selector)),
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector,
-                    args.alternative_selectors.as_deref(),
-                    args.fallback_selectors.as_deref(),
-                    e,
-                )),
-            }?;
+            .map_err(|e| {
+                McpError::internal_error(
+                    "Failed to click element",
+                    Some(json!({
+                        "selector": args.selector,
+                        "alternative_selectors": args.alternative_selectors,
+                        "fallback_selectors": args.fallback_selectors,
+                        "error": e.to_string()
+                    })),
+                )
+            })?;
 
-        let element_info = build_element_info(&element);
-        let original_element_id = element.id_or_empty();
-
-        // --- Action Consequence Verification ---
-        let consequence = wait_for_ui_change(
-            &self.desktop,
-            &original_element_id,
-            std::time::Duration::from_millis(300),
-        )
-        .await;
-
-        // Build base result
         let mut result_json = json!({
             "action": "click",
             "status": "success",
-            "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector, args.alternative_selectors.as_deref(), args.fallback_selectors.as_deref()),
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-            "consequence": consequence
+            "element": {
+                "role": element.role(),
+                "name": element.name(),
+                "bounds": element.bounds().ok(),
+                "window_title": element.window_title()
+            },
+            "timestamp": chrono::Utc::now().to_rfc3339()
         });
 
-        // Always attach tree for better context
         maybe_attach_tree(
             &self.desktop,
             args.include_tree.unwrap_or(true),
-            element.process_id().ok(),
+            args.include_detailed_attributes,
+            Some(element.process_id().unwrap_or(0)),
             &mut result_json,
         );
 
@@ -550,6 +518,7 @@ impl DesktopWrapper {
         maybe_attach_tree(
             &self.desktop,
             true, // press_key_global does not have include_tree option
+            args.include_detailed_attributes,
             element.process_id().ok(),
             &mut result_json,
         );
@@ -597,6 +566,7 @@ impl DesktopWrapper {
         maybe_attach_tree(
             &self.desktop,
             true, // press_key_global does not have include_tree option
+            None, // GlobalKeyArgs doesn't have include_detailed_attributes
             element.process_id().ok(),
             &mut result_json,
         );
@@ -633,7 +603,7 @@ impl DesktopWrapper {
     #[tool(
         description = "Activates the window containing the specified element, bringing it to the foreground."
     )]
-    async fn activate_element(
+    pub async fn activate_element(
         &self,
         Parameters(args): Parameters<ActivateElementArgs>,
     ) -> Result<CallToolResult, McpError> {
@@ -659,21 +629,82 @@ impl DesktopWrapper {
             }?;
 
         let element_info = build_element_info(&element);
+        let target_pid = element.process_id().unwrap_or(0);
+
+        // Add verification to check if activation actually worked
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await; // Give window system time to respond
+
+        let mut verification;
+
+        // Method 1: Check if target application is now the focused app (most reliable)
+        if let Ok(focused_element) = self.desktop.focused_element() {
+            if let Ok(focused_pid) = focused_element.process_id() {
+                let pid_match = focused_pid == target_pid;
+                verification = json!({
+                    "activation_verified": pid_match,
+                    "verification_method": "process_id_comparison",
+                    "target_pid": target_pid,
+                    "focused_pid": focused_pid,
+                    "pid_match": pid_match
+                });
+
+                // Method 2: Also check if the specific element is focused (additional confirmation)
+                if pid_match {
+                    let element_focused = element.is_focused().unwrap_or(false);
+                    if let Some(obj) = verification.as_object_mut() {
+                        obj.insert("target_element_focused".to_string(), json!(element_focused));
+                    }
+                }
+            } else {
+                verification = json!({
+                    "activation_verified": false,
+                    "verification_method": "process_id_comparison",
+                    "target_pid": target_pid,
+                    "error": "Could not get focused element PID"
+                });
+            }
+        } else {
+            verification = json!({
+                "activation_verified": false,
+                "verification_method": "process_id_comparison",
+                "target_pid": target_pid,
+                "error": "Could not get focused element"
+            });
+        }
+
+        // Determine final status based on verification
+        let verified_success = verification
+            .get("activation_verified")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let final_status = if verified_success {
+            "success"
+        } else {
+            "success_unverified"
+        };
+
+        let recommendation = if verified_success {
+            "Window activated and verified successfully. The target application is now in the foreground."
+        } else {
+            "Window activation was called but could not be verified. The target application may not be in the foreground."
+        };
 
         let mut result_json = json!({
             "action": "activate_element",
-            "status": "success",
+            "status": final_status,
             "element": element_info,
             "selector_used": successful_selector,
             "selectors_tried": get_selectors_tried_all(&args.selector, None, args.fallback_selectors.as_deref()),
             "timestamp": chrono::Utc::now().to_rfc3339(),
-            "recommendation": "Window activated successfully. The UI tree is attached to help you find specific elements to interact with next."
+            "verification": verification,
+            "recommendation": recommendation
         });
 
         // Always attach UI tree for activated elements to help with next actions
         maybe_attach_tree(
             &self.desktop,
             args.include_tree.unwrap_or(true),
+            args.include_detailed_attributes,
             Some(element.process_id().unwrap_or(0)),
             &mut result_json,
         );
@@ -752,6 +783,7 @@ impl DesktopWrapper {
         maybe_attach_tree(
             &self.desktop,
             args.include_tree.unwrap_or(true),
+            args.include_detailed_attributes,
             element.process_id().ok(),
             &mut result_json,
         );
@@ -797,6 +829,7 @@ impl DesktopWrapper {
                 maybe_attach_tree(
                     &self.desktop,
                     args.include_tree.unwrap_or(true),
+                    args.include_detailed_attributes,
                     element.process_id().ok(),
                     &mut result_json,
                 );
@@ -840,7 +873,33 @@ impl DesktopWrapper {
         let duration = args.duration_ms.map(std::time::Duration::from_millis);
         let color = args.color;
 
-        let action = |element: UIElement| async move { element.highlight(color, duration) };
+        let text = args.text.as_deref();
+
+        #[cfg(target_os = "windows")]
+        let text_position = args.text_position.clone().map(|pos| pos.into());
+        #[cfg(not(target_os = "windows"))]
+        let text_position = None;
+
+        #[cfg(target_os = "windows")]
+        let font_style = args.font_style.clone().map(|style| style.into());
+        #[cfg(not(target_os = "windows"))]
+        let font_style = None;
+
+        let action = {
+            move |element: UIElement| {
+                let color = color;
+                let duration = duration;
+                let text_position = text_position;
+                let font_style = font_style.clone();
+                async move {
+                    let _handle =
+                        element.highlight(color, duration, text, text_position, font_style)?;
+                    // Note: We let the handle go out of scope so it auto-closes when function ends
+                    // Return a unit type since highlighting doesn't need to return data like click results
+                    Ok(())
+                }
+            }
+        };
 
         let ((_result, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
@@ -878,6 +937,7 @@ impl DesktopWrapper {
         maybe_attach_tree(
             &self.desktop,
             args.include_tree.unwrap_or(true),
+            args.include_detailed_attributes,
             element.process_id().ok(),
             &mut result_json,
         );
@@ -926,6 +986,7 @@ impl DesktopWrapper {
                     maybe_attach_tree(
                         &self.desktop,
                         args.include_tree.unwrap_or(false),
+                        args.include_detailed_attributes,
                         element.process_id().ok(),
                         &mut result_json,
                     );
@@ -1052,6 +1113,7 @@ impl DesktopWrapper {
                         maybe_attach_tree(
                             &self.desktop,
                             args.include_tree.unwrap_or(false),
+                            args.include_detailed_attributes,
                             element.process_id().ok(),
                             &mut result_json,
                         );
@@ -1076,135 +1138,6 @@ impl DesktopWrapper {
 
             // Wait a bit before the next poll
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
-    }
-
-    #[tool(
-        description = "Waits for output parser to successfully extract data from UI tree, polling until success or timeout. This is useful for waiting for dynamic content to load and be ready for data extraction."
-    )]
-    async fn wait_for_output_parser(
-        &self,
-        Parameters(args): Parameters<WaitForOutputParserArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        let start_time = std::time::Instant::now();
-        let timeout_duration = Duration::from_millis(args.timeout_ms.unwrap_or(10000));
-        let poll_interval = Duration::from_millis(args.poll_interval_ms.unwrap_or(1000));
-
-        info!(
-            "[wait_for_output_parser] Starting with timeout: {:?}, poll_interval: {:?}",
-            timeout_duration, poll_interval
-        );
-
-        loop {
-            // Check timeout
-            if start_time.elapsed() > timeout_duration {
-                return Err(McpError::internal_error(
-                    "Timeout waiting for output parser to extract data",
-                    Some(json!({
-                        "timeout_ms": args.timeout_ms.unwrap_or(10000),
-                        "elapsed_ms": start_time.elapsed().as_millis(),
-                        "poll_interval_ms": args.poll_interval_ms.unwrap_or(1000)
-                    })),
-                ));
-            }
-
-            // Get current UI tree
-            let tree = if let Some(selector) = &args.selector {
-                // Get tree from specific element
-                info!(
-                    "[wait_for_output_parser] Getting UI tree from selector: '{}'",
-                    selector
-                );
-                let locator = self
-                    .desktop
-                    .locator(terminator::Selector::from(selector.as_str()));
-                match locator.wait(Some(Duration::from_millis(500))).await {
-                    Ok(element) => {
-                        let pid = element.process_id().unwrap_or(0);
-                        self.desktop.get_window_tree(pid, None, None).ok()
-                    }
-                    Err(_) => {
-                        info!(
-                            "[wait_for_output_parser] Failed to find element with selector: '{}'",
-                            selector
-                        );
-                        None
-                    }
-                }
-            } else {
-                // Get tree from focused window
-                info!("[wait_for_output_parser] Getting UI tree from focused window");
-                match self.desktop.focused_element() {
-                    Ok(element) => match element.process_id() {
-                        Ok(pid) => self.desktop.get_window_tree(pid, None, None).ok(),
-                        Err(_) => None,
-                    },
-                    Err(_) => None,
-                }
-            };
-
-            if let Some(tree) = tree {
-                // Try to run output parser
-                let tree_json = json!({ "ui_tree": tree });
-
-                match output_parser::run_output_parser(&args.output_parser, &tree_json).await {
-                    Ok(Some(parsed_data)) => {
-                        // Check if we got the expected data
-                        let is_valid = if let Some(criteria) = &args.success_criteria {
-                            is_valid_extraction(&parsed_data, criteria)
-                        } else {
-                            // Default validation: check if we got any data at all
-                            !parsed_data.is_null()
-                                && parsed_data.as_array().is_none_or(|arr| !arr.is_empty())
-                        };
-
-                        if is_valid {
-                            info!(
-                                "[wait_for_output_parser] Successfully extracted data after {}ms",
-                                start_time.elapsed().as_millis()
-                            );
-
-                            let mut result_json = json!({
-                                "action": "wait_for_output_parser",
-                                "status": "success",
-                                "elapsed_ms": start_time.elapsed().as_millis(),
-                                "extracted_data": parsed_data,
-                                "data_item_count": parsed_data.as_array().map_or(0, |arr| arr.len()),
-                                "timestamp": chrono::Utc::now().to_rfc3339()
-                            });
-
-                            // Include tree if requested
-                            if args.include_tree.unwrap_or(false) {
-                                if let Some(obj) = result_json.as_object_mut() {
-                                    obj.insert("ui_tree".to_string(), json!(tree));
-                                }
-                            }
-
-                            return Ok(CallToolResult::success(vec![Content::json(result_json)?]));
-                        } else {
-                            info!(
-                                "[wait_for_output_parser] Parser extracted data but validation failed, continuing to poll..."
-                            );
-                        }
-                    }
-                    Ok(None) => {
-                        info!(
-                            "[wait_for_output_parser] Parser found no data, continuing to poll..."
-                        );
-                    }
-                    Err(e) => {
-                        info!(
-                            "[wait_for_output_parser] Parser error: {}, continuing to poll...",
-                            e
-                        );
-                    }
-                }
-            } else {
-                info!("[wait_for_output_parser] Failed to get UI tree, continuing to poll...");
-            }
-
-            // Wait before next poll
-            tokio::time::sleep(poll_interval).await;
         }
     }
 
@@ -1237,6 +1170,7 @@ impl DesktopWrapper {
         maybe_attach_tree(
             &self.desktop,
             args.include_tree.unwrap_or(false),
+            args.include_detailed_attributes,
             ui_element.process_id().ok(),
             &mut result_json,
         );
@@ -1245,7 +1179,7 @@ impl DesktopWrapper {
     }
 
     #[tool(description = "Opens an application by name (uses SDK's built-in app launcher).")]
-    async fn open_application(
+    pub async fn open_application(
         &self,
         Parameters(args): Parameters<OpenApplicationArgs>,
     ) -> Result<CallToolResult, McpError> {
@@ -1290,7 +1224,7 @@ impl DesktopWrapper {
     #[tool(
         description = "Closes a UI element (window, application, dialog, etc.) if it's closable."
     )]
-    async fn close_element(
+    pub async fn close_element(
         &self,
         Parameters(args): Parameters<CloseElementArgs>,
     ) -> Result<CallToolResult, McpError> {
@@ -1375,6 +1309,7 @@ impl DesktopWrapper {
         maybe_attach_tree(
             &self.desktop,
             args.include_tree.unwrap_or(true),
+            args.include_detailed_attributes,
             element.process_id().ok(),
             &mut result_json,
         );
@@ -1427,6 +1362,7 @@ impl DesktopWrapper {
         maybe_attach_tree(
             &self.desktop,
             args.include_tree.unwrap_or(true),
+            args.include_detailed_attributes,
             element.process_id().ok(),
             &mut result_json,
         );
@@ -1476,6 +1412,7 @@ impl DesktopWrapper {
         maybe_attach_tree(
             &self.desktop,
             args.include_tree.unwrap_or(true),
+            args.include_detailed_attributes,
             element.process_id().ok(),
             &mut result_json,
         );
@@ -1526,6 +1463,7 @@ impl DesktopWrapper {
         maybe_attach_tree(
             &self.desktop,
             args.include_tree.unwrap_or(true),
+            args.include_detailed_attributes,
             Some(element.process_id().unwrap_or(0)),
             &mut result_json,
         );
@@ -1576,6 +1514,7 @@ impl DesktopWrapper {
         maybe_attach_tree(
             &self.desktop,
             args.include_tree.unwrap_or(true),
+            args.include_detailed_attributes,
             Some(element.process_id().unwrap_or(0)),
             &mut result_json,
         );
@@ -1626,6 +1565,7 @@ impl DesktopWrapper {
         maybe_attach_tree(
             &self.desktop,
             args.include_tree.unwrap_or(true),
+            args.include_detailed_attributes,
             Some(element.process_id().unwrap_or(0)),
             &mut result_json,
         );
@@ -1673,6 +1613,7 @@ impl DesktopWrapper {
         maybe_attach_tree(
             &self.desktop,
             args.include_tree.unwrap_or(true),
+            args.include_detailed_attributes,
             element.process_id().ok(),
             &mut result_json,
         );
@@ -1720,6 +1661,7 @@ impl DesktopWrapper {
         maybe_attach_tree(
             &self.desktop,
             args.include_tree.unwrap_or(true),
+            args.include_detailed_attributes,
             element.process_id().ok(),
             &mut result_json,
         );
@@ -1767,6 +1709,7 @@ impl DesktopWrapper {
         maybe_attach_tree(
             &self.desktop,
             args.include_tree.unwrap_or(true),
+            args.include_detailed_attributes,
             element.process_id().ok(),
             &mut result_json,
         );
@@ -1874,6 +1817,7 @@ impl DesktopWrapper {
         maybe_attach_tree(
             &self.desktop,
             args.include_tree.unwrap_or(true),
+            args.include_detailed_attributes,
             element.process_id().ok(),
             &mut result_json,
         );
@@ -1908,7 +1852,7 @@ impl DesktopWrapper {
 
                 let config = if args.low_energy_mode.unwrap_or(false) {
                     // This uses a config optimized for performance, which importantly disables
-                    // text input completion tracking, a feature the user found caused lag. [[memory:523310]]
+                    // text input completion tracking, a feature the user found caused lag.
                     PerformanceMode::low_energy_config()
                 } else {
                     WorkflowRecorderConfig::default()
@@ -1984,14 +1928,27 @@ impl DesktopWrapper {
 
                 let file_content = std::fs::read_to_string(&file_path).unwrap_or_default();
 
-                Ok(CallToolResult::success(vec![Content::json(json!({
+                // Generate MCP-ready workflow sequence
+                let mcp_workflow = {
+                    let workflow = recorder.workflow.lock().unwrap();
+                    workflow.generate_mcp_workflow()
+                };
+
+                let mut response = json!({
                     "action": "record_workflow",
                     "status": "stopped",
                     "workflow_name": workflow_name,
                     "message": "Recording stopped and workflow saved.",
                     "file_path": file_path,
                     "file_content": file_content
-                }))?]))
+                });
+
+                // Add MCP workflow if available
+                if let Some(mcp_workflow) = mcp_workflow {
+                    response["mcp_workflow"] = mcp_workflow;
+                }
+
+                Ok(CallToolResult::success(vec![Content::json(response)?]))
             }
             _ => Err(McpError::invalid_params(
                 "Invalid action. Must be 'start' or 'stop'.",
@@ -2547,20 +2504,22 @@ impl DesktopWrapper {
             Ok(result) => {
                 let mut extracted_content = Vec::new();
 
-                for content in &result.content {
-                    if let Ok(json_content) = serde_json::to_value(content) {
-                        extracted_content.push(json_content);
-                    } else {
-                        extracted_content.push(
-                            json!({ "type": "unknown", "data": "Content extraction failed" }),
-                        );
+                if let Some(content_vec) = &result.content {
+                    for content in content_vec {
+                        match extract_content_json(content) {
+                            Ok(json_content) => extracted_content.push(json_content),
+                            Err(_) => extracted_content.push(
+                                json!({ "type": "unknown", "data": "Content extraction failed" }),
+                            ),
+                        }
                     }
                 }
 
+                let content_count = result.content.as_ref().map(|v| v.len()).unwrap_or(0);
                 let content_summary = if include_detailed {
-                    json!({ "type": "tool_result", "content_count": result.content.len(), "content": extracted_content })
+                    json!({ "type": "tool_result", "content_count": content_count, "content": extracted_content })
                 } else {
-                    json!({ "type": "summary", "content": "Tool executed successfully", "content_count": result.content.len() })
+                    json!({ "type": "summary", "content": "Tool executed successfully", "content_count": content_count })
                 };
                 let duration_ms = (chrono::Utc::now() - tool_start_time).num_milliseconds();
                 let mut result_json = json!({
@@ -2701,15 +2660,7 @@ impl DesktopWrapper {
                     )),
                 }
             }
-            "wait_for_output_parser" => {
-                match serde_json::from_value::<WaitForOutputParserArgs>(arguments.clone()) {
-                    Ok(args) => self.wait_for_output_parser(Parameters(args)).await,
-                    Err(e) => Err(McpError::invalid_params(
-                        "Invalid arguments for wait_for_output_parser",
-                        Some(json!({"error": e.to_string()})),
-                    )),
-                }
-            }
+
             "activate_element" => {
                 match serde_json::from_value::<ActivateElementArgs>(arguments.clone()) {
                     Ok(args) => self.activate_element(Parameters(args)).await,
@@ -2724,6 +2675,15 @@ impl DesktopWrapper {
                     Ok(args) => self.navigate_browser(Parameters(args)).await,
                     Err(e) => Err(McpError::invalid_params(
                         "Invalid arguments for navigate_browser",
+                        Some(json!({"error": e.to_string()})),
+                    )),
+                }
+            }
+            "execute_browser_script" => {
+                match serde_json::from_value::<ExecuteBrowserScriptArgs>(arguments.clone()) {
+                    Ok(args) => self.execute_browser_script(Parameters(args)).await,
+                    Err(e) => Err(McpError::invalid_params(
+                        "Invalid arguments for execute_browser_script",
                         Some(json!({"error": e.to_string()})),
                     )),
                 }
@@ -2753,15 +2713,6 @@ impl DesktopWrapper {
                     Some(json!({"error": e.to_string()})),
                 )),
             },
-            "get_windows_for_application" => {
-                match serde_json::from_value::<GetWindowsArgs>(arguments.clone()) {
-                    Ok(args) => self.get_windows_for_application(Parameters(args)).await,
-                    Err(e) => Err(McpError::invalid_params(
-                        "Invalid arguments for get_windows_for_application",
-                        Some(json!({"error": e.to_string()})),
-                    )),
-                }
-            }
             "run_command" => match serde_json::from_value::<RunCommandArgs>(arguments.clone()) {
                 Ok(args) => self.run_command(Parameters(args)).await,
                 Err(e) => Err(McpError::invalid_params(
@@ -2943,6 +2894,15 @@ impl DesktopWrapper {
                     )),
                 }
             }
+            "import_workflow_sequence" => {
+                match serde_json::from_value::<ImportWorkflowSequenceArgs>(arguments.clone()) {
+                    Ok(args) => self.import_workflow_sequence(Parameters(args)).await,
+                    Err(e) => Err(McpError::invalid_params(
+                        "Invalid arguments for import_workflow_sequence",
+                        Some(json!({"error": e.to_string()})),
+                    )),
+                }
+            }
             _ => Err(McpError::internal_error(
                 "Unknown tool called",
                 Some(json!({"tool_name": tool_name})),
@@ -3038,6 +2998,105 @@ impl DesktopWrapper {
         }))?]))
     }
 
+    #[tool(description = "Load a YAML workflow file or scan folder for YAML workflow files")]
+    pub async fn import_workflow_sequence(
+        &self,
+        Parameters(args): Parameters<ImportWorkflowSequenceArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        match (args.file_path, args.folder_path) {
+            // Load single file
+            (Some(file_path), None) => {
+                let content = std::fs::read_to_string(&file_path).map_err(|e| {
+                    McpError::invalid_params(
+                        "Failed to read file",
+                        Some(json!({"error": e.to_string(), "path": file_path})),
+                    )
+                })?;
+
+                let workflow: serde_json::Value = serde_yaml::from_str(&content).map_err(|e| {
+                    McpError::invalid_params(
+                        "Invalid YAML format",
+                        Some(json!({"error": e.to_string()})),
+                    )
+                })?;
+
+                Ok(CallToolResult::success(vec![Content::json(json!({
+                    "operation": "load_file",
+                    "file_path": file_path,
+                    "workflow": workflow
+                }))?]))
+            }
+            // Scan folder
+            (None, Some(folder_path)) => {
+                let files = scan_yaml_files(&folder_path)?;
+
+                Ok(CallToolResult::success(vec![Content::json(json!({
+                    "operation": "scan_folder",
+                    "folder_path": folder_path,
+                    "files": files,
+                    "count": files.len()
+                }))?]))
+            }
+            // Error cases
+            (Some(_), Some(_)) => Err(McpError::invalid_params(
+                "Provide either file_path OR folder_path, not both",
+                None,
+            )),
+            (None, None) => Err(McpError::invalid_params(
+                "Must provide either file_path or folder_path",
+                None,
+            )),
+        }
+    }
+}
+
+fn scan_yaml_files(folder_path: &str) -> Result<Vec<serde_json::Value>, McpError> {
+    let mut files = Vec::new();
+
+    let dir = std::fs::read_dir(folder_path).map_err(|e| {
+        McpError::invalid_params(
+            "Failed to read directory",
+            Some(json!({"error": e.to_string(), "path": folder_path})),
+        )
+    })?;
+
+    for entry in dir {
+        let entry = entry.map_err(|e| {
+            McpError::internal_error(
+                "Directory entry error",
+                Some(json!({"error": e.to_string()})),
+            )
+        })?;
+
+        let path = entry.path();
+
+        if path.is_file() {
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                if ext == "yaml" || ext == "yml" {
+                    let metadata = entry.metadata().ok();
+                    let file_name = path
+                        .file_stem()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+
+                    files.push(json!({
+                        "name": file_name,
+                        "file_path": path.to_string_lossy(),
+                        "size": metadata.as_ref().map(|m| m.len()).unwrap_or(0),
+                        "modified": metadata.and_then(|m| m.modified().ok())
+                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                            .map(|d| d.as_secs())
+                    }));
+                }
+            }
+        }
+    }
+
+    Ok(files)
+}
+
+impl DesktopWrapper {
     #[tool(description = "Maximizes a window.")]
     async fn maximize_window(
         &self,
@@ -3077,6 +3136,7 @@ impl DesktopWrapper {
         maybe_attach_tree(
             &self.desktop,
             args.include_tree.unwrap_or(true),
+            args.include_detailed_attributes,
             element.process_id().ok(),
             &mut result_json,
         );
@@ -3123,6 +3183,7 @@ impl DesktopWrapper {
         maybe_attach_tree(
             &self.desktop,
             args.include_tree.unwrap_or(true),
+            args.include_detailed_attributes,
             element.process_id().ok(),
             &mut result_json,
         );
@@ -3179,7 +3240,8 @@ impl DesktopWrapper {
         maybe_attach_tree(
             &self.desktop,
             args.include_tree.unwrap_or(false),
-            None,
+            args.include_detailed_attributes,
+            None, // No specific element for zoom operation
             &mut result_json,
         );
 
@@ -3233,6 +3295,7 @@ impl DesktopWrapper {
         maybe_attach_tree(
             &self.desktop,
             args.include_tree.unwrap_or(true),
+            args.include_detailed_attributes,
             Some(element.process_id().unwrap_or(0)),
             &mut result_json,
         );
@@ -3240,7 +3303,7 @@ impl DesktopWrapper {
     }
 
     #[tool(
-        description = "Executes arbitrary JavaScript inside an embedded JS engine. The script receives a synchronous helper `callTool(name, argsJsonString)` that can invoke any other MCP tool and return its JSON result. The final value of the script is serialized to JSON and returned as the tool output.  NOTE: This is EXPERIMENTAL and currently uses a sandboxed QuickJS runtime; only standard JavaScript plus the provided helper is available."
+        description = "Executes arbitrary JavaScript inside an embedded JS engine. The final value of the script is serialized to JSON and returned as the tool output. You can provide either inline script code or a path to a JavaScript file. NOTE: This is EXPERIMENTAL and currently uses a sandboxed NodeJS runtime; only standard JavaScript and terminator-js is available."
     )]
     async fn run_javascript(
         &self,
@@ -3248,52 +3311,112 @@ impl DesktopWrapper {
     ) -> Result<CallToolResult, McpError> {
         use serde_json::json;
 
-        let engine = args.engine.clone().unwrap_or_else(|| "nodejs".to_string());
-
-        if engine == "boa" {
-            let self_clone = self.clone();
-
-            // Create a tool dispatcher closure that calls our dispatch_tool method
-            let tool_dispatcher = move |tool_name: String, args_val: serde_json::Value| {
-                let self_clone = self_clone.clone();
-                async move {
-                    match self_clone.dispatch_tool(&tool_name, &args_val).await {
-                        Ok(call_result) => serde_json::to_string(&call_result).map_err(|e| {
-                            McpError::internal_error(
-                                "Failed to serialize tool result",
-                                Some(json!({"error": e.to_string(), "tool": tool_name})),
-                            )
-                        }),
-                        Err(e) => Err(e),
+        // Determine the script source - either inline or from file
+        let script_content = match (args.script, args.script_file_path) {
+            (Some(script), None) => {
+                // Inline script provided
+                script
+            }
+            (None, Some(file_path)) => {
+                // File path provided - read the file
+                match std::fs::read_to_string(&file_path) {
+                    Ok(content) => content,
+                    Err(e) => {
+                        return Err(McpError::internal_error(
+                            format!("Failed to read JavaScript file: {file_path}"),
+                            Some(json!({
+                                "file_path": file_path,
+                                "error": e.to_string()
+                            })),
+                        ));
                     }
                 }
-            };
+            }
+            (Some(_), Some(_)) => {
+                return Err(McpError::invalid_params(
+                    "Cannot provide both 'script' and 'script_file_path'. Please provide only one.",
+                    Some(json!({
+                        "provided_script": true,
+                        "provided_script_file_path": true
+                    })),
+                ));
+            }
+            (None, None) => {
+                return Err(McpError::invalid_params(
+                    "Must provide either 'script' (inline JavaScript) or 'script_file_path' (path to JavaScript file).",
+                    Some(json!({
+                        "provided_script": false,
+                        "provided_script_file_path": false
+                    }))
+                ));
+            }
+        };
 
-            // Execute JavaScript using the new terminator_js module
-            let execution_result =
-                scripting_engine::execute_javascript(args.script, tool_dispatcher).await?;
+        let execution_result =
+            scripting_engine::execute_javascript_with_nodejs(script_content).await?;
+        return Ok(CallToolResult::success(vec![Content::json(json!({
+            "action": "run_javascript",
+            "status": "success",
+            "result": execution_result
+        }))?]));
+    }
 
-            return Ok(CallToolResult::success(vec![Content::json(json!({
-                "action": "run_javascript",
-                "status": "success",
-                "engine": "boa",
-                "result": execution_result
-            }))?]));
-        } else if engine == "nodejs" {
-            let execution_result =
-                scripting_engine::execute_javascript_with_nodejs(args.script).await?;
-            return Ok(CallToolResult::success(vec![Content::json(json!({
-                "action": "run_javascript",
-                "status": "success",
-                "engine": "nodejs",
-                "result": execution_result
-            }))?]));
-        }
+    #[tool(
+        description = "Execute JavaScript in a browser using dev tools console. Opens dev tools, switches to console, runs the script, and returns the result. Works with any browser that supports dev tools (Chrome, Edge, Firefox)."
+    )]
+    async fn execute_browser_script(
+        &self,
+        Parameters(args): Parameters<ExecuteBrowserScriptArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        use serde_json::json;
 
-        Err(McpError::internal_error(
-            "Unsupported JavaScript engine",
-            Some(json!({"error": "Unsupported JavaScript engine"})),
-        ))
+        let script_clone = args.script.clone();
+        let ((_, script_result), successful_selector) =
+            crate::utils::find_and_execute_with_retry_with_fallback(
+                &self.desktop,
+                &args.selector,
+                args.alternative_selectors.as_deref(),
+                args.fallback_selectors.as_deref(),
+                args.timeout_ms,
+                args.retries,
+                |el| {
+                    let script = script_clone.clone();
+                    async move { el.execute_browser_script(&script).await }
+                },
+            )
+            .await
+            .map_err(|e| {
+                McpError::internal_error(
+                    "Failed to execute browser script",
+                    Some(json!({
+                        "selector": args.selector,
+                        "script": args.script,
+                        "alternative_selectors": args.alternative_selectors,
+                        "fallback_selectors": args.fallback_selectors,
+                        "error": e.to_string()
+                    })),
+                )
+            })?;
+
+        let mut result_json = json!({
+            "action": "execute_browser_script",
+            "status": "success",
+            "selector": successful_selector,
+            "script": args.script,
+            "result": script_result,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        });
+
+        // Always attach tree for better context
+        maybe_attach_tree(
+            &self.desktop,
+            args.include_tree.unwrap_or(false),
+            args.include_detailed_attributes,
+            None, // Don't filter by process since this could apply to any browser
+            &mut result_json,
+        );
+
+        Ok(CallToolResult::success(vec![Content::json(result_json)?]))
     }
 }
 

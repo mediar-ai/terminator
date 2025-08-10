@@ -3,6 +3,7 @@
 mod text_input_tracker_tests {
     use terminator::element::{UIElement, UIElementAttributes, UIElementImpl};
     use terminator::errors::AutomationError;
+    use terminator::platforms::windows::{FontStyle, HighlightHandle, TextPosition};
     use terminator::{ClickResult, Locator, ScreenshotResult};
     use terminator_workflow_recorder::structs::TextInputTracker;
 
@@ -138,7 +139,10 @@ mod text_input_tracker_tests {
             &self,
             _color: Option<u32>,
             _duration: Option<std::time::Duration>,
-        ) -> Result<(), AutomationError> {
+            _text: Option<&str>,
+            _text_position: Option<TextPosition>,
+            _font_style: Option<FontStyle>,
+        ) -> Result<HighlightHandle, AutomationError> {
             unimplemented!()
         }
         fn set_transparency(&self, _percentage: u8) -> Result<(), AutomationError> {

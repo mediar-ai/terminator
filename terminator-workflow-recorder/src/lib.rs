@@ -8,16 +8,19 @@
 
 mod error;
 mod events;
+mod mcp_converter;
 mod recorder;
 
 pub use error::*;
 pub use events::{
-    ApplicationSwitchEvent, ApplicationSwitchMethod, BrowserTabNavigationEvent, ButtonClickEvent,
-    ButtonInteractionType, ClipboardAction, ClipboardEvent, DragDropEvent, EventMetadata,
-    HotkeyEvent, KeyboardEvent, MouseButton, MouseEvent, MouseEventType, Position, RecordedEvent,
-    RecordedWorkflow, Rect, SelectionMethod, TabAction, TabNavigationMethod,
-    TextInputCompletedEvent, TextInputMethod, TextSelectionEvent, WorkflowEvent,
+    ApplicationSwitchEvent, ApplicationSwitchMethod, BrowserTabNavigationEvent,
+    ButtonInteractionType, ClickEvent, ClipboardAction, ClipboardEvent, DragDropEvent,
+    EnhancedUIElement, EventMetadata, HotkeyEvent, InteractionContext, KeyboardEvent, McpToolStep,
+    MouseButton, MouseEvent, MouseEventType, Position, RecordedEvent, RecordedWorkflow, Rect,
+    SelectionMethod, TabAction, TabNavigationMethod, TextInputCompletedEvent, TextInputMethod,
+    TextSelectionEvent, UIElementInfo, WorkflowEvent,
 };
+pub use mcp_converter::{ConversionConfig, ConversionResult, McpConverter};
 pub use recorder::*;
 
 #[cfg(target_os = "windows")]
