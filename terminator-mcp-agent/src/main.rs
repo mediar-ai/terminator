@@ -119,9 +119,11 @@ async fn main() -> Result<()> {
             let addr: SocketAddr = format!("{}:{}", args.host, args.port).parse()?;
             tracing::info!("Starting streamable HTTP server on http://{}", addr);
 
-            let desktop = server::DesktopWrapper::new()?;
+            // Lazy-initialize DesktopWrapper on first /mcp use so that /health can succeed on CI
             let service = StreamableHttpService::new(
-                move || Ok(desktop.clone()),
+                move || {
+                    server::DesktopWrapper::new().map_err(|e| std::io::Error::other(e.to_string()))
+                },
                 LocalSessionManager::default().into(),
                 Default::default(),
             );
@@ -207,8 +209,8 @@ async fn main() -> Result<()> {
                 next.run(req).await
             }
 
-            // Build a sub-router for /mcp that nests the existing service and applies the concurrency gate middleware
-            let mcp_router = Router::new().nest_service("/", service).route_layer(
+            // Build a sub-router for /mcp that uses the service with concurrency gate middleware
+            let mcp_router = Router::new().fallback_service(service).layer(
                 axum::middleware::from_fn_with_state(app_state.clone(), mcp_gate),
             );
 
