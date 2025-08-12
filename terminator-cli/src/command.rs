@@ -1,9 +1,17 @@
 use anyhow::Result;
 use crate::mcp_client;
-use crate::cli::McpCommands;
 use crate::utils::is_batch_file;
-use crate::workflow_exec::run_workflow;
 use std::process::{Command, Stdio};
+use crate::cli::{McpCommands, VersionCommands};
+use crate::workflow_exec::workflow::run_workflow;
+use crate::version_control::{
+    ensure_project_root,
+    full_release,
+    sync_all_versions,
+    bump_version,
+    tag_and_push,
+    show_status,
+};
 
 /// Create command with proper handling for batch files on Windows
 pub fn create_command(executable: &str, args: &[String]) -> tokio::process::Command {
@@ -86,6 +94,19 @@ pub fn parse_transport(url: Option<String>, command: Option<String>) -> mcp_clie
     }
 }
 
+pub fn handle_version_command(version_cmd: VersionCommands) {
+    ensure_project_root();
+    match version_cmd {
+        VersionCommands::Patch => bump_version("patch"),
+        VersionCommands::Minor => bump_version("minor"),
+        VersionCommands::Major => bump_version("major"),
+        VersionCommands::Sync => sync_all_versions(),
+        VersionCommands::Status => show_status(),
+        VersionCommands::Tag => tag_and_push(),
+        VersionCommands::Release(args) => { full_release(&args.level.to_string()) }
+    }
+}
+
 pub fn handle_mcp_command(cmd: McpCommands) {
     let transport = match cmd {
         McpCommands::Chat(ref args) => parse_transport(args.url.clone(), args.command.clone()),
@@ -102,7 +123,7 @@ pub fn handle_mcp_command(cmd: McpCommands) {
                 mcp_client::interactive_chat(transport).await
             }
             McpCommands::AiChat(args) => {
-                mcp_client::natural_language_chat(transport, args.aiprovider.clone()).await
+                mcp_client::natural_language_chat(transport, args.aiprovider).await
             }
             McpCommands::Exec(args) => {
                 mcp_client::execute_command(transport, args.tool, args.args).await

@@ -11,6 +11,12 @@ pub struct Cli {
     pub command: Commands,
 }
 
+impl std::fmt::Display for BumpLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", format!("{self:?}").to_lowercase())
+    }
+}
+
 #[derive(ValueEnum, Clone, Copy, Debug, Default)]
 #[clap(rename_all = "lower")]
 pub enum BumpLevel {
@@ -27,12 +33,6 @@ pub enum AIProvider {
     Anthropic,
     OpenAI,
     Gemini,
-}
-
-impl std::fmt::Display for BumpLevel {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", format!("{self:?}").to_lowercase())
-    }
 }
 
 #[derive(Parser, Debug)]
@@ -131,7 +131,7 @@ pub enum McpCommands {
 }
 
 #[derive(Subcommand)]
-pub enum Commands {
+pub enum VersionCommands {
     /// Bump patch version (x.y.Z+1)
     Patch,
     /// Bump minor version (x.Y+1.0)
@@ -146,6 +146,14 @@ pub enum Commands {
     Tag,
     /// Full release: bump version + tag + push
     Release(ReleaseArgs),
+}
+
+#[derive(Subcommand)]
+pub enum Commands {
+    /// Version management commands
+    #[command(subcommand)]
+    Version(VersionCommands),
+
     /// MCP client commands
     #[command(subcommand)]
     Mcp(McpCommands),

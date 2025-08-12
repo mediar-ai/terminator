@@ -6,31 +6,25 @@
 //! releases, and development workflows.
 //!
 //! Usage from workspace root:
-//!   cargo run --bin terminator -- patch      # Bump patch version
-//!   cargo run --bin terminator -- minor      # Bump minor version  
-//!   cargo run --bin terminator -- major      # Bump major version
-//!   cargo run --bin terminator -- sync       # Sync all versions
-//!   cargo run --bin terminator -- status     # Show current status
-//!   cargo run --bin terminator -- tag        # Tag and push current version
-//!   cargo run --bin terminator -- release    # Full release: bump patch + tag + push
-//!   cargo run --bin terminator -- release minor # Full release: bump minor + tag + push
+//!   cargo run --bin terminator -- version patch      # Bump patch version
+//!   cargo run --bin terminator -- version minor      # Bump minor version  
+//!   cargo run --bin terminator -- version major      # Bump major version
+//!   cargo run --bin terminator -- version sync       # Sync all versions
+//!   cargo run --bin terminator -- version status     # Show current status
+//!   cargo run --bin terminator -- version tag        # Tag and push current version
+//!   cargo run --bin terminator -- version release    # Full release: bump patch + tag + push
+//!   cargo run --bin terminator -- version release minor # Full release: bump minor + tag + push
 
 use crate::cli::{Cli, Commands};
-use crate::command::handle_mcp_command;
-use crate::version_control::{
-    ensure_project_root,
-    full_release,
-    sync_all_versions,
-    bump_version,
-    tag_and_push,
-    show_status,
+use crate::command::{
+    handle_mcp_command, handle_version_command
 };
 
 mod cli;
 mod utils;
 mod command;
-mod mcp_client;
 mod workflow_exec;
+mod mcp_client;
 mod version_control;
 
 fn main() {
@@ -39,34 +33,7 @@ fn main() {
 
     // Only ensure we're in the project root for development commands
     match cli.command {
-        Commands::Patch => {
-            ensure_project_root();
-            bump_version("patch");
-        }
-        Commands::Minor => {
-            ensure_project_root();
-            bump_version("minor");
-        }
-        Commands::Major => {
-            ensure_project_root();
-            bump_version("major");
-        }
-        Commands::Sync => {
-            ensure_project_root();
-            sync_all_versions();
-        }
-        Commands::Status => {
-            ensure_project_root();
-            show_status();
-        }
-        Commands::Tag => {
-            ensure_project_root();
-            tag_and_push();
-        }
-        Commands::Release(args) => {
-            ensure_project_root();
-            full_release(&args.level.to_string());
-        }
+        Commands::Version(version_cmd) => handle_version_command(version_cmd),
         Commands::Mcp(mcp_cmd) => handle_mcp_command(mcp_cmd),
     }
 }
