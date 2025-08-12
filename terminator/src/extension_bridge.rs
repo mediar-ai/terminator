@@ -33,18 +33,40 @@ struct EvalRequest {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 enum BridgeIncoming {
-    Hello {
-        r#type: String,
-        from: Option<String>,
-    },
     EvalResult {
         id: String,
         ok: bool,
         result: Option<serde_json::Value>,
         error: Option<String>,
     },
-    Pong {
-        r#type: String,
+    Typed(TypedIncoming),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "type")]
+enum TypedIncoming {
+    #[serde(rename = "hello")]
+    Hello { from: Option<String> },
+    #[serde(rename = "pong")]
+    Pong,
+    #[serde(rename = "console_event")]
+    ConsoleEvent {
+        id: String,
+        level: Option<String>,
+        args: Option<serde_json::Value>,
+        #[serde(rename = "stackTrace")]
+        stack_trace: Option<serde_json::Value>,
+        ts: Option<f64>,
+    },
+    #[serde(rename = "exception_event")]
+    ExceptionEvent {
+        id: String,
+        details: Option<serde_json::Value>,
+    },
+    #[serde(rename = "log_event")]
+    LogEvent {
+        id: String,
+        entry: Option<serde_json::Value>,
     },
 }
 
@@ -169,7 +191,34 @@ impl ExtensionBridge {
                                 result,
                                 error,
                             }) => {
-                                tracing::info!(id = %id, ok = ok, "Bridge received EvalResult");
+                                if ok {
+                                    let size =
+                                        result.as_ref().map(|r| r.to_string().len()).unwrap_or(0);
+                                    tracing::info!(id = %id, ok = ok, result_size = size, "Bridge received EvalResult");
+                                } else {
+                                    let err_str =
+                                        error.clone().unwrap_or_else(|| "unknown error".into());
+                                    // Try direct JSON parse first
+                                    if let Ok(val) =
+                                        serde_json::from_str::<serde_json::Value>(&err_str)
+                                    {
+                                        let code =
+                                            val.get("code").and_then(|v| v.as_str()).unwrap_or("");
+                                        let msg = val
+                                            .get("message")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("");
+                                        let details = val
+                                            .get("details")
+                                            .cloned()
+                                            .unwrap_or(serde_json::Value::Null);
+                                        tracing::error!(id = %id, code = code, message = msg, details = %details, raw = %err_str, "Bridge received EvalResult error (structured)");
+                                    } else {
+                                        // Not JSON, just log raw (truncate to avoid log spam)
+                                        let head: String = err_str.chars().take(400).collect();
+                                        tracing::error!(id = %id, error = %head, "Bridge received EvalResult error (raw)");
+                                    }
+                                }
                                 if let Some(tx) = ws_pending.lock().await.remove(&id) {
                                     let _ = tx.send(if ok {
                                         Ok(result.unwrap_or(serde_json::Value::Null))
@@ -178,10 +227,50 @@ impl ExtensionBridge {
                                     });
                                 }
                             }
-                            Ok(BridgeIncoming::Hello { .. }) => {
+                            Ok(BridgeIncoming::Typed(TypedIncoming::ConsoleEvent {
+                                id,
+                                level,
+                                args,
+                                stack_trace,
+                                ts,
+                            })) => {
+                                let level_str = level.unwrap_or_else(|| "log".into());
+                                let args_str =
+                                    args.map(|v| v.to_string()).unwrap_or_else(|| "[]".into());
+                                let ts_ms = ts.unwrap_or(0.0);
+                                match level_str.as_str() {
+                                    "error" => {
+                                        tracing::error!(id = %id, ts = ts_ms, args = %args_str, stack = %stack_trace.as_ref().map(|v| v.to_string()).unwrap_or_default(), "Console error event")
+                                    }
+                                    "warning" | "warn" => {
+                                        tracing::warn!(id = %id, ts = ts_ms, args = %args_str, "Console warn event")
+                                    }
+                                    "debug" => {
+                                        tracing::debug!(id = %id, ts = ts_ms, args = %args_str, "Console debug event")
+                                    }
+                                    "info" => {
+                                        tracing::info!(id = %id, ts = ts_ms, args = %args_str, "Console info event")
+                                    }
+                                    _ => {
+                                        tracing::info!(id = %id, ts = ts_ms, args = %args_str, "Console log event")
+                                    }
+                                }
+                            }
+                            Ok(BridgeIncoming::Typed(TypedIncoming::ExceptionEvent {
+                                id,
+                                details,
+                            })) => {
+                                let details_val = details.unwrap_or(serde_json::Value::Null);
+                                tracing::error!(id = %id, details = %details_val, "Runtime exception event");
+                            }
+                            Ok(BridgeIncoming::Typed(TypedIncoming::LogEvent { id, entry })) => {
+                                let entry_val = entry.unwrap_or(serde_json::Value::Null);
+                                tracing::info!(id = %id, entry = %entry_val, "Log.entryAdded event");
+                            }
+                            Ok(BridgeIncoming::Typed(TypedIncoming::Hello { .. })) => {
                                 tracing::info!("Extension connected");
                             }
-                            Ok(BridgeIncoming::Pong { .. }) => {}
+                            Ok(BridgeIncoming::Typed(TypedIncoming::Pong)) => {}
                             Err(e) => tracing::warn!("Invalid incoming JSON: {}", e),
                         }
                     }

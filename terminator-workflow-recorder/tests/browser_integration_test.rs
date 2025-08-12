@@ -1,8 +1,8 @@
 use std::time::Duration;
 use terminator::Desktop;
 use terminator_workflow_recorder::{
-    BrowserTabNavigationEvent, ClickEvent, TextInputCompletedEvent, WorkflowEvent, WorkflowRecorder,
-    WorkflowRecorderConfig,
+    BrowserTabNavigationEvent, ClickEvent, TextInputCompletedEvent, WorkflowEvent,
+    WorkflowRecorder, WorkflowRecorderConfig,
 };
 use tokio_stream::{Stream, StreamExt};
 
@@ -40,7 +40,9 @@ async fn test_browser_navigation_shortcuts() {
     println!("========================================================");
 
     // Step 1: Configure recorder for browser events
-    let config = WorkflowRecorderConfig { ..Default::default() };
+    let config = WorkflowRecorderConfig {
+        ..Default::default()
+    };
 
     let mut recorder = WorkflowRecorder::new("Browser Navigation Test".to_string(), config);
     let mut event_stream = recorder.event_stream();
@@ -210,7 +212,9 @@ async fn test_browser_form_interactions() {
     println!("\n📝 Starting Complex Browser Form Interactions Integration Test");
     println!("============================================================");
 
-    let config = WorkflowRecorderConfig { ..Default::default() };
+    let config = WorkflowRecorderConfig {
+        ..Default::default()
+    };
 
     let mut recorder = WorkflowRecorder::new("Complex Browser Form Test".to_string(), config);
     let mut event_stream = recorder.event_stream();
@@ -400,7 +404,9 @@ async fn test_browser_mouse_interactions() {
     println!("\n🖱️  Starting Browser Mouse Interactions Integration Test");
     println!("========================================================");
 
-    let config = WorkflowRecorderConfig { ..Default::default() };
+    let config = WorkflowRecorderConfig {
+        ..Default::default()
+    };
 
     let mut recorder = WorkflowRecorder::new("Browser Mouse Test".to_string(), config);
     let mut event_stream = recorder.event_stream();

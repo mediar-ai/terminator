@@ -1,274 +1,268 @@
 # MCP Record Workflow Tool Documentation
 
-## Overview
-
-The `record_workflow` MCP tool captures user UI interactions and automatically converts them into **executable MCP tool sequences**. Perfect for creating automation workflows from human demonstrations.
-
-**Key Features:**
-- ✅ **Simple 3-parameter interface** - Easy to use
-- ✅ **Chrome-optimized** - Special handling for Chrome browser elements
-- ✅ **Scoped selectors** - Precise element targeting with `>>` operator
-- ✅ **Immediate execution** - Generated sequences work out-of-the-box
-
 ## Quick Start
 
 ### 1. Start Recording
-```typescript
+
+```javascript
 await mcp.callTool("record_workflow", {
   action: "start",
-  workflow_name: "My Demo Workflow"
+  workflow_name: "My Workflow",
 });
 ```
 
-### 2. Perform UI Actions
-- Click buttons, links, text elements
-- Type into input fields
-- Navigate between applications
-- Use dropdown menus
+### 2. Perform Actions
 
-### 3. Stop and Get Results
-```typescript
+- Click buttons, links, UI elements
+- Type text into fields
+- Switch between applications
+- Navigate browser tabs
+
+### 3. Stop & Get Results
+
+```javascript
 const result = await mcp.callTool("record_workflow", {
-  action: "stop"
+  action: "stop",
 });
-
-// Execute the recorded workflow immediately
-if (result.mcp_workflow) {
-  await mcp.callTool("execute_sequence", result.mcp_workflow.arguments);
-}
 ```
 
-## Tool Parameters
+## Understanding the Output
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `action` | String | ✅ | `"start"` to begin, `"stop"` to end recording |
-| `workflow_name` | String | When starting | Descriptive name for the workflow |
-| `file_path` | String | ❌ | Optional custom save path |
+### What Gets Converted to MCP
 
-## Chrome Browser Support
+✅ **High-level semantic events** → MCP tool sequences:
 
-### 🆕 Enhanced Chrome Integration
+- **Button clicks** → `click_element` (clicks on buttons, links, menu items, tabs)
+- **Text input completion** → `type_into_element` (typing + focus loss via Tab/Enter/click elsewhere)
+- **Application switches** → `activate_element` (Alt+Tab, taskbar clicks, window focus changes)
+- **Browser navigation** → `navigate_browser` (URL changes, new tabs, page navigation)
 
-The recorder automatically detects Chrome applications and generates optimized selectors:
+❌ **Raw hardware events** → Not converted (by design):
 
-**✅ Chrome Elements (Working):**
-```json
+- Individual mouse moves/down/up
+- Individual key presses
+- These are used internally for event aggregation
+
+### Event Completion Triggers
+
+**Text Input Completion** occurs when:
+
+- User types text AND moves focus away (Tab, Enter, click elsewhere)
+- Autocomplete/dropdown selection is made
+- Form field loses focus after content change
+
+**Button Click Detection** requires:
+
+- Click on interactive UI elements (buttons, links, tabs, menu items)
+- Clicks on containers/empty space are ignored
+
+### Response Format
+
+#### Successful Recording
+
+```javascript
 {
-  "selector": "role:Pane|name:contains:Website Title >> role:text|name:Search"
-}
-```
+  action: "record_workflow",
+  status: "stopped",
+  workflow_name: "My Workflow",
+  file_path: "/path/to/workflow.json", // Optional, if file saved
 
-**❌ Generic Elements (Fails in Chrome):**
-```json
-{
-  "selector": "role:Window|name:contains:Website Title >> role:text|name:Search"
-}
-```
-
-### Supported Browsers
-- **Google Chrome** ✅ Uses `role:Pane` selectors
-- **Microsoft Edge** ✅ Uses `role:Pane` selectors
-- **Mozilla Firefox** ✅ Uses `role:Pane` selectors
-- **Desktop Apps** ✅ Uses `role:Window` selectors
-
-## Generated MCP Sequences
-
-### Button Clicks
-```json
-{
-  "tool_name": "click_element",
-  "arguments": {
-    "selector": "role:Pane|name:contains:I-94 Website >> role:tabitem|name:click to expand navigation options",
-    "timeout_ms": 3000
-  },
-  "delay_ms": 200
-}
-```
-
-### Text Input
-```json
-[
-  {
-    "tool_name": "click_element", 
-    "arguments": { "selector": "Edit|Email" },
-    "delay_ms": 100
-  },
-  {
-    "tool_name": "type_into_element",
-    "arguments": {
-      "selector": "Edit|Email",
-      "text_to_type": "user@example.com",
-      "clear_before_typing": true
-    },
-    "delay_ms": 300
-  }
-]
-```
-
-### Application Switching
-```json
-{
-  "tool_name": "activate_element",
-  "arguments": { "selector": "application|Notepad" },
-  "delay_ms": 1000
-}
-```
-
-## Response Format
-
-```typescript
-{
-  "action": "record_workflow",
-  "status": "stopped",
-  "workflow_name": "My Demo Workflow",
-  "file_path": "/path/to/workflow.json",
-  
-  // 🎯 Ready-to-execute MCP sequence
-  "mcp_workflow": {
-    "tool_name": "execute_sequence",
-    "arguments": {
-      "items": [
-        { "tool_name": "click_element", "arguments": {...} },
-        { "tool_name": "type_into_element", "arguments": {...} }
+  // Ready-to-execute MCP sequence (null if no events converted)
+  mcp_workflow: {
+    tool_name: "execute_sequence",
+    arguments: {
+      items: [
+        {
+          tool_name: "click_element",
+          arguments: {
+            selector: "role:Button|name:Submit",
+            timeout_ms: 3000
+          },
+          delay_ms: 200
+        }
       ]
     },
-    "confidence_score": 0.87,
-    "total_steps": 2
+    total_steps: 1,
+    conversion_notes: ["Converted 1 click event", "Ignored 15 raw mouse events"],
+    confidence_score: 0.85 // Optional quality metric
   },
-  
-  // Raw event data (for analysis)
-  "file_content": "{\"events\": [...] }"
+
+  // Raw event data (for debugging)
+  file_content: "{\"events\": [...] }" // JSON string of all captured events
 }
 ```
 
-## Quality Assessment
+#### Empty Recording (No Convertible Events)
 
-### Confidence Scores
-- **0.8-1.0**: High quality - Execute immediately ✅
-- **0.6-0.8**: Medium quality - Review recommended ⚠️
-- **0.0-0.6**: Low quality - Manual adjustment needed ❌
-
-### Validation Example
-```typescript
-function shouldExecute(mcpWorkflow) {
-  return mcpWorkflow.confidence_score >= 0.7;
+```javascript
+{
+  action: "record_workflow",
+  status: "stopped",
+  workflow_name: "My Workflow",
+  file_path: "/path/to/workflow.json",
+  mcp_workflow: null, // No convertible events found
+  file_content: "{\"events\": [...] }" // Still contains raw events for analysis
 }
+```
 
-if (shouldExecute(result.mcp_workflow)) {
+#### Error Response
+
+```javascript
+{
+  action: "record_workflow",
+  status: "error",
+  error: "Recording failed: Could not initialize recorder",
+  workflow_name: "My Workflow" // If provided in request
+}
+```
+
+## Using the Output
+
+### Execute Immediately
+
+```javascript
+// Always check for successful conversion
+if (result.status === "stopped" && result.mcp_workflow) {
   await mcp.callTool("execute_sequence", result.mcp_workflow.arguments);
-} else {
-  console.log("Review workflow before execution");
+} else if (result.mcp_workflow === null) {
+  console.log(
+    "No convertible events recorded - only raw mouse/keyboard detected"
+  );
+} else if (result.status === "error") {
+  console.error("Recording failed:", result.error);
 }
 ```
 
-## Event Types Captured
+### Save for Later
 
-| Event Type | Description | MCP Conversion |
-|------------|-------------|----------------|
-| **ButtonClick** | Button/link clicks | `click_element` |
-| **TextInputCompleted** | Text field entries | `click_element` + `type_into_element` |
-| **ApplicationSwitch** | App switching (Alt+Tab) | `activate_element` |
-| **BrowserTabNavigation** | URL navigation | `navigate_browser` |
-| **Mouse** | Click/drag operations | `click_element` / `mouse_drag` |
-| **Keyboard** | Key presses | `press_key` |
+```javascript
+// Save the workflow
+const workflow = result.mcp_workflow;
+localStorage.setItem("myWorkflow", JSON.stringify(workflow));
 
-## Complete Example
-
-```typescript
-async function recordAndExecuteDemo() {
-  // 1. Start recording
-  await mcp.callTool("record_workflow", {
-    action: "start",
-    workflow_name: "Login Demo"
-  });
-  
-  console.log("👤 Perform your actions now...");
-  // User performs login actions
-  
-  // 2. Stop recording
-  const result = await mcp.callTool("record_workflow", {
-    action: "stop"
-  });
-  
-  // 3. Check quality and execute
-  if (result.mcp_workflow?.confidence_score >= 0.7) {
-    console.log(`🚀 Executing ${result.mcp_workflow.total_steps} steps...`);
-    
-    const execution = await mcp.callTool(
-      "execute_sequence", 
-      result.mcp_workflow.arguments
-    );
-    
-    console.log("✅ Workflow executed successfully!");
-    return execution;
-  } else {
-    console.log("⚠️ Low confidence - review needed");
-    return result;
-  }
-}
+// Execute later
+const savedWorkflow = JSON.parse(localStorage.getItem("myWorkflow"));
+await mcp.callTool("execute_sequence", savedWorkflow.arguments);
 ```
 
 ## Best Practices
 
 ### ✅ Do This
+
 - Use descriptive workflow names
-- Test on the target website/application first
-- Check confidence scores before execution
-- Save high-quality workflows for reuse
+- Perform deliberate, clear actions
+- Wait for UI to respond between actions
+- Test workflows on same application/website
 
 ### ❌ Avoid This
-- Recording system notifications or tooltips
-- Very fast mouse movements
-- Recording while other automations are running
-- Using recordings across different machines without testing
+
+- Recording during loading states
+- Very rapid mouse movements
+- Recording system notifications
+- Recording while other automations run
+
+## Selectors Generated
+
+### Chrome/Browser (Optimized)
+
+```json
+{
+  "selector": "role:Pane|name:contains:Website Title >> role:Button|name:Submit"
+}
+```
+
+### Desktop Applications
+
+```json
+{ "selector": "role:Window|name:contains:App Name >> role:Button|name:Submit" }
+```
 
 ## Troubleshooting
 
-### Common Issues
+### No MCP Sequences Generated (`mcp_workflow: null`)
 
-**Problem**: Chrome elements not found
-**Solution**: The recorder now auto-generates `role:Pane` selectors for Chrome ✅
+**Common causes:**
 
-**Problem**: Low confidence scores
-**Solution**: 
-- Record slower, more deliberate actions
-- Use clear element names and IDs
-- Avoid recording during loading/transition states
+- Only mouse movements recorded (no actual clicks on UI elements)
+- Clicks on empty space, containers, or non-interactive elements
+- Text typing without focus loss (no Tab/Enter/click to complete input)
+- Only raw keyboard events (individual key presses vs semantic actions)
 
-**Problem**: Execution fails
-**Solution**:
-- Ensure target application is in the same state as during recording
-- Check if UI elements have changed
-- Verify application is focused before execution
+**Solutions:**
 
-## Technical Details
+- Click actual buttons, links, or interactive elements
+- Complete text input by moving focus away (Tab, Enter, click elsewhere)
+- Use deliberate actions that create semantic meaning
 
-### Scoped Selector Format
+### Execution Fails
+
+**Element not found errors:**
+
+- UI elements changed since recording
+- Target application in different state
+- Window size or layout changed
+
+**Timeout errors:**
+
+- Application not focused during execution
+- Elements loading slower than expected
+- Network delays for web applications
+
+**Solutions:**
+
+- Ensure target application matches recording state
+- Verify application has focus before execution
+- Test workflows immediately after recording
+
+### Debug Mode
+
+**Enable verbose logging:**
+
+```javascript
+// Add debug flag to see detailed conversion info
+await mcp.callTool("record_workflow", {
+  action: "start",
+  workflow_name: "Debug Session",
+  debug: true, // Shows raw events and conversion details
+});
 ```
-role:Pane|name:contains:Window Title >> role:element_type|name:Element Name
+
+**Analyze raw events:**
+
+```javascript
+// Check file_content for raw event data
+const rawEvents = JSON.parse(result.file_content);
+console.log("Raw events captured:", rawEvents.events.length);
+console.log("Conversion notes:", result.mcp_workflow?.conversion_notes);
 ```
 
-- **Before `>>`**: Window/container scope
-- **After `>>`**: Target element within that scope
-- **Chrome**: Uses `role:Pane` for window scope
-- **Other apps**: Uses `role:Window` for window scope
+## Parameters
 
-### File Locations
-- **Auto-generated**: Saved to system temp directory
-- **Custom path**: Specify with `file_path` parameter
-- **In response**: Complete data returned in `file_content` field
+| Parameter       | Required      | Description                                      |
+| --------------- | ------------- | ------------------------------------------------ |
+| `action`        | ✅            | `"start"` or `"stop"`                            |
+| `workflow_name` | When starting | Descriptive name for the workflow                |
+| `file_path`     | ❌            | Custom save location (auto-generated if omitted) |
+| `debug`         | ❌            | Enable verbose logging for troubleshooting       |
 
-## Version History
+## Complete Response Properties
 
-**v2.0 (Current)**
-- ✅ Chrome-specific selector generation
-- ✅ Scoped targeting with `>>` operator
-- ✅ 100% success rate on Chrome testing
-- ✅ Simplified 3-parameter interface
-- ✅ Real-time MCP conversion
+| Property        | Type   | Description                                      |
+| --------------- | ------ | ------------------------------------------------ |
+| `action`        | string | Always `"record_workflow"`                       |
+| `status`        | string | `"stopped"`, `"error"`, or `"recording"`         |
+| `workflow_name` | string | Name provided in start request                   |
+| `file_path`     | string | Path where workflow was saved (optional)         |
+| `mcp_workflow`  | object | MCP sequence (null if no convertible events)     |
+| `file_content`  | string | Raw JSON of all captured events                  |
+| `error`         | string | Error message (only present when status="error") |
 
-**v1.0**
-- Basic event recording
-- Manual selector conversion required
-- Limited browser support
+### MCP Workflow Object Properties
+
+| Property           | Type   | Description                                 |
+| ------------------ | ------ | ------------------------------------------- |
+| `tool_name`        | string | Always `"execute_sequence"`                 |
+| `arguments`        | object | Arguments for execute_sequence tool         |
+| `total_steps`      | number | Number of MCP tool calls in sequence        |
+| `conversion_notes` | array  | Details about conversion process (optional) |
+| `confidence_score` | number | Quality metric 0.0-1.0 (optional)           |

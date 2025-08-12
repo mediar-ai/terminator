@@ -23,7 +23,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("[LOG] Setting up comprehensive recording configuration");
 
     // Create a comprehensive configuration for maximum workflow capture
-    let config = WorkflowRecorderConfig { ..Default::default() };
+    let config = WorkflowRecorderConfig {
+        ..Default::default()
+    };
 
     info!("Comprehensive recorder config: {:?}", config);
 

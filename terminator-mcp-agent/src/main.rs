@@ -1,4 +1,13 @@
 use anyhow::Result;
+use axum::middleware::Next;
+use axum::{
+    body::Body,
+    extract::State,
+    http::{Method, Request, StatusCode},
+    response::IntoResponse,
+    routing::get,
+    Json, Router,
+};
 use clap::{Parser, ValueEnum};
 use rmcp::{
     transport::sse_server::SseServer,
@@ -8,7 +17,13 @@ use rmcp::{
     },
     ServiceExt,
 };
-use std::net::SocketAddr;
+use std::{
+    net::SocketAddr,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
+};
 use terminator_mcp_agent::server;
 use terminator_mcp_agent::utils::init_logging;
 use tower_http::cors::CorsLayer;
@@ -104,16 +119,106 @@ async fn main() -> Result<()> {
             let addr: SocketAddr = format!("{}:{}", args.host, args.port).parse()?;
             tracing::info!("Starting streamable HTTP server on http://{}", addr);
 
-            let desktop = server::DesktopWrapper::new()?;
+            // Lazy-initialize DesktopWrapper on first /mcp use so that /health can succeed on CI
             let service = StreamableHttpService::new(
-                move || Ok(desktop.clone()),
+                move || {
+                    server::DesktopWrapper::new().map_err(|e| std::io::Error::other(e.to_string()))
+                },
                 LocalSessionManager::default().into(),
                 Default::default(),
             );
 
-            let mut router = axum::Router::new()
-                .route("/health", axum::routing::get(health_check))
-                .nest_service("/mcp", service);
+            // Busy-aware concurrency state
+            #[derive(Clone)]
+            struct AppState {
+                active_requests: Arc<AtomicUsize>,
+                last_activity: Arc<Mutex<String>>, // ISO-8601
+                max_concurrent: usize,
+            }
+
+            let max_concurrent = std::env::var("MCP_MAX_CONCURRENT")
+                .ok()
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(1);
+
+            let app_state = AppState {
+                active_requests: Arc::new(AtomicUsize::new(0)),
+                last_activity: Arc::new(Mutex::new(chrono::Utc::now().to_rfc3339())),
+                max_concurrent,
+            };
+
+            async fn status_handler(State(state): State<AppState>) -> impl IntoResponse {
+                let active = state.active_requests.load(Ordering::SeqCst);
+                let busy = active >= state.max_concurrent;
+                let last_activity = state
+                    .last_activity
+                    .lock()
+                    .map(|s| s.clone())
+                    .unwrap_or_else(|_| chrono::Utc::now().to_rfc3339());
+                let code = if busy {
+                    StatusCode::SERVICE_UNAVAILABLE
+                } else {
+                    StatusCode::OK
+                };
+                let body = serde_json::json!({
+                    "busy": busy,
+                    "activeRequests": active,
+                    "maxConcurrent": state.max_concurrent,
+                    "lastActivity": last_activity,
+                });
+                (code, Json(body))
+            }
+
+            async fn mcp_gate(
+                State(state): State<AppState>,
+                req: Request<Body>,
+                next: Next,
+            ) -> impl IntoResponse {
+                if req.method() == Method::POST {
+                    let active = state.active_requests.load(Ordering::SeqCst);
+                    if active >= state.max_concurrent {
+                        let last_activity = state
+                            .last_activity
+                            .lock()
+                            .map(|s| s.clone())
+                            .unwrap_or_else(|_| chrono::Utc::now().to_rfc3339());
+                        let body = serde_json::json!({
+                            "busy": true,
+                            "activeRequests": active,
+                            "maxConcurrent": state.max_concurrent,
+                            "lastActivity": last_activity,
+                        });
+                        return (StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response();
+                    }
+
+                    state.active_requests.fetch_add(1, Ordering::SeqCst);
+                    if let Ok(mut ts) = state.last_activity.lock() {
+                        *ts = chrono::Utc::now().to_rfc3339();
+                    }
+
+                    let response = next.run(req).await;
+
+                    state.active_requests.fetch_sub(1, Ordering::SeqCst);
+                    if let Ok(mut ts) = state.last_activity.lock() {
+                        *ts = chrono::Utc::now().to_rfc3339();
+                    }
+
+                    return response;
+                }
+
+                next.run(req).await
+            }
+
+            // Build a sub-router for /mcp that uses the service with concurrency gate middleware
+            let mcp_router = Router::new().fallback_service(service).layer(
+                axum::middleware::from_fn_with_state(app_state.clone(), mcp_gate),
+            );
+
+            let mut router: Router = Router::new()
+                .route("/health", get(health_check))
+                .route("/status", get(status_handler))
+                .nest("/mcp", mcp_router)
+                .with_state(app_state.clone());
 
             if args.cors {
                 router = router.layer(CorsLayer::permissive());
@@ -126,6 +231,7 @@ async fn main() -> Result<()> {
                 info!("CORS enabled - accessible from web browsers");
             }
             info!("Connect your MCP client to: http://{addr}/mcp");
+            info!("Status endpoint available at: http://{addr}/status");
             info!("Health check available at: http://{addr}/health");
             info!("Press Ctrl+C to stop");
 

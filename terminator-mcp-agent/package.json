@@ -12,10 +12,10 @@
   ],
   "name": "terminator-mcp-agent",
   "optionalDependencies": {
-    "terminator-mcp-darwin-arm64": "0.11.12",
-    "terminator-mcp-darwin-x64": "0.11.12",
-    "terminator-mcp-linux-x64-gnu": "0.11.12",
-    "terminator-mcp-win32-x64-msvc": "0.11.12"
+    "terminator-mcp-darwin-arm64": "0.12.5",
+    "terminator-mcp-darwin-x64": "0.12.5",
+    "terminator-mcp-linux-x64-gnu": "0.12.5",
+    "terminator-mcp-win32-x64-msvc": "0.12.5"
   },
   "repository": {
     "type": "git",
@@ -27,5 +27,5 @@
     "sync-version": "node ./utils/sync-version.js",
     "update-badges": "node ./utils/update-badges.js"
   },
-  "version": "0.11.12"
+  "version": "0.12.5"
 }

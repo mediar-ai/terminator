@@ -37,11 +37,11 @@
     }
   },
   "optionalDependencies": {
-    "terminator.js-darwin-arm64": "0.11.12",
-    "terminator.js-darwin-x64": "0.11.12",
-    "terminator.js-linux-x64-gnu": "0.11.12",
-    "terminator.js-win32-arm64-msvc": "0.11.12",
-    "terminator.js-win32-x64-msvc": "0.11.12"
+    "terminator.js-darwin-arm64": "0.12.5",
+    "terminator.js-darwin-x64": "0.12.5",
+    "terminator.js-linux-x64-gnu": "0.12.5",
+    "terminator.js-win32-arm64-msvc": "0.12.5",
+    "terminator.js-win32-x64-msvc": "0.12.5"
   },
   "repository": {
     "type": "git",
@@ -58,5 +58,5 @@
     "test-hook": "powershell.exe -ExecutionPolicy Bypass -File \"../../.git/hooks/pre-push.ps1\""
   },
   "types": "wrapper.d.ts",
-  "version": "0.11.12"
+  "version": "0.12.5"
 }

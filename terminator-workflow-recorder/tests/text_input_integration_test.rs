@@ -62,7 +62,9 @@ async fn test_text_input_completion_comprehensive() -> Result<(), Box<dyn std::e
     println!("🧪 Starting comprehensive text input completion test...");
 
     // Create recorder with text input completion enabled
-    let config = WorkflowRecorderConfig { ..Default::default() };
+    let config = WorkflowRecorderConfig {
+        ..Default::default()
+    };
 
     let mut recorder = WorkflowRecorder::new("Text Input Test".to_string(), config);
     let mut event_stream = recorder.event_stream();
@@ -293,7 +295,9 @@ async fn test_text_input_completion_comprehensive() -> Result<(), Box<dyn std::e
 async fn test_text_input_no_spurious_events() -> Result<(), Box<dyn std::error::Error>> {
     println!("🧪 Testing that empty/unchanged inputs don't generate spurious events...");
 
-    let config = WorkflowRecorderConfig { ..Default::default() };
+    let config = WorkflowRecorderConfig {
+        ..Default::default()
+    };
 
     let mut recorder = WorkflowRecorder::new("No Spurious Events Test".to_string(), config);
     let mut event_stream = recorder.event_stream();
@@ -381,7 +385,9 @@ async fn test_basic_recording_works() -> Result<(), Box<dyn std::error::Error>> 
     println!("🧪 Testing basic recording functionality...");
 
     // Create recorder with minimal features
-    let config = WorkflowRecorderConfig { ..Default::default() };
+    let config = WorkflowRecorderConfig {
+        ..Default::default()
+    };
 
     let mut recorder = WorkflowRecorder::new("Basic Test".to_string(), config);
     let mut event_stream = recorder.event_stream();
@@ -454,7 +460,9 @@ async fn test_text_input_run_dialog() -> Result<(), Box<dyn std::error::Error>> 
     println!("🧪 Testing text input completion with Run dialog...");
 
     // Create recorder with text input completion enabled
-    let config = WorkflowRecorderConfig { ..Default::default() };
+    let config = WorkflowRecorderConfig {
+        ..Default::default()
+    };
 
     let mut recorder = WorkflowRecorder::new("Text Input Run Dialog Test".to_string(), config);
     let mut event_stream = recorder.event_stream();

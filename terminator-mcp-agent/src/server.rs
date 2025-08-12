@@ -1855,7 +1855,10 @@ impl DesktopWrapper {
                     // text input completion tracking, a feature the user found caused lag.
                     PerformanceMode::low_energy_config()
                 } else {
-                    WorkflowRecorderConfig::default()
+                    WorkflowRecorderConfig {
+                        filter_mouse_noise: true, // Filter out mouse movements and wheel events
+                        ..WorkflowRecorderConfig::default()
+                    }
                 };
 
                 let mut recorder = WorkflowRecorder::new(workflow_name.clone(), config);
@@ -2280,6 +2283,22 @@ impl DesktopWrapper {
 
                         if error_occurred {
                             critical_error_occurred = true;
+                            if let Some(id) = original_step.id.as_deref() {
+                                tracing::warn!(
+                                    step_id = %id,
+                                    tool = %tool_call.tool_name,
+                                    attempt = attempt + 1,
+                                    skippable = %tool_call.continue_on_error.unwrap_or(false),
+                                    "Tool failed with unrecoverable error"
+                                );
+                            } else {
+                                tracing::warn!(
+                                    tool = %tool_call.tool_name,
+                                    attempt = attempt + 1,
+                                    skippable = %tool_call.continue_on_error.unwrap_or(false),
+                                    "Tool failed with unrecoverable error"
+                                );
+                            }
                         }
                         step_error_occurred = true;
                         sequence_had_errors = true;
@@ -2327,6 +2346,14 @@ impl DesktopWrapper {
                                     if error_occurred && !is_skippable {
                                         critical_error_occurred = true;
                                     }
+                                    tracing::warn!(
+                                        group = %tool_group.group_name,
+                                        tool = %step_tool_call.tool_name,
+                                        step_index = step_index,
+                                        step_id = %step_tool_call.id.clone().unwrap_or_default(),
+                                        skippable = %is_skippable,
+                                        "Group step failed; breaking out of group"
+                                    );
                                     break;
                                 }
                             }
@@ -2443,40 +2470,21 @@ impl DesktopWrapper {
                 }
             }
         }
-
-        let mut maybe_base64_image: Option<String> = None;
         if final_status != "success" {
-            let debug_info = json!({});
-
-            // Capture a screenshot on failure for visual context
-            if let Ok(monitor) = self.desktop.get_primary_monitor().await {
-                if let Ok(screenshot_result) = self.desktop.capture_monitor(&monitor).await {
-                    let mut png_data = Vec::new();
-                    let encoder = PngEncoder::new(Cursor::new(&mut png_data));
-                    if encoder
-                        .write_image(
-                            &screenshot_result.image_data,
-                            screenshot_result.width,
-                            screenshot_result.height,
-                            ExtendedColorType::Rgba8,
-                        )
-                        .is_ok()
-                    {
-                        let base64_image = general_purpose::STANDARD.encode(&png_data);
-                        maybe_base64_image = Some(base64_image);
-                    }
-                }
-            }
+            // Capture minimal structured debug info so failures are not opaque
+            let debug_info = json!({
+                "final_status": final_status,
+                "had_critical_error": critical_error_occurred,
+                "had_errors": sequence_had_errors,
+                "executed_count": results.len(),
+            });
 
             if let Some(obj) = summary.as_object_mut() {
                 obj.insert("debug_info_on_failure".to_string(), debug_info);
             }
         }
 
-        let mut contents = vec![Content::json(summary)?];
-        if let Some(base64_image) = maybe_base64_image {
-            contents.push(Content::image(base64_image, "image/png".to_string()));
-        }
+        let contents = vec![Content::json(summary)?];
 
         Ok(CallToolResult::success(contents))
     }

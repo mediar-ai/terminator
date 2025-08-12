@@ -31,6 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         capture_ui_elements: true,
         record_clipboard: false, // Reduce noise
         record_hotkeys: true,
+        filter_mouse_noise: true, // Filter out mouse movements and wheel events
         ..Default::default()
     };
 

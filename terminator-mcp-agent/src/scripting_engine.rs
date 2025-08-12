@@ -1,7 +1,7 @@
 use rmcp::ErrorData as McpError;
 use serde_json::json;
 use std::path::PathBuf;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// Find executable with cross-platform path resolution
 pub fn find_executable(name: &str) -> Option<String> {
@@ -860,6 +860,10 @@ pub async fn execute_javascript_with_nodejs(script: String) -> Result<serde_json
 
     info!("[Node.js] Starting JavaScript execution with terminator.js bindings");
     info!("[Node.js] Script to execute ({} bytes)", script.len());
+    debug!(
+        preview = %script.chars().take(200).collect::<String>(),
+        "[Node.js] Script preview"
+    );
 
     // Check if bun is available, fallback to node
     let runtime = if let Some(bun_exe) = find_executable("bun") {
@@ -934,11 +938,13 @@ console.log('[Node.js Wrapper] Starting user script execution...');
         process.stdout.write('__RESULT__' + JSON.stringify(resultToSend) + '__END__\n');
         console.log('[Node.js Wrapper] Result sent back to parent process');
     }} catch (error) {{
-        console.error('[Node.js Wrapper] User script error:', error.message);
-        console.error('[Node.js Wrapper] Stack trace:', error.stack);
+        console.error('[Node.js Wrapper] User script error:', error && error.message);
+        console.error('[Node.js Wrapper] Stack trace:', error && error.stack);
+        // Emit machine-readable marker on stdout as well for parent capture
+        console.log('__ERROR__' + JSON.stringify({{ message: String((error && error.message) || error), stack: String((error && error.stack) || '') }}) + '__END__');
         process.stdout.write('__ERROR__' + JSON.stringify({{
-            message: error.message,
-            stack: error.stack
+            message: String((error && error.message) || error),
+            stack: String((error && error.stack) || '')
         }}) + '__END__\n');
     }}
 }})();

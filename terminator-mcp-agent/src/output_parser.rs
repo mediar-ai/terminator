@@ -112,75 +112,74 @@ pub async fn run_output_parser(
 
 /// Finds a UI tree in the tool output results
 fn find_ui_tree_in_results(tool_output: &Value, step_id: Option<&str>) -> Result<Option<Value>> {
-    // Strategy 0: If step_id is specified, look for that specific step first
+    // Strategy 0: If step_id is specified, prefer UI tree from that specific step, but gracefully
+    // fall back to any available UI tree if that step exists without a tree or is not present.
     if let Some(target_step_id) = step_id {
-        if let Some(results) = tool_output.get("results") {
-            if let Some(results_array) = results.as_array() {
-                fn search_for_step_id(results: &[Value], target_step_id: &str) -> Option<Value> {
-                    for result in results {
-                        if let Some(result_step_id) = result.get("step_id").and_then(|v| v.as_str())
-                        {
-                            if result_step_id == target_step_id {
-                                if let Some(ui_tree) = result.get("ui_tree") {
+        if let Some(results) = tool_output.get("results").and_then(|v| v.as_array()) {
+            // Recursive search that also records whether the step was seen at all
+            fn search_for_step_id(
+                results: &[Value],
+                target_step_id: &str,
+                found_step: &mut bool,
+            ) -> Option<Value> {
+                for result in results {
+                    if let Some(result_step_id) = result.get("step_id").and_then(|v| v.as_str()) {
+                        if result_step_id == target_step_id {
+                            *found_step = true;
+                            if let Some(ui_tree) = result.get("ui_tree") {
+                                return Some(ui_tree.clone());
+                            }
+                            if let Some(result_obj) = result.get("result") {
+                                if let Some(ui_tree) = result_obj.get("ui_tree") {
                                     return Some(ui_tree.clone());
                                 }
-                                if let Some(result_obj) = result.get("result") {
-                                    if let Some(ui_tree) = result_obj.get("ui_tree") {
-                                        return Some(ui_tree.clone());
-                                    }
-                                    if let Some(content) = result_obj.get("content") {
-                                        if let Some(content_array) = content.as_array() {
-                                            for content_item in content_array {
-                                                // First check if ui_tree is directly in the content item
-                                                if let Some(ui_tree) = content_item.get("ui_tree") {
+                                if let Some(content) =
+                                    result_obj.get("content").and_then(|c| c.as_array())
+                                {
+                                    for content_item in content {
+                                        if let Some(ui_tree) = content_item.get("ui_tree") {
+                                            return Some(ui_tree.clone());
+                                        }
+                                        // Legacy path where JSON was embedded as text
+                                        if let Some(text) =
+                                            content_item.get("text").and_then(|t| t.as_str())
+                                        {
+                                            if let Ok(parsed_json) =
+                                                serde_json::from_str::<Value>(text)
+                                            {
+                                                if let Some(ui_tree) = parsed_json.get("ui_tree") {
                                                     return Some(ui_tree.clone());
-                                                }
-                                                // Then check if it's in parsed text content
-                                                if let Some(text) = content_item.get("text") {
-                                                    if let Some(text_str) = text.as_str() {
-                                                        if let Ok(parsed_json) =
-                                                            serde_json::from_str::<Value>(text_str)
-                                                        {
-                                                            if let Some(ui_tree) =
-                                                                parsed_json.get("ui_tree")
-                                                            {
-                                                                return Some(ui_tree.clone());
-                                                            }
-                                                        }
-                                                    }
                                                 }
                                             }
                                         }
                                     }
                                 }
-                                return None;
                             }
-                        }
-
-                        if let Some(group_results) = result.get("results") {
-                            if let Some(group_results_array) = group_results.as_array() {
-                                if let Some(found) =
-                                    search_for_step_id(group_results_array, target_step_id)
-                                {
-                                    return Some(found);
-                                }
-                            }
+                            // Step found but contains no ui_tree
+                            return None;
                         }
                     }
-                    None
+                    // Search inside group results (nested)
+                    if let Some(group_results) = result.get("results").and_then(|r| r.as_array()) {
+                        if let Some(found) =
+                            search_for_step_id(group_results, target_step_id, found_step)
+                        {
+                            return Some(found);
+                        }
+                    }
                 }
-
-                if let Some(ui_tree) = search_for_step_id(results_array, target_step_id) {
-                    return Ok(Some(ui_tree));
-                }
-
-                anyhow::bail!("Step with ID '{}' not found in results", target_step_id);
+                None
             }
-        }
-        anyhow::bail!(
-            "Step ID '{}' specified but no results array found",
-            target_step_id
-        );
+
+            let mut found_step = false;
+            if let Some(ui_tree) = search_for_step_id(results, target_step_id, &mut found_step) {
+                return Ok(Some(ui_tree));
+            }
+
+            // If we reached here, either the step exists without a ui_tree or it wasn't found.
+            // Be forgiving: fall back to general search instead of erroring out.
+            // This avoids breaking workflows where the referenced step is a close/minimize step.
+        } // else: no results array; fall through to general search
     }
 
     // Strategy 1: Check if there's a direct ui_tree field

@@ -3,7 +3,7 @@ name: Publish MCP NPM Packages
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
 
 jobs:
@@ -31,7 +31,6 @@ jobs:
             bin_name: terminator-mcp-agent
             npm_dir: darwin-arm64
 
-
     name: stable - ${{ matrix.settings.target }}
     runs-on: ${{ matrix.settings.host }}
 
@@ -44,7 +43,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 18
-          registry-url: 'https://registry.npmjs.org'
+          registry-url: "https://registry.npmjs.org"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -98,7 +97,17 @@ jobs:
             }
             exit 1
           } finally {
-            Stop-Process -Id $process.Id -Force
+            # Be tolerant if the process already exited between health check and cleanup
+            try {
+              $p = Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+              if ($null -ne $p -and -not $p.HasExited) {
+                Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+              } else {
+                Write-Host "Process already exited (PID $($process.Id)); nothing to stop."
+              }
+            } catch {
+              Write-Host "Stop-Process skipped: $_"
+            }
           }
 
       - name: Upload binary artifact
@@ -118,7 +127,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 18
-          registry-url: 'https://registry.npmjs.org'
+          registry-url: "https://registry.npmjs.org"
 
       - name: Download all binary artifacts
         uses: actions/download-artifact@v4
@@ -155,4 +164,4 @@ jobs:
           cd terminator-mcp-agent
           npm publish --access public
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }} 
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

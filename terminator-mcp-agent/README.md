@@ -10,6 +10,17 @@
 
 A Model Context Protocol (MCP) server that provides desktop GUI automation capabilities using the [Terminator](https://github.com/mediar-ai/terminator) library. This server enables LLMs and agentic clients to interact with Windows, macOS, and Linux applications through structured accessibility APIs—no vision models or screenshots required.
 
+### HTTP Endpoints (when running with `-t http`)
+
+- `GET /health`: Always returns 200 while the process is alive.
+- `GET /status`: Busy-aware probe for load balancers. Returns JSON and appropriate status:
+  - 200 when idle: `{ "busy": false, "activeRequests": 0, "maxConcurrent": 1, "lastActivity": "<ISO-8601>" }`
+  - 503 when busy: `{ "busy": true, "activeRequests": 1, "maxConcurrent": 1, "lastActivity": "<ISO-8601>" }`
+  - Content-Type is `application/json`.
+- `POST /mcp`: MCP execution endpoint. Enforces single-request concurrency per machine by default.
+
+Concurrency is controlled by the `MCP_MAX_CONCURRENT` environment variable (default `1`). Only accepted `POST /mcp` requests are counted toward `activeRequests`. If the server is at capacity, new `POST /mcp` requests return 503 immediately. This 503 behavior is intentional so an Azure Load Balancer probing `GET /status` can take a busy VM out of rotation and route traffic elsewhere.
+
 ### Getting Started
 
 The easiest way to get started is to use the one-click install buttons above for your specific editor (VS Code, Cursor, etc.).
@@ -28,12 +39,12 @@ If you prefer, you can add the following to your MCP client's settings file:
 
 ```json
 {
-	"mcpServers": {
-		"terminator-mcp-agent": {
-			"command": "npx",
-			"args": ["-y", "terminator-mcp-agent@latest"]
-		}
-	}
+  "mcpServers": {
+    "terminator-mcp-agent": {
+      "command": "npx",
+      "args": ["-y", "terminator-mcp-agent@latest"]
+    }
+  }
 }
 ```
 
@@ -42,6 +53,7 @@ If you prefer, you can add the following to your MCP client's settings file:
 For automation workflows and CI/CD pipelines, you can execute workflows directly from the command line using the [Terminator CLI](../terminator-cli/README.md):
 
 **Quick Start:**
+
 ```bash
 # Execute a workflow file
 terminator mcp run workflow.yml
@@ -59,6 +71,7 @@ terminator mcp run workflow.yml --command "npx -y terminator-mcp-agent@latest"
 **Workflow File Formats:**
 
 Direct workflow format (`workflow.yml`):
+
 ```yaml
 steps:
   - tool_name: navigate_browser
@@ -72,6 +85,7 @@ include_detailed_results: true
 ```
 
 Tool call wrapper format (`workflow.json`):
+
 ```json
 {
   "tool_name": "execute_sequence",
@@ -101,7 +115,7 @@ steps:
         // Access desktop automation APIs
         const elements = await desktop.locator('role:button').all();
         log(`Found ${elements.length} buttons`);
-        
+
         // Conditional logic and bulk operations
         for (const element of elements) {
           const name = await element.name();
@@ -110,7 +124,7 @@ steps:
             break;
           }
         }
-        
+
         return {
           buttons_found: elements.length,
           action: 'clicked_submit'
@@ -133,13 +147,14 @@ This is the most powerful and flexible method. You build a workflow step-by-step
 4.  **Extract Structured Data with `output_parser`**: Add the `output_parser` argument to your `execute_sequence` call. Write JavaScript code to parse the final UI tree and extract structured data. If successful, the tool result will contain a `parsed_output` field with your clean JSON data.
 
 Here is an example of an `output_parser` that extracts insurance quote data from a web page:
+
 ```yaml
 output_parser:
   ui_tree_source_step_id: capture_quotes_tree
   javascript_code: |
     // Find all quote groups with Image and Text children
     const results = [];
-    
+
     function findElementsRecursively(element) {
         if (element.attributes && element.attributes.role === 'Group') {
             const children = element.children || [];
@@ -183,7 +198,7 @@ output_parser:
             }
         }
     }
-    
+
     findElementsRecursively(tree);
     return results;
 ```
@@ -233,6 +248,7 @@ Now, when your MCP client runs `terminator-mcp-agent`, it will use your local bu
 **Problem**: "missing field `items`" or schema mismatch errors
 
 **Solution**: Ensure you're using the latest MCP server version:
+
 ```bash
 # Force latest version in CLI
 terminator mcp run workflow.yml --command "npx -y terminator-mcp-agent@latest"
@@ -256,6 +272,7 @@ npm cache clean --force
 **Problem**: CLI commands not working or connection errors
 
 **Solution**: Test MCP connectivity step by step:
+
 ```bash
 # Test basic connectivity
 terminator mcp exec get_applications
@@ -275,6 +292,7 @@ terminator mcp run workflow.yml --url http://localhost:3000/mcp
 **Problem**: JavaScript code fails or can't access desktop APIs
 
 **Solution**: Verify JavaScript execution and API access:
+
 ```bash
 # Test basic JavaScript execution
 terminator mcp exec run_javascript '{"script": "return {test: true};"}'
@@ -291,6 +309,7 @@ terminator mcp run workflow.yml --verbose
 **Problem**: Workflow parsing errors or unexpected behavior
 
 **Solution**: Validate workflow structure:
+
 ```bash
 # Validate workflow syntax
 terminator mcp run workflow.yml --dry-run
@@ -307,16 +326,19 @@ terminator mcp run workflow.json  # JSON
 ### Platform-Specific Issues
 
 **Windows**:
+
 - Ensure Windows UI Automation APIs are available
 - Run with administrator privileges if accessibility features are restricted
 - Check Windows Defender/antivirus isn't blocking automation
 
 **macOS**:
+
 - Grant accessibility permissions in System Preferences > Security & Privacy
 - Ensure the terminal/IDE has accessibility access
 - Check macOS version compatibility (10.14+ recommended)
 
 **Linux**:
+
 - Ensure AT-SPI (assistive technology) is enabled
 - Install required packages: `sudo apt-get install at-spi2-core`
 - Check desktop environment compatibility (GNOME, KDE, XFCE supported)
@@ -324,11 +346,13 @@ terminator mcp run workflow.json  # JSON
 ### Performance Optimization
 
 **Large UI Trees**:
+
 - Use specific selectors instead of broad element searches
 - Implement delays between rapid operations
 - Consider using `include_tree: false` for intermediate steps
 
 **JavaScript Performance**:
+
 - Use `quickjs` engine for lightweight operations
 - Use `nodejs` engine only when full APIs are needed
 - Implement `sleep()` delays in loops to prevent overwhelming the UI
@@ -347,7 +371,8 @@ For additional help, see the [Terminator CLI documentation](../terminator-cli/RE
 {
   "tool_name": "execute_sequence",
   "arguments": {
-    "variables": {            // 1️⃣ Re-usable inputs with type metadata
+    "variables": {
+      // 1️⃣ Re-usable inputs with type metadata
       "app_path": {
         "type": "string",
         "label": "Calculator EXE Path",
@@ -364,18 +389,21 @@ For additional help, see the [Terminator CLI documentation](../terminator-cli/RE
         "default": "8"
       }
     },
-    "inputs": {               // 2️⃣ Concrete values for *this run*
+    "inputs": {
+      // 2️⃣ Concrete values for *this run*
       "app_path": "calc.exe",
       "first_number": "42",
       "second_number": "8"
     },
-    "selectors": {            // 3️⃣ Human-readable element shortcuts
+    "selectors": {
+      // 3️⃣ Human-readable element shortcuts
       "calc_window": "role:Window|name:Calculator",
       "btn_clear": "role:Button|name:Clear",
       "btn_plus": "role:Button|name:Plus",
       "btn_equals": "role:Button|name:Equals"
     },
-    "steps": [                // 4️⃣ Ordered actions & control flow
+    "steps": [
+      // 4️⃣ Ordered actions & control flow
       {
         "tool_name": "open_application",
         "arguments": { "path": "${{app_path}}" }
@@ -418,7 +446,7 @@ For additional help, see the [Terminator CLI documentation](../terminator-cli/RE
         "arguments": { "selector": "${{selectors.btn_equals}}" }
       },
       {
-        "tool_name": "wait_for_element",  // 4c. Capture final UI tree
+        "tool_name": "wait_for_element", // 4c. Capture final UI tree
         "arguments": {
           "selector": "${{selectors.calc_window}}",
           "condition": "exists",
@@ -427,7 +455,8 @@ For additional help, see the [Terminator CLI documentation](../terminator-cli/RE
         }
       }
     ],
-    "output_parser": {        // 5️⃣ Turn the tree into clean JSON
+    "output_parser": {
+      // 5️⃣ Turn the tree into clean JSON
       "javascript_code": "// Extract calculator display value\nconst results = [];\n\nfunction findElementsRecursively(element) {\n    if (element.attributes && element.attributes.role === 'Text') {\n        const item = {\n            displayValue: element.attributes.name || ''\n        };\n        results.push(item);\n    }\n    \n    if (element.children) {\n        for (const child of element.children) {\n            findElementsRecursively(child);\n        }\n    }\n}\n\nfindElementsRecursively(tree);\nreturn results;"
     }
   }
@@ -437,8 +466,8 @@ For additional help, see the [Terminator CLI documentation](../terminator-cli/RE
 ### 2. Key Concepts at a Glance
 
 1. **Variables vs. Inputs** – Declare once, override per-run. This is perfect for parameterizing CI pipelines or A/B test data.
-2. **Selectors** – Give every important UI element a *nickname*. It makes long workflows readable and easy to maintain.
-3. **Templating** – `${{ ... }}` (GitHub Actions-style) *or* legacy `{{ ... }}` lets you reference **any** key inside `variables`, `inputs`, or `selectors`. Both syntaxes are supported; the engine uses Mustache-style rendering.
+2. **Selectors** – Give every important UI element a _nickname_. It makes long workflows readable and easy to maintain.
+3. **Templating** – `${{ ... }}` (GitHub Actions-style) _or_ legacy `{{ ... }}` lets you reference **any** key inside `variables`, `inputs`, or `selectors`. Both syntaxes are supported; the engine uses Mustache-style rendering.
 4. **Groups & Control Flow** – Add `group_name`, `skippable`, `if`, or `continue_on_error` to any step for advanced branching.
 5. **Output Parsing** – Always end with a step that includes the UI tree, then use the declarative JSON DSL to mine the data you need.
 
@@ -451,7 +480,7 @@ For additional help, see the [Terminator CLI documentation](../terminator-cli/RE
 ```jsonc
 {
   "parsed_output": {
-    "displayValue": "50"  // 42 + 8
+    "displayValue": "50" // 42 + 8
   }
 }
 ```
@@ -464,4 +493,3 @@ For additional help, see the [Terminator CLI documentation](../terminator-cli/RE
 - **Version control** – Store workflow JSON in a repo and use PR reviews just like regular code.
 
 > Need more help? Browse the examples under `examples/` in this repo or open a discussion on GitHub.
-
