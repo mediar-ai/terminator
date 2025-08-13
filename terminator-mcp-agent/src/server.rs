@@ -9,7 +9,7 @@ use crate::utils::{
     ExecuteBrowserScriptArgs, ExecuteSequenceArgs, ExportWorkflowSequenceArgs, GetApplicationsArgs,
     GetFocusedWindowTreeArgs, GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs,
     ImportWorkflowSequenceArgs, LocatorArgs, MaximizeWindowArgs, MinimizeWindowArgs, MouseDragArgs,
-    NavigateBrowserArgs, OpenApplicationArgs, PressKeyArgs, RecordWorkflowArgs, RunCommandArgs,
+    NavigateBrowserArgs, OpenApplicationArgs, PressKeyArgs, RecordWorkflowArgs, RunCommandArgs, RunScriptArgs, ScriptShell,
     RunJavascriptArgs, ScrollElementArgs, SelectOptionArgs, SetRangeValueArgs, SetSelectedArgs,
     SetToggledArgs, SetValueArgs, SetZoomArgs, TypeIntoElementArgs, ValidateElementArgs,
     WaitForElementArgs, ZoomArgs,
@@ -589,6 +589,37 @@ impl DesktopWrapper {
             .map_err(|e| {
                 McpError::internal_error(
                     "Failed to run command",
+                    Some(json!({"reason": e.to_string()})),
+                )
+            })?;
+
+        Ok(CallToolResult::success(vec![Content::json(json!({
+            "exit_status": output.exit_status,
+            "stdout": output.stdout,
+            "stderr": output.stderr,
+        }))?]))
+    }
+
+    #[tool(description = "Runs a script in the specified shell.")]
+    async fn run_script(
+        &self,
+        Parameters(args): Parameters<RunScriptArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let shell = args.shell.map(|s| match s {
+            ScriptShell::Sh => terminator::Shell::Sh,
+            ScriptShell::Bash => terminator::Shell::Bash,
+            ScriptShell::Zsh => terminator::Shell::Zsh,
+            ScriptShell::PowerShell => terminator::Shell::PowerShell,
+            ScriptShell::Cmd => terminator::Shell::Cmd,
+        });
+
+        let output = self
+            .desktop
+            .run_script(shell, &args.script)
+            .await
+            .map_err(|e| {
+                McpError::internal_error(
+                    "Failed to run script",
                     Some(json!({"reason": e.to_string()})),
                 )
             })?;
@@ -2884,6 +2915,13 @@ impl DesktopWrapper {
                 Ok(args) => self.run_command(Parameters(args)).await,
                 Err(e) => Err(McpError::invalid_params(
                     "Invalid arguments for run_command",
+                    Some(json!({"error": e.to_string()})),
+                )),
+            },
+            "run_script" => match serde_json::from_value::<RunScriptArgs>(arguments.clone()) {
+                Ok(args) => self.run_script(Parameters(args)).await,
+                Err(e) => Err(McpError::invalid_params(
+                    "Invalid arguments for run_script",
                     Some(json!({"error": e.to_string()})),
                 )),
             },

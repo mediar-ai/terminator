@@ -1521,6 +1521,37 @@ impl AccessibilityEngine for LinuxEngine {
         })
     }
 
+    async fn run_script(
+        &self,
+        shell: Option<crate::Shell>,
+        script: &str,
+    ) -> Result<CommandOutput, AutomationError> {
+        let shell_to_use = shell.unwrap_or(crate::Shell::Sh);
+        let (program, args) = match shell_to_use {
+            crate::Shell::Sh => ("/bin/sh", vec!["-c"]),
+            crate::Shell::Bash => ("bash", vec!["-c"]),
+            crate::Shell::Zsh => ("zsh", vec!["-c"]),
+            crate::Shell::PowerShell | crate::Shell::Cmd => {
+                return Err(AutomationError::InvalidArgument(
+                    "Requested shell is not supported on Linux".to_string(),
+                ))
+            }
+        };
+
+        let output = tokio::process::Command::new(program)
+            .args(args)
+            .arg(script)
+            .output()
+            .await
+            .map_err(|e| AutomationError::PlatformError(e.to_string()))?;
+
+        Ok(CommandOutput {
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            exit_status: output.status.code(),
+        })
+    }
+
     async fn capture_screen(&self) -> Result<ScreenshotResult, AutomationError> {
         let monitors = xcap::Monitor::all().map_err(|e| {
             AutomationError::PlatformError(format!("Failed to get monitors: {}", e))

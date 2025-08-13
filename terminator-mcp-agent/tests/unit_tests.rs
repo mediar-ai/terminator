@@ -1713,3 +1713,60 @@ async fn test_workflow_editor_multiline_replacement() {
     assert!(content.contains("section_b:"));
     assert!(!content.contains("old_data: value"));
 }
+
+#[tokio::test]
+async fn test_run_script_sh() {
+    let server = terminator_mcp_agent::server::DesktopWrapper::new().unwrap();
+    let args = terminator_mcp_agent::utils::RunScriptArgs {
+        script: "echo run_script_ok".to_string(),
+        shell: Some(terminator_mcp_agent::utils::ScriptShell::Sh),
+    };
+
+    let result = server.run_script(Parameters(args)).await.unwrap();
+    let content = result.content.unwrap();
+    let json = terminator_mcp_agent::server::extract_content_json(&content).unwrap();
+
+    assert_eq!(json["exit_status"].as_i64(), Some(0));
+    let stdout = json["stdout"].as_str().unwrap_or("");
+    assert!(stdout.contains("run_script_ok"));
+}
+
+#[tokio::test]
+async fn test_run_script_default_shell() {
+    let server = terminator_mcp_agent::server::DesktopWrapper::new().unwrap();
+    let args = terminator_mcp_agent::utils::RunScriptArgs {
+        script: "echo default_shell_ok".to_string(),
+        shell: None,
+    };
+
+    let result = server.run_script(Parameters(args)).await.unwrap();
+    let content = result.content.unwrap();
+    let json = terminator_mcp_agent::server::extract_content_json(&content).unwrap();
+
+    assert_eq!(json["exit_status"].as_i64(), Some(0));
+    let stdout = json["stdout"].as_str().unwrap_or("");
+    assert!(stdout.contains("default_shell_ok"));
+}
+
+#[tokio::test]
+async fn test_run_script_invalid_shell_on_unix() {
+    // On non-Windows, PowerShell/Cmd should error
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        let server = terminator_mcp_agent::server::DesktopWrapper::new().unwrap();
+        let args = terminator_mcp_agent::utils::RunScriptArgs {
+            script: "Write-Output test".to_string(),
+            shell: Some(terminator_mcp_agent::utils::ScriptShell::PowerShell),
+        };
+
+        let result = server.run_script(Parameters(args)).await;
+        assert!(result.is_err());
+    }
+}
+
+#[tokio::test]
+async fn test_run_script_windows_shells_compile_only() {
+    // This test ensures code paths exist; skip runtime assertions on non-Windows
+    let _ = terminator_mcp_agent::utils::ScriptShell::Cmd;
+    let _ = terminator_mcp_agent::utils::ScriptShell::PowerShell;
+}

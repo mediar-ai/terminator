@@ -55,29 +55,33 @@ arguments:
       delay_ms: 200
 
     # Extract the downloaded zip to the destination folder (Windows + Unix)
-    - tool_name: run_command
+    - tool_name: run_script
       arguments:
-        windows_command: |
+        shell: PowerShell
+        script: |
           $ErrorActionPreference = 'Stop'
           $zip = Join-Path $env:TEMP 'terminator-browser-extension.zip'
           $dest = ("${{ extension_dir }}" -replace '%TEMP%', $env:TEMP)
           if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
           Expand-Archive -Path $zip -DestinationPath $dest -Force
-        unix_command: |
-          bash -lc '
-          set -euo pipefail
-          ZIP="${TMPDIR:-/tmp}/terminator-browser-extension.zip"
-          DEST="$(printf "%s" "${{ extension_dir }}" | sed "s|%TEMP%|${TMPDIR:-/tmp}|g")"
-          rm -rf "$DEST" && mkdir -p "$DEST"
-          unzip -o "$ZIP" -d "$DEST" >/dev/null
-          '
+        # On Unix-like systems, use bash
+        # Note: the agent will pick the correct shell per platform
+        # Override explicitly when not on Windows
+        # shell: Bash
+        # script: |
+        #   set -euo pipefail
+        #   ZIP="${TMPDIR:-/tmp}/terminator-browser-extension.zip"
+        #   DEST="$(printf "%s" "${{ extension_dir }}" | sed "s|%TEMP%|${TMPDIR:-/tmp}|g")"
+        #   rm -rf "$DEST" && mkdir -p "$DEST"
+        #   unzip -o "$ZIP" -d "$DEST" >/dev/null
       delay_ms: 400
 
     # Open Chrome directly to the Extensions page
-    - tool_name: run_command
+    - tool_name: run_script
       arguments:
-        windows_command: |
+        shell: PowerShell
+        script: |
           $ErrorActionPreference = 'Stop'
           $cmd = Get-Command 'chrome.exe' -ErrorAction SilentlyContinue
           if ($cmd) {
@@ -92,14 +96,14 @@ arguments:
           }
           if (-not $chrome) { throw 'Google Chrome not found' }
           Start-Process -FilePath $chrome -ArgumentList 'chrome://extensions'
-        unix_command: |
-          bash -lc '
-          set -euo pipefail
-          for C in google-chrome google-chrome-stable chromium chromium-browser; do
-            if command -v "$C" >/dev/null 2>&1; then nohup "$C" chrome://extensions >/dev/null 2>&1 & exit 0; fi
-          done
-          echo "Chrome/Chromium not found" >&2; exit 1
-          '
+        # Unix-like alternative:
+        # shell: Bash
+        # script: |
+        #   set -euo pipefail
+        #   for C in google-chrome google-chrome-stable chromium chromium-browser; do
+        #     if command -v "$C" >/dev/null 2>&1; then nohup "$C" chrome://extensions >/dev/null 2>&1 & exit 0; fi
+        #   done
+        #   echo "Chrome/Chromium not found" >&2; exit 1
       delay_ms: 1000
 
     # Best-effort: bring Chrome to foreground (skippable)

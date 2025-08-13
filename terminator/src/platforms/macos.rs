@@ -3354,6 +3354,37 @@ impl AccessibilityEngine for MacOSEngine {
         })
     }
 
+    async fn run_script(
+        &self,
+        shell: Option<crate::Shell>,
+        script: &str,
+    ) -> Result<crate::CommandOutput, AutomationError> {
+        let shell_to_use = shell.unwrap_or(crate::Shell::Sh);
+        let (program, args): (&str, Vec<&str>) = match shell_to_use {
+            crate::Shell::Sh => ("/bin/sh", vec!["-c"]),
+            crate::Shell::Bash => ("/bin/bash", vec!["-c"]),
+            crate::Shell::Zsh => ("/bin/zsh", vec!["-c"]),
+            crate::Shell::PowerShell | crate::Shell::Cmd => {
+                return Err(AutomationError::InvalidArgument(
+                    "Requested shell is not supported on macOS".to_string(),
+                ))
+            }
+        };
+
+        let output = tokio::process::Command::new(program)
+            .args(args)
+            .arg(script)
+            .output()
+            .await
+            .map_err(|e| AutomationError::PlatformError(e.to_string()))?;
+
+        Ok(crate::CommandOutput {
+            exit_status: output.status.code(),
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        })
+    }
+
     async fn capture_screen(&self) -> Result<ScreenshotResult, AutomationError> {
         // Directly call the implementation logic
         let monitors = xcap::Monitor::all().map_err(|e| {

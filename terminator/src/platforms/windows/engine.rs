@@ -2055,6 +2055,48 @@ impl AccessibilityEngine for WindowsEngine {
         })
     }
 
+    async fn run_script(
+        &self,
+        shell: Option<crate::Shell>,
+        script: &str,
+    ) -> Result<crate::CommandOutput, AutomationError> {
+        let shell_to_use = shell.unwrap_or(crate::Shell::PowerShell);
+        let spawn = match shell_to_use {
+            crate::Shell::PowerShell => {
+                let mut cmd = tokio::process::Command::new("powershell");
+                cmd.args([
+                    "-NoProfile",
+                    "-WindowStyle",
+                    "hidden",
+                    "-Command",
+                    script,
+                ]);
+                cmd
+            }
+            crate::Shell::Cmd => {
+                let mut cmd = tokio::process::Command::new("cmd");
+                cmd.args(["/C", script]);
+                cmd
+            }
+            crate::Shell::Sh | crate::Shell::Bash | crate::Shell::Zsh => {
+                return Err(AutomationError::InvalidArgument(
+                    "Requested shell is not supported on Windows".to_string(),
+                ))
+            }
+        };
+
+        let output = spawn
+            .output()
+            .await
+            .map_err(|e| AutomationError::PlatformError(e.to_string()))?;
+
+        Ok(crate::CommandOutput {
+            exit_status: output.status.code(),
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        })
+    }
+
     async fn capture_screen(&self) -> Result<ScreenshotResult, AutomationError> {
         let monitors = xcap::Monitor::all()
             .map_err(|e| AutomationError::PlatformError(format!("Failed to get monitors: {e}")))?;

@@ -25,6 +25,7 @@ pub use errors::AutomationError;
 pub use locator::Locator;
 pub use selector::Selector;
 pub use types::{FontStyle, HighlightHandle, TextPosition};
+pub use types::Shell;
 
 /// Recommend to use any of these: ["Default", "Chrome", "Firefox", "Edge", "Brave", "Opera", "Vivaldi"]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -297,6 +298,15 @@ impl Desktop {
         unix_command: Option<&str>,
     ) -> Result<CommandOutput, AutomationError> {
         self.engine.run_command(windows_command, unix_command).await
+    }
+
+    #[instrument(skip(self, shell, script))]
+    pub async fn run_script(
+        &self,
+        shell: Option<crate::Shell>,
+        script: &str,
+    ) -> Result<CommandOutput, AutomationError> {
+        self.engine.run_script(shell, script).await
     }
 
     // ============== NEW MONITOR ABSTRACTIONS ==============
