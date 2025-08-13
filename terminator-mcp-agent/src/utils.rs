@@ -208,6 +208,23 @@ pub struct RunCommandArgs {
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub enum ScriptShell {
+    Sh,
+    Bash,
+    Zsh,
+    PowerShell,
+    Cmd,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct RunScriptArgs {
+    #[schemars(description = "The script to run (string passed to the shell)")]
+    pub script: String,
+    #[schemars(description = "The shell to use (Sh, Bash, Zsh, PowerShell, Cmd). Defaults to platform conventions.")]
+    pub shell: Option<ScriptShell>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct MouseDragArgs {
     #[schemars(
         description = "A string selector to locate the element. Can be chained with ` >> `."

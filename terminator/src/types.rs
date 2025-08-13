@@ -37,6 +37,21 @@ impl Default for FontStyle {
     }
 }
 
+/// Supported shells for executing scripts across platforms
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum Shell {
+    /// POSIX sh
+    Sh,
+    /// GNU Bash
+    Bash,
+    /// Z shell
+    Zsh,
+    /// Windows PowerShell (or pwsh on non-Windows if available)
+    PowerShell,
+    /// Windows cmd.exe
+    Cmd,
+}
+
 /// Handle for managing active highlights with cleanup
 pub struct HighlightHandle {
     pub(crate) should_close: Arc<AtomicBool>,

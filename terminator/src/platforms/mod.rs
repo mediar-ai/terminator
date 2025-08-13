@@ -1,4 +1,4 @@
-use crate::{AutomationError, Browser, Selector, UIElement, UINode};
+use crate::{AutomationError, Browser, Selector, Shell, UIElement, UINode};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -97,6 +97,13 @@ pub trait AccessibilityEngine: Send + Sync {
         &self,
         windows_command: Option<&str>,
         unix_command: Option<&str>,
+    ) -> Result<crate::CommandOutput, AutomationError>;
+
+    /// Run a script with a specified shell
+    async fn run_script(
+        &self,
+        shell: Option<Shell>,
+        script: &str,
     ) -> Result<crate::CommandOutput, AutomationError>;
 
     // ============== NEW MONITOR ABSTRACTIONS ==============
