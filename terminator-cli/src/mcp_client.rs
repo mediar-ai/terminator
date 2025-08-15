@@ -242,7 +242,11 @@ pub async fn interactive_chat(transport: Transport) -> Result<()> {
             } else {
                 vec![]
             };
-            let cmd = create_command(&executable, &command_args);
+            let mut cmd = create_command(&executable, &command_args);
+            // Ensure server prints useful logs if not set by user
+            if std::env::var("LOG_LEVEL").is_err() && std::env::var("RUST_LOG").is_err() {
+                cmd.env("LOG_LEVEL", "info");
+            }
             let transport = TokioChildProcess::new(cmd)?;
             let service = ().serve(transport).await?;
             // Get server info
@@ -463,7 +467,11 @@ pub async fn execute_command(
             } else {
                 vec![]
             };
-            let cmd = create_command(&executable, &command_args);
+            let mut cmd = create_command(&executable, &command_args);
+            // Default server log level to info if not provided by the user
+            if std::env::var("LOG_LEVEL").is_err() && std::env::var("RUST_LOG").is_err() {
+                cmd.env("LOG_LEVEL", "info");
+            }
             let transport = TokioChildProcess::new(cmd)?;
             let service = ().serve(transport).await?;
 
@@ -523,9 +531,9 @@ fn init_logging() {
 
     let _ = tracing_subscriber::registry()
         .with(
-            // Default: keep our logs at info, but quiet rmcp's info-level noise
+            // Respect RUST_LOG if provided, else default to info
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,rmcp=warn".into()),
+                .unwrap_or_else(|_| "info".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .try_init();
@@ -570,7 +578,11 @@ pub async fn natural_language_chat(transport: Transport) -> Result<()> {
             } else {
                 vec![]
             };
-            let cmd = create_command(&executable, &command_args);
+            let mut cmd = create_command(&executable, &command_args);
+            // Default server log level to info if not provided by the user
+            if std::env::var("LOG_LEVEL").is_err() && std::env::var("RUST_LOG").is_err() {
+                cmd.env("LOG_LEVEL", "info");
+            }
             let transport = TokioChildProcess::new(cmd)?;
             let client_info = ClientInfo {
                 protocol_version: Default::default(),
