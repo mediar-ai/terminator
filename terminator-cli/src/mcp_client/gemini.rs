@@ -6,7 +6,7 @@ use anyhow::Result;
 
 // use rmcp::model::CallToolRequestParam;
 
-pub async fn call_gemini(_transport: crate::cli::Transport) -> Result<()> {
+pub async fn call_gemini(_transport: crate::utils::Transport) -> Result<()> {
 
     unimplemented!()
 }

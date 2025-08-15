@@ -1,5 +1,8 @@
 use anyhow::Result;
-use crate::cli::{AIProvider, Transport};
+use crate::{
+    utils::Transport,
+    cli::AIProvider
+};
 
 pub async fn aichat(transport: Transport, provider: AIProvider,) -> Result<()> {
     match provider {

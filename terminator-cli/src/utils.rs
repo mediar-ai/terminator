@@ -1,3 +1,9 @@
+/// Transpot enum
+pub enum Transport {
+    Http(String),
+    Stdio(Vec<String>),
+}
+
 /// Check if the path is a Windows batch file
 pub fn is_batch_file(path: &str) -> bool {
     path.ends_with(".bat") || path.ends_with(".cmd")

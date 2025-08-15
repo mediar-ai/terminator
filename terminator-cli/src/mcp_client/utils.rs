@@ -15,7 +15,7 @@ use rmcp::{
     },
 };
 use crate::{
-    cli::Transport,
+    utils::Transport,
     utils::find_executable,
     command::create_command,
 };

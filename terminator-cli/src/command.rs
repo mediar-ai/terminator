@@ -1,14 +1,6 @@
 use tracing::info;
 use anyhow::Result;
-use crate::mcp_client;
-use crate::utils::is_batch_file;
 use std::process::{Command, Stdio};
-use crate::cli::{McpCommands, VersionCommands, Transport};
-use crate::workflow_exec::workflow::run_workflow;
-use crate::utils::{
-    find_executable,
-    init_logging,
-};
 use rmcp::{
     ServiceExt,
     model::{
@@ -22,13 +14,27 @@ use rmcp::{
         StreamableHttpClientTransport,
     },
 };
-use crate::version_control::{
-    ensure_project_root,
-    full_release,
-    sync_all_versions,
-    bump_version,
-    tag_and_push,
-    show_status,
+use crate::{
+    mcp_client,
+    workflow_exec::workflow::run_workflow,
+    cli::{
+        McpCommands,
+        VersionCommands
+    },
+    utils::{
+        Transport,
+        is_batch_file,
+        find_executable,
+        init_logging,
+    },
+    version_control::{
+        ensure_project_root,
+        full_release,
+        sync_all_versions,
+        bump_version,
+        tag_and_push,
+        show_status,
+    }
 };
 
 /// Create command with proper handling for batch files on Windows

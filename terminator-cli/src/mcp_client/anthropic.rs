@@ -9,7 +9,7 @@ use anthropic_sdk::{
 };
 use rmcp::model::CallToolRequestParam;
 
-pub async fn call_anthropic(transport: crate::cli::Transport) -> Result<()> {
+pub async fn call_anthropic(transport: crate::utils::Transport) -> Result<()> {
 
     let api_key = match std::env::var("ANTHROPIC_API_KEY") {
         Ok(key) => key,
