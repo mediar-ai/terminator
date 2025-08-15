@@ -228,6 +228,9 @@ pub fn sync_all_versions() {
     // Sync MCP agent
     sync_mcp_agent(&workspace_version);
 
+    // Sync Browser Extension
+    sync_browser_extension(&workspace_version);
+
     // Update Cargo.lock
     println!("🔒 Updating Cargo.lock...");
     if let Err(e) = run_command("cargo", &["check", "--quiet"]) {
@@ -404,11 +407,14 @@ pub fn show_status() {
     // Show package versions
     let nodejs_version = get_package_version("bindings/nodejs/package.json");
     let mcp_version = get_package_version("terminator-mcp-agent/package.json");
+    let browser_extension_version =
+        get_package_version("terminator/browser-extension/manifest.json");
 
     println!();
     println!("Package versions:");
     println!("  Node.js bindings: {nodejs_version}");
     println!("  MCP agent:        {mcp_version}");
+    println!("  Browser extension:{browser_extension_version}");
 
     // Git status
     println!();
@@ -499,4 +505,52 @@ pub fn tag_and_push() {
 
     println!("✅ Successfully released version {version}!");
     println!("🔗 Check CI: https://github.com/mediar-ai/terminator/actions");
+}
+
+pub fn update_json_version(path: &str, version: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let content = fs::read_to_string(path)?;
+    let mut json_value: serde_json::Value = serde_json::from_str(&content)?;
+
+    json_value["version"] = serde_json::Value::String(version.to_string());
+
+    let formatted = serde_json::to_string_pretty(&json_value)?;
+    fs::write(path, formatted + "\n")?;
+
+    Ok(())
+}
+
+pub fn sync_browser_extension(version: &str) {
+    println!("📦 Syncing browser extension to version {version}...");
+
+    let ext_dir = Path::new("terminator/browser-extension");
+    if !ext_dir.exists() {
+        println!("⚠️  Browser extension directory not found, skipping");
+        return;
+    }
+
+    let manifest_path = ext_dir.join("manifest.json");
+    if manifest_path.exists() {
+        if let Err(e) = update_json_version(&manifest_path.to_string_lossy(), version) {
+            eprintln!(
+                "⚠️  Warning: Failed to update {}: {}",
+                manifest_path.display(),
+                e
+            );
+        } else {
+            println!("✅ Updated manifest.json to {version}");
+        }
+    }
+
+    let build_check_path = ext_dir.join("build_check.json");
+    if build_check_path.exists() {
+        if let Err(e) = update_json_version(&build_check_path.to_string_lossy(), version) {
+            eprintln!(
+                "⚠️  Warning: Failed to update {}: {}",
+                build_check_path.display(),
+                e
+            );
+        } else {
+            println!("✅ Updated build_check.json to {version}");
+        }
+    }
 }

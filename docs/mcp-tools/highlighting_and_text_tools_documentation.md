@@ -294,9 +294,11 @@ All colors use BGR (Blue-Green-Red) format as 32-bit integers:
 
 ### Current Behavior
 
-- Highlights automatically stop when duration expires
-- HighlightHandle automatically cleans up when it goes out of scope
+- Highlights draw ONCE and persist for the specified duration (fixed overdraw issue)
+- Both border and text are drawn once at the beginning
+- HighlightHandle automatically cleans up when duration expires
 - Text is currently limited to 10 characters in the MCP layer (30 in core library)
+- Integrated with `record_workflow` tool for visual feedback during recording
 
 ### For Developers
 
@@ -312,6 +314,28 @@ To implement the proposed tools, you would need to:
 - **macOS/Linux:** Basic highlighting support (no text overlays currently)
 
 ## Workflow Examples
+
+### Workflow Recording with Visual Feedback
+
+The highlighting tool is automatically used when recording workflows:
+
+```javascript
+// Start recording with visual highlighting
+{
+  "tool_name": "record_workflow",
+  "args": {
+    "action": "start",
+    "workflow_name": "My Workflow",
+    "highlight_mode": {
+      "enabled": true,
+      "duration_ms": 500,
+      "show_labels": true  // Shows "CLICK", "TYPE", etc.
+    }
+  }
+}
+```
+
+This provides immediate visual confirmation of captured events during recording.
 
 ### Visual Tutorial Sequence
 

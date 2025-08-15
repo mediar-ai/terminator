@@ -8,6 +8,11 @@
 await mcp.callTool("record_workflow", {
   action: "start",
   workflow_name: "My Workflow",
+  highlight_mode: {
+    // Optional: Visual feedback during recording
+    enabled: true, // Red borders + event labels on UI elements
+    duration_ms: 500, // Highlight duration per event
+  },
 });
 ```
 
@@ -17,6 +22,8 @@ await mcp.callTool("record_workflow", {
 - Type text into fields
 - Switch between applications
 - Navigate browser tabs
+
+**With highlighting enabled:** Look for red borders and event labels ("CLICK", "TYPE", etc.) confirming each action is captured.
 
 ### 3. Stop & Get Results
 
@@ -58,7 +65,20 @@ const result = await mcp.callTool("record_workflow", {
 
 ### Response Format
 
-#### Successful Recording
+#### Successful Start
+
+```javascript
+{
+  action: "record_workflow",
+  status: "started",
+  workflow_name: "My Workflow",
+  highlighting_enabled: true,        // Visual feedback is active
+  highlight_duration_ms: 500,        // Duration of highlights
+  message: "Recording started. Perform the UI actions you want to record."
+}
+```
+
+#### Successful Recording Stop
 
 ```javascript
 {
@@ -238,24 +258,47 @@ console.log("Conversion notes:", result.mcp_workflow?.conversion_notes);
 
 ## Parameters
 
-| Parameter       | Required      | Description                                      |
-| --------------- | ------------- | ------------------------------------------------ |
-| `action`        | ✅            | `"start"` or `"stop"`                            |
-| `workflow_name` | When starting | Descriptive name for the workflow                |
-| `file_path`     | ❌            | Custom save location (auto-generated if omitted) |
-| `debug`         | ❌            | Enable verbose logging for troubleshooting       |
+| Parameter         | Required      | Description                                      |
+| ----------------- | ------------- | ------------------------------------------------ |
+| `action`          | ✅            | `"start"` or `"stop"`                            |
+| `workflow_name`   | When starting | Descriptive name for the workflow                |
+| `file_path`       | ❌            | Custom save location (auto-generated if omitted) |
+| `highlight_mode`  | ❌            | Visual feedback config (see below)               |
+| `low_energy_mode` | ❌            | Reduce system load on less powerful machines     |
+| `debug`           | ❌            | Enable verbose logging for troubleshooting       |
+
+### Highlight Mode Options
+
+```javascript
+highlight_mode: {
+  enabled: true,              // Enable visual highlighting (default: true)
+  duration_ms: 500,           // Highlight duration in ms (default: 500)
+  color: 0x0000FF,           // Border color in BGR format (default: red)
+  show_labels: true,         // Show event type labels (default: true)
+  label_position: "Top",     // Label position: Top, Inside, Bottom, etc.
+  label_style: {
+    size: 14,               // Font size in pixels
+    bold: true,             // Bold text
+    color: 0xFFFFFF        // Text color in BGR (default: white)
+  }
+}
+```
+
+All properties are optional. Minimal config: `{ enabled: true }`
 
 ## Complete Response Properties
 
-| Property        | Type   | Description                                      |
-| --------------- | ------ | ------------------------------------------------ |
-| `action`        | string | Always `"record_workflow"`                       |
-| `status`        | string | `"stopped"`, `"error"`, or `"recording"`         |
-| `workflow_name` | string | Name provided in start request                   |
-| `file_path`     | string | Path where workflow was saved (optional)         |
-| `mcp_workflow`  | object | MCP sequence (null if no convertible events)     |
-| `file_content`  | string | Raw JSON of all captured events                  |
-| `error`         | string | Error message (only present when status="error") |
+| Property                | Type    | Description                                      |
+| ----------------------- | ------- | ------------------------------------------------ |
+| `action`                | string  | Always `"record_workflow"`                       |
+| `status`                | string  | `"started"`, `"stopped"`, or `"error"`           |
+| `workflow_name`         | string  | Name provided in start request                   |
+| `highlighting_enabled`  | boolean | Whether visual feedback is active (on start)     |
+| `highlight_duration_ms` | number  | Duration of highlights in ms (on start)          |
+| `file_path`             | string  | Path where workflow was saved (on stop)          |
+| `mcp_workflow`          | object  | MCP sequence (null if no convertible events)     |
+| `file_content`          | string  | Raw JSON of all captured events (on stop)        |
+| `error`                 | string  | Error message (only present when status="error") |
 
 ### MCP Workflow Object Properties
 

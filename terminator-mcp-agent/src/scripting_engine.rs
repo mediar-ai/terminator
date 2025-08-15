@@ -1043,7 +1043,9 @@ console.log('[Node.js Wrapper] Starting user script execution...');
 
     let mut stdout = BufReader::new(child.stdout.take().unwrap()).lines();
     let mut stderr = BufReader::new(child.stderr.take().unwrap()).lines();
-    let mut result = None;
+    let mut result: Option<serde_json::Value> = None;
+    // Accumulate env updates from GitHub Actions-style log commands, e.g. ::set-env name=FOO::bar
+    let mut env_updates: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
     let mut stderr_output = Vec::new();
 
     // Handle communication with Node.js process
@@ -1053,6 +1055,21 @@ console.log('[Node.js Wrapper] Starting user script execution...');
                 match stdout_line {
                     Ok(Some(line)) => {
                         info!("[Node.js stdout] {}", line);
+                        // Parse GitHub Actions style env updates: ::set-env name=KEY::VALUE
+                        if let Some(stripped) = line.strip_prefix("::set-env ") {
+                            // Expect pattern: name=KEY::VALUE
+                            if let Some(name_pos) = stripped.find("name=") {
+                                let after_name = &stripped[name_pos + 5..];
+                                if let Some(sep_idx) = after_name.find("::") {
+                                    let key = after_name[..sep_idx].trim();
+                                    let value = after_name[sep_idx + 2..].to_string();
+                                    if !key.is_empty() {
+                                        env_updates.insert(key.to_string(), serde_json::Value::String(value));
+                                        info!("[Node.js] Parsed env update: {}", key);
+                                    }
+                                }
+                            }
+                        }
                         if line.starts_with("__RESULT__") && line.ends_with("__END__") {
                             // Parse final result
                             let result_json = line.replace("__RESULT__", "").replace("__END__", "");
@@ -1158,8 +1175,37 @@ console.log('[Node.js Wrapper] Starting user script execution...');
     }
 
     match result {
-        Some(r) => {
+        Some(mut r) => {
             info!("[Node.js] Execution completed successfully");
+            // If we captured env updates via log commands, merge them into the result
+            if !env_updates.is_empty() {
+                if let Some(obj) = r.as_object_mut() {
+                    // Merge with existing set_env if present
+                    if let Some(existing) = obj.get_mut("set_env") {
+                        if let Some(existing_obj) = existing.as_object_mut() {
+                            for (k, v) in env_updates.iter() {
+                                existing_obj.insert(k.clone(), v.clone());
+                            }
+                        } else {
+                            obj.insert(
+                                "set_env".to_string(),
+                                serde_json::Value::Object(env_updates.clone()),
+                            );
+                        }
+                    } else {
+                        obj.insert(
+                            "set_env".to_string(),
+                            serde_json::Value::Object(env_updates.clone()),
+                        );
+                    }
+                } else {
+                    // Wrap non-object results so we can attach env updates
+                    r = serde_json::json!({
+                        "output": r,
+                        "set_env": env_updates
+                    });
+                }
+            }
             Ok(r)
         }
         None => {

@@ -98,46 +98,45 @@ pub fn highlight(
             draw_text_overlay(text, font_style, position, x, y, width, height);
         }
 
-        // Main highlighting loop - just draw border
-        debug!("Starting main highlight loop");
-        let mut loop_count = 0;
-        while start_time.elapsed() < duration && !should_close_clone.load(Ordering::Relaxed) {
-            let hdc = unsafe { GetDC(None) };
-            if hdc.0.is_null() {
-                debug!("Failed to get device context for highlighting");
-                return;
-            }
-
-            loop_count += 1;
-
+        // Draw border ONCE at the beginning (same as text overlay)
+        debug!("Drawing highlight border once");
+        let hdc = unsafe { GetDC(None) };
+        if !hdc.0.is_null() {
             unsafe {
                 // Create a pen for drawing with the specified color
                 let hpen = CreatePen(PS_SOLID, BORDER_SIZE, COLORREF(highlight_color));
-                if hpen.0.is_null() {
-                    ReleaseDC(None, hdc);
-                    return;
+                if !hpen.0.is_null() {
+                    // Save current objects
+                    let old_pen = SelectObject(hdc, HGDIOBJ(hpen.0));
+                    let null_brush = GetStockObject(NULL_BRUSH);
+                    let old_brush = SelectObject(hdc, null_brush);
+
+                    // Draw the border rectangle ONCE
+                    let _ = Rectangle(hdc, x, y, x + width, y + height);
+                    debug!(
+                        "Border drawn at x={}, y={}, width={}, height={}",
+                        x, y, width, height
+                    );
+
+                    // Restore original objects and clean up
+                    SelectObject(hdc, old_brush);
+                    SelectObject(hdc, old_pen);
+                    let _ = DeleteObject(HGDIOBJ(hpen.0));
                 }
-
-                // Save current objects
-                let old_pen = SelectObject(hdc, HGDIOBJ(hpen.0));
-                let null_brush = GetStockObject(NULL_BRUSH);
-                let old_brush = SelectObject(hdc, null_brush);
-
-                // Draw only the border rectangle
-                let _ = Rectangle(hdc, x, y, x + width, y + height);
-
-                // Restore original objects and clean up
-                SelectObject(hdc, old_brush);
-                SelectObject(hdc, old_pen);
-                let _ = DeleteObject(HGDIOBJ(hpen.0));
                 ReleaseDC(None, hdc);
             }
-
-            // Small delay to avoid excessive CPU usage
-            thread::sleep(Duration::from_millis(16)); // ~60 FPS
+        } else {
+            debug!("Failed to get device context for highlighting");
         }
 
-        debug!("Highlight loop completed after {} iterations", loop_count);
+        // Wait for the specified duration without redrawing
+        debug!("Waiting for highlight duration: {:?}", duration);
+        while start_time.elapsed() < duration && !should_close_clone.load(Ordering::Relaxed) {
+            // Check periodically if we should close early
+            thread::sleep(Duration::from_millis(50));
+        }
+
+        debug!("Highlight completed after {:?}", start_time.elapsed());
     });
 
     Ok(HighlightHandle {

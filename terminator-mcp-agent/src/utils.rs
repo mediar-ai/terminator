@@ -1203,6 +1203,45 @@ where
     }))
 }
 
+#[derive(Debug, Clone, serde::Deserialize, schemars::JsonSchema)]
+pub struct HighlightConfig {
+    /// Enable visual highlighting of UI elements during recording
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Duration in milliseconds for each highlight (default: 500ms)
+    pub duration_ms: Option<u64>,
+    /// Border color in BGR format (default: 0x0000FF - red)
+    pub color: Option<u32>,
+    /// Show event type labels on highlighted elements
+    #[serde(default = "default_true")]
+    pub show_labels: bool,
+    /// Position of event type labels relative to highlighted element
+    pub label_position: Option<TextPosition>,
+    /// Font style for event type labels
+    pub label_style: Option<FontStyle>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for HighlightConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            duration_ms: Some(500),
+            color: Some(0x0000FF), // Red in BGR
+            show_labels: true,
+            label_position: Some(TextPosition::Top),
+            label_style: Some(FontStyle {
+                size: 14,
+                bold: true,
+                color: 0xFFFFFF, // White text
+            }),
+        }
+    }
+}
+
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct RecordWorkflowArgs {
     /// The action to perform: 'start' to begin recording, 'stop' to end and save.
@@ -1213,4 +1252,6 @@ pub struct RecordWorkflowArgs {
     pub file_path: Option<String>,
     /// Sets the recording to a low-energy mode to reduce system load, which can help prevent lag on less powerful machines.
     pub low_energy_mode: Option<bool>,
+    /// Visual highlighting configuration for recorded UI interactions
+    pub highlight_mode: Option<HighlightConfig>,
 }

@@ -154,6 +154,136 @@ fn test_sequence_step_with_group() {
     assert_eq!(step.steps.as_ref().unwrap()[0].tool_name, "tool1");
 }
 
+#[tokio::test]
+async fn test_execute_sequence_env_propagation() {
+    // Arrange: server and args with set_env then delay using env var
+    let server = DesktopWrapper::new().unwrap();
+
+    // JS step that returns an env update payload
+    let set_env_step = SequenceStep {
+        tool_name: Some("run_javascript".to_string()),
+        arguments: Some(json!({
+            "script": "return { set_env: { delay: 5, message: 'hello' } };"
+        })),
+        continue_on_error: None,
+        delay_ms: None,
+        ..Default::default()
+    };
+
+    let delay_step = SequenceStep {
+        tool_name: Some("delay".to_string()),
+        arguments: Some(json!({
+            "delay_ms": "${{ env.delay }}"
+        })),
+        continue_on_error: None,
+        delay_ms: None,
+        ..Default::default()
+    };
+
+    let args = ExecuteSequenceArgs {
+        steps: vec![set_env_step, delay_step],
+        stop_on_error: Some(true),
+        include_detailed_results: Some(true),
+        ..Default::default()
+    };
+
+    // Act
+    let result = server.execute_sequence(Parameters(args)).await.unwrap();
+
+    // Extract JSON content
+    let content = result.content.unwrap();
+    assert_eq!(content.len(), 1);
+    let summary = match &content[0].raw {
+        rmcp::model::RawContent::Text(t) => {
+            serde_json::from_str::<serde_json::Value>(&t.text).unwrap()
+        }
+        rmcp::model::RawContent::Image(_) => panic!("unexpected image content"),
+        rmcp::model::RawContent::Resource(_) => panic!("unexpected resource content"),
+        rmcp::model::RawContent::Audio(_) => panic!("unexpected audio content"),
+    };
+
+    // Assert overall success
+    assert_eq!(summary["status"], "success");
+
+    // Assert results contain two entries and delay used substituted value
+    let results = summary["results"].as_array().unwrap();
+    assert_eq!(results.len(), 2);
+
+    // First is set_env pseudo-tool success
+    assert_eq!(results[0]["status"], "success");
+
+    // Second is delay success and its requested_delay_ms should be 5
+    assert_eq!(results[1]["status"], "success");
+    let content_arr = results[1]["result"]["content"].as_array().unwrap();
+    assert!(!content_arr.is_empty());
+    let delay_payload = &content_arr[0];
+    assert_eq!(delay_payload["action"], "delay");
+    assert_eq!(delay_payload["requested_delay_ms"], 5);
+}
+
+#[tokio::test]
+async fn test_execute_sequence_env_via_log_command() {
+    let server = DesktopWrapper::new().unwrap();
+
+    // Step 1: JS logs a GitHub Actions-style env update
+    let set_env_via_log = SequenceStep {
+        tool_name: Some("run_javascript".to_string()),
+        arguments: Some(json!({
+            // No return; just emit env via log. Wrapper will still produce a result (null) and capture set_env.
+            "script": "console.log('::set-env name=dog::john');"
+        })),
+        continue_on_error: None,
+        delay_ms: None,
+        ..Default::default()
+    };
+
+    // Step 2: Another JS step consumes env and returns it
+    let consume_env = SequenceStep {
+        tool_name: Some("run_javascript".to_string()),
+        arguments: Some(json!({
+            "script": "return { verify: '${{ env.dog }}' };"
+        })),
+        continue_on_error: None,
+        delay_ms: None,
+        ..Default::default()
+    };
+
+    let args = ExecuteSequenceArgs {
+        steps: vec![set_env_via_log, consume_env],
+        stop_on_error: Some(true),
+        include_detailed_results: Some(true),
+        ..Default::default()
+    };
+
+    let result = server.execute_sequence(Parameters(args)).await.unwrap();
+
+    // Extract JSON content
+    let content = result.content.unwrap();
+    assert_eq!(content.len(), 1);
+    let summary = match &content[0].raw {
+        rmcp::model::RawContent::Text(t) => {
+            serde_json::from_str::<serde_json::Value>(&t.text).unwrap()
+        }
+        rmcp::model::RawContent::Image(_) => panic!("unexpected image content"),
+        rmcp::model::RawContent::Resource(_) => panic!("unexpected resource content"),
+        rmcp::model::RawContent::Audio(_) => panic!("unexpected audio content"),
+    };
+
+    assert_eq!(summary["status"], "success");
+    let results = summary["results"].as_array().unwrap();
+    assert_eq!(results.len(), 2);
+
+    // First is the log-based env set (should succeed)
+    assert_eq!(results[0]["status"], "success");
+
+    // Second should see verify == "john"
+    assert_eq!(results[1]["status"], "success");
+    let content_arr = results[1]["result"]["content"].as_array().unwrap();
+    let js_payload = &content_arr[0];
+    let verify_val = js_payload["result"]["verify"].as_str().unwrap();
+    assert_eq!(verify_val, "john");
+}
+
 // ===============================================
 // Scripting Engine Executable Resolution Tests
 // ===============================================

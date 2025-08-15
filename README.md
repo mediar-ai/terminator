@@ -32,22 +32,36 @@ https://github.com/user-attachments/assets/00329105-8875-48cb-8970-a62a85a9ebd0
   </a>
 </p>
 
-⚠️ News: 
-- 08/25 shipped tons of new features & bug fixes: run NodeJS SDK in YAML workflows, run JS in browser, record OS events and genereate YAML workflows directly in MCP end-to-end, etc.
+## 🚀 What's new
+
+- 08/25 Big release — NodeJS SDK in YAML workflows, run JS in browser, OS event recording → YAML generation in MCP, and more
 - 08/25 [we raised $2.8m to give AI hands to every desktop](https://x.com/louis030195/status/1948745185178914929) ⚠
 
+> AI-powered desktop automation — open source, MIT-licensed, cross-platform, accessibility-first.
+Works across all apps and browsers. Inspired by GitHub Actions & Playwright.
+100x faster than generic AI agents, >95% success rate, no vendor lock-in.
 
-> Computer use SDK for building agents that learn from human screen recordings. Accessibility-first. Cross-platform (Windows/macOS/Linux).
+## 🧠 Why Terminator
 
-There are three paths to train deterministic workflows with AI fallback:
+### For Developers
+- Create automations that work across any desktop app or browser
+- Runs 100x faster than ChatGPT Agents, Claude, Perplexity Comet, BrowserBase, BrowserUse
+- \>95% success rate without costly consultant armies (UIPath, Automation Anywhere)
+- MIT-licensed — fork it, ship it, no lock-in
 
-1.  **AI-Assisted Workflow Building**: Use an MCP client like [Cursor](https://cursor.com) to iteratively build and test complex workflows with an AI assistant in a human-in-the-loop process.
-2.  **Record Human Baselines**: Use our open-source tools to record a human demonstrating a task (our MCP has a recording tool). This generates a baseline workflow that can be refined and automated.
-3.  **Enterprise-Grade Recording**: For businesses needing scalable, >95% success rate automation workflows, our [b2b product](https://mediar.ai) provides the most robust solution.
+We achieve this by pre-training workflows as deterministic code, and calling AI only when recovery is needed.
 
-For detailed instructions on building with AI agents through MCP client, see our [**Terminator MCP Agent README**](terminator-mcp-agent/README.md).
+### For Teams
+[Our private beta workflow builder](https://www.mediar.ai/) + managed hosting = plug-and-play automation engine for your business:
+- Record & map your processes in days
+- Deploy AI to execute them at >95% accuracy
+- Kill repetitive work without legacy RPA complexity or cost
 
-## ⚡ Quick Start: Programmatic Control
+## ⚡ Quick start: MCP
+
+We recommend using [MCP](https://github.com/mediar-ai/terminator/tree/main/terminator-mcp-agent) as AI's IQ is far higher than the programmer.
+
+## ⚡ Quick start: programmatic control
 
 ### 🐍 Python
 
