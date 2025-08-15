@@ -1,0 +1,19 @@
+{
+  // Rust-specific settings
+  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.cargo.features": "all",
+  "rust-analyzer.cargo.allTargets": true,
+  // Auto-format on save
+  "editor.formatOnSave": true,
+  "editor.formatOnType": true,
+  "editor.codeActionsOnSave": {
+      "source.fixAll": "explicit",
+      "source.organizeImports": "explicit"
+  },
+  // Rust formatting
+  "[rust]": {
+      "editor.defaultFormatter": "rust-lang.rust-analyzer",
+      "editor.formatOnSave": true,
+      "editor.formatOnPaste": true
+  },
+}

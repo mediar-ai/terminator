@@ -1,18 +1,3 @@
-{
-  "name": "examples",
-  "version": "1.0.0",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
-  "devDependencies": {
-    "@types/node": "^22.14.0"
-  },
-  "dependencies": {
-    "desktop-use": "file:../ts-sdk"
-  }
+﻿{
+  "type": "module"
 }

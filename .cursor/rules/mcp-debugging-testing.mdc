@@ -1,0 +1,173 @@
+---
+alwaysApply: true
+---
+# MCP Debugging and Testing Guide
+
+## MCP Development Workflow
+
+### Proper Development Process
+
+**Important**: Cursor IDE manages the MCP server lifecycle automatically:
+- No need to manually start/stop the server
+- Cursor automatically restarts the server 
+- It means you cannot rebuild the MCP yourself because it requires a manual human click on the toggle
+
+### Debugging Server Issues
+If MCP tools aren't working:
+1. Check that the build completed successfully
+2. Look for compilation errors in cargo output  
+3. Restart Cursor IDE if needed (rare)
+4. Check MCP tool parameters match server expectations
+
+## Common Issues and Solutions
+
+### Parameter Interface Mismatches
+**Problem**: Client expects different parameters than server provides
+```
+Error: Required parameter 'random_string' is missing for tool get_applications
+```
+
+**Solution**: 
+1. Check parameter decorations: `#[tool(param)]` vs `#[tool(aggr)]`
+2. Verify struct definitions match interface expectations
+3. Restart both client and server after changes
+
+### Tool Call Timeouts/Failures
+**Problem**: Tools return "no result" or timeout
+```
+Error: no result from tool. The user likely interrupted the tool call
+```
+
+**Debugging Steps**:
+2. Check for compilation errors in cargo output
+3. Test individual components (shell commands) manually  
+4. Verify parameter formats are correct
+5. Restart Cursor IDE if tools still don't work
+
+### Clipboard Operation Failures
+**Problem**: Complex clipboard implementations fail silently
+
+**Solution**: Use simple shell commands
+```rust
+// ❌ Complex approach
+locator.find_element() -> type_text(use_clipboard=true)
+
+// ✅ Simple approach  
+run_command("echo 'text' | clip")
+```
+
+## Testing Strategies
+
+### Manual Shell Command Testing
+Before implementing in MCP, test shell commands directly:
+```bash
+# Test clipboard operations
+echo "test data" | clip
+powershell -command "Get-Clipboard"
+
+# Test application launching  
+start notepad
+```
+
+### MCP Development Cycle
+1. **Edit Code**: Make changes to MCP tools
+2. **Build**: `cargo build --release --bin terminator-mcp-agent`
+3. **Test**: Cursor automatically picks up the new build and tools are available
+4. **Debug**: Check compilation errors if tools don't work
+
+### Progressive Testing Approach
+1. **Test Individual Tools**: Verify each tool works in isolation
+2. **Test Tool Chains**: Simple 2-3 step workflows
+3. **Test Complex Workflows**: Full data scraping and transfer
+
+### UI Element Validation Testing
+```rust
+// Always test element existence before interaction
+validate_element(selector) // Check if element exists
+highlight_element(selector) // Visual confirmation
+capture_screen() // Document current state
+```
+
+## Error Handling Patterns
+
+### Graceful Degradation
+```rust
+// Try specific selector first, fall back to general
+match validate_element("#specific-id") {
+    Ok(_) => use_specific_selector(),
+    Err(_) => match validate_element("role:Button") {
+        Ok(_) => use_general_selector(),
+        Err(_) => return_error()
+    }
+}
+```
+
+### Detailed Error Context
+```rust
+McpError::internal_error(
+    "Failed to interact with element",
+    Some(json!({
+        "selector_chain": args.selector_chain,
+        "element_info": element_details,
+        "attempted_action": "click",
+        "timestamp": chrono::Utc::now().to_rfc3339()
+    }))
+)
+```
+
+### Retry with Backoff
+```rust
+for attempt in 1..=3 {
+    match perform_action() {
+        Ok(result) => return Ok(result),
+        Err(e) if attempt < 3 => {
+            tokio::time::sleep(Duration::from_millis(1000 * attempt)).await;
+            continue;
+        }
+        Err(e) => return Err(e)
+    }
+}
+```
+
+## Performance Debugging
+
+### UI Tree Caching
+- Cache `get_window_tree` results when possible
+- Invalidate cache on application state changes
+- Use targeted element searches vs full tree traversal
+
+### Timeout Optimization
+```rust
+// Different timeouts for different operations
+const QUICK_TIMEOUT: u64 = 1000;    // Element validation
+const MEDIUM_TIMEOUT: u64 = 5000;   // UI interactions  
+const LONG_TIMEOUT: u64 = 10000;    // Application startup
+```
+
+### Memory Usage Monitoring
+- Watch for UI tree memory accumulation
+- Clear unused element references
+- Monitor long-running automation sessions
+
+## Development Workflow
+
+### Incremental Development
+1. **Start Simple**: Single tool, single parameter
+2. **Add Complexity**: Multiple parameters, error handling
+3. **Integration**: Tool chains and workflows
+4. **Polish**: Error messages, edge cases
+
+### Code Review Checklist
+- [ ] Proper parameter decorations (`#[tool(param)]`)
+- [ ] Cross-platform shell command handling
+- [ ] Detailed error context and logging
+- [ ] Timeout and retry logic
+- [ ] Element validation before interaction
+- [ ] Resource cleanup (UI elements, processes)
+
+## File References
+- Server implementation: [terminator-mcp-agent/src/server.rs](mdc:terminator-mcp-agent/src/server.rs)
+- Utility functions: [terminator-mcp-agent/src/utils.rs](mdc:terminator-mcp-agent/src/utils.rs)
+- Build configuration: [terminator-mcp-agent/Cargo.toml](mdc:terminator-mcp-agent/Cargo.toml)
+
+

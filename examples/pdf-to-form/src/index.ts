@@ -9,7 +9,8 @@ import { tool, streamText, CoreMessage } from 'ai';
 import { z } from 'zod';
 
 // Terminator/DesktopUseClient import
-import { DesktopUseClient, ApiError } from 'desktop-use'; // Assuming package name
+import { Desktop } from '../../../bindings/nodejs'; // Assuming package name
+
 
 // Suppress Node.js warnings (use with caution)
 process.removeAllListeners('warning');
@@ -76,9 +77,9 @@ async function main() {
     const model = google('models/gemini-2.0-flash');
     console.log(`🤖 Initialized Gemini Model: ${model.modelId}`);
 
-    let desktopClient: DesktopUseClient | null = null;
+    let desktopClient: Desktop | null = null;
     try {
-        desktopClient = new DesktopUseClient(); // Assumes server running on default localhost:9375
+        desktopClient = new Desktop(); // Assumes server running on default localhost:9375
         console.log("🖥️ Connected to Terminator server.");
 
         // Automated setup is now commented out. Manual setup prompt follows.
@@ -90,9 +91,6 @@ async function main() {
         // console.error("   Ensure Terminator server is running and check PowerShell script output/errors.");
         if (error instanceof Error) {
              console.error(`   Details: ${error.message}`);
-             if (error instanceof ApiError) {
-                 console.error(`   Status: ${error.status}`);
-             }
         } else {
              console.error(error);
         }
@@ -151,10 +149,10 @@ async function main() {
                 try {
                     console.log(`
 🔧 [Tool Call] Reading text from element: "${selector}"`);
-                    const result = await desktopClient!.locator(selector).getText(10);
+                    const result = (await desktopClient!.locator(selector).first()).text();
                     console.log(`
-✅ [Tool Result] Got text snippet: "${result.text.substring(0, 100)}..."`);
-                    return { success: true, text: result.text };
+✅ [Tool Result] Got text snippet: "${result.substring(0, 100)}..."`);
+                    return { success: true, text: result };
                 } catch (error: any) {
                     console.error(`
 ❌ [Tool Error] Failed to get text from element "${selector}": ${error.message}`);
@@ -205,10 +203,9 @@ async function main() {
 🔧 [Tool Call] Finding window: titleContains="${titleContains}"`);
                     // Use the new client method. Note: It returns a Locator directly.
                     // For the tool, we might want the element details, so we call .first() on the returned locator.
-                    const windowLocator = await desktopClient!.findWindow({ titleContains });
-                    const windowElement = await windowLocator.first(); // Get the element details from the locator
+                    const windowElement = await desktopClient!.findWindowByCriteria(titleContains);
                     console.log(`
-✅ [Tool Result] Found window: Role=${windowElement.role}, Name=${windowElement.label}, ID=${windowElement.id}`);
+✅ [Tool Result] Found window: Role=${windowElement.role}, Name=${windowElement.name()}, ID=${windowElement.id()}`);
                     // Return the element details which includes role, label, id
                     return { success: true, windowElement: windowElement };
                 } catch (error: any) {

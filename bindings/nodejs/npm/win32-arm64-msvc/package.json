@@ -1,0 +1,21 @@
+{
+  "cpu": [
+    "arm64"
+  ],
+  "engines": {
+    "node": ">= 10"
+  },
+  "files": [
+    "terminator.win32-arm64-msvc.node"
+  ],
+  "main": "terminator.win32-arm64-msvc.node",
+  "name": "terminator.js-win32-arm64-msvc",
+  "os": [
+    "win32"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mediar-ai/terminator"
+  },
+  "version": "0.12.9"
+}

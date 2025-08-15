@@ -1,0 +1,36 @@
+---
+alwaysApply: true
+---
+
+## ALWAYS use is_background=true for terminal commands on Windows to avoid hanging
+
+## You (LLM) tend to be too helpful and you tend to guess what response i'm looking, But I want you to be critical and reasoning through a given task and optimizing for the best long-term outcome,
+
+## you want to be do tasks with minimum change of existing codebase and minimum amount of code and minimum effort
+
+## when you resolve issues and bugs it's better to propose things that are simplifying and deleting code, not adding new code, focus on simplifying, not adding code
+
+## ask yourself questions like: 'what was the key user intent of the task and did i actually achieve it?' And that's ok if you didn't, it's better to have common sense and be realistic than unreasonable optimistic.
+
+**Bash Command Rules:**
+
+- **ALWAYS use is_background=true** - Windows terminal commands run in background
+- **Use MCP delay tool instead of timeout commands** - Background commands don't pause for timeouts
+- **CRITICAL: Always kill/cleanup terminal processes after use:**
+- Kill background terminal sessions when task is complete
+- Use `taskkill //F //IM process.exe` (bash syntax with //) to cleanup hanging processes
+- Don't leave orphaned terminal processes running
+- If using multiple terminal sessions, clean them all up
+- these are the rules we have in the project, decide which one to use:
+  .cursor\rules\matt\Always-read-this.mdc
+  .cursor\rules\matt\browser-use-playwright-mcp.mdc
+  .cursor\rules\matt\database-related-tasks.mdc
+  .cursor\rules\matt\explain.mdc
+  .cursor\rules\matt\modal.com-usage.mdc
+  .cursor\rules\matt\models-to-use.mdc
+  .cursor\rules\matt\nextjs-dynamic-route-patterns.mdc
+  .cursor\rules\matt\parallel-code-edits-with-agents.mdc
+  .cursor\rules\matt\push-rules.mdc
+  .cursor\rules\matt\terminal-rules.mdc
+  .cursor\rules\matt\ui-styling-rules.mdc
+- if you applied this rule start your response with 'I read rule Always-read-this.mdc'

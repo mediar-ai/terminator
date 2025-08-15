@@ -1,0 +1,24 @@
+{
+  "cpu": [
+    "arm64"
+  ],
+  "engines": {
+    "node": ">= 10"
+  },
+  "files": [
+    "terminator-mcp-agent"
+  ],
+  "main": "terminator-mcp-agent",
+  "name": "terminator-mcp-darwin-arm64",
+  "os": [
+    "darwin"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mediar-ai/terminator"
+  },
+  "scripts": {
+    "prepare": "chmod +x terminator-mcp-agent"
+  },
+  "version": "0.12.9"
+}

@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [ "main" ]
+
+env:
+  # Disable incremental compilation to avoid PDB locking issues on Windows
+  CARGO_INCREMENTAL: 0
+  # Reduce debuginfo to speed up builds and reduce PDB size
+  CARGO_PROFILE_DEV_DEBUG: 1
+  # Windows specific: disable long path issues
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - uses: dtolnay/rust-toolchain@stable
+      
+      # Clean target directory on Windows to avoid PDB conflicts
+      - name: Clean target directory (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          if (Test-Path target) { Remove-Item -Recurse -Force target }
+        shell: pwsh
+      
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Use a unique cache key for Windows to avoid conflicts
+          key: ${{ matrix.os }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: bash scripts/install_linux_deps.sh
+
+      # Build with retries on Windows
+      - name: Build workspace (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          $attempts = 3
+          for ($i = 1; $i -le $attempts; $i++) {
+            Write-Host "Build attempt $i of $attempts"
+            cargo build --workspace --verbose
+            if ($LASTEXITCODE -eq 0) {
+              break
+            }
+            if ($i -lt $attempts) {
+              Write-Host "Build failed, retrying in 5 seconds..."
+              Start-Sleep -Seconds 5
+              # Clean PDB files that might be locked
+              Get-ChildItem -Path target -Include *.pdb -Recurse | Remove-Item -Force -ErrorAction SilentlyContinue
+            }
+          }
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+        shell: pwsh
+
+      - name: Build workspace (Non-Windows)
+        if: matrix.os != 'windows-latest'
+        run: cargo build --workspace --verbose
+
+      - name: Run tests
+        if: matrix.os == 'windows-latest'
+        run: cargo test --workspace --verbose  -- --test-threads=1
+
+

@@ -1,0 +1,222 @@
+---
+tool_name: execute_sequence
+arguments:
+  variables:
+    first_name:
+      type: string
+      label: First (Given) Name
+      default: "Bob"
+    last_name:
+      type: string
+      label: Last (Family) Name/Surname
+      default: "Smith"
+    date_of_birth:
+      type: string
+      label: Date of Birth (MM/DD/YYYY)
+      default: "01/01/1990"
+    citizenship:
+      type: string
+      label: Country of Citizenship (3-letter code)
+      default: "USA"
+    document_number:
+      type: string
+      label: Document Number
+      default: "1234567890"
+
+  inputs:
+    first_name: "Bob"
+    last_name: "Smith"
+    date_of_birth: "01/01/1990"
+    citizenship: "USA"
+    document_number: "1234567890"
+
+  selectors:
+    terms_scroll: "name:You must scroll and read all of the text before you are allowed to click on agree below."
+    agree_button: "name:I ACKNOWLEDGE AND AGREE"
+    close_notification: "name:Click to close the Security Notification"
+    get_i94_button: "name:Get most recent I-94/I-95"
+    first_name_field: "name:Please enter your first name"
+    last_name_field: "name:Please enter your last name"
+    date_birth_field: "role:Edit|name:Date of Birth"
+    country_field: "role:ComboBox|name:Please enter your document number's country of issuance. You can begin to type the country's name, or you can enter the exact country 3 letter code. If the country is not found, you can type your country's 3 letter code and select Other."
+    document_field: "role:Edit|name:Please enter your document number"
+    submit_button: "name:Click to submit the form"
+
+  steps:
+    - tool_name: open_application
+      arguments:
+        app_name: "chrome"
+      continue_on_error: true
+
+    - tool_name: navigate_browser
+      arguments:
+        url: "https://i94.cbp.dhs.gov/search/recent-search"
+        include_tree: false
+
+    - tool_name: wait_for_element
+      arguments:
+        selector: "${{ selectors.terms_scroll }}"
+        condition: "exists"
+        timeout_ms: 10000
+
+    # Use multiple page downs to scroll through EULA completely
+    - tool_name: press_key_global
+      arguments:
+        key: "{PageDown}"
+      delay_ms: 1000
+
+    - tool_name: press_key_global
+      arguments:
+        key: "{PageDown}"
+      delay_ms: 1000
+
+    - tool_name: press_key_global
+      arguments:
+        key: "{End}"
+      delay_ms: 2000
+
+    # Wait for agree button to become enabled
+    - tool_name: delay
+      arguments:
+        delay_ms: 3000
+
+    - tool_name: click_element
+      arguments:
+        selector: "${{ selectors.agree_button }}"
+
+    - tool_name: delay
+      arguments:
+        delay_ms: 2000
+
+    # Close notification if present
+    - tool_name: click_element
+      arguments:
+        selector: "${{ selectors.close_notification }}"
+      continue_on_error: true
+
+    - tool_name: delay
+      arguments:
+        delay_ms: 2000
+
+    # Navigate to the I-94 search form - THIS WAS THE MISSING STEP!
+    - tool_name: click_element
+      arguments:
+        selector: "${{ selectors.get_i94_button }}"
+
+    - tool_name: delay
+      arguments:
+        delay_ms: 3000
+
+    # Wait for form to be available
+    - tool_name: wait_for_element
+      arguments:
+        selector: "${{ selectors.first_name_field }}"
+        condition: "exists"
+        timeout_ms: 15000
+
+    # Fill out the form
+    - tool_name: type_into_element
+      arguments:
+        selector: "${{ selectors.first_name_field }}"
+        text_to_type: "${{ inputs.first_name }}"
+        clear_before_typing: true
+
+    - tool_name: type_into_element
+      arguments:
+        selector: "${{ selectors.last_name_field }}"
+        text_to_type: "${{ inputs.last_name }}"
+        clear_before_typing: true
+
+    - tool_name: type_into_element
+      arguments:
+        selector: "${{ selectors.date_birth_field }}"
+        text_to_type: "${{ inputs.date_of_birth }}"
+        clear_before_typing: true
+
+    - tool_name: type_into_element
+      arguments:
+        selector: "${{ selectors.country_field }}"
+        text_to_type: "${{ inputs.citizenship }}"
+        clear_before_typing: true
+
+    - tool_name: delay
+      arguments:
+        delay_ms: 1000
+
+    - tool_name: press_key_global
+      arguments:
+        key: "{Enter}"
+
+    - tool_name: delay
+      arguments:
+        delay_ms: 1000
+
+    - tool_name: type_into_element
+      arguments:
+        selector: "${{ selectors.document_field }}"
+        text_to_type: "${{ inputs.document_number }}"
+        clear_before_typing: true
+
+    - tool_name: delay
+      arguments:
+        delay_ms: 2000
+
+    # Submit the form
+    - tool_name: click_element
+      arguments:
+        selector: "${{ selectors.submit_button }}"
+
+    - tool_name: delay
+      arguments:
+        delay_ms: 5000
+
+    # Get results page
+    - tool_name: get_focused_window_tree
+      arguments:
+        random_string: "extract_results"
+
+  output_parser:
+    javascript_code: |
+      // Extract I-94 data from the UI tree
+      const data = {};
+      
+      // Get all text elements from the UI tree - FIX: use `tree` not `uiTree`
+      const textElements = [];
+      
+      function collectTextElements(node) {
+        if (node.attributes && node.attributes.role === 'Text' && node.attributes.name) {
+          textElements.push(node.attributes.name);
+        }
+        if (node.children) {
+          for (const child of node.children) {
+            collectTextElements(child);
+          }
+        }
+      }
+      
+      collectTextElements(tree);
+      
+      // Helper function to get value that follows a label
+      function getValue(label) {
+        const labelIndex = textElements.findIndex(el => el.includes(label));
+        return labelIndex >= 0 && labelIndex + 1 < textElements.length ? 
+               textElements[labelIndex + 1] : null;
+      }
+      
+      // Extract I-94 information
+      data.admission_number = getValue('Admission I-94 Record Number:');
+      data.arrival_date = getValue('Arrival/Issued Date:');
+      data.class_of_admission = getValue('Class of Admission:');
+      data.admit_until_date = getValue('Admit Until Date:');
+      data.last_name = getValue('Last/Surname:');
+      data.first_name = getValue('First (Given) Name:');
+      data.birth_date = getValue('Birth Date:');
+      data.document_number = getValue('Document Number:');
+      data.country_of_citizenship = getValue('Country of Citizenship:');
+      
+      // Set status based on whether we found data
+      data.status = data.admission_number ? "success" : "no_data_found";
+      
+      return [data];
+
+  stop_on_error: false 

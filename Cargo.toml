@@ -1,9 +1,27 @@
-[package]
-name = "terminator"
-version = "0.1.8"
-edition = "2024"
+[workspace]
+resolver = "2"
+members = [
+    "terminator",
+    "terminator-cli",
+    "bindings/python",
+    "bindings/nodejs",
+    "terminator-mcp-agent",
+    "terminator-workflow-recorder",
+]
 
-[dependencies]
+
+# Shared metadata for workspace members
+[workspace.package]
+version = "0.12.9"
+edition = "2021"         # From your original Cargo.toml
+license-file = "LICENSE"
+
+# Centralized dependency definitions
+[workspace.dependencies]
+# Terminator Core library itself (for other members to depend on)
+terminator = { version = "0.12.9", path = "./terminator", package = "terminator-rs" }
+
+# Common dependencies from your original Cargo.toml
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 anyhow = "1.0.97"
@@ -13,34 +31,33 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 tokio = { version = "1.44.2", features = ["full"] }
 
 # OCR / Vision
-xcap = "0.5.0"
+xcap = "0.6.0"
 image = "0.25.6"
-uni-ocr = { git = "https://github.com/mediar-ai/uniOCR", branch = "main" }
-tempfile = "3.19.1"
+uni-ocr = "0.1.5"
+tempfile = "3.10.1"
 async-trait = "0.1.88"
 base64 = "0.22.1"
 
-[lib]
-name = "terminator"
-path = "src/lib.rs"
-
-[target.'cfg(target_os = "macos")'.dependencies]
-accessibility-sys = { git = "https://github.com/eiz/accessibility.git", branch = "master" }
-accessibility = { git = "https://github.com/eiz/accessibility.git", branch = "master" }
+# macOS specific dependencies
+accessibility-sys = "0.2.0"
+accessibility = "0.2.0"
 objc = "0.2.7"
 objc-foundation = "0.1.1"
-
-core-foundation = "=0.10.0"
+core-foundation = { version = "0.10.0" }
 core-graphics = { version = "0.24.0", features = ["highsierra"] }
 
-[target.'cfg(target_os = "windows")'.dependencies]
-uiautomation = { version = "0.18.0" }
-sysinfo = "0.34.2"
+# Windows specific dependencies
+sysinfo = "0.36.1   "
+windows = "0.61.3"
+uiautomation = "0.22.0"
 
-[[example]]
-name = "server"
-path = "examples/server.rs"
-
-[dev-dependencies]
+# Dev dependencies (can be used by examples or tests across the workspace)
 axum = "0.8.3"
 tower-http = { version = "0.6.2", features = ["cors", "limit"] }
+
+# Workflow recorder dependencies
+chrono = "0.4"
+ctrlc = "3.4"
+
+
+regex = "1.10.5"

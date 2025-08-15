@@ -1,0 +1,75 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+
+# Workflow Recorder Testing and Quality Standards
+
+## Objective
+
+To ensure the `terminator-workflow-recorder` captures UI interactions with high fidelity. The primary goal is to achieve 1:1 accuracy between user actions and recorded `WorkflowEvent`s, both in event count and data content. This is critical for creating reliable automation from recordings.
+
+## Core Principles
+
+- **Precision Over Speed**: Tests must validate the _exact_ number and type of events are fired for specific UI interactions.
+- **Data Integrity is Critical**: Event payloads (e.g., URLs, text values, element roles) must be rigorously verified against the actual UI state at the time of interaction.
+- **Test Complex, Realistic Scenarios**: Simple unit tests are insufficient. Workflows should mimic real user behavior, such as navigating between tabs, handling iframes, and interacting with dynamic elements like autocomplete.
+
+## Key Testing Scenarios & Assertions
+
+These are minimum quality gates for the recorder. If these scenarios fail, the recorder's implementation in [`terminator-workflow-recorder/src/recorder/windows/mod.rs`](mdc:terminator-workflow-recorder/src/recorder/windows/mod.rs) must be fixed.
+
+### 1. Form & IFrame Interaction
+
+- **Reference**: [`browser_integration_test.rs`](mdc:terminator-workflow-recorder/tests/browser_integration_test.rs)
+- **Scenario**: Fill out a form where fields are located inside an `<iframe>`.
+- **Assertions**:
+  - The test must first locate the `iframe` and use it as a scope for subsequent element lookups.
+  - For each field filled, assert that _exactly one_ `TextInputCompleted` event is fired upon completion (e.g., tabbing out).
+  - Verify the `text_value` and `field_name` in the event match the UI.
+
+### 2. Autocomplete / Suggestion Selection
+
+- **Reference**: [`text_input_integration_test.rs`](mdc:terminator-workflow-recorder/tests/text_input_integration_test.rs)
+- **Scenario**: Type into a field to trigger a dropdown, then select a suggestion using the keyboard (arrow keys + Enter).
+- **Assertions**:
+  - Assert that _exactly one_ `TextInputCompleted` event is fired.
+  - The event's `input_method` **must** be `TextInputMethod::Suggestion`.
+  - Assert that **no** spurious `ButtonClickEvent` is generated from the suggestion selection. This is a critical noise-reduction metric.
+
+### 3. Browser Navigation
+
+- **Reference**: [`browser_integration_test.rs`](mdc:terminator-workflow-recorder/tests/browser_integration_test.rs)
+- **Scenario**: Switch between browser tabs or navigate to a new URL.
+- **Assertions**:
+  - Assert a `BrowserTabNavigationEvent` is captured.
+  - Verify the `to_url` property is correct.
+  - Verify the `to_title` property. Use a `.contains()` check for robustness, as titles often include the browser name (e.g., "Example Domain - Google Chrome").
+
+## Test Implementation Pattern
+
+- **`expect_event` Helper**: Use a helper function that polls the event stream with a timeout and a **specific predicate**. The predicate should check event _content_, not just type, to avoid capturing the wrong event.
+- **`assert_no_event` Helper**: Use a helper to verify that unwanted, noisy events are _not_ generated within a short time frame after an action.
+
+## Quality Metrics to Optimize
+
+- **Maximize**:
+  - **Data Accuracy**: Correctness of event data (URLs, text values, `input_method`).
+  - **Event Correctness**: 1:1 mapping of user action to the correct event type and count.
+- **Minimize**:
+  - **Event Noise**: Spurious or redundant events for a single user action.
+  - **Test Flakiness**: Use specific predicates and iframe handling to create deterministic tests.
+  - **Event Latency**: Time between user action and event capture.
+
+# testing recorder
+
+sometimes i just want to test some elements capture with recorder, in this case i run this command in background terminal:
+
+$process = Start-Process -FilePath "cargo" -ArgumentList @("run", "--example", "debug_mcp_recording") -NoNewWindow -PassThru -RedirectStandardOutput "recording_5sec.txt" -RedirectStandardError "recording_5sec_error.txt"; Start-Sleep 5; if (!$process.HasExited) { $process.Kill(); Write-Host "Recording stopped after 5 seconds" } else { Write-Host "Process completed naturally" }; Write-Host "Exit code: $($process.ExitCode)"
+
+
+click an element, hardcoded for now:
+'''
+cargo test test_i94_website_search_click --release -- --nocapture
+'''

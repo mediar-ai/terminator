@@ -1,0 +1,36 @@
+{
+  "action": {
+    "default_title": "Terminator Bridge"
+  },
+  "background": {
+    "service_worker": "worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "js": [
+        "content.js"
+      ],
+      "match_about_blank": true,
+      "matches": [
+        "<all_urls>"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "description": "Bridge to evaluate JS in the active tab via a local WebSocket (no DevTools UI).",
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "manifest_version": 3,
+  "name": "Terminator Bridge",
+  "permissions": [
+    "debugger",
+    "tabs",
+    "scripting",
+    "activeTab",
+    "webNavigation",
+    "alarms"
+  ],
+  "version": "0.12.9"
+}

@@ -1,0 +1,118 @@
+---
+description: Building MCPs stuff
+alwaysApply: false
+---
+# MCP Development Workflow
+
+## Build Process
+**Only use this command:**
+```bash
+C:\Users\screenpipe-windows\.cargo\bin\cargo.exe build --release --bin terminator-mcp-agent
+```
+
+❌ **Never manually run/manage the MCP server** - Cursor IDE handles startup/restarts automatically
+
+## Development Loop
+1. **Edit Code** - Make changes to MCP tools
+2. **Build** - `cargo build --release --bin terminator-mcp-agent`
+3. **Test** - Cursor automatically picks up new build, tools available immediately
+4. **Debug** - Check compilation errors if tools don't work
+
+## Code Quality (Non-Negotiable)
+```bash
+cargo fmt          # Must pass - zero tolerance
+cargo clippy       # Fix ALL warnings
+```
+
+## Testing Strategy
+- **Use MCP tools directly** - Call terminator-mcp-agent tools during development
+- **No manual terminal commands** - Only use `terminator mcp` CLI for workflow testing
+- **Test individual tools first** - Verify each tool works in isolation
+- **Progressive complexity** - Simple 2-3 step workflows, then complex ones
+
+## Error Handling Patterns
+```rust
+// ✅ Good: Rich error context
+.map_err(|e| AutomationError::PlatformError(format!("Failed to {}: {}", action, e)))
+
+// ✅ Good: Full documentation with examples
+/// Description
+/// 
+/// # Examples
+/// ```rust
+/// let result = function()?;
+/// ```
+#[instrument(skip(self))]
+pub async fn function() -> Result<T, AutomationError>
+```
+
+## String Formatting
+```rust
+// ✅ Good: Implicit capture (Rust ≥ 1.58)
+format!("{count} files processed in {elapsed:?}");
+
+// ❌ Avoid: Explicit positional args
+format!("{} files processed in {:?}", count, elapsed);
+```
+
+## Memory Management
+- Async operations: `Arc<dyn Trait>`
+- Use `#[instrument]` for tracing
+- Clean up UI automation resources properly
+# MCP Development Workflow
+
+## Build Process
+**Only use this command:**
+```bash
+C:\Users\screenpipe-windows\.cargo\bin\cargo.exe build --release --bin terminator-mcp-agent
+```
+
+❌ **Never manually run/manage the MCP server** - Cursor IDE handles startup/restarts automatically
+
+## Development Loop
+1. **Edit Code** - Make changes to MCP tools
+2. **Build** - `cargo build --release --bin terminator-mcp-agent`
+3. **Test** - Cursor automatically picks up new build, tools available immediately
+4. **Debug** - Check compilation errors if tools don't work
+
+## Code Quality (Non-Negotiable)
+```bash
+cargo fmt          # Must pass - zero tolerance
+cargo clippy       # Fix ALL warnings
+```
+
+## Testing Strategy
+- **Use MCP tools directly** - Call terminator-mcp-agent tools during development
+- **No manual terminal commands** - Only use `terminator mcp` CLI for workflow testing
+- **Test individual tools first** - Verify each tool works in isolation
+- **Progressive complexity** - Simple 2-3 step workflows, then complex ones
+
+## Error Handling Patterns
+```rust
+// ✅ Good: Rich error context
+.map_err(|e| AutomationError::PlatformError(format!("Failed to {}: {}", action, e)))
+
+// ✅ Good: Full documentation with examples
+/// Description
+/// 
+/// # Examples
+/// ```rust
+/// let result = function()?;
+/// ```
+#[instrument(skip(self))]
+pub async fn function() -> Result<T, AutomationError>
+```
+
+## String Formatting
+```rust
+// ✅ Good: Implicit capture (Rust ≥ 1.58)
+format!("{count} files processed in {elapsed:?}");
+
+// ❌ Avoid: Explicit positional args
+format!("{} files processed in {:?}", count, elapsed);
+```
+
+## Memory Management
+- Async operations: `Arc<dyn Trait>`
+- Use `#[instrument]` for tracing
+- Clean up UI automation resources properly

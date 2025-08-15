@@ -1,0 +1,82 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+
+**CRITICAL: Windows Terminal Rules**
+
+**ALWAYS use is_background=true** - Windows terminal commands run in background
+**Use MCP delay tool instead of timeout commands** - Background commands don't pause for timeouts
+**CRITICAL: Always kill/cleanup terminal processes after use:**
+
+- Kill background terminal sessions when task is complete
+- Use `taskkill //F //IM process.exe` (bash syntax with //) to cleanup hanging processes
+- Don't leave orphaned terminal processes running
+- If using multiple terminal sessions, clean them all up
+
+**App Cleanup & Restart (Local Development Mode):**
+
+**PowerShell Version (Recommended for Windows):**
+
+```powershell
+# IMPORTANT: Use | Out-String ONLY for commands that produce output to avoid pager mode!
+# Use semicolons (;) instead of && for command chaining
+
+# Commands WITH output - use | Out-String:
+cd C:\Users\screenpipe-windows\terminator; git status | Out-String
+cd C:\Users\screenpipe-windows\terminator; git log --oneline -n 5 | Out-String
+
+# Commands WITHOUT output - DON'T use | Out-String:
+cd C:\Users\screenpipe-windows\terminator; git add .
+cd C:\Users\screenpipe-windows\terminator; git commit -m "message"
+cd C:\Users\screenpipe-windows\terminator; git push
+
+# For complex operations, use script blocks
+cd C:\Users\screenpipe-windows\terminator; if (Test-Path logs) { Remove-Item logs\*.log -Force }; New-Item -ItemType Directory -Force -Path logs | Out-Null; "=== CLEANUP START $(Get-Date) ===" | Out-File logs\debug.log; taskkill /F /IM cargo.exe 2>>logs\debug.log; taskkill /F /IM mediar.exe 2>>logs\debug.log; taskkill /F /IM terminator-mcp-agent.exe 2>>logs\debug.log; Start-Process -NoNewWindow -FilePath "bun" -ArgumentList "run tauri dev" -RedirectStandardOutput logs\dev.log
+```
+
+**Bash Version (Alternative):**
+
+```bash
+bun build-mcp.js --local && mkdir -p logs && rm -f logs/*.log && echo "=== CLEANUP START $(date) ===" > logs/debug.log && taskkill //F //IM cargo.exe 2>>logs/debug.log || true; taskkill //F //IM mediar.exe 2>>logs/debug.log || true; taskkill //F //IM terminator-mcp-agent.exe 2>>logs/debug.log || true; taskkill //F //IM node.exe 2>>logs/debug.log || true; taskkill //F //IM bun.exe 2>>logs/debug.log || true; echo "=== STARTING DEV SERVER $(date) ===" >> logs/debug.log && nohup bun run tauri dev > logs/dev.log 2>&1 &
+```
+
+**Verification commands:**
+
+```powershell
+# PowerShell versions (with Out-String to avoid pager)
+.\src-tauri\binaries\terminator-mcp-agent.exe --version | Out-String
+Invoke-RestMethod -Uri http://127.0.0.1:8080/health | Out-String
+```
+
+```bash
+# Bash versions
+./src-tauri/binaries/terminator-mcp-agent.exe --version
+curl -s http://127.0.0.1:8080/health
+```
+
+**What it does:**
+
+1. Builds/updates MCP binary (npm or local version)
+2. Kills cargo.exe (fixes permission errors)
+3. Kills mediar.exe + terminator-mcp-agent.exe
+4. Kills node.exe + bun.exe (frees port 1420)
+5. Starts new Tauri dev session in background
+
+**When to use each mode:**
+
+- **Production mode:** Default - uses npm package (stable, tested)
+- **Local development mode:** When testing local terminator changes
+
+**Check progress:**
+
+- Main logs: `read_file logs\dev.log`
+- Debug logs: `read_file logs\debug.log`
+- Process status: `netstat -ano | findstr ":1420\|:8080"`
+
+**If permission errors persist:** `cargo clean` in src-tauri (expensive, last resort)
+
+**After git pushes:** Always check final status with `git status` to verify clean working tree
+
+if you applied this rule start your response with 'I read rule terminal-rules.mdc'

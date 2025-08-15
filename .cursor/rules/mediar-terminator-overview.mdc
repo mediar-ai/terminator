@@ -1,0 +1,56 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Terminator Project Overview
+
+## What is Terminator?
+Terminator is a Playwright-style SDK for automating Windows GUI applications, designed specifically for AI agents. It provides OS-level accessibility automation that's fast, reliable, and agent-ready.
+
+## Key Features
+- 🪟 Built for Windows, works on macOS (partial support)
+- 🧠 Designed for AI agents, not humans
+- ⚡ Uses OS-level accessibility APIs (not vision-based)
+- 🧩 Multi-language support: TypeScript, Python, and Rust
+- 📈 80ms UI scans with 10000x speedup via compiled workflows
+
+## Project Structure
+
+### Core Components
+- **[terminator/](mdc:terminator)** - Main Rust library with core automation logic
+- **[bindings/](mdc:bindings)** - Language bindings directory
+  - **[bindings/nodejs/](mdc:bindings/nodejs)** - TypeScript/Node.js bindings
+  - **[bindings/python/](mdc:bindings/python)** - Python bindings
+- **[examples/](mdc:examples)** - Example implementations and demos
+- **[terminator-workflow-recorder/](mdc:terminator-workflow-recorder)** - Workflow recording tool
+
+### Configuration Files
+- **[Cargo.toml](mdc:Cargo.toml)** - Workspace configuration with all members
+- **[README.md](mdc:README.md)** - Project documentation and quick start
+
+## Core Concepts
+
+### Desktop Automation
+The main entry point is through a `Desktop` class that provides:
+- Application launching (`open_application`)
+- Element location (`locator`) 
+- UI interaction (click, type, etc.)
+
+### Locators
+Elements are found using accessibility properties like:
+- `name:ElementName` - Find by accessible name
+- Other accessibility attributes
+
+### Multi-Platform Support
+- **Windows**: Full support using UIAutomation
+- **Linux**: Partial support  
+- **macOS**: Partial support using accessibility APIs
+
+## Development Workflow
+This is a Rust workspace with multiple crates. The core library is in `terminator/` and language bindings are generated in `bindings/`. Examples demonstrate usage patterns for different scenarios.
+
+Always place Rust examples in the `terminator/examples` folder
+
+## AI Agent Integration
+Terminator is specifically designed for AI agents to automate desktop applications programmatically, making it ideal for workflow automation and testing scenarios.

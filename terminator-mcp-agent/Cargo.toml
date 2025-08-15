@@ -1,0 +1,60 @@
+[package]
+name = "terminator-mcp-agent"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "terminator_mcp_agent"
+path = "src/lib.rs"
+
+[[bin]]
+name = "terminator-mcp-agent"
+path = "src/main.rs"
+
+
+[dependencies]
+serde = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+terminator = { workspace = true }
+serde_json = { workspace = true }
+tracing-subscriber = { workspace = true }
+rmcp = { version = "0.4.0", features = [
+    "server",
+    "client",
+    "transport-sse-server",
+    "transport-io",
+    "transport-streamable-http-server",
+    "transport-child-process",
+] }
+futures = "0.3"
+image = { version = "0.25.1", features = ["png"] }
+base64 = "0.22.1"
+clap = { version = "4.5", features = ["derive"] }
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
+terminator-workflow-recorder = { path = "../terminator-workflow-recorder" }
+
+regex = { workspace = true }
+tempfile = "3"
+
+reqwest = { version = "0.12.5", features = ["json"] }
+
+# YAML parsing support
+serde_yaml = "0.9"
+
+# Dependencies for AI summarizer binary - TODO add behind feature flag
+ollama-rs = "0.3.2"
+arboard = "3.6.0"
+rdev = "0.5.3"
+
+
+[dev-dependencies]
+tokio-test = "0.4"
+rand = "0.8"
+
+[[example]]
+name = "terminator-ai-summarizer"
+path = "examples/terminator-ai-summarizer/src/main.rs"

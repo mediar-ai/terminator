@@ -1,0 +1,120 @@
+---
+description: If you're building output parser 
+alwaysApply: false
+---
+# Output Parser - JavaScript Format
+
+## Modern Format (Use This)
+```yaml
+output_parser:
+  ui_tree_source_step_id: capture_tree_step  # Optional
+  javascript_code: |
+    const results = [];
+    
+    function findElementsRecursively(element) {
+        if (element.attributes?.role === 'TargetRole') {
+            results.push({
+                name: element.attributes.name || '',
+                id: element.attributes.id || ''
+            });
+        }
+        element.children?.forEach(child => findElementsRecursively(child));
+    }
+    
+    findElementsRecursively(tree);
+    return results;
+```
+
+## Essential Patterns
+
+### Handle "No Data" Cases First
+```javascript
+// Always check for "no data" scenarios first
+function hasNoData(element) {
+    const text = element.attributes?.name?.toLowerCase() || '';
+    if (text.includes('no results') || text.includes('ineligible')) return true;
+    return element.children?.some(hasNoData) || false;
+}
+
+if (hasNoData(tree)) return [];
+```
+
+### Safe Property Access
+- Use `element.attributes?.property` (never `element.attributes.property`)
+- Use `element.children?.forEach()` (never manual loops)
+- Use `|| ''` for string defaults, `|| false` for boolean defaults
+
+### Parent-Child Patterns
+```javascript
+if (element.attributes?.role === 'Group') {
+    const children = element.children || [];
+    const hasImage = children.some(c => c.attributes?.role === 'Image');
+    const hasText = children.some(c => c.attributes?.role === 'Text');
+    if (hasImage && hasText) {
+        // Extract data from qualifying groups
+    }
+}
+```
+
+## Legacy Formats (Do Not Use)
+❌ JSONPath: `container_selector`, `filters`, `field_mappings`
+❌ Item Containers: `itemContainerDefinition`, `fieldsToExtract`
+❌ Old properties: `uiTreeJsonPath`, `nodeConditions`
+# Output Parser - JavaScript Format
+
+## Modern Format (Use This)
+```yaml
+output_parser:
+  ui_tree_source_step_id: capture_tree_step  # Optional
+  javascript_code: |
+    const results = [];
+    
+    function findElementsRecursively(element) {
+        if (element.attributes?.role === 'TargetRole') {
+            results.push({
+                name: element.attributes.name || '',
+                id: element.attributes.id || ''
+            });
+        }
+        element.children?.forEach(child => findElementsRecursively(child));
+    }
+    
+    findElementsRecursively(tree);
+    return results;
+```
+
+## Essential Patterns
+
+### Handle "No Data" Cases First
+```javascript
+// Always check for "no data" scenarios first
+function hasNoData(element) {
+    const text = element.attributes?.name?.toLowerCase() || '';
+    if (text.includes('no results') || text.includes('ineligible')) return true;
+    return element.children?.some(hasNoData) || false;
+}
+
+if (hasNoData(tree)) return [];
+```
+
+### Safe Property Access
+- Use `element.attributes?.property` (never `element.attributes.property`)
+- Use `element.children?.forEach()` (never manual loops)
+- Use `|| ''` for string defaults, `|| false` for boolean defaults
+
+### Parent-Child Patterns
+```javascript
+if (element.attributes?.role === 'Group') {
+    const children = element.children || [];
+    const hasImage = children.some(c => c.attributes?.role === 'Image');
+    const hasText = children.some(c => c.attributes?.role === 'Text');
+    if (hasImage && hasText) {
+        // Extract data from qualifying groups
+    }
+}
+```
+
+## Legacy Formats (Do Not Use)
+❌ JSONPath: `container_selector`, `filters`, `field_mappings`
+❌ Item Containers: `itemContainerDefinition`, `fieldsToExtract`
+❌ Old properties: `uiTreeJsonPath`, `nodeConditions`

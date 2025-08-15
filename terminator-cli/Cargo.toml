@@ -1,0 +1,40 @@
+[package]
+name = "terminator-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "terminator"
+path = "src/main.rs"
+
+[[bin]]
+name = "cargo-terminator"
+path = "src/bin/cargo-terminator.rs"
+
+[dependencies]
+serde_json = "1.0.140"
+serde_yaml = "0.9"
+clap = { version = "4.4", features = ["derive", "env"] }
+tokio = { version = "1", features = [
+    "rt",
+    "macros",
+    "rt-multi-thread",
+    "process",
+    "full",
+] }
+anyhow = "1.0"
+
+rmcp = { version = "0.4.0", features = [
+    "transport-child-process",
+    "client",
+    "transport-streamable-http-client",
+    "reqwest",
+] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+
+dotenvy = "0.15.7"
+reqwest = { version = "0.12.22", features = ["json", "rustls-tls"] }
+
+anthropic-sdk = "0.1.5"

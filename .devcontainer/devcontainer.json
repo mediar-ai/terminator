@@ -1,0 +1,6 @@
+{
+    "name": "Terminator",
+    "build": {
+        "dockerfile": "Dockerfile"
+    }
+}

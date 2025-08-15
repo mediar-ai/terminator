@@ -1,0 +1,192 @@
+---
+description: Building workflows
+alwaysApply: false
+---
+# Workflow YAML Standards
+
+## Required Structure
+```yaml
+tool_name: execute_sequence
+arguments:
+  variables:
+    # Define reusable variables with types
+  inputs: 
+    # Override variables for this run
+  selectors:
+    # Give UI elements meaningful nicknames
+  steps:
+    # Automation sequence
+  output_parser:
+    # JavaScript-based data extraction
+```
+
+## Selector Naming
+```yaml
+selectors:
+  # ✅ Good: Descriptive, specific
+  browser_window: "role:Window|name:Best Plan Pro Online"
+  submit_button: "role:Button|name:Submit"
+  email_field: "nativeid:email-input"
+  
+  # ❌ Bad: Generic, unclear
+  window1: "role:Window"
+  btn: "role:Button"
+```
+
+## Step Patterns
+```yaml
+# ✅ Good: Robust with error handling
+- tool_name: click_element
+  arguments:
+    selector: "${{selectors.submit_button}}"
+    timeout_ms: 2000
+    include_tree: false
+    retries: 2
+  continue_on_error: true
+  delay_ms: 500
+
+# ✅ Good: Grouped related steps
+- group_name: "Handle EULA (Skippable)"
+  skippable: true
+  steps:
+    - tool_name: click_element
+      arguments:
+        selector: "role:Button|name:Accept"
+      continue_on_error: true
+```
+
+## Variable Types
+```yaml
+variables:
+  url:
+    type: string
+    default: "https://example.com"
+  
+  product_list:
+    type: array
+    default: ["item1", "item2"]
+    
+  is_enabled:
+    type: enum
+    options: ["Yes", "No"]
+    default: "Yes"
+```
+
+## Output Parser (Modern)
+```yaml
+output_parser:
+  ui_tree_source_step_id: capture_data
+  javascript_code: |
+    // Check for no-data cases first
+    if (hasNoData(tree)) return [];
+    
+    // Extract with safe property access
+    const results = [];
+    element.children?.forEach(child => {
+        if (child.attributes?.role === 'Target') {
+            results.push({ name: child.attributes.name || '' });
+        }
+    });
+    return results;
+```
+
+## Best Practices
+- **Always use variable substitution**: `"${{variable}}"` not hardcoded values
+- **Include step IDs for trees**: `id: capture_data` when capturing UI state
+- **Use meaningful step names**: Describe what the step accomplishes
+- **Group related steps**: Use `group_name` for logical sections
+- **Handle failures gracefully**: `continue_on_error: true` for optional steps
+# Workflow YAML Standards
+
+## Required Structure
+```yaml
+tool_name: execute_sequence
+arguments:
+  variables:
+    # Define reusable variables with types
+  inputs: 
+    # Override variables for this run
+  selectors:
+    # Give UI elements meaningful nicknames
+  steps:
+    # Automation sequence
+  output_parser:
+    # JavaScript-based data extraction
+```
+
+## Selector Naming
+```yaml
+selectors:
+  # ✅ Good: Descriptive, specific
+  browser_window: "role:Window|name:Best Plan Pro Online"
+  submit_button: "role:Button|name:Submit"
+  email_field: "nativeid:email-input"
+  
+  # ❌ Bad: Generic, unclear
+  window1: "role:Window"
+  btn: "role:Button"
+```
+
+## Step Patterns
+```yaml
+# ✅ Good: Robust with error handling
+- tool_name: click_element
+  arguments:
+    selector: "${{selectors.submit_button}}"
+    timeout_ms: 2000
+    include_tree: false
+    retries: 2
+  continue_on_error: true
+  delay_ms: 500
+
+# ✅ Good: Grouped related steps
+- group_name: "Handle EULA (Skippable)"
+  skippable: true
+  steps:
+    - tool_name: click_element
+      arguments:
+        selector: "role:Button|name:Accept"
+      continue_on_error: true
+```
+
+## Variable Types
+```yaml
+variables:
+  url:
+    type: string
+    default: "https://example.com"
+  
+  product_list:
+    type: array
+    default: ["item1", "item2"]
+    
+  is_enabled:
+    type: enum
+    options: ["Yes", "No"]
+    default: "Yes"
+```
+
+## Output Parser (Modern)
+```yaml
+output_parser:
+  ui_tree_source_step_id: capture_data
+  javascript_code: |
+    // Check for no-data cases first
+    if (hasNoData(tree)) return [];
+    
+    // Extract with safe property access
+    const results = [];
+    element.children?.forEach(child => {
+        if (child.attributes?.role === 'Target') {
+            results.push({ name: child.attributes.name || '' });
+        }
+    });
+    return results;
+```
+
+## Best Practices
+- **Always use variable substitution**: `"${{variable}}"` not hardcoded values
+- **Include step IDs for trees**: `id: capture_data` when capturing UI state
+- **Use meaningful step names**: Describe what the step accomplishes
+- **Group related steps**: Use `group_name` for logical sections
+- **Handle failures gracefully**: `continue_on_error: true` for optional steps

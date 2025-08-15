@@ -1,0 +1,68 @@
+[package]
+name = "terminator-workflow-recorder"
+version = { workspace = true }
+edition = "2021"
+description = "A crate for recording user workflows on Windows"
+authors = ["Terminator Contributors"]
+repository = "https://github.com/mediar-ai/terminator"
+homepage = "https://github.com/mediar-ai/terminator"
+documentation = "https://docs.rs/terminator-workflow-recorder"
+readme = "README.md"
+keywords = ["automation", "workflow", "recording", "windows", "ui"]
+categories = [
+    "accessibility",
+    "development-tools",
+    "development-tools::testing",
+]
+license-file = { workspace = true }
+
+[dependencies]
+terminator = { workspace = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+tokio-stream = "0.1"
+async-stream = "0.3"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+chrono = "0.4"
+ctrlc = "3.4"
+anyhow = "1.0"
+rdev = "0.5.2"
+notify = "8.0"
+arboard = "3.0"
+
+[dev-dependencies]
+terminator = { workspace = true }
+tempfile = "3.0"
+criterion = "0.5"                 # For benchmarking
+sysinfo = { workspace = true }    # For CPU monitoring
+rand = "0.8"                      # For random element selection in benchmarks
+
+# Windows-specific dependencies
+[target.'cfg(target_os = "windows")'.dependencies]
+uiautomation = { workspace = true, features = ["event", "pattern"] }
+# uiautomation = { git = "https://github.com/mediar-ai/uiautomation-rs", branch = "main", features = [
+#     "event",
+#     "pattern",
+# ] }
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_DataExchange",
+    "Win32_System_Threading",
+    "Win32_Storage_FileSystem",
+    "Win32_UI_Shell",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_Input",
+    "Win32_System_Diagnostics_ToolHelp",
+] }
+
+[lib]
+name = "terminator_workflow_recorder"
+path = "src/lib.rs"
+
+[[example]]
+name = "record_workflow"
+path = "examples/record_workflow.rs"

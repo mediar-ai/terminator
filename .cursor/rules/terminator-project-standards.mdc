@@ -1,0 +1,103 @@
+---
+alwaysApply: true
+---
+# Terminator Project Standards
+
+## Project Overview
+Terminator is a Playwright-style SDK for automating Windows GUI applications, designed for AI agents. Uses OS-level accessibility APIs (not vision-based).
+
+## Core Architecture
+- **[terminator/src/](mdc:terminator/src)** - Main Rust library with platform traits in [platforms/mod.rs](mdc:terminator/src/platforms/mod.rs)
+- **[bindings/](mdc:bindings)** - Python and Node.js wrappers around Rust core
+- **[terminator-mcp-agent/](mdc:terminator-mcp-agent)** - MCP server for AI agent integration
+- **[examples/](mdc:examples)** - Integration tests and usage examples
+
+## API Design Patterns
+```rust
+// ✅ Good: Async, chainable, type-safe
+let monitor = desktop.get_primary_monitor().await?;
+let screenshot = desktop.capture_monitor(&monitor).await?;
+
+// ✅ Good: Rich error context
+.map_err(|e| AutomationError::PlatformError(format!("Failed to capture {}: {}", id, e)))
+```
+
+## Selector Preferences (Order of Priority)
+1. **Automation ID first**: `nativeid:value`
+2. **Role + Name**: `role:Button|name:Submit`
+3. **ID as last resort**: `#12345`
+
+## Platform-Specific Code
+```rust
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::Accessibility::*;
+
+#[cfg(target_os = "macos")]  
+use accessibility::*;
+```
+
+## Performance Targets
+- UI scans: <80ms
+- Screenshots: <100ms  
+- Memory: <10MB baseline
+
+## Examples Location
+- **Rust examples**: Always place in [terminator/examples/](mdc:terminator/examples)
+- **Keep simple**: One concept per example
+- **Integration tests**: Examples serve as integration tests
+
+## Workflow Development
+- Use [terminator-mcp-agent](mdc:terminator-mcp-agent) tools during development
+- Test with real applications, not mocks
+- Handle "no data" scenarios explicitly
+- Validate selectors work across application states
+# Terminator Project Standards
+
+## Project Overview
+Terminator is a Playwright-style SDK for automating Windows GUI applications, designed for AI agents. Uses OS-level accessibility APIs (not vision-based).
+
+## Core Architecture
+- **[terminator/src/](mdc:terminator/src)** - Main Rust library with platform traits in [platforms/mod.rs](mdc:terminator/src/platforms/mod.rs)
+- **[bindings/](mdc:bindings)** - Python and Node.js wrappers around Rust core
+- **[terminator-mcp-agent/](mdc:terminator-mcp-agent)** - MCP server for AI agent integration
+- **[examples/](mdc:examples)** - Integration tests and usage examples
+
+## API Design Patterns
+```rust
+// ✅ Good: Async, chainable, type-safe
+let monitor = desktop.get_primary_monitor().await?;
+let screenshot = desktop.capture_monitor(&monitor).await?;
+
+// ✅ Good: Rich error context
+.map_err(|e| AutomationError::PlatformError(format!("Failed to capture {}: {}", id, e)))
+```
+
+## Selector Preferences (Order of Priority)
+1. **Automation ID first**: `nativeid:value`
+2. **Role + Name**: `role:Button|name:Submit`
+3. **ID as last resort**: `#12345`
+
+## Platform-Specific Code
+```rust
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::Accessibility::*;
+
+#[cfg(target_os = "macos")]  
+use accessibility::*;
+```
+
+## Performance Targets
+- UI scans: <80ms
+- Screenshots: <100ms  
+- Memory: <10MB baseline
+
+## Examples Location
+- **Rust examples**: Always place in [terminator/examples/](mdc:terminator/examples)
+- **Keep simple**: One concept per example
+- **Integration tests**: Examples serve as integration tests
+
+## Workflow Development
+- Use [terminator-mcp-agent](mdc:terminator-mcp-agent) tools during development
+- Test with real applications, not mocks
+- Handle "no data" scenarios explicitly
+- Validate selectors work across application states

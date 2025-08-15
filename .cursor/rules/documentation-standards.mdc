@@ -1,0 +1,124 @@
+---
+description: If you're writing docs
+alwaysApply: false
+---
+# Documentation Standards
+
+## Maximize Value, Minimize Noise
+
+### Structure
+- **Quick reference format** over verbose tutorials
+- **Essential patterns only** - no redundant examples
+- **Actionable information** - remove theory and fluff
+- **Scannable in seconds** - developers shouldn't need to read paragraphs
+
+### Content Guidelines
+✅ **Keep:**
+- Basic usage syntax
+- Essential patterns (3-5 max)
+- 1 complete real-world example
+- Practical tips only (5 max)
+
+❌ **Remove:**
+- Verbose explanations
+- Multiple similar patterns
+- "Benefits" and "advantages" sections
+- Performance tips unless critical
+- Long migration guides
+- Theoretical concepts
+
+### Examples
+
+**Bad (Verbose):**
+```md
+## Overview
+This comprehensive guide will walk you through the various approaches to...
+
+### Benefits of This Approach
+1. Full programming power
+2. Complex logic handling
+3. Data enrichment capabilities
+...
+```
+
+**Good (Concise):**
+```md
+## Usage
+```yaml
+tool: example
+args: { value: "data" }
+```
+
+### Patterns
+- Pattern 1: `if (condition) { ... }`
+- Pattern 2: `element.children?.forEach()`
+
+### Tips
+- Use `?.` for safety
+- Return `[]` for no-data
+```
+
+### File Purpose
+- `docs/` = Core reference (syntax + patterns)
+- `workflows/` guides = Migration helpers only
+- README = High-level overview
+# Documentation Standards
+
+## Maximize Value, Minimize Noise
+
+### Structure
+- **Quick reference format** over verbose tutorials
+- **Essential patterns only** - no redundant examples
+- **Actionable information** - remove theory and fluff
+- **Scannable in seconds** - developers shouldn't need to read paragraphs
+
+### Content Guidelines
+✅ **Keep:**
+- Basic usage syntax
+- Essential patterns (3-5 max)
+- 1 complete real-world example
+- Practical tips only (5 max)
+
+❌ **Remove:**
+- Verbose explanations
+- Multiple similar patterns
+- "Benefits" and "advantages" sections
+- Performance tips unless critical
+- Long migration guides
+- Theoretical concepts
+
+### Examples
+
+**Bad (Verbose):**
+```md
+## Overview
+This comprehensive guide will walk you through the various approaches to...
+
+### Benefits of This Approach
+1. Full programming power
+2. Complex logic handling
+3. Data enrichment capabilities
+...
+```
+
+**Good (Concise):**
+```md
+## Usage
+```yaml
+tool: example
+args: { value: "data" }
+```
+
+### Patterns
+- Pattern 1: `if (condition) { ... }`
+- Pattern 2: `element.children?.forEach()`
+
+### Tips
+- Use `?.` for safety
+- Return `[]` for no-data
+```
+
+### File Purpose
+- `docs/` = Core reference (syntax + patterns)
+- `workflows/` guides = Migration helpers only
+- README = High-level overview
