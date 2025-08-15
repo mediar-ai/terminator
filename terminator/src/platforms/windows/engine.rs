@@ -1578,39 +1578,65 @@ impl AccessibilityEngine for WindowsEngine {
     ) -> Result<UIElement, AutomationError> {
         info!("Opening URL on Windows: {} (browser: {:?})", url, browser);
 
-        let url_clone = url.to_string();
-        let handle = thread::spawn(move || -> Result<String, AutomationError> {
-            let client = reqwest::blocking::Client::builder()
-                .danger_accept_invalid_certs(true)
-                .build()
-                .map_err(|e| {
-                    AutomationError::PlatformError(format!("Failed to build http client: {e}"))
-                })?;
+        // Only try to pre-fetch title for http(s) URLs. For browser-internal schemes
+        // like chrome:// or edge://, skip network fetch entirely.
+        let title: String = if url.starts_with("http://") || url.starts_with("https://") {
+            let url_clone = url.to_string();
+            let handle = thread::spawn(move || -> Result<String, AutomationError> {
+                let client = reqwest::blocking::Client::builder()
+                    .danger_accept_invalid_certs(true)
+                    .build()
+                    .map_err(|e| {
+                        AutomationError::PlatformError(format!("Failed to build http client: {e}"))
+                    })?;
 
-            let html = client
-                .get(&url_clone)
-                .send()
-                .map_err(|e| AutomationError::PlatformError(format!("Failed to fetch url: {e}")))?
-                .text()
-                .map_err(|e| {
-                    AutomationError::PlatformError(format!("Fetched url content is not valid: {e}"))
-                })?;
+                let html = client
+                    .get(&url_clone)
+                    .send()
+                    .map_err(|e| {
+                        AutomationError::PlatformError(format!("Failed to fetch url: {e}"))
+                    })?
+                    .text()
+                    .map_err(|e| {
+                        AutomationError::PlatformError(format!(
+                            "Fetched url content is not valid: {e}"
+                        ))
+                    })?;
 
-            let title = regex::Regex::new(r"(?is)<title>(.*?)</title>")
-                .unwrap()
-                .captures(&html)
-                .and_then(|caps| caps.get(1).map(|m| m.as_str().trim().to_string()))
-                .unwrap_or_default();
+                let title = regex::Regex::new(r"(?is)<title>(.*?)</title>")
+                    .unwrap()
+                    .captures(&html)
+                    .and_then(|caps| caps.get(1).map(|m| m.as_str().trim().to_string()))
+                    .unwrap_or_default();
 
-            Ok(title)
-        });
+                Ok(title)
+            });
 
-        let title = handle
-            .join()
-            .map_err(|_| AutomationError::PlatformError("thread panicked :(".to_string()))??;
-        debug!("Extracted title from url: '{:?}'", title);
+            let title = handle
+                .join()
+                .map_err(|_| AutomationError::PlatformError("thread panicked :(".to_string()))??;
+            debug!("Extracted title from url: '{:?}'", title);
+            title
+        } else {
+            debug!(
+                "Skipping network fetch for non-http(s) URL scheme; proceeding to ShellExecuteW"
+            );
+            String::new()
+        };
 
-        let (browser_exe, browser_search_name): (Option<String>, String) = match browser.as_ref() {
+        // Auto-select a browser for internal schemes if none was specified
+        let mut inferred_browser = browser.clone();
+        if inferred_browser.is_none() {
+            if url.starts_with("chrome://") {
+                inferred_browser = Some(crate::Browser::Chrome);
+            } else if url.starts_with("edge://") {
+                inferred_browser = Some(crate::Browser::Edge);
+            }
+        }
+
+        let (browser_exe, browser_search_name): (Option<String>, String) = match inferred_browser
+            .as_ref()
+        {
             Some(crate::Browser::Chrome) => (Some("chrome.exe".to_string()), "chrome".to_string()),
             Some(crate::Browser::Firefox) => {
                 (Some("firefox.exe".to_string()), "firefox".to_string())

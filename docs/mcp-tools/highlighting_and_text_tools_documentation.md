@@ -17,8 +17,8 @@ Highlights an element with a colored border and optional text overlay for visual
 | `selector`                    | string  | Yes      | -          | Element selector (can be chained with `>>`)        |
 | `alternative_selectors`       | string  | No       | -          | Alternative selectors to try in parallel           |
 | `fallback_selectors`          | string  | No       | -          | Fallback selectors to try if primary fails         |
-| `color`                       | number  | No       | `0x0000FF` | BGR color code for highlight border                |
-| `duration_ms`                 | number  | No       | `1000`     | Duration in milliseconds                           |
+| `color`                       | number  | No       | `0x00FF00` | BGR color code for highlight border (bright green) |
+| `duration_ms`                 | number  | No       | `2000`     | Duration in milliseconds (2 seconds recommended)   |
 | `text`                        | string  | No       | -          | Text to display as overlay (truncated to 10 chars) |
 | `text_position`               | enum    | No       | -          | Position of text relative to element               |
 | `font_style`                  | object  | No       | -          | Font styling options                               |
@@ -62,8 +62,8 @@ interface FontStyle {
   "tool_name": "highlight_element",
   "args": {
     "selector": "role:Button|name:Submit",
-    "color": 0x00FF00,  // Green border
-    "duration_ms": 2000
+    "color": 0x00FF00,  // Bright green border (recommended)
+    "duration_ms": 2000  // 2 seconds for good visibility
   }
 }
 ```
@@ -292,20 +292,39 @@ All colors use BGR (Blue-Green-Red) format as 32-bit integers:
 
 ## Implementation Notes
 
-### Current Behavior
+### Current Behavior (Overlay-Based System)
 
-- Highlights draw ONCE and persist for the specified duration (fixed overdraw issue)
-- Both border and text are drawn once at the beginning
-- HighlightHandle automatically cleans up when duration expires
-- Text is currently limited to 10 characters in the MCP layer (30 in core library)
-- Integrated with `record_workflow` tool for visual feedback during recording
+- **Overlay windows:** Uses transparent, layered Windows API windows instead of direct screen drawing
+- **Precise timing:** Highlights persist for exact requested duration (fixed 50ms timing bug)
+- **DPI scaling:** Automatic DPI awareness with `TERMINATOR_NO_DPI=1` fallback for debugging
+- **Enhanced logging:** `OVERLAY_THREAD_START/DONE` logs for verification without visual confirmation
+- **Improved visibility:** 6px border thickness and bright green (`0x00FF00`) recommended for visibility
+- **Lifecycle management:** HighlightHandle automatically cleans up when duration expires
+- **Text overlays:** Text positioning and styling with multiple position options
+- **Workflow integration:** Seamlessly integrated with `record_workflow` tool for visual feedback during recording
+
+### Troubleshooting
+
+**Highlights not visible:**
+
+- Set `TERMINATOR_NO_DPI=1` environment variable to disable DPI scaling
+- Ensure target window is in foreground and not blocked by other always-on-top applications
+- Increase `duration_ms` to 3000+ for better visibility
+- Use bright colors like `0x00FF00` (green) or `0x00FFFF` (yellow) for contrast
+- Check server logs for `OVERLAY_THREAD_START/DONE` to confirm highlighting executed
+
+**Timing issues:**
+
+- Our overlay system ensures exact duration timing (fixed previous 50ms bug)
+- Duration is managed by the highlight thread, not the MCP tool return
+- Use longer durations (2000ms+) for manual verification
 
 ### For Developers
 
 To implement the proposed tools, you would need to:
 
 1. **Stop Highlighting:** Track active highlight handles in server state
-2. **Text Overlays:** Implement platform-specific text rendering (GDI on Windows)
+2. **Text Overlays:** Implement platform-specific text rendering (already implemented in overlay system)
 3. **Area Highlighting:** Create coordinate-based highlighting without element targeting
 
 ### Platform Support
@@ -328,8 +347,9 @@ The highlighting tool is automatically used when recording workflows:
     "workflow_name": "My Workflow",
     "highlight_mode": {
       "enabled": true,
-      "duration_ms": 500,
-      "show_labels": true  // Shows "CLICK", "TYPE", etc.
+      "duration_ms": 2000,  // 2 seconds for visibility
+      "color": 0x00FF00,    // Bright green for contrast
+      "show_labels": true   // Shows "CLICK", "TYPE", etc.
     }
   }
 }

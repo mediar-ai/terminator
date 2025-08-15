@@ -1254,4 +1254,6 @@ pub struct RecordWorkflowArgs {
     pub low_energy_mode: Option<bool>,
     /// Visual highlighting configuration for recorded UI interactions
     pub highlight_mode: Option<HighlightConfig>,
+    /// Whether to record scroll events (default: false to reduce noise)
+    pub record_scroll_events: Option<bool>,
 }

@@ -6,17 +6,33 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 use uiautomation::UIElement;
 // Windows GDI imports
 use windows::Win32::Foundation::{COLORREF, POINT, RECT};
 use windows::Win32::Graphics::Gdi::{
-    CreateFontW, CreatePen, DeleteObject, DrawTextW, GetDC, GetStockObject, Rectangle, ReleaseDC,
-    SelectObject, SetBkMode, SetTextColor, DT_SINGLELINE, HGDIOBJ, NULL_BRUSH, PS_SOLID,
+    CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW, FillRect, GetDC, Rectangle,
+    ReleaseDC, SelectObject, SetBkMode, SetTextColor, DT_SINGLELINE, HBRUSH, HGDIOBJ, PS_SOLID,
     TRANSPARENT,
 };
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+// Additional imports for overlay window approach
+use windows::core::{w, PCWSTR};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::WindowsAndMessaging::{
+    CreateWindowExW, DefWindowProcW, GetClientRect, LoadCursorW, RegisterClassExW,
+    SetLayeredWindowAttributes, ShowWindow, HICON, IDC_ARROW, LWA_COLORKEY, SW_SHOWNOACTIVATE,
+    WM_DESTROY, WM_PAINT, WNDCLASSEXW, WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    WS_EX_TRANSPARENT, WS_POPUP,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+};
+
+const OVERLAY_CLASS_NAME: PCWSTR = w!("TerminatorHighlightOverlay");
 
 /// Implementation of element highlighting for Windows UI elements
 pub fn highlight(
@@ -41,22 +57,25 @@ pub fn highlight(
         rect.get_height()
     );
 
-    // Try to get scale factor from focused window first, fall back to cursor position
-    let scale_factor =
-        get_scale_factor_from_focused_window().unwrap_or_else(get_scale_factor_from_cursor);
+    // Try to get scale factor from focused window first, fall back to cursor position,
+    // but allow disabling via env for debugging
+    let scale_factor = if std::env::var("TERMINATOR_NO_DPI").is_ok() {
+        1.0
+    } else {
+        get_scale_factor_from_focused_window().unwrap_or_else(get_scale_factor_from_cursor)
+    };
 
     // Constants for border appearance
-    const BORDER_SIZE: i32 = 4;
     const DEFAULT_RED_COLOR: u32 = 0x0000FF; // Pure red in BGR format
 
     // Use provided color or default to red
     let highlight_color = color.unwrap_or(DEFAULT_RED_COLOR);
 
     // Scale the coordinates and dimensions
-    let x = (rect.get_left() as f64 * scale_factor) as i32;
-    let y = (rect.get_top() as f64 * scale_factor) as i32;
-    let width = (rect.get_width() as f64 * scale_factor) as i32;
-    let height = (rect.get_height() as f64 * scale_factor) as i32;
+    let mut x = (rect.get_left() as f64 * scale_factor) as i32;
+    let mut y = (rect.get_top() as f64 * scale_factor) as i32;
+    let mut width = (rect.get_width() as f64 * scale_factor) as i32;
+    let mut height = (rect.get_height() as f64 * scale_factor) as i32;
 
     // Validate coordinates
     if width <= 0 || height <= 0 {
@@ -69,6 +88,30 @@ pub fn highlight(
         "Scaled highlight coordinates: x={}, y={}, width={}, height={}, scale_factor={}",
         x, y, width, height, scale_factor
     );
+
+    // Validate coordinates against virtual screen bounds; if out-of-bounds, fallback to no-DPI scaling
+    let vs_x = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
+    let vs_y = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
+    let vs_w = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) };
+    let vs_h = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN) };
+    let out_of_bounds = x < vs_x - 100
+        || y < vs_y - 100
+        || x + width > vs_x + vs_w + 100
+        || y + height > vs_y + vs_h + 100;
+    if out_of_bounds && (scale_factor - 1.0).abs() > f64::EPSILON {
+        info!(
+            "DPI fallback: coords out of virtual screen (vs: {},{} {}x{}). Using unscaled bounds.",
+            vs_x, vs_y, vs_w, vs_h
+        );
+        x = rect.get_left();
+        y = rect.get_top();
+        width = rect.get_width();
+        height = rect.get_height();
+        debug!(
+            "Unscaled highlight coordinates: x={}, y={}, width={}, height={}",
+            x, y, width, height
+        );
+    }
 
     // Prepare text overlay data (no truncation for better readability)
     let text_data = text.map(|t| {
@@ -91,52 +134,86 @@ pub fn highlight(
         let start_time = Instant::now();
         let duration = duration.unwrap_or(Duration::from_millis(3000)); // Default 3 seconds
 
-        debug!("Starting highlight thread for duration: {:?}", duration);
+        info!("OVERLAY_THREAD_START duration_ms={}", duration.as_millis());
 
-        // Draw text overlay ONCE at the beginning if provided
-        if let Some((ref text, ref font_style, position)) = text_data {
-            draw_text_overlay(text, font_style, position, x, y, width, height);
-        }
+        // Compute overlay extents and draw overlay window content
+        let mut overlay_x = x;
+        let mut overlay_y = y;
+        let mut overlay_w = width;
+        let mut overlay_h = height;
+        let mut border_offset_x = 0;
+        let mut border_offset_y = 0;
+        let mut text_rect: Option<(i32, i32, i32, i32)> = None; // (x, y, w, h) relative to overlay
 
-        // Draw border ONCE at the beginning (same as text overlay)
-        debug!("Drawing highlight border once");
-        let hdc = unsafe { GetDC(None) };
-        if !hdc.0.is_null() {
-            unsafe {
-                // Create a pen for drawing with the specified color
-                let hpen = CreatePen(PS_SOLID, BORDER_SIZE, COLORREF(highlight_color));
-                if !hpen.0.is_null() {
-                    // Save current objects
-                    let old_pen = SelectObject(hdc, HGDIOBJ(hpen.0));
-                    let null_brush = GetStockObject(NULL_BRUSH);
-                    let old_brush = SelectObject(hdc, null_brush);
-
-                    // Draw the border rectangle ONCE
-                    let _ = Rectangle(hdc, x, y, x + width, y + height);
-                    debug!(
-                        "Border drawn at x={}, y={}, width={}, height={}",
-                        x, y, width, height
-                    );
-
-                    // Restore original objects and clean up
-                    SelectObject(hdc, old_brush);
-                    SelectObject(hdc, old_pen);
-                    let _ = DeleteObject(HGDIOBJ(hpen.0));
-                }
-                ReleaseDC(None, hdc);
-            }
+        if let Some((_, ref fs, pos)) = text_data {
+            // Approximate text box size and position
+            let (tw, th) = if fs.size > 0 {
+                (width.clamp(200, 600), (fs.size as i32 + 22).max(40))
+            } else {
+                (width.max(200), 50)
+            };
+            let (tx_abs, ty_abs) = match pos {
+                TextPosition::Top => (x, y - th - 10),
+                TextPosition::TopRight => (x + width + 15, y - th - 10),
+                TextPosition::Right => (x + width + 15, y + height / 2 - th / 2),
+                TextPosition::BottomRight => (x + width + 15, y + height + 15),
+                TextPosition::Bottom => (x, y + height + 15),
+                TextPosition::BottomLeft => (x - tw - 15, y + height + 15),
+                TextPosition::Left => (x - tw - 15, y + height / 2 - th / 2),
+                TextPosition::TopLeft => (x - tw - 15, y - th - 10),
+                TextPosition::Inside => (x + 15, y + 15),
+            };
+            let right = (x + width).max(tx_abs + tw);
+            let bottom = (y + height).max(ty_abs + th);
+            overlay_x = overlay_x.min(tx_abs);
+            overlay_y = overlay_y.min(ty_abs);
+            overlay_w = right - overlay_x;
+            overlay_h = bottom - overlay_y;
+            border_offset_x = x - overlay_x;
+            border_offset_y = y - overlay_y;
+            text_rect = Some((tx_abs - overlay_x, ty_abs - overlay_y, tw, th));
+            debug!(
+                "Overlay with text: overlay_x={}, overlay_y={}, overlay_w={}, overlay_h={}, border_offset=({}, {}), text_rect={:?}",
+                overlay_x, overlay_y, overlay_w, overlay_h, border_offset_x, border_offset_y, text_rect
+            );
         } else {
-            debug!("Failed to get device context for highlighting");
+            debug!(
+                "Overlay without text: overlay_x={}, overlay_y={}, overlay_w={}, overlay_h={}",
+                overlay_x, overlay_y, overlay_w, overlay_h
+            );
         }
 
-        // Wait for the specified duration without redrawing
+        if let Err(e) = create_and_show_overlay(
+            overlay_x,
+            overlay_y,
+            overlay_w,
+            overlay_h,
+            border_offset_x,
+            border_offset_y,
+            width,
+            height,
+            highlight_color,
+            text_data
+                .as_ref()
+                .map(|(t, fs, _)| (t.as_str(), fs.clone())),
+            text_rect,
+        ) {
+            error!("Failed to create overlay highlight: {}", e);
+        }
+
         debug!("Waiting for highlight duration: {:?}", duration);
         while start_time.elapsed() < duration && !should_close_clone.load(Ordering::Relaxed) {
-            // Check periodically if we should close early
             thread::sleep(Duration::from_millis(50));
         }
 
-        debug!("Highlight completed after {:?}", start_time.elapsed());
+        // Let the overlay window be destroyed by the OS when the process exits
+        // or when a subsequent highlight replaces it. Avoid explicit DestroyWindow
+        // here to reduce flakiness if the caller drops the handle early.
+
+        info!(
+            "OVERLAY_THREAD_DONE elapsed_ms={}",
+            start_time.elapsed().as_millis()
+        );
     });
 
     Ok(HighlightHandle {
@@ -181,98 +258,206 @@ fn get_scale_factor_from_focused_window() -> Option<f64> {
     }
 }
 
-/// Helper function to draw text overlay
-fn draw_text_overlay(
-    text: &str,
-    font_style: &FontStyle,
-    position: TextPosition,
+// Thread-local storage for the last created overlay window to destroy later
+thread_local! {
+    static LAST_CREATED_OVERLAY: std::cell::RefCell<Option<HWND>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Creates and shows a transparent overlay window and draws the highlight and optional text
+#[allow(clippy::too_many_arguments)]
+fn create_and_show_overlay(
     x: i32,
     y: i32,
     width: i32,
     height: i32,
+    border_offset_x: i32,
+    border_offset_y: i32,
+    element_w: i32,
+    element_h: i32,
+    border_color_bgr: u32,
+    text: Option<(&str, FontStyle)>,
+    text_rect: Option<(i32, i32, i32, i32)>,
+) -> Result<(), AutomationError> {
+    unsafe {
+        let instance = GetModuleHandleW(None)
+            .map_err(|e| AutomationError::PlatformError(format!("GetModuleHandleW failed: {e}")))?;
+
+        // Register window class (ignore already registered)
+        let wc = WNDCLASSEXW {
+            cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+            style: windows::Win32::UI::WindowsAndMessaging::WNDCLASS_STYLES(0),
+            lpfnWndProc: Some(overlay_window_proc),
+            cbClsExtra: 0,
+            cbWndExtra: 0,
+            hInstance: instance.into(),
+            hIcon: HICON::default(),
+            hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
+            hbrBackground: HBRUSH::default(),
+            lpszMenuName: PCWSTR::null(),
+            lpszClassName: OVERLAY_CLASS_NAME,
+            hIconSm: HICON::default(),
+        };
+        let atom = RegisterClassExW(&wc);
+        if atom == 0 {
+            debug!("RegisterClassExW returned 0 (class may already exist)");
+        }
+
+        // Create overlay window
+        let hwnd = CreateWindowExW(
+            WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+            OVERLAY_CLASS_NAME,
+            w!("Highlight Overlay"),
+            WS_POPUP,
+            x,
+            y,
+            width,
+            height,
+            None,
+            None,
+            Some(instance.into()),
+            None,
+        )
+        .map_err(|e| AutomationError::PlatformError(format!("CreateWindowExW failed: {e}")))?;
+
+        if hwnd.is_invalid() {
+            return Err(AutomationError::PlatformError(
+                "CreateWindowExW returned invalid HWND".to_string(),
+            ));
+        }
+
+        // Make black transparent and allow drawing colored border
+        SetLayeredWindowAttributes(hwnd, COLORREF(0x000000), 255, LWA_COLORKEY).map_err(|e| {
+            AutomationError::PlatformError(format!("SetLayeredWindowAttributes failed: {e}"))
+        })?;
+
+        // Show without activating
+        let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+
+        // Draw contents once
+        draw_highlight_on_window(
+            hwnd,
+            border_offset_x,
+            border_offset_y,
+            element_w,
+            element_h,
+            border_color_bgr,
+            text,
+            text_rect,
+        );
+
+        // Save HWND for later destruction
+        LAST_CREATED_OVERLAY.with(|cell| {
+            *cell.borrow_mut() = Some(hwnd);
+        });
+    }
+    Ok(())
+}
+
+/// Draw the highlight border and optional text on the overlay window
+#[allow(clippy::too_many_arguments)]
+fn draw_highlight_on_window(
+    hwnd: HWND,
+    border_offset_x: i32,
+    border_offset_y: i32,
+    element_w: i32,
+    element_h: i32,
+    border_color_bgr: u32,
+    text: Option<(&str, FontStyle)>,
+    text_rect: Option<(i32, i32, i32, i32)>,
 ) {
-    let hdc = unsafe { GetDC(None) };
-    if !hdc.0.is_null() {
-        unsafe {
-            // Calculate text position with better spacing and sizing for visibility
-            let (text_x, text_y, text_width, text_height) = match position {
-                TextPosition::Top => (x, y - 35, width.max(250), 40), // Increased width for longer text
-                TextPosition::TopRight => (x + width + 15, y - 60, 200, 50),
-                TextPosition::Right => (x + width + 15, y + height / 2 - 25, 200, 50),
-                TextPosition::BottomRight => (x + width + 15, y + height + 15, 200, 50),
-                TextPosition::Bottom => (x, y + height + 15, width.max(200), 50),
-                TextPosition::BottomLeft => (x - 215, y + height + 15, 200, 50),
-                TextPosition::Left => (x - 215, y + height / 2 - 25, 200, 50),
-                TextPosition::TopLeft => (x - 215, y - 60, 200, 50),
-                TextPosition::Inside => (x + 15, y + 15, width - 30, height - 30),
-            };
+    unsafe {
+        let hdc = GetDC(Some(hwnd));
+        if hdc.is_invalid() {
+            return;
+        }
 
-            // Create a larger font for better visibility
-            let font_size = if font_style.size > 0 {
-                font_style.size as i32
-            } else {
-                18
-            };
+        // Fill entire window with transparent color (black)
+        let black_brush = CreateSolidBrush(COLORREF(0x000000));
+        let mut window_rect = RECT::default();
+        let _ = GetClientRect(hwnd, &mut window_rect);
+        let _ = FillRect(hdc, &window_rect, black_brush);
+        let _ = DeleteObject(black_brush.into());
+
+        // Draw the highlight border inside the overlay
+        let hpen = CreatePen(PS_SOLID, 6, COLORREF(border_color_bgr));
+        let old_pen = SelectObject(hdc, HGDIOBJ(hpen.0));
+        // Use black brush for interior so it remains transparent due to color key
+        let black_brush = CreateSolidBrush(COLORREF(0x000000));
+        let old_brush = SelectObject(hdc, HGDIOBJ(black_brush.0));
+
+        // Rectangle around the element region inside overlay (2px inset for aesthetics)
+        let left = border_offset_x + 2;
+        let top = border_offset_y + 2;
+        let right = border_offset_x + element_w - 2;
+        let bottom = border_offset_y + element_h - 2;
+        let _ = Rectangle(hdc, left, top, right, bottom);
+
+        // Optional text inside the overlay
+        if let (Some((txt, fs)), Some((tx, ty, tw, th))) = (text, text_rect) {
+            let font_size = if fs.size > 0 { fs.size as i32 } else { 18 };
             let font = CreateFontW(
-                font_size,                                               // Height
-                0,                                                       // Width (0 = default)
-                0,                                                       // Escapement
-                0,                                                       // Orientation
-                700,                                                     // Weight (bold = 700)
-                0,                                                       // Italic
-                0,                                                       // Underline
-                0,                                                       // StrikeOut
-                windows::Win32::Graphics::Gdi::FONT_CHARSET(1), // CharSet (DEFAULT_CHARSET)
-                windows::Win32::Graphics::Gdi::FONT_OUTPUT_PRECISION(0), // OutputPrecision
-                windows::Win32::Graphics::Gdi::FONT_CLIP_PRECISION(0), // ClipPrecision
-                windows::Win32::Graphics::Gdi::FONT_QUALITY(0), // Quality
-                0,                                              // PitchAndFamily
-                windows::core::PCWSTR::null(),                  // FaceName
+                font_size,
+                0,
+                0,
+                0,
+                700,
+                0,
+                0,
+                0,
+                windows::Win32::Graphics::Gdi::FONT_CHARSET(1),
+                windows::Win32::Graphics::Gdi::FONT_OUTPUT_PRECISION(0),
+                windows::Win32::Graphics::Gdi::FONT_CLIP_PRECISION(0),
+                windows::Win32::Graphics::Gdi::FONT_QUALITY(0),
+                0,
+                PCWSTR::null(),
             );
-
             let old_font = SelectObject(hdc, HGDIOBJ(font.0));
 
-            // Set text drawing properties for transparent background
-            let text_color = if font_style.color == 0 {
-                0x00FF00 // Bright green for visibility
-            } else {
-                font_style.color
-            };
+            let text_color = if fs.color == 0 { 0x00FF00 } else { fs.color };
             SetTextColor(hdc, COLORREF(text_color));
-            SetBkMode(hdc, TRANSPARENT); // Transparent background
+            SetBkMode(hdc, TRANSPARENT);
 
-            debug!(
-                "Drawing text '{}' at position ({}, {}) with size {}x{}",
-                text, text_x, text_y, text_width, text_height
-            );
-
-            // Convert text to wide string and null-terminate
-            let mut wide_text: Vec<u16> = text.encode_utf16().collect();
+            let mut wide_text: Vec<u16> = txt.encode_utf16().collect();
             wide_text.push(0);
 
-            let mut text_rect = RECT {
-                left: text_x + 5,
-                top: text_y + 5,
-                right: text_x + text_width - 5,
-                bottom: text_y + text_height - 5,
+            let mut rect = RECT {
+                left: tx + 5,
+                top: ty + 5,
+                right: tx + tw - 5,
+                bottom: ty + th - 5,
             };
+            let _ = DrawTextW(hdc, &mut wide_text, &mut rect, DT_SINGLELINE);
 
-            // Draw text with top-left alignment
-            let result = DrawTextW(
-                hdc,
-                &mut wide_text,
-                &mut text_rect,
-                DT_SINGLELINE, // Left-aligned, top-aligned text
-            );
-
-            debug!("DrawTextW result: {}", result);
-
-            // Restore original font and cleanup
+            // Restore font
             SelectObject(hdc, old_font);
             let _ = DeleteObject(HGDIOBJ(font.0));
-
-            // Clean up text drawing
-            ReleaseDC(None, hdc);
         }
+
+        // Cleanup
+        SelectObject(hdc, old_brush);
+        SelectObject(hdc, old_pen);
+        let _ = DeleteObject(black_brush.into());
+        let _ = DeleteObject(hpen.into());
+        let _ = ReleaseDC(Some(hwnd), hdc);
+    }
+}
+
+/// Minimal window procedure; repaints draw content again if needed
+unsafe extern "system" fn overlay_window_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    match msg {
+        WM_DESTROY => LRESULT(0),
+        WM_PAINT => {
+            // On paint, redraw a basic border without text as a best-effort fallback
+            let mut rect = RECT::default();
+            let _ = GetClientRect(hwnd, &mut rect);
+            draw_highlight_on_window(hwnd, 0, 0, rect.right, rect.bottom, 0x0000FF, None, None);
+            LRESULT(0)
+        }
+        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
 }

@@ -730,6 +730,15 @@ impl WindowsRecorder {
                         if let Some((x, y)) = *last_mouse_pos.lock().unwrap() {
                             let position = Position { x, y };
 
+                            // Capture UI element at scroll position (following pattern from MouseUp events)
+                            let ui_element = if config.capture_ui_elements
+                                && !config.filter_mouse_noise
+                            {
+                                Self::get_element_from_point_with_timeout(&config, position, 100)
+                            } else {
+                                None
+                            };
+
                             let mouse_event = MouseEvent {
                                 event_type: MouseEventType::Wheel,
                                 button: MouseButton::Middle, // Common for wheel
@@ -737,7 +746,7 @@ impl WindowsRecorder {
                                 scroll_delta: Some((delta_x as i32, delta_y as i32)),
                                 drag_start: None,
                                 metadata: EventMetadata {
-                                    ui_element: None,
+                                    ui_element,
                                     timestamp: Some(Self::capture_timestamp()),
                                 },
                             };

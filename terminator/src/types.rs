@@ -55,9 +55,9 @@ impl HighlightHandle {
 
 impl Drop for HighlightHandle {
     fn drop(&mut self) {
-        self.should_close.store(true, Ordering::Relaxed);
-        if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
-        }
+        // Do not force-close on drop. Allow the highlight thread to finish
+        // naturally based on its requested duration. Dropping the JoinHandle
+        // detaches the thread so it can complete without blocking the caller.
+        let _ = self.handle.take();
     }
 }

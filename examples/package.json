@@ -1,22 +1,3 @@
-{
-  "name": "examples",
-  "version": "1.0.0",
-  "main": "index.js",
-  "scripts": {
-    "test": "node test_5sec_recording.js",
-    "build": "npm run build:mcp-agent",
-    "build:mcp-agent": "cd ../terminator-mcp-agent && cargo build --release"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
-  "devDependencies": {
-    "@types/node": "^22.14.0",
-    "tsx": "^4.19.0"
-  },
-  "dependencies": {
-    "terminator": "file:../bindings/nodejs",
-    "@modelcontextprotocol/sdk": "^1.0.0"
-  }
+﻿{
+  "type": "module"
 }

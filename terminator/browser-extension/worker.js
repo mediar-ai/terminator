@@ -22,6 +22,15 @@ let currentReconnectDelayMs = BASE_RECONNECT_DELAY_MS;
 
 function connect() {
   try {
+    if (
+      socket &&
+      (socket.readyState === WebSocket.OPEN ||
+        socket.readyState === WebSocket.CONNECTING)
+    ) {
+      return;
+    }
+  } catch (_) {}
+  try {
     socket = new WebSocket(WS_URL);
   } catch (e) {
     log("WebSocket construct error", e);
@@ -72,6 +81,104 @@ function connect() {
     }
   };
 }
+
+function ensureConnected() {
+  try {
+    if (
+      !socket ||
+      (socket.readyState !== WebSocket.OPEN &&
+        socket.readyState !== WebSocket.CONNECTING)
+    ) {
+      connect();
+    }
+  } catch (_) {
+    connect();
+  }
+}
+
+// Ensure we have an active WS connection on first message from content script
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  try {
+    if (!message || message.type !== "terminator_content_handshake") return;
+    log("Received handshake from content script", {
+      tab: sender.tab && sender.tab.id,
+    });
+    // Kick the connector if not already connected; otherwise noop
+    ensureConnected();
+    sendResponse({ ok: true });
+  } catch (e) {
+    try {
+      sendResponse({ ok: false, error: String(e && (e.message || e)) });
+    } catch (_) {}
+    // swallow
+  }
+  // Keep listener alive for async sendResponse
+  return true;
+});
+
+// Inject a lightweight handshake into the active tab when it changes/updates
+async function injectHandshake(tabId) {
+  try {
+    if (typeof tabId !== "number") return;
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        try {
+          chrome.runtime.sendMessage({ type: "terminator_content_handshake" });
+        } catch (_) {}
+      },
+      world: "ISOLATED",
+    });
+  } catch (e) {
+    // ignore (e.g., not permitted on special pages)
+  }
+}
+
+async function getActiveTabIdSafe() {
+  try {
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      lastFocusedWindow: true,
+    });
+    return tab && tab.id != null ? tab.id : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// Additional event-based triggers to wake the worker and maintain connection
+chrome.runtime.onInstalled.addListener(() => {
+  log("onInstalled → ensureConnected");
+  ensureConnected();
+});
+chrome.runtime.onStartup.addListener(() => {
+  log("onStartup → ensureConnected");
+  ensureConnected();
+});
+chrome.webNavigation.onCommitted.addListener(() => {
+  ensureConnected();
+});
+chrome.alarms.clear("terminator_keepalive");
+chrome.alarms.create("terminator_keepalive", { periodInMinutes: 1 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm && alarm.name === "terminator_keepalive") {
+    ensureConnected();
+  }
+});
+chrome.tabs.onActivated.addListener(async () => {
+  ensureConnected();
+  const tabId = await getActiveTabIdSafe();
+  if (tabId != null) injectHandshake(tabId);
+});
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
+  if (
+    changeInfo &&
+    (changeInfo.status === "loading" || changeInfo.status === "complete")
+  ) {
+    ensureConnected();
+    injectHandshake(tabId);
+  }
+});
 
 function scheduleReconnect() {
   if (reconnectTimer) return;

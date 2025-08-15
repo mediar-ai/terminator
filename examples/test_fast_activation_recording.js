@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
- * Simple 5-Second Recording Test
+ * Fast Activation Recording Test
  * 
- * Tests the terminator MCP agent's record_workflow functionality by:
- * 1. Connecting to the MCP server via HTTP
- * 2. Starting a workflow recording
- * 3. Waiting 5 seconds for manual interactions
- * 4. Stopping the recording and showing results
+ * Tests the optimized activate_element generation by:
+ * 1. Starting a recording session
+ * 2. Switching between applications (to trigger ApplicationSwitchEvent)
+ * 3. Stopping recording and analyzing the generated MCP workflow
+ * 4. Verifying that activate_element steps have optimizations applied
  * 
  * Usage:
- *   node test_5sec_recording.js
+ *   node test_fast_activation_recording.js
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -23,7 +23,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-class Simple5SecRecordingClient {
+class FastActivationRecordingTest {
   constructor() {
     this.client = null;
     this.transport = null;
@@ -50,12 +50,12 @@ class Simple5SecRecordingClient {
     }
     
     if (!binaryPath) {
-      throw new Error('❌ MCP binary not found. Build with: cargo build --release');
+      throw new Error('❌ MCP binary not found. Build with: cargo build --release --bin terminator-mcp-agent');
     }
     
     console.log(`📁 Using binary: ${binaryPath}`);
     
-    // Start the server process with debug logging
+    // Start the server process
     this.serverProcess = spawn(binaryPath, [
       '--transport', 'http',
       '--port', port.toString()
@@ -63,8 +63,8 @@ class Simple5SecRecordingClient {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: {
         ...process.env,
-        RUST_LOG: 'debug', // Enable debug logging
-        RUST_BACKTRACE: '1' // Enable backtraces
+        RUST_LOG: 'info',
+        RUST_BACKTRACE: '1'
       }
     });
     
@@ -107,13 +107,10 @@ class Simple5SecRecordingClient {
     console.log(`🔌 Connecting to MCP server at ${httpUrl}...`);
     
     try {
-      // Create StreamableHTTP transport
       this.transport = new StreamableHTTPClientTransport(new URL(httpUrl));
-      
-      // Create MCP client
       this.client = new Client(
         {
-          name: "5sec-recording-test",
+          name: "fast-activation-test",
           version: "1.0.0",
         },
         {
@@ -123,10 +120,7 @@ class Simple5SecRecordingClient {
         }
       );
       
-      // Connect to the server
       await this.client.connect(this.transport);
-      
-      // Wait for connection to stabilize
       await setTimeout(500);
       
       console.log('✅ Connected to MCP server');
@@ -160,63 +154,125 @@ class Simple5SecRecordingClient {
     }
   }
 
-  async test5SecondRecording() {
+  analyzeActivationStep(step, index) {
+    console.log(`\n📋 Step ${index + 1}: ${step.tool_name}`);
+    console.log(`   Description: ${step.description}`);
+    
+    if (step.tool_name === 'activate_element') {
+      console.log('   🔍 Analyzing activate_element optimizations:');
+      
+      const args = step.arguments;
+      const optimizations = [];
+      const warnings = [];
+      
+      // Check for speed optimizations
+      if (args.include_tree === false) {
+        optimizations.push('✅ include_tree: false (skips UI tree building)');
+      } else {
+        warnings.push('⚠️  include_tree not disabled (may be slow)');
+      }
+      
+      if (args.timeout_ms && args.timeout_ms <= 1000) {
+        optimizations.push(`✅ timeout_ms: ${args.timeout_ms} (fast timeout)`);
+      } else if (args.timeout_ms) {
+        warnings.push(`⚠️  timeout_ms: ${args.timeout_ms} (may be slow)`);
+      } else {
+        warnings.push('⚠️  timeout_ms not set (will use 3000ms default)');
+      }
+      
+      if (args.retries === 0) {
+        optimizations.push('✅ retries: 0 (no retry loops)');
+      } else if (args.retries) {
+        warnings.push(`⚠️  retries: ${args.retries} (may add delays)`);
+      }
+      
+      if (args.fallback_selectors) {
+        optimizations.push(`✅ fallback_selectors: ${args.fallback_selectors} (reliable)`);
+      }
+      
+      if (step.delay_ms && step.delay_ms <= 200) {
+        optimizations.push(`✅ delay_ms: ${step.delay_ms} (fast execution)`);
+      } else if (step.delay_ms) {
+        warnings.push(`⚠️  delay_ms: ${step.delay_ms} (may be slow)`);
+      }
+      
+      // Display results
+      if (optimizations.length > 0) {
+        console.log('   🚀 Applied optimizations:');
+        optimizations.forEach(opt => console.log(`     ${opt}`));
+      }
+      
+      if (warnings.length > 0) {
+        console.log('   ⚠️  Potential performance issues:');
+        warnings.forEach(warn => console.log(`     ${warn}`));
+      }
+      
+      // Calculate estimated time savings
+      const baseTime = 3000 + 500 + 1000; // Default timeout + verification + delay
+      let optimizedTime = (args.timeout_ms || 3000) + 500 + (step.delay_ms || 1000);
+      if (args.include_tree !== false) {
+        optimizedTime += 2000; // Estimated tree building time
+      }
+      
+      const savings = baseTime - optimizedTime + (args.include_tree === false ? 2000 : 0);
+      if (savings > 0) {
+        console.log(`   ⏱️  Estimated time savings: ~${savings}ms`);
+      }
+      
+      return { optimizations: optimizations.length, warnings: warnings.length, savings };
+    }
+    
+    return null;
+  }
+
+  async testFastActivationRecording() {
     console.log('\n' + '='.repeat(60));
-    console.log('⏱️  5-SECOND RECORDING TEST');
+    console.log('🚀 FAST ACTIVATION RECORDING TEST');
     console.log('='.repeat(60));
     console.log('');
-    console.log('This will start recording for 5 seconds.');
-    console.log('During this time, you can:');
-    console.log('• Click on things');
-    console.log('• Type text');
-    console.log('• Switch between windows');
-    console.log('• Or just let it record idle state');
+    console.log('This test will record for 10 seconds to capture app switches.');
+    console.log('Please perform the following actions:');
+    console.log('• Switch between applications (Alt+Tab, taskbar clicks, etc.)');
+    console.log('• Click on different windows');
+    console.log('• Open/focus apps like Chrome, Notepad, Calculator, etc.');
+    console.log('');
+    console.log('The test will analyze the generated activate_element steps');
+    console.log('to verify performance optimizations are applied.');
     console.log('');
     
     try {
-      // Step 1: Start recording with highlighting enabled
-      console.log('📹 Starting 5-second recording with visual highlighting...');
+      // Step 1: Start recording
+      console.log('📹 Starting optimized recording session...');
       const startResult = await this.callTool('record_workflow', {
         action: 'start',
-        workflow_name: '5sec_test_recording',
+        workflow_name: 'fast_activation_test',
         low_energy_mode: false,
-        record_scroll_events: true,  // Enable scroll event recording
+        record_scroll_events: false, // Focus on app switches
         highlight_mode: {
           enabled: true,
-          duration_ms: 2000,       // 2 seconds highlight duration for visibility
-          color: 0x00FF00,         // Bright green border (BGR format)
-          show_labels: true,       // Show event type labels
-          label_position: 'Inside', // Labels inside for better visibility
+          duration_ms: 1000,
+          color: 0x0000FF, // Red border
+          show_labels: true,
+          label_position: 'Top',
           label_style: {
-            size: 14,
+            size: 12,
             bold: true,
-            color: 0xFFFFFF        // White text
+            color: 0xFFFFFF
           }
         }
       });
       
-      console.log('🎬 Recording started with visual highlighting!');
-      
-      // Check if highlighting was actually enabled in the response
-      if (startResult && startResult.length > 0 && startResult[0].type === 'text') {
-        const startData = JSON.parse(startResult[0].text);
-        if (startData.highlighting_enabled) {
-          console.log('✅ Visual highlighting is ACTIVE');
-          console.log(`   • Color: 0x${startData.highlight_color.toString(16).padStart(6, '0').toUpperCase()} (bright green border)`);
-          console.log(`   • Duration: ${startData.highlight_duration_ms}ms per event`);
-        }
-      }
-      
-      console.log('🟢 Look for BRIGHT GREEN borders with event labels (CLICK, TYPE, etc.) on UI elements');
-      console.log('👉 Perform any actions you want to capture...');
+      console.log('🎬 Recording started with highlighting!');
+      console.log('🔴 Look for RED borders showing captured events');
+      console.log('👉 Now switch between applications...');
       console.log('');
       
-      // Step 2: Wait exactly 5 seconds with countdown
-      for (let i = 5; i > 0; i--) {
+      // Step 2: Wait 10 seconds with countdown
+      for (let i = 10; i > 0; i--) {
         process.stdout.write(`\r⏳ Recording... ${i} seconds remaining`);
         await setTimeout(1000);
       }
-      console.log('\r⏱️  5 seconds completed!                    ');
+      console.log('\r⏱️  10 seconds completed!                    ');
       console.log('');
       
       // Step 3: Stop recording
@@ -227,7 +283,7 @@ class Simple5SecRecordingClient {
       
       console.log('Recording stopped!');
       
-      // Display results
+      // Step 4: Analyze results
       if (stopResult && stopResult.length > 0) {
         const result = stopResult[0];
         if (result.type === 'text') {
@@ -237,22 +293,54 @@ class Simple5SecRecordingClient {
           console.log(`   File path: ${data.file_path}`);
           console.log(`   Status: ${data.status}`);
           
-          if (data.mcp_workflow) {
-            console.log('\n📋 Generated MCP Workflow:');
-            const workflow = data.mcp_workflow;
-            if (workflow.arguments && workflow.arguments.items) {
-              console.log(`   Total steps: ${workflow.arguments.items.length}`);
-              console.log('   Steps:');
-              workflow.arguments.items.forEach((step, index) => {
-                console.log(`     ${index + 1}. ${step.tool_name} - ${JSON.stringify(step.arguments).substring(0, 80)}...`);
-              });
-            } else {
-              console.log(JSON.stringify(workflow, null, 2));
+          if (data.mcp_workflow && data.mcp_workflow.arguments && data.mcp_workflow.arguments.items) {
+            const steps = data.mcp_workflow.arguments.items;
+            console.log(`\n📋 Generated MCP Workflow (${steps.length} steps):`);
+            
+            let totalOptimizations = 0;
+            let totalWarnings = 0;
+            let totalSavings = 0;
+            let activationSteps = 0;
+            
+            steps.forEach((step, index) => {
+              const analysis = this.analyzeActivationStep(step, index);
+              if (analysis) {
+                activationSteps++;
+                totalOptimizations += analysis.optimizations;
+                totalWarnings += analysis.warnings;
+                totalSavings += analysis.savings;
+              } else {
+                console.log(`\n📋 Step ${index + 1}: ${step.tool_name}`);
+                console.log(`   Description: ${step.description}`);
+              }
+            });
+            
+            // Summary
+            console.log('\n' + '='.repeat(50));
+            console.log('📊 OPTIMIZATION ANALYSIS SUMMARY');
+            console.log('='.repeat(50));
+            console.log(`Total steps: ${steps.length}`);
+            console.log(`activate_element steps: ${activationSteps}`);
+            console.log(`Applied optimizations: ${totalOptimizations}`);
+            console.log(`Performance warnings: ${totalWarnings}`);
+            if (totalSavings > 0) {
+              console.log(`Estimated total time savings: ~${totalSavings}ms`);
             }
+            
+            if (activationSteps === 0) {
+              console.log('\n⚠️  No application switches were captured.');
+              console.log('   Try switching between apps more clearly during recording.');
+            } else if (totalOptimizations > totalWarnings) {
+              console.log('\n✅ Optimization SUCCESS! Fast activate_element steps generated.');
+            } else {
+              console.log('\n⚠️  Some optimizations may be missing. Check implementation.');
+            }
+            
           } else {
-            console.log('   No MCP workflow generated (no capturable events detected)');
+            console.log('\n⚠️  No MCP workflow generated or workflow is empty');
           }
           
+          // Show raw events for debugging
           if (data.file_content) {
             const content = JSON.parse(data.file_content);
             console.log(`\n📊 Raw Events Captured: ${content.events ? content.events.length : 0}`);
@@ -266,19 +354,13 @@ class Simple5SecRecordingClient {
               Object.entries(eventTypes).forEach(([type, count]) => {
                 console.log(`     - ${type}: ${count} events`);
               });
-              
-              console.log('\n📄 First few events:');
-              content.events.slice(0, 3).forEach((event, index) => {
-                const eventType = Object.keys(event.event)[0];
-                console.log(`     ${index + 1}. [${event.timestamp}] ${eventType}`);
-              });
             }
           }
         }
       }
       
     } catch (error) {
-      console.error('❌ 5-second recording test failed:', error);
+      console.error('❌ Fast activation recording test failed:', error);
       throw error;
     }
   }
@@ -301,7 +383,6 @@ class Simple5SecRecordingClient {
         console.log('🛑 Stopping MCP server...');
         this.serverProcess.kill('SIGTERM');
         
-        // Wait for graceful shutdown
         await new Promise((resolve) => {
           const timeoutId = globalThis.setTimeout(() => {
             console.log('⚠️  Force killing server process...');
@@ -327,10 +408,10 @@ class Simple5SecRecordingClient {
 }
 
 async function main() {
-  console.log('🧪 MCP 5-Second Recording Test');
-  console.log('Simple workflow recording test - no automated actions\n');
+  console.log('🧪 MCP Fast Activation Recording Test');
+  console.log('Testing optimized activate_element generation\n');
   
-  const client = new Simple5SecRecordingClient();
+  const client = new FastActivationRecordingTest();
   
   try {
     // Start the MCP server
@@ -339,8 +420,8 @@ async function main() {
     // Connect to the server
     await client.connect(3001);
     
-    // Run the 5-second recording test
-    await client.test5SecondRecording();
+    // Run the test
+    await client.testFastActivationRecording();
     
     console.log('\n🎉 Test completed successfully!');
     
@@ -371,4 +452,4 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   });
 }
 
-export { Simple5SecRecordingClient };
+export { FastActivationRecordingTest };

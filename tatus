@@ -1,0 +1,6 @@
+warning: in the working copy of 'examples/package.json', CRLF will be replaced by LF the next time Git touches it
+examples/package.json
+examples/test_5sec_recording.js
+terminator-mcp-agent/src/server.rs
+terminator/src/platforms/windows/highlighting.rs
+terminator/src/types.rs
