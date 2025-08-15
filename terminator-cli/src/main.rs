@@ -23,8 +23,8 @@ use crate::command::{
 mod cli;
 mod utils;
 mod command;
-mod workflow_exec;
 mod mcp_client;
+mod workflow_exec;
 mod version_control;
 
 fn main() {

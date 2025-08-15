@@ -125,39 +125,6 @@ pub fn handle_version_command(version_cmd: VersionCommands) {
     }
 }
 
-pub fn handle_mcp_command(cmd: McpCommands) {
-    let transport = match cmd {
-        McpCommands::Chat(ref args) => parse_transport(args.url.clone(), args.command.clone()),
-        McpCommands::AiChat(ref args) => parse_transport(args.url.clone(), args.command.clone()),
-        McpCommands::Exec(ref args) => parse_transport(args.url.clone(), args.command.clone()),
-        McpCommands::Run(ref args) => parse_transport(args.url.clone(), args.command.clone()),
-    };
-
-    let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
-
-    let result = rt.block_on(async {
-        match cmd {
-            McpCommands::Chat(_) => {
-                mcp_client::interactive_chat(transport).await
-            }
-            McpCommands::AiChat(args) => {
-                mcp_client::natural_language_chat(transport, args.aiprovider).await
-            }
-            McpCommands::Exec(args) => {
-                execute_command(transport, args.tool, args.args).await
-            }
-            McpCommands::Run(args) => {
-                run_workflow(transport, args).await
-            }
-        }
-    });
-
-    if let Err(e) = result {
-        eprintln!("❌ MCP command error: {e}");
-        std::process::exit(1);
-    }
-}
-
 pub async fn execute_command(
     transport: Transport,
     tool: String,
@@ -289,3 +256,37 @@ pub async fn execute_command(
     }
     Ok(())
 }
+
+pub fn handle_mcp_command(cmd: McpCommands) {
+    let transport = match cmd {
+        McpCommands::Chat(ref args) => parse_transport(args.url.clone(), args.command.clone()),
+        McpCommands::AiChat(ref args) => parse_transport(args.url.clone(), args.command.clone()),
+        McpCommands::Exec(ref args) => parse_transport(args.url.clone(), args.command.clone()),
+        McpCommands::Run(ref args) => parse_transport(args.url.clone(), args.command.clone()),
+    };
+
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+
+    let result = rt.block_on(async {
+        match cmd {
+            McpCommands::Chat(_) => {
+                mcp_client::interactive_chat::interactive_chat(transport).await
+            }
+            McpCommands::AiChat(args) => {
+                mcp_client::natural_lang::aichat(transport, args.aiprovider).await
+            }
+            McpCommands::Exec(args) => {
+                execute_command(transport, args.tool, args.args).await
+            }
+            McpCommands::Run(args) => {
+                run_workflow(transport, args).await
+            }
+        }
+    });
+
+    if let Err(e) = result {
+        eprintln!("❌ MCP command error: {e}");
+        std::process::exit(1);
+    }
+}
+

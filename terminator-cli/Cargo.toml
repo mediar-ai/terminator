@@ -39,3 +39,4 @@ reqwest = { version = "0.12.22", features = ["json", "rustls-tls"] }
 
 anthropic-sdk = "0.1.5"
 openai-api-rs = "6.0.8"
+gemini-rs = "2.0.0"
