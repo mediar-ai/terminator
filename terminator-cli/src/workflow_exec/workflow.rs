@@ -1,6 +1,6 @@
 use anyhow::Context;
-use crate::mcp_client;
-use crate::cli::{InputType, McpRunArgs};
+use crate::command;
+use crate::cli::{InputType, McpRunArgs, Transport};
 use super::{
     validation::validate_workflow,
     parsing::parse_workflow_content,
@@ -12,7 +12,7 @@ use super::{
     }
 };
 
-pub async fn run_workflow(transport: mcp_client::Transport, args: McpRunArgs) -> anyhow::Result<()> {
+pub async fn run_workflow(transport: Transport, args: McpRunArgs) -> anyhow::Result<()> {
     use tracing::info;
 
     if args.verbose {
@@ -125,7 +125,7 @@ pub async fn run_workflow(transport: mcp_client::Transport, args: McpRunArgs) ->
     // to avoid adding null fields that might confuse the server
     let workflow_str = serde_json::to_string(&workflow_val)?;
 
-    mcp_client::execute_command(
+    command::execute_command(
         transport,
         "execute_sequence".to_string(),
         Some(workflow_str),

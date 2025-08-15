@@ -158,3 +158,8 @@ pub enum Commands {
     #[command(subcommand)]
     Mcp(McpCommands),
 }
+
+pub enum Transport {
+    Http(String),
+    Stdio(Vec<String>),
+}

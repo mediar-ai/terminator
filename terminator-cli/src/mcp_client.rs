@@ -1,4 +1,3 @@
-use tracing::info;
 use anyhow::Result;
 use serde_json::json;
 use std::io::{self, Write};
@@ -21,28 +20,9 @@ use rmcp::{
         StreamableHttpClientTransport,
     },
 };
-use crate::cli::AIProvider;
-use crate::utils::{
-    find_executable,
-    init_logging,
-};
+use crate::cli::{AIProvider, Transport};
+use crate::utils::find_executable;
 use crate::command::create_command;
-use openai_api_rs::v1::{
-    types,
-    api::OpenAIClient,
-    common::GPT4_O,             // for function call
-    chat_completion::{
-        self,
-        ChatCompletionRequest,
-        ChatCompletionResponse,
-        ChatCompletionChoice,
-    },
-};
-
-pub enum Transport {
-    Http(String),
-    Stdio(Vec<String>),
-}
 
 pub async fn interactive_chat(transport: Transport) -> Result<()> {
     println!("🤖 Terminator MCP Chat Client");
@@ -340,138 +320,6 @@ pub async fn interactive_chat(transport: Transport) -> Result<()> {
                     }
                     Err(e) => {
                         println!("❌ Error: {e}\n");
-                    }
-                }
-            }
-
-            // Cancel the service connection
-            service.cancel().await?;
-        }
-    }
-    Ok(())
-}
-
-pub async fn execute_command(
-    transport: Transport,
-    tool: String,
-    args: Option<String>,
-) -> Result<()> {
-    // Initialize logging for non-interactive mode
-    init_logging();
-
-    match transport {
-        Transport::Http(url) => {
-            info!("Connecting to server: {}", url);
-            let transport = StreamableHttpClientTransport::from_uri(url.as_str());
-            let client_info = ClientInfo {
-                protocol_version: Default::default(),
-                capabilities: ClientCapabilities::default(),
-                client_info: Implementation {
-                    name: "terminator-cli".to_string(),
-                    version: env!("CARGO_PKG_VERSION").to_string(),
-                },
-            };
-            let service = client_info.serve(transport).await?;
-
-            let arguments = if let Some(args_str) = args {
-                serde_json::from_str::<serde_json::Value>(&args_str)
-                    .ok()
-                    .and_then(|v| v.as_object().cloned())
-            } else {
-                None
-            };
-
-            println!(
-                "⚡ Calling {} with args: {}",
-                tool,
-                arguments
-                    .as_ref()
-                    .map(|a| serde_json::to_string(a).unwrap_or_default())
-                    .unwrap_or_else(|| "{}".to_string())
-            );
-
-            let result = service
-                .call_tool(CallToolRequestParam {
-                    name: tool.into(),
-                    arguments,
-                })
-                .await?;
-
-            println!("✅ Result:");
-            if let Some(content_vec) = &result.content {
-                for content in content_vec {
-                    match &content.raw {
-                        rmcp::model::RawContent::Text(text) => {
-                            println!("{}", text.text);
-                        }
-                        rmcp::model::RawContent::Image(image) => {
-                            println!("[Image: {}]", image.mime_type);
-                        }
-                        rmcp::model::RawContent::Resource(resource) => {
-                            println!("[Resource: {:?}]", resource.resource);
-                        }
-                        rmcp::model::RawContent::Audio(audio) => {
-                            println!("[Audio: {}]", audio.mime_type);
-                        }
-                    }
-                }
-            }
-
-            // Cancel the service connection
-            service.cancel().await?;
-        }
-        Transport::Stdio(command) => {
-            info!("Starting MCP server: {}", command.join(" "));
-            let executable = find_executable(&command[0]).unwrap_or_else(|| command[0].clone());
-            let command_args: Vec<String> = if command.len() > 1 {
-                command[1..].to_vec()
-            } else {
-                vec![]
-            };
-            let cmd = create_command(&executable, &command_args);
-            let transport = TokioChildProcess::new(cmd)?;
-            let service = ().serve(transport).await?;
-
-            let arguments = if let Some(args_str) = args {
-                serde_json::from_str::<serde_json::Value>(&args_str)
-                    .ok()
-                    .and_then(|v| v.as_object().cloned())
-            } else {
-                None
-            };
-
-            println!(
-                "⚡ Calling {} with args: {}",
-                tool,
-                arguments
-                    .as_ref()
-                    .map(|a| serde_json::to_string(a).unwrap_or_default())
-                    .unwrap_or_else(|| "{}".to_string())
-            );
-
-            let result = service
-                .call_tool(CallToolRequestParam {
-                    name: tool.into(),
-                    arguments,
-                })
-                .await?;
-
-            println!("✅ Result:");
-            if let Some(content_vec) = &result.content {
-                for content in content_vec {
-                    match &content.raw {
-                        rmcp::model::RawContent::Text(text) => {
-                            println!("{}", text.text);
-                        }
-                        rmcp::model::RawContent::Image(image) => {
-                            println!("[Image: {}]", image.mime_type);
-                        }
-                        rmcp::model::RawContent::Resource(resource) => {
-                            println!("[Resource: {:?}]", resource.resource);
-                        }
-                        rmcp::model::RawContent::Audio(audio) => {
-                            println!("[Audio: {}]", audio.mime_type);
-                        }
                     }
                 }
             }
