@@ -194,7 +194,7 @@ impl DesktopWrapper {
 
         Ok(Self {
             desktop: Arc::new(desktop),
-            tool_router: Self::tool_router(),
+            tool_router: Self::tool_router() + Self::tool_router_2(),
             recorder: Arc::new(Mutex::new(None)),
             active_highlights: Arc::new(Mutex::new(Vec::new())),
         })
@@ -3931,6 +3931,7 @@ fn scan_yaml_files(folder_path: &str) -> Result<Vec<serde_json::Value>, McpError
     Ok(files)
 }
 
+#[tool_router(router = tool_router_2)]
 impl DesktopWrapper {
     #[tool(description = "Maximizes a window.")]
     async fn maximize_window(
