@@ -19,6 +19,7 @@ use image::{ExtendedColorType, ImageEncoder};
 use rmcp::handler::server::tool::Parameters;
 use rmcp::model::{
     CallToolResult, Content, Implementation, ProtocolVersion, ServerCapabilities, ServerInfo,
+    LoggingLevel, LoggingMessageNotificationParam, ProgressNotificationParam,
 };
 use rmcp::{tool, ErrorData as McpError, ServerHandler};
 use rmcp::{tool_handler, tool_router};
@@ -35,6 +36,8 @@ use tracing::{info, warn};
 // New imports for image encoding
 use base64::{engine::general_purpose, Engine as _};
 use image::codecs::png::PngEncoder;
+
+use rmcp::service::{Peer, RequestContext, RoleServer};
 
 /// Extracts JSON data from Content objects without double serialization
 pub fn extract_content_json(content: &Content) -> Result<serde_json::Value, serde_json::Error> {
@@ -2734,6 +2737,8 @@ impl DesktopWrapper {
     )]
     pub async fn execute_sequence(
         &self,
+        peer: Peer<RoleServer>,
+        request_context: RequestContext<RoleServer>,
         Parameters(args): Parameters<ExecuteSequenceArgs>,
     ) -> Result<CallToolResult, McpError> {
         use crate::utils::{SequenceItem, ToolCall, ToolGroup};
@@ -2916,6 +2921,36 @@ impl DesktopWrapper {
             "Executing sequence with context: {}",
             serde_json::to_string_pretty(&execution_context).unwrap_or_default()
         );
+        info!(
+            "Starting execute_sequence: steps={}, stop_on_error={}, include_detailed_results={}",
+            args.steps.len(),
+            stop_on_error,
+            include_detailed
+        );
+        let _ = peer
+            .notify_logging_message(LoggingMessageNotificationParam {
+                level: LoggingLevel::Info,
+                logger: Some("execute_sequence".to_string()),
+                data: json!({
+                    "event": "sequence_start",
+                    "steps": args.steps.len(),
+                    "stop_on_error": stop_on_error,
+                    "include_detailed_results": include_detailed,
+                }),
+            })
+            .await;
+
+        let progress_token_opt = request_context.meta.get_progress_token();
+        if let Some(token) = &progress_token_opt {
+            let _ = peer
+                .notify_progress(ProgressNotificationParam {
+                    progress_token: token.clone(),
+                    progress: 0,
+                    total: Some(args.steps.len() as u32),
+                    message: Some("Starting execute_sequence".to_string()),
+                })
+                .await;
+        }
 
         // Convert flattened SequenceStep to internal SequenceItem representation
         let mut sequence_items = Vec::new();
@@ -2988,6 +3023,59 @@ impl DesktopWrapper {
             iterations += 1;
 
             let original_step = &args.steps[current_index];
+            if let Some(tool_name) = &original_step.tool_name {
+                info!(
+                    "Step {} BEGIN tool='{}' id='{}' retries={} if_expr={:?} fallback_id={:?}",
+                    current_index,
+                    tool_name,
+                    original_step.id.as_deref().unwrap_or(""),
+                    original_step.retries.unwrap_or(0),
+                    original_step.r#if,
+                    original_step.fallback_id
+                );
+                let _ = peer
+                    .notify_logging_message(LoggingMessageNotificationParam {
+                        level: LoggingLevel::Info,
+                        logger: Some("execute_sequence".to_string()),
+                        data: json!({
+                            "event": "step_begin",
+                            "index": current_index,
+                            "type": "tool",
+                            "tool": tool_name,
+                            "id": original_step.id,
+                            "retries": original_step.retries.unwrap_or(0),
+                            "if": original_step.r#if,
+                            "fallback_id": original_step.fallback_id,
+                        }),
+                    })
+                    .await;
+            } else if let Some(group_name) = &original_step.group_name {
+                info!(
+                    "Step {} BEGIN group='{}' id='{}' steps={}",
+                    current_index,
+                    group_name,
+                    original_step.id.as_deref().unwrap_or(""),
+                    original_step
+                        .steps
+                        .as_ref()
+                        .map(|v| v.len())
+                        .unwrap_or(0)
+                );
+                let _ = peer
+                    .notify_logging_message(LoggingMessageNotificationParam {
+                        level: LoggingLevel::Info,
+                        logger: Some("execute_sequence".to_string()),
+                        data: json!({
+                            "event": "step_begin",
+                            "index": current_index,
+                            "type": "group",
+                            "group": group_name,
+                            "id": original_step.id,
+                            "steps": original_step.steps.as_ref().map(|v| v.len()).unwrap_or(0),
+                        }),
+                    })
+                    .await;
+            }
             let (if_expr, retries, fallback_id_opt) = (
                 original_step.r#if.clone(),
                 original_step.retries.unwrap_or(0),
@@ -3226,6 +3314,52 @@ impl DesktopWrapper {
 
             // Decide next index based on success or fallback
             let step_succeeded = !step_error_occurred;
+            let step_status_str = if step_succeeded { "success" } else { "failed" };
+            if let Some(tool_name) = &original_step.tool_name {
+                info!(
+                    "Step {} END tool='{}' id='{}' status={}",
+                    current_index,
+                    tool_name,
+                    original_step.id.as_deref().unwrap_or(""),
+                    step_status_str
+                );
+                let _ = peer
+                    .notify_logging_message(LoggingMessageNotificationParam {
+                        level: if step_succeeded { LoggingLevel::Info } else { LoggingLevel::Warning },
+                        logger: Some("execute_sequence".to_string()),
+                        data: json!({
+                            "event": "step_end",
+                            "index": current_index,
+                            "type": "tool",
+                            "tool": tool_name,
+                            "id": original_step.id,
+                            "status": step_status_str,
+                        }),
+                    })
+                    .await;
+            } else if let Some(group_name) = &original_step.group_name {
+                info!(
+                    "Step {} END group='{}' id='{}' status={}",
+                    current_index,
+                    group_name,
+                    original_step.id.as_deref().unwrap_or(""),
+                    step_status_str
+                );
+                let _ = peer
+                    .notify_logging_message(LoggingMessageNotificationParam {
+                        level: if step_succeeded { LoggingLevel::Info } else { LoggingLevel::Warning },
+                        logger: Some("execute_sequence".to_string()),
+                        data: json!({
+                            "event": "step_end",
+                            "index": current_index,
+                            "type": "group",
+                            "group": group_name,
+                            "id": original_step.id,
+                            "status": step_status_str,
+                        }),
+                    })
+                    .await;
+            }
 
             if step_succeeded {
                 current_index += 1;
@@ -3246,6 +3380,17 @@ impl DesktopWrapper {
             } else {
                 current_index += 1;
             }
+
+            if let Some(token) = &progress_token_opt {
+                let _ = peer
+                    .notify_progress(ProgressNotificationParam {
+                        progress_token: token.clone(),
+                        progress: (current_index as u32).saturating_add(1),
+                        total: Some(args.steps.len() as u32),
+                        message: Some(format!("Step {} {}", current_index, step_status_str)),
+                    })
+                    .await;
+            }
         }
 
         if iterations >= max_iterations {
@@ -3261,6 +3406,34 @@ impl DesktopWrapper {
         } else {
             "completed_with_errors"
         };
+        info!(
+            "execute_sequence completed: status={}, executed_tools={}, total_duration_ms={}",
+            final_status,
+            results.len(),
+            total_duration
+        );
+        let _ = peer
+            .notify_logging_message(LoggingMessageNotificationParam {
+                level: if final_status == "success" { LoggingLevel::Info } else { LoggingLevel::Warning },
+                logger: Some("execute_sequence".to_string()),
+                data: json!({
+                    "event": "sequence_end",
+                    "status": final_status,
+                    "executed_tools": results.len(),
+                    "duration_ms": total_duration,
+                }),
+            })
+            .await;
+        if let Some(token) = &progress_token_opt {
+            let _ = peer
+                .notify_progress(ProgressNotificationParam {
+                    progress_token: token.clone(),
+                    progress: args.steps.len() as u32,
+                    total: Some(args.steps.len() as u32),
+                    message: Some("execute_sequence completed".to_string()),
+                })
+                .await;
+        }
 
         let mut summary = json!({
             "action": "execute_sequence",
