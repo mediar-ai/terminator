@@ -27,6 +27,7 @@ use std::future::Future;
 use std::io::Cursor;
 use std::sync::Arc;
 use std::time::Duration;
+use futures;
 use terminator::{Browser, Desktop, Selector, UIElement};
 use terminator_workflow_recorder::{PerformanceMode, WorkflowRecorder, WorkflowRecorderConfig};
 use tokio::sync::Mutex;
@@ -2958,7 +2959,23 @@ impl DesktopWrapper {
         }
 
         // ---------------------------
-        // Fallback-enabled execution loop (while-based)
+        // Check for parallel execution mode
+        // ---------------------------
+        
+        let enable_parallel = args.parallel_execution.unwrap_or(false);
+        
+        if enable_parallel {
+            // Use simple parallel execution path
+            return self.execute_sequence_simple_parallel(
+                args,
+                execution_context,
+                stop_on_error,
+                include_detailed,
+            ).await;
+        }
+
+        // ---------------------------
+        // Fallback-enabled execution loop (while-based) - Original Sequential Mode
         // ---------------------------
 
         let mut results = Vec::new();
@@ -3315,6 +3332,175 @@ impl DesktopWrapper {
 
         Ok(CallToolResult::success(contents))
     }
+
+    // Simple parallel execution implementation
+    async fn execute_sequence_simple_parallel(
+        &self,
+        args: ExecuteSequenceArgs,
+        execution_context: serde_json::Value,
+        stop_on_error: bool,
+        include_detailed: bool,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::utils::create_simple_execution_plan;
+        
+        let start_time = chrono::Utc::now();
+        let (sequential_steps, parallel_groups) = create_simple_execution_plan(&args.steps);
+        
+        let mut results = Vec::new();
+        let mut sequence_had_errors = false;
+        let mut critical_error_occurred = false;
+        let mut step_counter = 0;
+        
+        info!("Executing sequence with {} sequential steps and {} parallel groups", 
+              sequential_steps.len(), parallel_groups.len());
+        
+        // Process steps in order, alternating between sequential and parallel
+        let mut seq_idx = 0;
+        let mut par_idx = 0;
+        
+        for original_step_idx in 0..args.steps.len() {
+            if critical_error_occurred && stop_on_error {
+                break;
+            }
+            
+            // Check if this step is sequential
+            if seq_idx < sequential_steps.len() && sequential_steps[seq_idx] == original_step_idx {
+                let step = &args.steps[original_step_idx];
+                let (result, error_occurred) = self.execute_single_tool(
+                    &step.tool_name.as_ref().unwrap(),
+                    &step.arguments.clone().unwrap_or(json!({})),
+                    step.continue_on_error.unwrap_or(false),
+                    original_step_idx,
+                    include_detailed,
+                    step.id.as_deref(),
+                ).await;
+                
+                results.push(result);
+                if error_occurred {
+                    sequence_had_errors = true;
+                    if stop_on_error {
+                        critical_error_occurred = true;
+                    }
+                }
+                
+                if let Some(delay_ms) = step.delay_ms {
+                    if delay_ms > 0 {
+                        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                    }
+                }
+                
+                seq_idx += 1;
+            }
+            // Check if this step starts a parallel group
+            else if par_idx < parallel_groups.len() && parallel_groups[par_idx].contains(&original_step_idx) {
+                let group = &parallel_groups[par_idx];
+                let mut handles = Vec::new();
+                
+                for &step_index in group {
+                    let step = args.steps[step_index].clone();
+                    let execution_context = execution_context.clone();
+                    let desktop = self.clone();
+                    
+                    let handle = tokio::spawn(async move {
+                        let mut substituted_args = step.arguments.clone().unwrap_or(json!({}));
+                        substitute_variables(&mut substituted_args, &execution_context);
+                        
+                        desktop.execute_single_tool(
+                            &step.tool_name.as_ref().unwrap(),
+                            &substituted_args,
+                            step.continue_on_error.unwrap_or(false),
+                            step_index,
+                            include_detailed,
+                            step.id.as_deref(),
+                        ).await
+                    });
+                    
+                    handles.push((step_index, handle));
+                }
+                
+                // Wait for all parallel tasks and collect results in order
+                let mut group_results = Vec::new();
+                for (step_index, handle) in handles {
+                    match handle.await {
+                        Ok((result, error_occurred)) => {
+                            group_results.push((step_index, result, error_occurred));
+                        }
+                        Err(e) => {
+                            group_results.push((step_index, json!({
+                                "status": "error",
+                                "error": format!("Task join error: {}", e)
+                            }), true));
+                        }
+                    }
+                }
+                
+                // Sort results by step index and add them
+                group_results.sort_by_key(|(step_index, _, _)| *step_index);
+                for (_, result, error_occurred) in group_results {
+                    results.push(result);
+                    if error_occurred {
+                        sequence_had_errors = true;
+                        if stop_on_error {
+                            critical_error_occurred = true;
+                        }
+                    }
+                }
+                
+                // Skip to end of this parallel group
+                step_counter = *group.iter().max().unwrap();
+                par_idx += 1;
+            }
+        }
+        
+        let total_duration = (chrono::Utc::now() - start_time).num_milliseconds();
+        
+        let final_status = if !sequence_had_errors {
+            "success"
+        } else if critical_error_occurred {
+            "partial_success"  
+        } else {
+            "completed_with_errors"
+        };
+        
+        let mut summary = json!({
+            "action": "execute_sequence",
+            "status": final_status,
+            "execution_mode": "parallel",
+            "total_tools": args.steps.len(),
+            "executed_tools": results.len(),
+            "total_duration_ms": total_duration,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "results": results,
+        });
+        
+        // Apply output parser if specified
+        if let Some(parser_def) = args.output_parser.as_ref() {
+            let mut parser_json = parser_def.clone();
+            substitute_variables(&mut parser_json, &execution_context);
+            
+            match output_parser::run_output_parser(&parser_json, &summary).await {
+                Ok(Some(parsed_data)) => {
+                    if let Some(obj) = summary.as_object_mut() {
+                        obj.insert("parsed_output".to_string(), parsed_data);
+                    }
+                }
+                Ok(None) => {
+                    if let Some(obj) = summary.as_object_mut() {
+                        obj.insert("parsed_output".to_string(), json!({}));
+                    }
+                }
+                Err(e) => {
+                    warn!("Output parser failed: {}", e);
+                    if let Some(obj) = summary.as_object_mut() {
+                        obj.insert("parser_error".to_string(), json!(e.to_string()));
+                    }
+                }
+            }
+        }
+        
+        Ok(CallToolResult::success(vec![Content::json(summary)?]))
+    }
+
 
     async fn execute_single_tool(
         &self,
