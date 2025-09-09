@@ -1,8 +1,8 @@
 use std::sync::LazyLock;
 use std::time::Duration;
 use terminator::platforms::AccessibilityEngine;
-use terminator::UIElement;
 use terminator::Browser;
+use terminator::UIElement;
 use terminator::{platforms, AutomationError};
 use tracing::{info, Level};
 
@@ -138,7 +138,7 @@ async fn test_browser_window_enumeration() -> Result<(), AutomationError> {
         Ok(element) => {
             let _guard = CloseOnDrop(&element);
             info!("✅ URL opened successfully")
-        },
+        }
         Err(e) => info!("❌ URL opening failed: {}", e),
     }
 

@@ -503,6 +503,54 @@ impl AccessibilityEngine for WindowsEngine {
 
         // make condition according to selector
         match selector {
+            Selector::Or(options) => {
+                let mut seen = std::collections::HashSet::new();
+                let mut results = Vec::new();
+                for opt in options {
+                    match self.find_elements(opt, root, timeout, depth) {
+                        Ok(elements) => {
+                            for el in elements {
+                                if seen.insert(el.clone()) {
+                                    results.push(el);
+                                }
+                            }
+                        }
+                        Err(AutomationError::ElementNotFound(_)) => {}
+                        Err(e) => return Err(e),
+                    }
+                }
+                Ok(results)
+            }
+            Selector::And(options) => {
+                if options.is_empty() {
+                    return Ok(Vec::new());
+                }
+                let mut iter = options.iter();
+                // Initialize with first set
+                let first_sel = iter.next().unwrap();
+                let mut current: std::collections::HashSet<UIElement> = self
+                    .find_elements(first_sel, root, timeout, depth)?
+                    .into_iter()
+                    .collect();
+                for opt in iter {
+                    let next_set: std::collections::HashSet<UIElement> =
+                        match self.find_elements(opt, root, timeout, depth) {
+                            Ok(v) => v.into_iter().collect(),
+                            Err(AutomationError::ElementNotFound(_)) => {
+                                std::collections::HashSet::new()
+                            }
+                            Err(e) => return Err(e),
+                        };
+                    current = current
+                        .into_iter()
+                        .filter(|el| next_set.contains(el))
+                        .collect();
+                    if current.is_empty() {
+                        break;
+                    }
+                }
+                Ok(current.into_iter().collect())
+            }
             Selector::Role { role, name } => {
                 let win_control_type = map_generic_role_to_win_roles(role);
                 // Use optimized depth for containers when appropriate
@@ -1101,6 +1149,56 @@ impl AccessibilityEngine for WindowsEngine {
         let timeout_ms = timeout.unwrap_or(DEFAULT_FIND_TIMEOUT).as_millis() as u32;
 
         match selector {
+            Selector::Or(options) => {
+                // Find first matching element from any option
+                for opt in options {
+                    match self.find_element(opt, root, timeout) {
+                        Ok(el) => return Ok(el),
+                        Err(AutomationError::ElementNotFound(_)) => continue,
+                        Err(e) => return Err(e),
+                    }
+                }
+                return Err(AutomationError::ElementNotFound(
+                    "No element matched any of the OR options".to_string(),
+                ));
+            }
+            Selector::And(options) => {
+                // Find elements matching all conditions and return the first
+                if options.is_empty() {
+                    return Err(AutomationError::ElementNotFound(
+                        "Empty AND selector".to_string(),
+                    ));
+                }
+                let mut iter = options.iter();
+                let first_sel = iter.next().unwrap();
+                let mut current: std::collections::HashSet<UIElement> = self
+                    .find_elements(first_sel, root, timeout, depth)?
+                    .into_iter()
+                    .collect();
+                for opt in iter {
+                    let next_set: std::collections::HashSet<UIElement> =
+                        match self.find_elements(opt, root, timeout, depth) {
+                            Ok(v) => v.into_iter().collect(),
+                            Err(AutomationError::ElementNotFound(_)) => {
+                                std::collections::HashSet::new()
+                            }
+                            Err(e) => return Err(e),
+                        };
+                    current = current
+                        .into_iter()
+                        .filter(|el| next_set.contains(el))
+                        .collect();
+                    if current.is_empty() {
+                        break;
+                    }
+                }
+                if let Some(el) = current.into_iter().next() {
+                    return Ok(el);
+                }
+                return Err(AutomationError::ElementNotFound(
+                    "No element matched all AND conditions".to_string(),
+                ));
+            }
             Selector::Role { role, name } => {
                 let win_control_type = map_generic_role_to_win_roles(role);
                 // Use optimized depth for containers when appropriate
