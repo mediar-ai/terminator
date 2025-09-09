@@ -898,6 +898,20 @@ impl DesktopWrapper {
             .strip_prefix("mcp_terminator-mcp-agent_")
             .unwrap_or(tool_name);
 
+        // Structured audit: tool start
+        let sanitized_args = crate::utils::sanitize_arguments(arguments);
+        tracing::info!(
+            target: "mcp_audit",
+            event = "tool_start",
+            session = %crate::utils::session_id(),
+            tool = %tool_name_short,
+            full_tool = %tool_name,
+            index = index as u64,
+            step_id = step_id.unwrap_or(""),
+            args = %sanitized_args,
+            "tool_start"
+        );
+
         // The substitution is handled in `execute_sequence_impl`.
         let tool_result = self.dispatch_tool(tool_name_short, arguments).await;
 
@@ -940,6 +954,21 @@ impl DesktopWrapper {
 
                 let result_json =
                     serde_json::Value::Object(result_json.as_object().unwrap().clone());
+
+                // Structured audit: tool end (success)
+                tracing::info!(
+                    target: "mcp_audit",
+                    event = "tool_end",
+                    session = %crate::utils::session_id(),
+                    tool = %tool_name_short,
+                    full_tool = %tool_name,
+                    index = index as u64,
+                    step_id = step_id.unwrap_or(""),
+                    status = "success",
+                    duration_ms = duration_ms,
+                    content_count = content_count as u64,
+                    "tool_end"
+                );
                 (result_json, false)
             }
             Err(e) => {
@@ -962,6 +991,21 @@ impl DesktopWrapper {
                 let error_result =
                     serde_json::Value::Object(error_result.as_object().unwrap().clone());
 
+                // Structured audit: tool end (error/skipped)
+                let status_str = if is_skippable { "skipped" } else { "error" };
+                tracing::info!(
+                    target: "mcp_audit",
+                    event = "tool_end",
+                    session = %crate::utils::session_id(),
+                    tool = %tool_name_short,
+                    full_tool = %tool_name,
+                    index = index as u64,
+                    step_id = step_id.unwrap_or(""),
+                    status = %status_str,
+                    duration_ms = duration_ms,
+                    error = %e,
+                    "tool_end"
+                );
                 if !is_skippable {
                     warn!(
                         "Tool '{}' at index {} failed. Reason: {}",

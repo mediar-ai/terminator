@@ -21,6 +21,7 @@ tracing = { workspace = true }
 terminator = { workspace = true }
 serde_json = { workspace = true }
 tracing-subscriber = { workspace = true }
+tracing-appender = "0.2"
 rmcp = { version = "0.4.0", features = [
     "server",
     "client",

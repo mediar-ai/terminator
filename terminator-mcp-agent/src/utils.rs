@@ -5,11 +5,15 @@ use rmcp::{schemars, schemars::JsonSchema};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::sync::Arc;
 use std::time::Duration;
 use terminator::{AutomationError, Desktop, UIElement};
 use tokio::sync::Mutex;
 use tracing::{warn, Level};
+use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::{fmt::time::UtcTime, layer::SubscriberExt, util::SubscriberInitExt};
 use tracing_subscriber::EnvFilter;
 
 // Validation helpers for better type safety
@@ -1007,14 +1011,127 @@ pub fn init_logging() -> Result<()> {
         })
         .unwrap_or(Level::INFO);
 
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env().add_directive(log_level.into()))
+    // Build stderr layer (human readable)
+    let env_filter = EnvFilter::from_default_env().add_directive(log_level.into());
+
+    let stderr_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
-        .with_ansi(false)
-        .init();
+        .with_ansi(false);
+
+    // Build JSON file layer (structured audit logs)
+    let (json_layer_opt, guard_opt) = build_json_audit_layer();
+
+    if let Some(guard) = guard_opt {
+        // Hold guard for the lifetime of the program
+        static WORKER_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
+        let _ = WORKER_GUARD.set(guard);
+    }
+
+    let registry = tracing_subscriber::registry().with(env_filter).with(stderr_layer);
+
+    if let Some(json_layer) = json_layer_opt {
+        registry.with(json_layer).init();
+    } else {
+        registry.init();
+    }
 
     Ok(())
 }
+
+/// Builds a JSON logging layer that writes daily-rotated audit logs to disk.
+/// Returns the layer and its worker guard if successfully initialized.
+fn build_json_audit_layer(
+) -> (Option<tracing_subscriber::fmt::Layer<tracing_subscriber::Registry, tracing_appender::non_blocking::NonBlocking, tracing_subscriber::fmt::format::JsonFields, tracing_subscriber::fmt::format::Format<
+        tracing_subscriber::fmt::format::Json,
+        UtcTime,
+        tracing_subscriber::fmt::format::Json,
+    >>, Option<WorkerGuard>) {
+    let enable = env::var("MCP_JSON_LOG_DISABLE").ok().map_or(true, |v| v != "1");
+    if !enable {
+        return (None, None);
+    }
+
+    let (log_dir, file_name) = get_log_location();
+    if let Err(e) = std::fs::create_dir_all(&log_dir) {
+        eprintln!("Failed to create log directory '{}': {}", log_dir.display(), e);
+        return (None, None);
+    }
+
+    // Daily-rotated logs named like mcp_audit.jsonl.YYYY-MM-DD
+    let file_appender = tracing_appender::rolling::daily(&log_dir, file_name);
+    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+
+    let json_layer = tracing_subscriber::fmt::layer()
+        .json()
+        .with_timer(UtcTime::rfc_3339())
+        .with_writer(non_blocking)
+        .with_ansi(false)
+        .with_current_span(true)
+        .with_span_list(true);
+
+    (Some(json_layer), Some(guard))
+}
+
+/// Returns (directory, file_name) for audit logs
+fn get_log_location() -> (PathBuf, String) {
+    let dir = env::var("MCP_LOG_DIR").map(PathBuf::from).unwrap_or_else(|_| {
+        let default = Path::new("logs").join("mcp");
+        default
+    });
+    let file_name = env::var("MCP_LOG_FILE").unwrap_or_else(|_| "mcp_audit.jsonl".to_string());
+    (dir, file_name)
+}
+
+/// Global session id for current MCP server process.
+pub fn session_id() -> &'static str {
+    static SESSION_ID: OnceLock<String> = OnceLock::new();
+    SESSION_ID.get_or_init(|| {
+        env::var("MCP_SESSION_ID").unwrap_or_else(|_| uuid::Uuid::new_v4().to_string())
+    })
+}
+
+/// Sanitize arguments to avoid logging sensitive content and reduce size.
+pub fn sanitize_arguments(args: &serde_json::Value) -> serde_json::Value {
+    use serde_json::{Map, Value};
+
+    fn redact_value(value: &Value) -> Value {
+        match value {
+            Value::String(s) => {
+                let mut out = s.clone();
+                if out.len() > 256 {
+                    out.truncate(256);
+                    out.push_str("…");
+                }
+                Value::String(out)
+            }
+            Value::Array(arr) => Value::Array(arr.iter().map(redact_value).collect()),
+            Value::Object(map) => Value::Object(sanitize_map(map)),
+            other => other.clone(),
+        }
+    }
+
+    fn sanitize_map(map: &Map<String, serde_json::Value>) -> Map<String, serde_json::Value> {
+        let mut out = Map::new();
+        for (k, v) in map.iter() {
+            let key_lower = k.to_lowercase();
+            if matches!(
+                key_lower.as_str(),
+                "text_to_type" | "value" | "password" | "secret" | "token" | "script" | "run"
+            ) {
+                out.insert(k.clone(), serde_json::Value::String("[redacted]".to_string()));
+            } else {
+                out.insert(k.clone(), redact_value(v));
+            }
+        }
+        out
+    }
+
+    match args {
+        serde_json::Value::Object(map) => serde_json::Value::Object(sanitize_map(map)),
+        other => redact_value(other),
+    }
+}
+
 
 pub fn get_timeout(timeout_ms: Option<u64>) -> Option<Duration> {
     // Default to 3 seconds instead of indefinite wait to prevent hanging

@@ -376,6 +376,33 @@ For additional help, see the [Terminator CLI documentation](../terminator-cli/RE
 
 ---
 
+### Structured audit logging (JSONL)
+
+The agent emits structured JSON logs for every tool call. Logs are meant for human audit and future rollback tooling.
+
+- Location: `logs/mcp/mcp_audit.jsonl.YYYY-MM-DD` by default
+- Format: one JSON object per line
+- Rotation: daily (UTC)
+- Session correlation: every event includes a stable `session`
+
+Environment variables:
+
+- `MCP_LOG_DIR`: override log directory (default `logs/mcp`)
+- `MCP_LOG_FILE`: base filename (default `mcp_audit.jsonl`)
+- `MCP_SESSION_ID`: set a fixed session id (defaults to random UUID)
+- `MCP_JSON_LOG_DISABLE=1`: disable JSON audit logs entirely
+
+Example entries:
+
+```json
+{"timestamp":"2025-01-01T12:00:00Z","level":"INFO","fields":{"event":"tool_start","session":"7c2b...","tool":"click_element","full_tool":"mcp_terminator-mcp-agent_click_element","index":0,"step_id":"step-1","args":{"selector":"role:Button|name:Submit"}}}
+{"timestamp":"2025-01-01T12:00:00Z","level":"INFO","fields":{"event":"tool_end","session":"7c2b...","tool":"click_element","full_tool":"mcp_terminator-mcp-agent_click_element","index":0,"step_id":"step-1","status":"success","duration_ms":142,"content_count":1}}
+```
+
+Sensitive fields (e.g., `text_to_type`, `value`, `password`, `secret`, `token`, `script`, `run`) are redacted in logs.
+
+---
+
 ## 📚 Full `execute_sequence` Reference & Sample Workflow
 
 > **Why another example?** The quick start above shows the concept, but many users asked for a fully-annotated workflow schema. The example below automates the Windows **Calculator** app—so it is 100% safe to share and does **not** reveal any private customer data. Feel free to copy-paste and adapt it to your own application.
