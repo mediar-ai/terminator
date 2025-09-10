@@ -54,6 +54,14 @@ ollama-rs = "0.3.2"
 arboard = "3.6.0"
 rdev = "0.5.3"
 
+# Optional telemetry dependencies (enabled with `--features telemetry`)
+opentelemetry = { version = "0.23", default-features = false, features = ["trace", "metrics", "logs"], optional = true }
+opentelemetry-otlp = { version = "0.16", optional = true, features = ["grpc-tonic", "http-proto"] }
+opentelemetry-appender-tracing = { version = "0.4", optional = true }
+tracing-opentelemetry = { version = "0.27", optional = true }
+metrics = { version = "0.22", optional = true }
+metrics-exporter-prometheus = { version = "0.15", optional = true }
+
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -62,3 +70,15 @@ rand = "0.8"
 [[example]]
 name = "terminator-ai-summarizer"
 path = "examples/terminator-ai-summarizer/src/main.rs"
+
+[features]
+default = []
+# Enable OpenTelemetry-based tracing, metrics and logs, plus a /metrics endpoint in HTTP mode
+telemetry = [
+    "opentelemetry",
+    "opentelemetry-otlp",
+    "opentelemetry-appender-tracing",
+    "tracing-opentelemetry",
+    "metrics",
+    "metrics-exporter-prometheus",
+]

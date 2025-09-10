@@ -301,6 +301,15 @@ impl DesktopWrapper {
             stop_on_error,
             include_detailed
         );
+
+        // Root tracing span for sequence execution
+        let seq_span = tracing::info_span!(
+            "mcp_sequence",
+            steps = args.steps.as_ref().map(|s| s.len()).unwrap_or(0) as i64,
+            stop_on_error = stop_on_error,
+            include_detailed = include_detailed,
+        );
+        let _seq_guard = seq_span.enter();
         // Publish start event via HTTP event bus
         let request_id = Uuid::new_v4().to_string();
         terminator_mcp_agent::event_bus::publish(json!({
@@ -856,6 +865,13 @@ impl DesktopWrapper {
         step_id: Option<&str>,
     ) -> (serde_json::Value, bool) {
         let tool_start_time = chrono::Utc::now();
+        let span = tracing::info_span!(
+            "mcp_tool",
+            tool = %tool_name,
+            index = index as i64,
+            step_id = step_id.unwrap_or("")
+        );
+        let _guard = span.enter();
         let tool_name_short = tool_name
             .strip_prefix("mcp_terminator-mcp-agent_")
             .unwrap_or(tool_name);
@@ -895,6 +911,9 @@ impl DesktopWrapper {
                     "result": content_summary,
                 });
 
+                // Metrics/logging
+                crate::telemetry::record_tool_outcome(tool_name, "success", duration_ms);
+
                 // Add step_id if provided
                 if let Some(id) = step_id {
                     if let Some(obj) = result_json.as_object_mut() {
@@ -915,6 +934,13 @@ impl DesktopWrapper {
                     "duration_ms": duration_ms,
                     "error": format!("{}", e),
                 });
+
+                // Metrics/logging
+                crate::telemetry::record_tool_outcome(
+                    tool_name,
+                    if is_skippable { "skipped" } else { "error" },
+                    duration_ms,
+                );
 
                 // Add step_id if provided
                 if let Some(id) = step_id {

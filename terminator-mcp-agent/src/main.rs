@@ -226,6 +226,7 @@ async fn main() -> Result<()> {
                 req: Request<Body>,
                 next: Next,
             ) -> impl IntoResponse {
+                let request_start = std::time::Instant::now();
                 if req.method() == Method::POST {
                     let active = state.active_requests.load(Ordering::SeqCst);
                     if active >= state.max_concurrent {
@@ -305,10 +306,29 @@ async fn main() -> Result<()> {
                         *ts = chrono::Utc::now().to_rfc3339();
                     }
 
+                    // Record request metrics
+                    let duration = request_start.elapsed();
+                    let status_code = response.status().as_u16();
+                    terminator_mcp_agent::telemetry::record_request_metrics(
+                        "/mcp",
+                        "POST",
+                        status_code,
+                        duration,
+                    );
+
                     return response;
                 }
 
-                next.run(req).await
+                let response = next.run(req).await;
+                let duration = request_start.elapsed();
+                let status_code = response.status().as_u16();
+                terminator_mcp_agent::telemetry::record_request_metrics(
+                    "(other)",
+                    req.method().as_str(),
+                    status_code,
+                    duration,
+                );
+                response
             }
 
             // Build a sub-router for /mcp that uses the service with concurrency gate middleware
@@ -322,6 +342,28 @@ async fn main() -> Result<()> {
                 .route("/events", get(events_sse))
                 .nest("/mcp", mcp_router)
                 .with_state(app_state.clone());
+
+            // Optional Prometheus metrics endpoint under telemetry feature
+            #[cfg(feature = "telemetry")]
+            {
+                use axum::response::Response;
+                async fn metrics_handler() -> Response {
+                    if let Some(body) = terminator_mcp_agent::telemetry::prometheus_scrape() {
+                        let mut resp = axum::http::Response::builder()
+                            .status(StatusCode::OK)
+                            .header(
+                                axum::http::header::CONTENT_TYPE,
+                                "text/plain; version=0.0.4",
+                            )
+                            .body(Body::from(body))
+                            .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR).into_response().into_body());
+                        return resp;
+                    }
+                    (StatusCode::NOT_FOUND).into_response()
+                }
+
+                router = router.route("/metrics", get(metrics_handler));
+            }
 
             if args.cors {
                 router = router.layer(CorsLayer::permissive());

@@ -997,6 +997,13 @@ pub fn init_logging() -> Result<()> {
         })
         .unwrap_or(Level::INFO);
 
+    // If telemetry feature is enabled, use the richer observability initialization
+    #[cfg(feature = "telemetry")]
+    {
+        return crate::telemetry::init_observability(log_level);
+    }
+
+    // Fallback: plain logging
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env().add_directive(log_level.into()))
         .with_writer(std::io::stderr)
