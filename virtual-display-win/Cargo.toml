@@ -1,0 +1,29 @@
+[package]
+name = "virtual-display-win"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Windows virtual display management helpers (enumeration, driver lifecycle stubs)"
+repository = "https://example.com/terminator"
+
+[lib]
+name = "virtual_display_win"
+path = "src/lib.rs"
+
+[features]
+default = ["windows"]
+windows = []
+
+[dependencies]
+anyhow = { workspace = true }
+tracing = { workspace = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+sysinfo = { workspace = true }
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi"
+] }
+
+[dev-dependencies]
+tracing-subscriber = { workspace = true }

@@ -8,7 +8,7 @@ async fn test_javascript_engine_basic() {
     let result = scripting_engine::execute_javascript_with_nodejs(script)
         .await
         .expect("JavaScript execution should succeed");
-    
+
     assert_eq!(result["success"], true);
     assert_eq!(result["value"], 42);
 }
@@ -19,12 +19,13 @@ async fn test_javascript_engine_with_async() {
     let script = r#"
         await sleep(100);
         return {delayed: true, timestamp: Date.now()};
-    "#.to_string();
-    
+    "#
+    .to_string();
+
     let result = scripting_engine::execute_javascript_with_nodejs(script)
         .await
         .expect("Async JavaScript execution should succeed");
-    
+
     assert_eq!(result["delayed"], true);
     assert!(result["timestamp"].is_number());
 }
@@ -38,12 +39,13 @@ async fn test_javascript_engine_with_desktop_api() {
             hasDesktop: typeof desktop !== 'undefined',
             hasLocator: typeof desktop?.locator === 'function'
         };
-    "#.to_string();
-    
+    "#
+    .to_string();
+
     let result = scripting_engine::execute_javascript_with_nodejs(script)
         .await
         .expect("Desktop API check should succeed");
-    
+
     assert_eq!(result["hasDesktop"], true);
     assert_eq!(result["hasLocator"], true);
 }

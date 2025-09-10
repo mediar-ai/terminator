@@ -1209,10 +1209,7 @@ impl DesktopWrapper {
 
         // Shell-based execution path
         let run_str = args.run.clone().ok_or_else(|| {
-            McpError::invalid_params(
-                "'run' is required for shell command execution",
-                None,
-            )
+            McpError::invalid_params("'run' is required for shell command execution", None)
         })?;
 
         // Determine which shell to use based on platform and user preference
