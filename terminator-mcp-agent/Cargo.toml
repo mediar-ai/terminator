@@ -64,6 +64,9 @@ ollama-rs = "0.3.2"
 arboard = "3.6.0"
 rdev = "0.5.3"
 
+# UUID for trace IDs
+uuid = { version = "1.10", features = ["v4", "serde"] }
+
 
 [dev-dependencies]
 tokio-test = "0.4"
