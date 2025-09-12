@@ -3,6 +3,7 @@ pub mod duration_parser;
 pub mod expression_eval;
 pub mod helpers;
 pub mod mcp_converter;
+pub mod mcp_tool_hints;
 pub mod mcp_types;
 pub mod observability_tools;
 pub mod output_parser;
