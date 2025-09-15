@@ -39,6 +39,8 @@ dotenvy = "0.15.7"
 reqwest = { version = "0.12.22", features = ["json", "rustls-tls"] }
 
 anthropic-sdk = "0.1.5"
+openai-api-rs = "6.0.8"
+gemini-rs = "2.0.0"
 
 # Cron scheduling support
 tokio-cron-scheduler = "0.14"
