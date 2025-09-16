@@ -43,13 +43,14 @@ impl LocalUIAutomation {
         let desktop = self.desktop.clone();
         let selector_str = selector.to_string();
 
-        tokio::task::spawn_blocking(move || {
+        let result = tokio::task::spawn_blocking(move || {
             let selector = Selector::from(selector_str.as_str());
             desktop.locator(selector)
                 .first(Some(Duration::from_secs(5)))
         })
-        .await?
-        .context("Element not found")
+        .await?;
+
+        result.context("Element not found")
     }
 }
 
@@ -67,7 +68,7 @@ impl UIAutomation for LocalUIAutomation {
             serde_json::json!({
                 "name": app.name().unwrap_or_default(),
                 "role": app.role(),
-                "window_title": app.window_title().unwrap_or_default(),
+                "window_title": app.window_title(),
             })
         }).collect();
 
@@ -186,7 +187,7 @@ impl UIAutomation for LocalUIAutomation {
         } else {
             let desktop = self.desktop.clone();
             tokio::task::spawn_blocking(move || {
-                desktop.take_screenshot()
+                desktop.screenshot()
             })
             .await?
         }

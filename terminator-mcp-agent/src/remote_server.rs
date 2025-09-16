@@ -121,24 +121,34 @@ impl RemoteServerState {
             RemoteAction::GetWindowTree { pid, include_detailed_attributes } => {
                 let include_attrs = include_detailed_attributes.unwrap_or(true);
 
-                if let Some(process_id) = pid {
+                if let Some(_process_id) = pid {
+                    // Note: terminator doesn't provide PID directly from UIElement
+                    // Would need Windows API to get process info
                     let apps = desktop.desktop.applications()?;
-                    let tree = apps.into_iter()
-                        .find(|app| app.pid() == process_id)
-                        .map(|app| serde_json::json!({
-                            "pid": app.pid(),
-                            "name": app.name(),
-                            "windows": app.windows()
-                        }))
-                        .ok_or_else(|| anyhow::anyhow!("Process with PID {} not found", process_id))?;
-                    Ok(serde_json::to_value(tree)?)
+                    let app_info: Vec<_> = apps.iter().map(|app| {
+                        serde_json::json!({
+                            "name": app.name().unwrap_or_default(),
+                            "role": app.role(),
+                            "window_title": app.window_title()
+                        })
+                    }).collect();
+                    Ok(serde_json::json!({
+                        "applications": app_info,
+                        "note": "PID filtering requires Windows API integration"
+                    }))
                 } else {
                     let apps = desktop.desktop.applications()?;
-                    let trees = serde_json::json!({
-                        "applications": apps,
+                    let app_info: Vec<_> = apps.iter().map(|app| {
+                        serde_json::json!({
+                            "name": app.name().unwrap_or_default(),
+                            "role": app.role(),
+                            "window_title": app.window_title()
+                        })
+                    }).collect();
+                    Ok(serde_json::json!({
+                        "applications": app_info,
                         "include_detailed_attributes": include_attrs
-                    });
-                    Ok(trees)
+                    }))
                 }
             }
 
@@ -148,14 +158,15 @@ impl RemoteServerState {
             }
 
             RemoteAction::Click { selector, button } => {
-                let element = desktop.desktop.locator(&selector).first().await
+                let element = desktop.desktop.locator(selector.as_str())
+                    .first(Some(std::time::Duration::from_secs(5)))
                     .context("Element not found")?;
 
                 match button.unwrap_or(MouseButton::Left) {
-                    MouseButton::Left => element.click().await?,
-                    MouseButton::Right => element.right_click().await?,
+                    MouseButton::Left => element.click().map(|_| ())?,
+                    MouseButton::Right => element.right_click()?,
                     MouseButton::Middle => {
-                        element.click().await?;
+                        element.click().map(|_| ())?;
                     }
                 }
 
@@ -163,30 +174,33 @@ impl RemoteServerState {
             }
 
             RemoteAction::TypeText { selector, text } => {
-                let element = desktop.desktop.locator(&selector).first().await
+                let element = desktop.desktop.locator(selector.as_str())
+                    .first(Some(std::time::Duration::from_secs(5)))
                     .context("Element not found")?;
-                element.type_text(&text).await?;
+                element.type_text(&text)?;
                 Ok(serde_json::json!({ "typed": true, "text": text }))
             }
 
             RemoteAction::PressKey { selector, key } => {
-                let element = desktop.desktop.locator(&selector).first().await
+                let element = desktop.desktop.locator(selector.as_str())
+                    .first(Some(std::time::Duration::from_secs(5)))
                     .context("Element not found")?;
-                element.press_key(&key).await?;
+                element.press_key(&key)?;
                 Ok(serde_json::json!({ "key_pressed": key }))
             }
 
             RemoteAction::GetElementProperties { selector } => {
-                let element = desktop.desktop.locator(&selector).first().await
+                let element = desktop.desktop.locator(selector.as_str())
+                    .first(Some(std::time::Duration::from_secs(5)))
                     .context("Element not found")?;
 
                 let props = serde_json::json!({
-                    "name": element.name().await?,
-                    "role": element.role().await?,
-                    "is_enabled": element.is_enabled().await?,
-                    "is_visible": element.is_visible().await?,
-                    "bounds": element.bounds().await?,
-                    "value": element.value().await.unwrap_or_default(),
+                    "name": element.name()?,
+                    "role": element.role(),
+                    "is_enabled": element.is_enabled()?,
+                    "is_visible": element.is_visible()?,
+                    "bounds": element.bounds()?,
+                    "value": element.value().unwrap_or_default(),
                 });
 
                 Ok(props)
@@ -201,11 +215,12 @@ impl RemoteServerState {
                         return Err(anyhow::anyhow!("Timeout waiting for element"));
                     }
 
-                    if let Ok(element) = desktop.desktop.locator(&selector).first().await {
+                    if let Ok(element) = desktop.desktop.locator(selector.as_str())
+                        .first(Some(std::time::Duration::from_millis(100))) {
                         let met = match condition {
-                            WaitCondition::Visible => element.is_visible().await?,
-                            WaitCondition::Enabled => element.is_enabled().await?,
-                            WaitCondition::Focused => element.is_focused().await?,
+                            WaitCondition::Visible => element.is_visible()?,
+                            WaitCondition::Enabled => element.is_enabled()?,
+                            WaitCondition::Focused => element.is_focused()?,
                             WaitCondition::Exists => true,
                         };
 
@@ -220,11 +235,12 @@ impl RemoteServerState {
 
             RemoteAction::TakeScreenshot { selector, full_page } => {
                 let screenshot_data = if let Some(sel) = selector {
-                    let element = desktop.desktop.locator(&sel).first().await
+                    let element = desktop.desktop.locator(sel.as_str())
+                        .first(Some(std::time::Duration::from_secs(5)))
                         .context("Element not found")?;
-                    element.capture_screenshot().await?
+                    element.capture_screenshot()?
                 } else {
-                    desktop.desktop.take_screenshot().await?
+                    desktop.desktop.screenshot()?
                 };
 
                 let encoded = STANDARD.encode(&screenshot_data);
@@ -235,28 +251,31 @@ impl RemoteServerState {
             }
 
             RemoteAction::SetValue { selector, value } => {
-                let element = desktop.desktop.locator(&selector).first().await
+                let element = desktop.desktop.locator(selector.as_str())
+                    .first(Some(std::time::Duration::from_secs(5)))
                     .context("Element not found")?;
-                element.set_value(&value).await?;
+                element.set_value(&value)?;
                 Ok(serde_json::json!({ "value_set": value }))
             }
 
             RemoteAction::InvokeElement { selector } => {
-                let element = desktop.desktop.locator(&selector).first().await
+                let element = desktop.desktop.locator(selector.as_str())
+                    .first(Some(std::time::Duration::from_secs(5)))
                     .context("Element not found")?;
-                element.invoke().await?;
+                element.invoke()?;
                 Ok(serde_json::json!({ "invoked": true }))
             }
 
             RemoteAction::ValidateElement { selector } => {
-                match desktop.desktop.locator(&selector).first().await {
+                match desktop.desktop.locator(selector.as_str())
+                    .first(Some(std::time::Duration::from_secs(5))) {
                     Ok(element) => {
                         let validation = serde_json::json!({
                             "exists": true,
-                            "name": element.name().await?,
-                            "role": element.role().await?,
-                            "is_enabled": element.is_enabled().await?,
-                            "is_visible": element.is_visible().await?,
+                            "name": element.name()?,
+                            "role": element.role(),
+                            "is_enabled": element.is_enabled()?,
+                            "is_visible": element.is_visible()?,
                         });
                         Ok(validation)
                     }
