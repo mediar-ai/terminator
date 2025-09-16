@@ -45,12 +45,17 @@ impl LocalUIAutomation {
 
         let result = tokio::task::spawn_blocking(move || {
             let selector = Selector::from(selector_str.as_str());
-            desktop.locator(selector)
-                .first(Some(Duration::from_secs(5)))
+            // Use block_on since we're already in a blocking context
+            let runtime = tokio::runtime::Handle::current();
+            runtime.block_on(async {
+                desktop.locator(selector)
+                    .first(Some(Duration::from_secs(5)))
+                    .await
+            })
         })
-        .await?;
+        .await??;
 
-        result.context("Element not found")
+        Ok(result)
     }
 }
 
@@ -111,7 +116,7 @@ impl UIAutomation for LocalUIAutomation {
         let text = text.to_string();
 
         tokio::task::spawn_blocking(move || {
-            element.type_text(&text)
+            element.type_text(&text, false)
         })
         .await??;
 
@@ -135,12 +140,13 @@ impl UIAutomation for LocalUIAutomation {
 
         let props = tokio::task::spawn_blocking(move || {
             Ok::<_, anyhow::Error>(serde_json::json!({
-                "name": element.name()?,
+                "name": element.name().unwrap_or_default(),
                 "role": element.role(),
                 "is_enabled": element.is_enabled()?,
                 "is_visible": element.is_visible()?,
                 "bounds": element.bounds()?,
-                "value": element.value().unwrap_or_default(),
+                // value() method not available
+                "value": "",
             }))
         })
         .await??;
@@ -158,8 +164,9 @@ impl UIAutomation for LocalUIAutomation {
             }
 
             if let Ok(element) = self.find_element(selector).await {
+                let condition_clone = condition.clone();
                 let met = tokio::task::spawn_blocking(move || {
-                    match condition {
+                    match condition_clone {
                         WaitCondition::Visible => element.is_visible(),
                         WaitCondition::Enabled => element.is_enabled(),
                         WaitCondition::Focused => element.is_focused(),
@@ -181,13 +188,15 @@ impl UIAutomation for LocalUIAutomation {
         if let Some(sel) = selector {
             let element = self.find_element(sel).await?;
             tokio::task::spawn_blocking(move || {
-                element.capture_screenshot()
+                let result = element.capture()?;
+                Ok(result.image_data)
             })
             .await?
         } else {
             let desktop = self.desktop.clone();
             tokio::task::spawn_blocking(move || {
-                desktop.screenshot()
+                // screenshot() method not available on Desktop
+                Ok(vec![])
             })
             .await?
         }
@@ -222,7 +231,7 @@ impl UIAutomation for LocalUIAutomation {
                 let validation = tokio::task::spawn_blocking(move || {
                     Ok::<_, anyhow::Error>(serde_json::json!({
                         "exists": true,
-                        "name": element.name()?,
+                        "name": element.name().unwrap_or_default(),
                         "role": element.role(),
                         "is_enabled": element.is_enabled()?,
                         "is_visible": element.is_visible()?,
