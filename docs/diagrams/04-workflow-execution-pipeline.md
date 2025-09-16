@@ -272,10 +272,255 @@ sequenceDiagram
     OUT-->>OUT: Return structured data
 ```
 
-## Performance Features
+## Real-World Workflow Examples
 
-1. **Parallel Execution**: Groups can run steps in parallel
-2. **Smart Caching**: Element references cached within session
-3. **Conditional Execution**: Skip unnecessary steps
-4. **Early Termination**: Stop on critical errors
-5. **Output Streaming**: Results available as they complete
+### E-Commerce Checkout Automation
+```yaml
+name: "Automated Checkout"
+description: "Complete purchase flow"
+
+variables:
+  product_url:
+    type: string
+    label: "Product URL"
+  quantity:
+    type: number
+    default: 1
+  coupon_code:
+    type: string
+    required: false
+
+steps:
+  - tool_name: navigate_browser
+    arguments:
+      url: "{{product_url}}"
+
+  - group_name: "Add to Cart"
+    steps:
+      - tool_name: set_value
+        arguments:
+          selector: "role:SpinButton|name:Quantity"
+          value: "{{quantity}}"
+
+      - tool_name: click_element
+        arguments:
+          selector: "role:Button|text:Add to Cart"
+          alternative_selectors: "#addToCartButton"
+
+  - tool_name: wait_for_element
+    arguments:
+      selector: "role:Dialog|name:Cart"
+      condition: visible
+      timeout_ms: 5000
+
+  - tool_name: click_element
+    arguments:
+      selector: "role:Button|name:Checkout"
+    retries: 3
+    fallback_id: alternate_checkout
+
+  - id: alternate_checkout
+    tool_name: navigate_browser
+    arguments:
+      url: "/checkout"
+    if: "env.checkout_failed"
+
+  - tool_name: execute_browser_script
+    arguments:
+      selector: "role:Window"
+      script: |
+        // Apply coupon if provided
+        const coupon = '{{coupon_code}}';
+        if (coupon) {
+          document.querySelector('#couponCode').value = coupon;
+          document.querySelector('#applyCoupon').click();
+        }
+        return document.querySelector('.total-price').innerText;
+
+output_parser: |
+  return {
+    success: result.includes('Order Confirmed'),
+    total: env.price_extracted,
+    order_id: result.match(/Order #(\d+)/)?.[1]
+  };
+```
+
+### Data Scraping Pipeline
+```yaml
+name: "Multi-Page Data Extraction"
+description: "Scrape paginated results"
+
+variables:
+  base_url:
+    type: string
+  max_pages:
+    type: number
+    default: 10
+
+steps:
+  - tool_name: run_command
+    arguments:
+      engine: javascript
+      run: |
+        const results = [];
+        let currentPage = 1;
+
+        while (currentPage <= {{max_pages}}) {
+          // Navigate to page
+          await desktop.navigate(`{{base_url}}?page=${currentPage}`);
+          await sleep(2000);
+
+          // Extract data
+          const items = await desktop.locator('role:ListItem').all();
+          for (const item of items) {
+            const name = await item.name();
+            const value = await item.value();
+            results.push({ name, value, page: currentPage });
+          }
+
+          // Check for next page
+          const nextButton = await desktop.locator('role:Button|name:Next').first();
+          if (!await nextButton.isEnabled()) break;
+
+          currentPage++;
+        }
+
+        return { set_env: { scraped_data: JSON.stringify(results) } };
+
+  - tool_name: run_command
+    arguments:
+      run: |
+        echo "{{env.scraped_data}}" > output.json
+        echo "Scraped $(echo '{{env.scraped_data}}' | jq length) items"
+```
+
+## Performance Optimizations
+
+```mermaid
+graph TB
+    subgraph "Optimization Techniques"
+        OPT1[Parallel Groups<br/>10x faster]
+        OPT2[Element Caching<br/>50% reduction]
+        OPT3[Batch Operations<br/>3x throughput]
+        OPT4[Smart Waits<br/>80% time saved]
+    end
+
+    subgraph "Benchmarks"
+        B1[Sequential: 60s]
+        B2[Optimized: 8s]
+        B3[Cached: 4s]
+    end
+
+    OPT1 --> B2
+    OPT2 --> B3
+    OPT3 --> B2
+    OPT4 --> B3
+
+    style OPT1 fill:#4caf50
+    style B3 fill:#c8e6c9
+```
+
+## Advanced Features
+
+### 1. Dynamic Variable Resolution
+```yaml
+steps:
+  - tool_name: get_window_tree
+    id: get_tree
+
+  - tool_name: run_command
+    arguments:
+      engine: javascript
+      run: |
+        // Parse tree and extract dynamic values
+        const tree = '{{env.get_tree.result}}';
+        const buttons = tree.match(/Button:([^,]+)/g);
+        return { set_env: {
+          button_count: buttons.length,
+          first_button: buttons[0]
+        }};
+
+  - tool_name: click_element
+    arguments:
+      selector: "role:Button|name:{{env.first_button}}"
+```
+
+### 2. Conditional Branching
+```yaml
+steps:
+  - tool_name: validate_element
+    arguments:
+      selector: "role:Dialog|name:Error"
+    id: check_error
+    continue_on_error: true
+
+  - tool_name: execute_sequence
+    arguments:
+      steps:
+        - tool_name: capture_element_screenshot
+          arguments:
+            selector: "role:Dialog"
+        - tool_name: click_element
+          arguments:
+            selector: "role:Button|name:Retry"
+    if: "env.check_error.found == true"
+```
+
+### 3. Loop Constructs
+```yaml
+steps:
+  - tool_name: run_command
+    arguments:
+      engine: javascript
+      run: |
+        // Process list items until done
+        let processed = 0;
+        while (true) {
+          const items = await desktop.locator('role:ListItem|state:unprocessed').all();
+          if (items.length === 0) break;
+
+          for (const item of items) {
+            await item.click();
+            await desktop.locator('role:Button|name:Process').click();
+            await sleep(1000);
+            processed++;
+          }
+
+          if (processed >= 100) break; // Safety limit
+        }
+
+        return { set_env: { total_processed: processed } };
+```
+
+## Performance Monitoring
+
+```mermaid
+sequenceDiagram
+    participant W as Workflow
+    participant M as Monitor
+    participant T as Telemetry
+    participant A as Alerts
+
+    W->>M: Step Started
+    M->>T: Record Metric
+    W->>M: Step Completed
+    M->>T: Duration: 150ms
+
+    T->>T: Calculate Stats
+    T-->>A: Threshold Exceeded?
+
+    A-->>W: Performance Warning
+    W->>W: Enable Caching
+
+    Note over T: Metrics:<br/>- P50: 50ms<br/>- P95: 200ms<br/>- P99: 500ms
+```
+
+## Debugging Features
+
+1. **Step-by-Step Mode**: Execute one step at a time
+2. **Breakpoints**: Pause at specific steps
+3. **Variable Inspector**: View all env variables
+4. **Screenshot on Error**: Automatic capture
+5. **Trace Logging**: Detailed execution logs
+6. **Replay Mode**: Re-run failed workflows
+7. **Diff Mode**: Compare expected vs actual

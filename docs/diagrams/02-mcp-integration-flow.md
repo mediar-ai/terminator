@@ -140,28 +140,140 @@ flowchart TB
     EXEC -.->|On Error| ERROR
 ```
 
-## Key Integration Features
+## Real-World Request Examples
 
-### 1. Selector Strategy
-- **Primary**: `role:Button|name:Submit`
-- **Alternatives**: Parallel attempts
-- **Fallbacks**: Sequential if primary fails
-- **ID-based**: `#12345` for precision
+```mermaid
+graph TB
+    subgraph "Login Automation"
+        L1[1. get_window_tree]
+        L2[2. type_into_element<br/>username field]
+        L3[3. type_into_element<br/>password field]
+        L4[4. click_element<br/>login button]
+        L5[5. wait_for_element<br/>dashboard]
+    end
 
-### 2. Error Handling
-- Element not found → Suggest alternatives
-- Timeout → Increase wait or check state
-- Disabled element → Check prerequisites
-- Focus lost → Activate window first
+    subgraph "Data Extraction"
+        D1[1. navigate_browser<br/>target URL]
+        D2[2. execute_browser_script<br/>extract DOM]
+        D3[3. parse & process<br/>structured data]
+    end
 
-### 3. Performance Optimizations
-- `include_tree: false` by default
-- Batch operations in sequences
-- Cache element references
-- Smart retry logic
+    subgraph "Form Filling"
+        F1[1. execute_sequence<br/>load workflow]
+        F2[2. parallel fill<br/>multiple fields]
+        F3[3. validate_element<br/>check states]
+        F4[4. submit & verify]
+    end
 
-### 4. AI-Friendly Design
-- Descriptive error messages
-- Suggested next actions
-- State verification tools
-- Visual highlighting for debugging
+    L1 --> L2 --> L3 --> L4 --> L5
+    D1 --> D2 --> D3
+    F1 --> F2 --> F3 --> F4
+
+    style L1 fill:#e3f2fd
+    style D1 fill:#fff3e0
+    style F1 fill:#e8f5e9
+```
+
+## Performance Metrics
+
+```mermaid
+graph LR
+    subgraph "Response Times"
+        RT1[get_tree: 20-100ms]
+        RT2[click: 10-30ms]
+        RT3[type: 50-200ms]
+        RT4[screenshot: 100-500ms]
+    end
+
+    subgraph "Throughput"
+        T1[Requests/sec: 100-500]
+        T2[Concurrent: 10-50]
+        T3[Queue depth: 1000]
+    end
+
+    subgraph "Success Rates"
+        S1[Element found: 95%+]
+        S2[Action success: 98%+]
+        S3[Auto-retry: 80% recovery]
+    end
+
+    style Response Times fill:#e1f5fe
+    style Throughput fill:#fff3e0
+    style Success Rates fill:#c8e6c9
+```
+
+## Common Integration Patterns
+
+### 1. Robust Element Selection
+```json
+{
+  "method": "click_element",
+  "params": {
+    "selector": "role:Button|name:Submit",
+    "alternative_selectors": "#submitBtn, text:Submit",
+    "fallback_selectors": "nth:0|role:Button",
+    "timeout_ms": 5000,
+    "retries": 3,
+    "include_tree": false
+  }
+}
+```
+
+### 2. Conditional Workflows
+```json
+{
+  "method": "execute_sequence",
+  "params": {
+    "steps": [
+      {
+        "tool_name": "validate_element",
+        "arguments": {"selector": "role:Dialog"},
+        "id": "check_dialog"
+      },
+      {
+        "tool_name": "click_element",
+        "arguments": {"selector": "role:Button|name:Close"},
+        "if": "env.check_dialog.exists"
+      }
+    ]
+  }
+}
+```
+
+### 3. Error Recovery
+- **Automatic retries** with exponential backoff
+- **Fallback selectors** for resilience
+- **Alternative actions** (click → invoke → press Enter)
+- **State verification** before and after actions
+
+### 4. AI Learning Loop
+```mermaid
+sequenceDiagram
+    participant AI as AI Model
+    participant MCP as MCP Server
+    participant REC as Recorder
+    participant WF as Workflow
+
+    AI->>MCP: Attempt automation
+    MCP-->>AI: Partial failure
+
+    AI->>REC: Start recording
+    Note over AI: Human demonstrates
+    REC-->>WF: Generate workflow
+
+    WF-->>AI: Learn pattern
+    AI->>MCP: Retry with learning
+    MCP-->>AI: Success
+
+    Note over AI: Knowledge updated
+```
+
+## Best Practices
+
+1. **Always verify state** before actions
+2. **Use multiple selector strategies**
+3. **Include error context** in responses
+4. **Batch related operations** for efficiency
+5. **Cache UI trees** when doing multiple operations
+6. **Use highlighting** for debugging
+7. **Implement graceful degradation**

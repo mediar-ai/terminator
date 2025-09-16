@@ -205,11 +205,230 @@ selected:true|role:RadioButton // Selected radio button
 3. **Text Search**: Slower, requires content inspection
 4. **Positional**: Most expensive, requires geometry calculations
 
-## Error Recovery
+## Edge Cases & Solutions
 
-When selection fails:
-1. Check element exists with `validate_element`
-2. Refresh tree with `get_window_tree`
-3. Use broader selector (remove constraints)
-4. Try numeric ID from tree output
-5. Use positional selectors as last resort
+```mermaid
+graph TB
+    subgraph "Common Challenges"
+        C1[Dynamic IDs<br/>Changes every load]
+        C2[Shadow DOM<br/>Hidden elements]
+        C3[Virtual Scrolling<br/>Elements not rendered]
+        C4[Async Loading<br/>Elements appear later]
+        C5[Similar Elements<br/>Multiple matches]
+    end
+
+    subgraph "Solutions"
+        S1[Use stable attributes<br/>data-testid, aria-label]
+        S2[Browser extension<br/>DOM access]
+        S3[Scroll into view<br/>Force rendering]
+        S4[Wait strategies<br/>Polling, observers]
+        S5[Nth selector<br/>Index-based]
+    end
+
+    C1 --> S1
+    C2 --> S2
+    C3 --> S3
+    C4 --> S4
+    C5 --> S5
+
+    style Common Challenges fill:#ffcdd2
+    style Solutions fill:#c8e6c9
+```
+
+## Advanced Selector Patterns
+
+### Complex Application Scenarios
+
+```yaml
+# Electron/CEF Apps
+selector: "window:MyElectronApp >> role:WebView >> role:Button|name:Submit"
+
+# Multi-frame Applications
+selector: "role:Frame|name:MainFrame >> role:Frame|name:SubFrame >> role:Edit"
+
+# Dynamic SPAs
+selector: "role:Region|name:Content >> role:List >> role:ListItem|nth:2"
+
+# Data-driven Selection
+selector: "role:Cell|value:{{targetValue}} >> near:Edit"
+
+# Accessibility Landmarks
+selector: "role:Main >> role:Navigation >> role:Link|name:Home"
+```
+
+## Selector Scoring Algorithm
+
+```mermaid
+flowchart TB
+    subgraph "Scoring Factors"
+        F1[Uniqueness<br/>+100 pts]
+        F2[Stability<br/>+50 pts]
+        F3[Performance<br/>+30 pts]
+        F4[Readability<br/>+20 pts]
+    end
+
+    subgraph "Score Calculation"
+        CALC[Total Score = Σ(Factor × Weight)]
+    end
+
+    subgraph "Examples"
+        E1["#uniqueId<br/>Score: 180"]
+        E2["role:Button|name:Submit<br/>Score: 150"]
+        E3["nth:3|role:Button<br/>Score: 80"]
+        E4["near:Label|role:Edit<br/>Score: 60"]
+    end
+
+    F1 --> CALC
+    F2 --> CALC
+    F3 --> CALC
+    F4 --> CALC
+
+    CALC --> E1
+    CALC --> E2
+    CALC --> E3
+    CALC --> E4
+
+    style E1 fill:#4caf50
+    style E2 fill:#8bc34a
+    style E3 fill:#ffc107
+    style E4 fill:#ff9800
+```
+
+## Platform-Specific Selectors
+
+### Windows
+```
+# UIA Automation ID
+nativeid:ButtonSubmit
+
+# Control Type + ClassName
+role:Button|class:WindowsForms10.BUTTON
+
+# Legacy patterns
+pattern:Invoke|name:OK
+```
+
+### macOS
+```
+# AX Attributes
+role:AXButton|description:Submit form
+
+# Subrole matching
+subrole:AXCloseButton
+
+# Help text
+help:Click to submit the form
+```
+
+### Linux
+```
+# AT-SPI States
+state:ENABLED|role:push-button
+
+# Desktop environment specific
+desktop:GNOME|role:Button
+```
+
+## Fuzzy Matching
+
+```mermaid
+graph LR
+    subgraph "Input"
+        IN[User Selector<br/>"role:Buton|name:Submt"]
+    end
+
+    subgraph "Fuzzy Engine"
+        LEV[Levenshtein<br/>Distance]
+        SOUND[Soundex<br/>Algorithm]
+        STEM[Word<br/>Stemming]
+    end
+
+    subgraph "Candidates"
+        C1[role:Button ✓]
+        C2[name:Submit ✓]
+        C3[name:Submitted ✓]
+    end
+
+    subgraph "Result"
+        RES[Best Match<br/>role:Button|name:Submit<br/>Confidence: 95%]
+    end
+
+    IN --> LEV
+    IN --> SOUND
+    IN --> STEM
+
+    LEV --> C1
+    LEV --> C2
+    SOUND --> C3
+
+    C1 --> RES
+    C2 --> RES
+
+    style IN fill:#ffecb3
+    style RES fill:#c8e6c9
+```
+
+## Error Recovery Strategies
+
+```mermaid
+stateDiagram-v2
+    [*] --> TryPrimary
+    TryPrimary --> Success: Found
+    TryPrimary --> TryAlternatives: Not Found
+
+    TryAlternatives --> Success: Found
+    TryAlternatives --> TryFallbacks: Not Found
+
+    TryFallbacks --> Success: Found
+    TryFallbacks --> RefreshTree: Not Found
+
+    RefreshTree --> TryBroader: Tree Updated
+    TryBroader --> Success: Found
+    TryBroader --> TryID: Not Found
+
+    TryID --> Success: Found
+    TryID --> TryPositional: Not Found
+
+    TryPositional --> Success: Found
+    TryPositional --> UseOCR: Not Found
+
+    UseOCR --> Success: Text Found
+    UseOCR --> Fail: No Match
+
+    Success --> [*]
+    Fail --> [*]
+```
+
+## Performance Optimization Tips
+
+1. **ID Selection**: O(1) - Direct lookup, fastest
+2. **Role + Name**: O(n) - Single pass, efficient
+3. **Text Search**: O(n*m) - Content inspection, slower
+4. **Positional**: O(n²) - Geometry calculations, expensive
+5. **OCR Fallback**: O(n³) - Image processing, last resort
+
+## Caching Strategy
+
+```mermaid
+graph TB
+    subgraph "Cache Layers"
+        L1[L1: Selector → Element<br/>TTL: 100ms]
+        L2[L2: Tree Structure<br/>TTL: 500ms]
+        L3[L3: OCR Results<br/>TTL: 5s]
+    end
+
+    subgraph "Invalidation"
+        INV1[Window Change]
+        INV2[Focus Change]
+        INV3[User Action]
+    end
+
+    L1 --> L2 --> L3
+    INV1 --> L1
+    INV2 --> L1
+    INV3 --> L2
+
+    style L1 fill:#e3f2fd
+    style L2 fill:#fff3e0
+    style L3 fill:#f0f4c3
+```
