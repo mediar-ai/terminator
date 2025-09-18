@@ -12,14 +12,14 @@ members = [
 
 # Shared metadata for workspace members
 [workspace.package]
-version = "0.13.9"
+version = "0.14.1"
 edition = "2021"         # From your original Cargo.toml
 license-file = "LICENSE"
 
 # Centralized dependency definitions
 [workspace.dependencies]
 # Terminator Core library itself (for other members to depend on)
-terminator = { version = "0.13.9", path = "./terminator", package = "terminator-rs" }
+terminator = { version = "0.14.1", path = "./terminator", package = "terminator-rs" }
 
 # Common dependencies from your original Cargo.toml
 serde = { version = "1.0.219", features = ["derive"] }
