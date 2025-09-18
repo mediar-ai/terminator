@@ -24,7 +24,7 @@ $arch = switch (([System.Runtime.InteropServices.RuntimeInformation]::ProcessArc
   Default { throw "Unsupported architecture" }
 }
 
-$archive = "terminator-windows-$arch.zip"
+$archive = "terminator-cli-windows-$arch.zip"
 $url = "https://github.com/$Repo/releases/download/$Version/$archive"
 $tempFile = Join-Path $env:TEMP $archive
 Write-Host "Downloading $url" -ForegroundColor Cyan
@@ -35,9 +35,9 @@ if (Test-Path $tempDir) { Remove-Item $tempDir -Recurse -Force }
 New-Item -ItemType Directory -Path $tempDir | Out-Null
 Expand-Archive -Path $tempFile -DestinationPath $tempDir -Force
 
-$binPath = Join-Path $tempDir "terminator.exe"
+$binPath = Join-Path $tempDir "terminator-cli.exe"
 $installDir = "$env:ProgramFiles"
-$destPath = Join-Path $installDir "terminator.exe"
+$destPath = Join-Path $installDir "terminator-cli.exe"
 Move-Item -Path $binPath -Destination $destPath -Force
 
 Write-Host "✅ Terminator CLI installed at $destPath. Add it to your PATH if necessary." -ForegroundColor Green

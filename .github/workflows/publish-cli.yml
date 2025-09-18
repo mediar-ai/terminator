@@ -26,29 +26,29 @@ jobs:
           # ---------- Linux ----------
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            archive: terminator-linux-x86_64.tar.gz
+            archive: terminator-cli-linux-x86_64.tar.gz
             ext: ""
           # - os: ubuntu-latest
           #   target: aarch64-unknown-linux-gnu
-          #   archive: terminator-linux-aarch64.tar.gz
+          #   archive: terminator-cli-linux-aarch64.tar.gz
           #   ext: ""
           # ---------- macOS ----------
           - os: macos-13
             target: x86_64-apple-darwin
-            archive: terminator-macos-x86_64.tar.gz
+            archive: terminator-cli-macos-x86_64.tar.gz
             ext: ""
           - os: macos-14
             target: aarch64-apple-darwin
-            archive: terminator-macos-aarch64.tar.gz
+            archive: terminator-cli-macos-aarch64.tar.gz
             ext: ""
           # ---------- Windows ----------
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            archive: terminator-windows-x86_64.zip
+            archive: terminator-cli-windows-x86_64.zip
             ext: ".exe"
           - os: windows-11-arm
             target: aarch64-pc-windows-msvc
-            archive: terminator-windows-aarch64.zip
+            archive: terminator-cli-windows-aarch64.zip
             ext: ".exe"
 
     steps:
@@ -70,8 +70,8 @@ jobs:
         run: |
           BIN="target/${{ matrix.target }}/release/terminator${{ matrix.ext }}"
           mkdir -p dist
-          cp "$BIN" dist/
-          tar -czf "${{ matrix.archive }}" -C dist "terminator${{ matrix.ext }}"
+          cp "$BIN" dist/terminator-cli
+          tar -czf "${{ matrix.archive }}" -C dist "terminator-cli"
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -83,9 +83,9 @@ jobs:
         run: |
           $bin = "target/${{ matrix.target }}/release/terminator.exe"
           New-Item -ItemType Directory -Path dist -Force | Out-Null
-          Copy-Item -Path $bin -Destination dist\terminator.exe -Force
+          Copy-Item -Path $bin -Destination dist\terminator-cli.exe -Force
           Push-Location dist
-          Compress-Archive -Path "terminator.exe" -DestinationPath "../${{ matrix.archive }}" -Force
+          Compress-Archive -Path "terminator-cli.exe" -DestinationPath "../${{ matrix.archive }}" -Force
           Pop-Location
 
       - name: Upload artifact
@@ -115,38 +115,38 @@ jobs:
             This release contains the Terminator CLI standalone binaries for various platforms.
 
             ### Available Downloads:
-            - **Linux x64**: `terminator-linux-x86_64.tar.gz`
-            - **macOS x64 (Intel)**: `terminator-macos-x86_64.tar.gz`
-            - **macOS ARM64 (Apple Silicon)**: `terminator-macos-aarch64.tar.gz`
-            - **Windows x64**: `terminator-windows-x86_64.zip`
-            - **Windows ARM64**: `terminator-windows-aarch64.zip`
+            - **Linux x64**: `terminator-cli-linux-x86_64.tar.gz`
+            - **macOS x64 (Intel)**: `terminator-cli-macos-x86_64.tar.gz`
+            - **macOS ARM64 (Apple Silicon)**: `terminator-cli-macos-aarch64.tar.gz`
+            - **Windows x64**: `terminator-cli-windows-x86_64.zip`
+            - **Windows ARM64**: `terminator-cli-windows-aarch64.zip`
 
             ### Quick Installation
 
             #### macOS/Linux:
             ```bash
             # Download and extract (replace URL with your platform's file)
-            curl -L https://github.com/mediar-ai/terminator/releases/download/${{ github.ref_name }}/terminator-{platform}.tar.gz | tar xz
+            curl -L https://github.com/mediar-ai/terminator/releases/download/${{ github.ref_name }}/terminator-cli-{platform}.tar.gz | tar xz
 
             # Make executable
-            chmod +x terminator
+            chmod +x terminator-cli
 
             # Move to PATH (optional)
-            sudo mv terminator /usr/local/bin/
+            sudo mv terminator-cli /usr/local/bin/
             ```
 
             #### Windows:
             ```powershell
             # Download and extract (PowerShell)
-            Invoke-WebRequest -Uri "https://github.com/mediar-ai/terminator/releases/download/${{ github.ref_name }}/terminator-windows-x86_64.zip" -OutFile "terminator.zip"
-            Expand-Archive -Path "terminator.zip" -DestinationPath "."
+            Invoke-WebRequest -Uri "https://github.com/mediar-ai/terminator/releases/download/${{ github.ref_name }}/terminator-cli-windows-x86_64.zip" -OutFile "terminator-cli.zip"
+            Expand-Archive -Path "terminator-cli.zip" -DestinationPath "."
 
             # Add to PATH or move to a directory in PATH
             ```
 
             ### Usage
             ```bash
-            terminator --help
+            terminator-cli --help
             ```
 
             ### What's Changed

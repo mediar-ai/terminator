@@ -35,13 +35,13 @@ case "$ARCH" in
     ;;
 esac
 
-ARCHIVE="terminator-${OS}-${ARCH}.tar.gz"
+ARCHIVE="terminator-cli-${OS}-${ARCH}.tar.gz"
 URL="https://github.com/${REPO}/releases/download/${VERSION}/${ARCHIVE}"
 echo "📦 Downloading $URL"
 curl -L "${URL}" | tar -xz
 
-chmod +x terminator*
+chmod +x terminator-cli
 # Install to /usr/local/bin (may require sudo)
-sudo mv terminator /usr/local/bin/terminator
+sudo mv terminator-cli /usr/local/bin/terminator-cli
 
-echo "✅ Terminator CLI installed! Run 'terminator --help' to get started."
+echo "✅ Terminator CLI installed! Run 'terminator-cli --help' to get started."
