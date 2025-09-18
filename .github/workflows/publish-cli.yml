@@ -108,4 +108,47 @@ jobs:
       - name: Create GitHub Release & Upload Assets
         uses: softprops/action-gh-release@v2
         with:
+          name: Terminator CLI Release ${{ github.ref_name }}
+          body: |
+            ## Terminator CLI Binaries
+
+            This release contains the Terminator CLI standalone binaries for various platforms.
+
+            ### Available Downloads:
+            - **Linux x64**: `terminator-linux-x86_64.tar.gz`
+            - **macOS x64 (Intel)**: `terminator-macos-x86_64.tar.gz`
+            - **macOS ARM64 (Apple Silicon)**: `terminator-macos-aarch64.tar.gz`
+            - **Windows x64**: `terminator-windows-x86_64.zip`
+            - **Windows ARM64**: `terminator-windows-aarch64.zip`
+
+            ### Quick Installation
+
+            #### macOS/Linux:
+            ```bash
+            # Download and extract (replace URL with your platform's file)
+            curl -L https://github.com/mediar-ai/terminator/releases/download/${{ github.ref_name }}/terminator-{platform}.tar.gz | tar xz
+
+            # Make executable
+            chmod +x terminator
+
+            # Move to PATH (optional)
+            sudo mv terminator /usr/local/bin/
+            ```
+
+            #### Windows:
+            ```powershell
+            # Download and extract (PowerShell)
+            Invoke-WebRequest -Uri "https://github.com/mediar-ai/terminator/releases/download/${{ github.ref_name }}/terminator-windows-x86_64.zip" -OutFile "terminator.zip"
+            Expand-Archive -Path "terminator.zip" -DestinationPath "."
+
+            # Add to PATH or move to a directory in PATH
+            ```
+
+            ### Usage
+            ```bash
+            terminator --help
+            ```
+
+            ### What's Changed
+            See the [full changelog](https://github.com/mediar-ai/terminator/compare/v${{ github.event.before }}...${{ github.ref_name }})
           files: artifacts/**/*
