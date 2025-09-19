@@ -1,0 +1,81 @@
+# Remote UI Automation Configuration
+# This file contains configuration for different VM environments
+
+# Default configuration
+[default]
+type = "local"
+timeout_ms = 30000
+retry_count = 3
+
+# Local VM configuration (Hyper-V, VMware, VirtualBox)
+[local.hyperv]
+hypervisor = "hyperv"
+vm_name = "Windows11-Dev"
+connection_method = "vmconnect"
+
+[local.vmware]
+hypervisor = "vmware"
+vm_name = "Windows-Test-VM"
+connection_method = "vmware_remote"
+
+[local.rdp]
+hypervisor = "hyperv"
+vm_name = "Windows11-Dev"
+connection_method = { type = "rdp", port = 3389 }
+
+# Azure VM configurations
+[azure.dev]
+subscription_id = "5c0a60d0-92cf-47ca-9430-b462bc2fe194"
+resource_group = "AVD-TERMINATOR-RG"
+vm_name = "mcp-test-vm"
+connection_method = { type = "remote_agent", port = 8080 }
+
+[azure.test]
+subscription_id = "5c0a60d0-92cf-47ca-9430-b462bc2fe194"
+resource_group = "MCP-QUICK-RG"
+vm_name = "mcp-vm"
+connection_method = { type = "remote_agent", port = 8080 }
+
+[azure.prod]
+subscription_id = "5c0a60d0-92cf-47ca-9430-b462bc2fe194"
+resource_group = "MCP-DEV-CLUSTER-8153"
+vm_name = "mcp-vm-0"
+connection_method = { type = "bastion", bastion_host = "mcp-bastion" }
+
+# Remote HTTP agent configurations
+[remote.local]
+host = "localhost"
+port = 8080
+api_key = ""
+
+[remote.staging]
+host = "staging.automation.example.com"
+port = 443
+api_key = "${STAGING_API_KEY}"
+
+[remote.production]
+host = "automation.example.com"
+port = 443
+api_key = "${PROD_API_KEY}"
+
+# Agent deployment settings
+[agent]
+path = "./target/release/remote-ui-agent.exe"
+auto_deploy = true
+auto_start = true
+health_check_interval = 30
+
+# Security settings
+[security]
+use_tls = false
+verify_certificates = true
+api_key_header = "X-API-Key"
+encryption_enabled = false
+
+# Performance settings
+[performance]
+connection_pool_size = 10
+request_timeout_ms = 30000
+keepalive_interval_ms = 5000
+max_retries = 3
+retry_backoff_ms = 1000
