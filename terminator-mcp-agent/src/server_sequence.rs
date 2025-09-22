@@ -796,7 +796,8 @@ impl DesktopWrapper {
                                     let mut variable_values = serde_json::Map::new();
                                     for (key, var_def) in workflow_vars {
                                         if let Some(default_value) = &var_def.default {
-                                            variable_values.insert(key.clone(), default_value.clone());
+                                            variable_values
+                                                .insert(key.clone(), default_value.clone());
                                         }
                                     }
                                     env_obj.insert(
