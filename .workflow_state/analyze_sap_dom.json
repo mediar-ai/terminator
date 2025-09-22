@@ -1,0 +1,105 @@
+{
+  "last_updated": "2025-09-22T23:08:57.847700300+00:00",
+  "last_step_id": "analyze_dom",
+  "last_step_index": 0,
+  "workflow_file": "analyze_sap_dom.yml",
+  "env": {
+    "analyze_dom_result": [
+      {
+        "action": "execute_browser_script",
+        "status": "success",
+        "selector": "role:Window|name:SAP BusinessOne - Google Chrome",
+        "selector_used": "role:Window|name:SAP BusinessOne - Google Chrome",
+        "selectors_tried": [
+          "role:Window|name:SAP BusinessOne - Google Chrome",
+          "role:Window|name:SAP Business One - Google Chrome"
+        ],
+        "element": {
+          "name": "SAP BusinessOne - Google Chrome",
+          "role": "Window",
+          "id": "542257",
+          "suggested_selector": "Window|SAP BusinessOne - Google Chrome",
+          "application": "SAP BusinessOne - Google Chrome",
+          "window_title": "SAP BusinessOne - Google Chrome",
+          "process_id": 42140,
+          "is_focused": true,
+          "text": "",
+          "bounds": {
+            "x": -3.0,
+            "y": 10.0,
+            "width": 963.0,
+            "height": 925.0
+          },
+          "enabled": true,
+          "is_selected": true,
+          "is_toggled": false,
+          "keyboard_focusable": false
+        },
+        "script": "[script content omitted to reduce verbosity]",
+        "script_file": null,
+        "env_provided": true,
+        "result": "{\n  \"title\": \"SAP BusinessOne\",\n  \"url\": \"https://itrgazsaphana01.imperialtreasure.com:40000/ControlCenter/sbo.html?saml2TokenRef=2025a8a3-03e1-47ba-8f4e-7e9e47f1a5ca\",\n  \"timestamp\": \"2025-09-22T23:08:57.815Z\",\n  \"dialogs\": [],\n  \"errorMessages\": [\n    {\n      \"tagName\": \"LABEL\",\n      \"className\": \"\",\n      \"id\": \"su_cp_error\",\n      \"visible\": false,\n      \"text\": \"Password change failed.\"\n    }\n  ],\n  \"warningMessages\": [],\n  \"forms\": [],\n  \"buttons\": [\n    {\n      \"tagName\": \"INPUT\",\n      \"type\": \"button\",\n      \"id\": \"refresh_company\",\n      \"className\": \"\",\n      \"text\": \"Refresh\",\n      \"disabled\": false,\n      \"visible\": false\n    },\n    {\n      \"tagName\": \"INPUT\",\n      \"type\": \"button\",\n      \"id\": \"logon_sbo_btn\",\n      \"className\": \"\",\n      \"text\": \"Log On\",\n      \"disabled\": false,\n      \"visible\": true\n    },\n    {\n      \"tagName\": \"INPUT\",\n      \"type\": \"button\",\n      \"id\": \"changePass_sbo_btn\",\n      \"className\": \"\",\n      \"text\": \"Change Password\",\n      \"disabled\": false,\n      \"visible\": true\n    },\n    {\n      \"tagName\": \"INPUT\",\n      \"type\": \"button\",\n      \"id\": \"\",\n      \"className\": \"\",\n      \"text\": \"OK\",\n      \"disabled\": false,\n      \"visible\": true\n    }\n  ],\n  \"bodyClasses\": \"\",\n  \"bodyId\": \"\",\n  \"fullHTML\": \"<html><head>\\n<meta http-equiv=\\\"Content-Type\\\" content=\\\"text/html; charset=UTF-8\\\">\\n<meta http-equiv=\\\"X-UA-Compatible\\\" content=\\\"IE=Edge\\\">\\n<link type=\\\"text/css\\\" href=\\\"css/css.css\\\" rel=\\\"Stylesheet\\\">\\n<title>SAP BusinessOne</title>\\n<script type=\\\"text/javascript\\\">\\n\\t\\tif (self != top) {\\n\\t\\t\\ttop.location = self.location;\\n\\t\\t}\\n\\t\\t</script>\\n</head>\\n<body>\\n\\t<div id=\\\"login\\\">\\n\\t\\t<div class=\\\"floater login_floater\\\"></div>\\n\\t\\t<div class=\\\"clear center_box login_box_border\\\">\\n\\t\\t\\t<div class=\\\"login_box\\\">\\n\\t\\t\\t\\t<div class=\\\"login_box_header\\\">\\n\\t\\t\\t\\t\\t<div class=\\\"login_box_header_logo\\\"></div>\\n\\t\\t\\t\\t\\t<div class=\\\"login_box_header_title\\\">System Landscape Directory</div>\\n\\t\\t\\t\\t\\t<div class=\\\"clear\\\"></div>\\n\\t\\t\\t\\t</div>\\n\\t\\t\\t\\t<div class=\\\"login_split\\\"></div>\\n\\t\\t\\t\\t<div class=\\\"login_box_body\\\">\\n\\t\\t\\t\\t\\t<div class=\\\"login_pic\\\"></div>\\n\\t\\t\\t\\t\\t<div class=\\\"login_form\\\">\\n\\t\\t\\t\\t\\t\\t<div class=\\\"login_table\\\">\\n\\t\\t\\t\\t\\t\\t\\t<div style=\\\"height: 20px\\\"></div>\\n\\t\\t\\t\\t\\t\\t\\t<label id=\\\"su_cp\\\" style=\\\"float: none; background: rgb(255, 255, 0); display: none;\\\" disable=\\\"true\\\">Password was changed.</label>\\n\\t\\t\\t\\t\\t\\t\\t<label id=\\\"su_cp_error\\\" style=\\\"float: none; background: rgb(255, 255, 0); display: none;\\\" disable=\\\"true\\\">Password change failed.</label>\\n\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t<table class=\\\"domain_layer\\\" style=\\\"\\\">\\n\\t\\t\\t\\t\\t\\t\\t\\t<tbody><tr>\\n\\t\\t\\t\\t\\t\\t\\t\\t\\t<td width=\\\"30%\\\">Domain User</td>\\n\\t\\t\\t\\t\\t\\t\\t\\t\\t<td width=\\\"70%\\\"><input type=\\\"text\\\" id=\\\"domain_user\\\" value=\\\"\\\"></td>\\n\\t\\t\\t\\t\\t\\t\\t\\t</tr>\\n\\t\\t\\t\\t\\t\\t\\t\\t<tr>\\n\\t\\t\\t\\t\\t\\t\\t\\t\\t<td>Password</td>\\n\\t\\t\\t\\t\\t\\t\\t\\t\\t<td><input type=\\\"password\\\" id=\\\"domain_password\\\" autocomplete=\\\"off\\\"></td>\\n\\t\\t\\t\\t\\t\\t\\t\\t</tr>\\n\\t\\t\\t\\t\\t\\t\\t</tbody></table>\\n\\t\\t\\t\\t\\t\\t\\t<table class=\\\"sbo_layer\\\" style=\\\"display: none;\\\">\\n\\t\\t\\t\\t\\t\\t\\t\\t<tbody><tr>\\n\\t\\t\\t\\t\\t\\t\\t\\t\\t<td width=\\\"30%\\\">Server</td>\\n\\t\\t\\t\\t\\t\\t\\t\\t\\t<td width=\\\"70%\\\"><select id=\\\"sbo_dbserver\\\"><option value=\\\"1130\\\" selected=\\\"\\\">NDB@ITRGAZSAPHANA01:30013</option></select></td>\\n\\t\\t\\t\\t\\t\\t\\t\\t</tr>\\n\\t\\t\\t\\t\\t\\t\\t\\t<tr>\\n\\t\\t\\t\\t\\t\\t\\t\\t\\t<td>Company</td>\\n\\t\\t\\t\\t\\t\\t\\t\\t\\t<td>\\n\\t\\t\\t\\t\\t\\t\\t\\t\\t\\t<input value=\\\"Refresh\\\" id=\\\"refresh_company\\\" type=\\\"button\\\" style=\\\"width: 66px; display: none;\\\">\\n\\t\\t\\t\\t\\t\\t\\t\\t\\t\\t<select id=\\\"sbo_company\\\" style=\\\"width: 63%; display: none;\\\"></select>\\t\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\\t\\t\\t<input type=\\\"text\\\" id=\\\"sbo_custom_company\\\" style=\\\"\\\">\\n\\t\\t\\t\\t\\t\\t\\t\\t\\t</td>\\n\\t\\t\\t\\t\\t\\t\\t\\t</tr>\\n\\t\\t\\t\\t\\t\\t\\t\\t<tr>\\n\\t\\t\\t\\t\\t\\t\\t\\t\\t<td>User ID</td>\\n\\t\\t\\t\\t\\t\\t\\t\\t\\t<td><input type=\\\"text\\\" id=\\\"sbo_user\\\"></td>\\n\\t\\t\\t\\t\\t\\t\\t\\t</tr>\\n\\t\\t\\t\\t\\t\\t\\t\\t<tr>\\n\\t\\t\\t\\t\\t\\t\\t\\t\\t<td id=\\\"password\\\">Password</td>\\n\\t\\t\\t\\t\\t\\t\\t\\t\\t<td><input type=\\\"password\\\" id=\\\"sbo_password\\\" autocomplete=\\\"off\\\"></td>\\n\\t\\t\\t\\t\\t\\t\\t\\t</tr>\\n\\t\\t\\t\\t\\t\\t\\t\\t<tr id=\\\"NPass_tr\\\" style=\\\"display: none;\\\">\\n\\t\\t\\t\\t\\t\\t\\t\\t\\t<td>New Password</td>\\n\\t\\t\\t\\t\\t\\t\\t\\t\\t<td><input type=\\\"password\\\" id=\\\"new_Password\\\"></td>\\n\\t\\t\\t\\t\\t\\t\\t\\t</tr>\\n\\t\\t\\t\\t\\t\\t\\t\\t<tr id=\\\"ConfirmPass_tr\\\" style=\\\"display: none;\\\">\\n\\t\\t\\t\\t\\t\\t\\t\\t\\t<td>Confirm New Password</td>\\n\\t\\t\\t\\t\\t\\t\\t\\t\\t<td><input type=\\\"password\\\" id=\\\"confirm_New_Password\\\"></td>\\n\\t\\t\\t\\t\\t\\t\\t\\t</tr>\\n\\t\\t\\t\\t\\t\\t\\t</tbody></table>\\n\\t\\t\\t\\t\\t\\t\\t<div class=\\\"sbo_logon\\\" style=\\\"height: 20px;margin-top: 10px\\\">\\n\\t\\t\\t\\t\\t\\t\\t\\t<input style=\\\"float:left\\\" id=\\\"logon_by_domain\\\" type=\\\"CHECKBOX\\\" checked=\\\"checked\\\">\\n\\t\\t\\t\\t\\t\\t\\t\\t<div style=\\\"float: left;margin-top:5px\\\">Log on with Windows Domain User</div>\\n\\t\\t\\t\\t\\t\\t\\t\\t<div class...[TRUNCATED]\"\n}",
+        "timestamp": "2025-09-22T23:08:57.846337900+00:00",
+        "duration_ms": 2171,
+        "script_bytes": 2392
+      }
+    ],
+    "analyze_dom_status": "success",
+    "title": "SAP BusinessOne",
+    "url": "https://itrgazsaphana01.imperialtreasure.com:40000/ControlCenter/sbo.html?saml2TokenRef=2025a8a3-03e1-47ba-8f4e-7e9e47f1a5ca",
+    "timestamp": "2025-09-22T23:08:57.815Z",
+    "dialogs": [],
+    "errorMessages": [
+      {
+        "tagName": "LABEL",
+        "className": "",
+        "id": "su_cp_error",
+        "visible": false,
+        "text": "Password change failed."
+      }
+    ],
+    "warningMessages": [],
+    "forms": [],
+    "buttons": [
+      {
+        "tagName": "INPUT",
+        "type": "button",
+        "id": "refresh_company",
+        "className": "",
+        "text": "Refresh",
+        "disabled": false,
+        "visible": false
+      },
+      {
+        "tagName": "INPUT",
+        "type": "button",
+        "id": "logon_sbo_btn",
+        "className": "",
+        "text": "Log On",
+        "disabled": false,
+        "visible": true
+      },
+      {
+        "tagName": "INPUT",
+        "type": "button",
+        "id": "changePass_sbo_btn",
+        "className": "",
+        "text": "Change Password",
+        "disabled": false,
+        "visible": true
+      },
+      {
+        "tagName": "INPUT",
+        "type": "button",
+        "id": "",
+        "className": "",
+        "text": "OK",
+        "disabled": false,
+        "visible": true
+      }
+    ],
+    "bodyClasses": "",
+    "bodyId": "",
+    "fullHTML": "<html><head>\n<meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n<meta http-equiv=\"X-UA-Compatible\" content=\"IE=Edge\">\n<link type=\"text/css\" href=\"css/css.css\" rel=\"Stylesheet\">\n<title>SAP BusinessOne</title>\n<script type=\"text/javascript\">\n\t\tif (self != top) {\n\t\t\ttop.location = self.location;\n\t\t}\n\t\t</script>\n</head>\n<body>\n\t<div id=\"login\">\n\t\t<div class=\"floater login_floater\"></div>\n\t\t<div class=\"clear center_box login_box_border\">\n\t\t\t<div class=\"login_box\">\n\t\t\t\t<div class=\"login_box_header\">\n\t\t\t\t\t<div class=\"login_box_header_logo\"></div>\n\t\t\t\t\t<div class=\"login_box_header_title\">System Landscape Directory</div>\n\t\t\t\t\t<div class=\"clear\"></div>\n\t\t\t\t</div>\n\t\t\t\t<div class=\"login_split\"></div>\n\t\t\t\t<div class=\"login_box_body\">\n\t\t\t\t\t<div class=\"login_pic\"></div>\n\t\t\t\t\t<div class=\"login_form\">\n\t\t\t\t\t\t<div class=\"login_table\">\n\t\t\t\t\t\t\t<div style=\"height: 20px\"></div>\n\t\t\t\t\t\t\t<label id=\"su_cp\" style=\"float: none; background: rgb(255, 255, 0); display: none;\" disable=\"true\">Password was changed.</label>\n\t\t\t\t\t\t\t<label id=\"su_cp_error\" style=\"float: none; background: rgb(255, 255, 0); display: none;\" disable=\"true\">Password change failed.</label>\n\t\t\t\t\t\t\t\n\t\t\t\t\t\t\t<table class=\"domain_layer\" style=\"\">\n\t\t\t\t\t\t\t\t<tbody><tr>\n\t\t\t\t\t\t\t\t\t<td width=\"30%\">Domain User</td>\n\t\t\t\t\t\t\t\t\t<td width=\"70%\"><input type=\"text\" id=\"domain_user\" value=\"\"></td>\n\t\t\t\t\t\t\t\t</tr>\n\t\t\t\t\t\t\t\t<tr>\n\t\t\t\t\t\t\t\t\t<td>Password</td>\n\t\t\t\t\t\t\t\t\t<td><input type=\"password\" id=\"domain_password\" autocomplete=\"off\"></td>\n\t\t\t\t\t\t\t\t</tr>\n\t\t\t\t\t\t\t</tbody></table>\n\t\t\t\t\t\t\t<table class=\"sbo_layer\" style=\"display: none;\">\n\t\t\t\t\t\t\t\t<tbody><tr>\n\t\t\t\t\t\t\t\t\t<td width=\"30%\">Server</td>\n\t\t\t\t\t\t\t\t\t<td width=\"70%\"><select id=\"sbo_dbserver\"><option value=\"1130\" selected=\"\">NDB@ITRGAZSAPHANA01:30013</option></select></td>\n\t\t\t\t\t\t\t\t</tr>\n\t\t\t\t\t\t\t\t<tr>\n\t\t\t\t\t\t\t\t\t<td>Company</td>\n\t\t\t\t\t\t\t\t\t<td>\n\t\t\t\t\t\t\t\t\t\t<input value=\"Refresh\" id=\"refresh_company\" type=\"button\" style=\"width: 66px; display: none;\">\n\t\t\t\t\t\t\t\t\t\t<select id=\"sbo_company\" style=\"width: 63%; display: none;\"></select>\t\t\t\t\t\t\t\t\t\n\t\t\t\t\t\t\t\t\t\t<input type=\"text\" id=\"sbo_custom_company\" style=\"\">\n\t\t\t\t\t\t\t\t\t</td>\n\t\t\t\t\t\t\t\t</tr>\n\t\t\t\t\t\t\t\t<tr>\n\t\t\t\t\t\t\t\t\t<td>User ID</td>\n\t\t\t\t\t\t\t\t\t<td><input type=\"text\" id=\"sbo_user\"></td>\n\t\t\t\t\t\t\t\t</tr>\n\t\t\t\t\t\t\t\t<tr>\n\t\t\t\t\t\t\t\t\t<td id=\"password\">Password</td>\n\t\t\t\t\t\t\t\t\t<td><input type=\"password\" id=\"sbo_password\" autocomplete=\"off\"></td>\n\t\t\t\t\t\t\t\t</tr>\n\t\t\t\t\t\t\t\t<tr id=\"NPass_tr\" style=\"display: none;\">\n\t\t\t\t\t\t\t\t\t<td>New Password</td>\n\t\t\t\t\t\t\t\t\t<td><input type=\"password\" id=\"new_Password\"></td>\n\t\t\t\t\t\t\t\t</tr>\n\t\t\t\t\t\t\t\t<tr id=\"ConfirmPass_tr\" style=\"display: none;\">\n\t\t\t\t\t\t\t\t\t<td>Confirm New Password</td>\n\t\t\t\t\t\t\t\t\t<td><input type=\"password\" id=\"confirm_New_Password\"></td>\n\t\t\t\t\t\t\t\t</tr>\n\t\t\t\t\t\t\t</tbody></table>\n\t\t\t\t\t\t\t<div class=\"sbo_logon\" style=\"height: 20px;margin-top: 10px\">\n\t\t\t\t\t\t\t\t<input style=\"float:left\" id=\"logon_by_domain\" type=\"CHECKBOX\" checked=\"checked\">\n\t\t\t\t\t\t\t\t<div style=\"float: left;margin-top:5px\">Log on with Windows Domain User</div>\n\t\t\t\t\t\t\t\t<div class...[TRUNCATED]"
+  }
+}

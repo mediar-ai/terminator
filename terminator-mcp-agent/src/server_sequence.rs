@@ -791,10 +791,17 @@ impl DesktopWrapper {
                             // Only inject state if explicitly in verbose/debug mode
                             if args.include_detailed_results.unwrap_or(false) {
                                 // Add workflow variables as special env key
+                                // Extract actual values from VariableDefinition defaults
                                 if let Some(workflow_vars) = &args.variables {
+                                    let mut variable_values = serde_json::Map::new();
+                                    for (key, var_def) in workflow_vars {
+                                        if let Some(default_value) = &var_def.default {
+                                            variable_values.insert(key.clone(), default_value.clone());
+                                        }
+                                    }
                                     env_obj.insert(
                                         "_workflow_variables".to_string(),
-                                        json!(workflow_vars),
+                                        json!(variable_values),
                                     );
                                 }
 

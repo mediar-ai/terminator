@@ -1,0 +1,48 @@
+{
+  "last_updated": "2025-09-22T23:14:44.803696+00:00",
+  "last_step_id": "analyze_form_state",
+  "last_step_index": 0,
+  "workflow_file": "form_analysis_simple.yml",
+  "env": {
+    "analyze_form_state_result": [
+      {
+        "action": "execute_browser_script",
+        "status": "success",
+        "selector": "role:Window|name:SAP BusinessOne - Google Chrome",
+        "selector_used": "role:Window|name:SAP BusinessOne - Google Chrome",
+        "selectors_tried": [
+          "role:Window|name:SAP BusinessOne - Google Chrome"
+        ],
+        "element": {
+          "name": "SAP BusinessOne - Google Chrome",
+          "role": "Window",
+          "id": "542257",
+          "suggested_selector": "Window|SAP BusinessOne - Google Chrome",
+          "application": "SAP BusinessOne - Google Chrome",
+          "window_title": "SAP BusinessOne - Google Chrome",
+          "process_id": 42140,
+          "is_focused": true,
+          "text": "",
+          "bounds": {
+            "x": -3.0,
+            "y": 10.0,
+            "width": 963.0,
+            "height": 925.0
+          },
+          "enabled": true,
+          "is_selected": true,
+          "is_toggled": false,
+          "keyboard_focusable": false
+        },
+        "script": "[script content omitted to reduce verbosity]",
+        "script_file": null,
+        "env_provided": true,
+        "result": "{}",
+        "timestamp": "2025-09-22T23:14:44.802585+00:00",
+        "duration_ms": 959,
+        "script_bytes": 1035
+      }
+    ],
+    "analyze_form_state_status": "success"
+  }
+}

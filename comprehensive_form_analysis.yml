@@ -1,0 +1,145 @@
+# @workflow-info
+# name: Comprehensive Form Analysis
+# description: Detailed form analysis with multiple selectors
+# version: 1.0.0
+
+steps:
+  - name: Comprehensive form analysis
+    tool_name: execute_browser_script
+    id: comprehensive_analysis
+    arguments:
+      selector: "role:Window|name:SAP BusinessOne - Google Chrome"
+      script: |
+        const analysis = {
+          timestamp: new Date().toISOString(),
+          url: window.location.href,
+          title: document.title,
+          forms: [],
+          inputs: [],
+          buttons: [],
+          specificElements: {},
+          validation: {},
+          windowVars: {},
+          eventListeners: {},
+          debug: {}
+        };
+
+        // 1. Find all forms
+        const forms = document.querySelectorAll('form');
+        forms.forEach((form, index) => {
+          analysis.forms.push({
+            index: index,
+            id: form.id || 'no-id',
+            name: form.name || 'no-name',
+            action: form.action,
+            method: form.method,
+            enctype: form.enctype,
+            childInputCount: form.querySelectorAll('input').length,
+            checkValidity: form.checkValidity(),
+            innerHTML: form.innerHTML.substring(0, 200) + '...'
+          });
+        });
+
+        // 2. Find all inputs
+        const inputs = document.querySelectorAll('input');
+        inputs.forEach((input, index) => {
+          analysis.inputs.push({
+            index: index,
+            type: input.type,
+            name: input.name || 'no-name',
+            id: input.id || 'no-id',
+            value: input.type === 'password' ? '[REDACTED-' + input.value.length + ']' : input.value,
+            placeholder: input.placeholder,
+            disabled: input.disabled,
+            required: input.required,
+            classList: [...input.classList],
+            validity: {
+              valid: input.validity.valid,
+              valueMissing: input.validity.valueMissing
+            }
+          });
+        });
+
+        // 3. Find all buttons
+        const buttons = document.querySelectorAll('button, input[type="button"], input[type="submit"]');
+        buttons.forEach((button, index) => {
+          analysis.buttons.push({
+            index: index,
+            tagName: button.tagName,
+            type: button.type,
+            name: button.name || 'no-name',
+            id: button.id || 'no-id',
+            value: button.value,
+            disabled: button.disabled,
+            innerHTML: button.innerHTML || button.value,
+            onclick: button.onclick ? 'has-onclick' : 'no-onclick'
+          });
+        });
+
+        // 4. Specific element searches
+        const selectors = [
+          'input[name="domain_user"]',
+          'input[name="domain_password"]',
+          'input[name="logon_sbo_btn"]',
+          '#domain_user',
+          '#domain_password',
+          '#logon_sbo_btn',
+          'input[id*="user"]',
+          'input[id*="password"]',
+          'input[id*="login"]',
+          'input[id*="logon"]',
+          'button[id*="login"]',
+          'button[id*="logon"]'
+        ];
+
+        selectors.forEach(selector => {
+          const element = document.querySelector(selector);
+          if (element) {
+            analysis.specificElements[selector] = {
+              found: true,
+              tagName: element.tagName,
+              type: element.type,
+              name: element.name,
+              id: element.id,
+              value: element.type === 'password' ? '[REDACTED-' + element.value.length + ']' : element.value,
+              disabled: element.disabled,
+              classList: [...element.classList]
+            };
+          } else {
+            analysis.specificElements[selector] = { found: false };
+          }
+        });
+
+        // 5. Check for window variables
+        analysis.windowVars = {
+          jQuery: typeof window.jQuery !== 'undefined',
+          $: typeof window.$ !== 'undefined',
+          angular: typeof window.angular !== 'undefined',
+          React: typeof window.React !== 'undefined'
+        };
+
+        // Look for SAP/login related variables
+        const sapVars = [];
+        for (let prop in window) {
+          if (typeof prop === 'string' && (
+            prop.toLowerCase().includes('sap') ||
+            prop.toLowerCase().includes('login') ||
+            prop.toLowerCase().includes('auth')
+          )) {
+            sapVars.push(prop);
+          }
+        }
+        analysis.windowVars.sapRelated = sapVars;
+
+        // 6. Document state
+        analysis.debug = {
+          readyState: document.readyState,
+          bodyExists: !!document.body,
+          formCount: document.querySelectorAll('form').length,
+          inputCount: document.querySelectorAll('input').length,
+          buttonCount: document.querySelectorAll('button').length,
+          hasPasswordFields: document.querySelectorAll('input[type="password"]').length > 0,
+          hasSubmitButtons: document.querySelectorAll('input[type="submit"], button[type="submit"]').length > 0
+        };
+
+        return JSON.stringify(analysis, null, 2);

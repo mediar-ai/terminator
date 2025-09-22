@@ -1,0 +1,78 @@
+name: "Analyze SAP Login Page DOM"
+description: "Get comprehensive DOM state of SAP login page"
+
+steps:
+  - tool_name: execute_browser_script
+    id: analyze_dom
+    arguments:
+      selector: "role:Window|name:SAP BusinessOne - Google Chrome"
+      alternative_selectors: "role:Window|name:SAP Business One - Google Chrome"
+      script: |
+        JSON.stringify({
+          title: document.title,
+          url: window.location.href,
+          timestamp: new Date().toISOString(),
+
+          // Check for dialogs and popups
+          dialogs: Array.from(document.querySelectorAll('dialog, [role="dialog"], .modal, .popup, .alert')).map(el => ({
+            tagName: el.tagName,
+            className: el.className,
+            id: el.id,
+            visible: window.getComputedStyle(el).display !== 'none',
+            text: el.textContent?.trim().substring(0, 200),
+            innerHTML: el.innerHTML.substring(0, 500)
+          })),
+
+          // Check for error messages
+          errorMessages: Array.from(document.querySelectorAll('[class*="error"], [class*="Error"], [id*="error"], [id*="Error"], .alert-danger, .alert-error')).map(el => ({
+            tagName: el.tagName,
+            className: el.className,
+            id: el.id,
+            visible: window.getComputedStyle(el).display !== 'none',
+            text: el.textContent?.trim()
+          })),
+
+          // Check for warning messages
+          warningMessages: Array.from(document.querySelectorAll('[class*="warning"], [class*="Warning"], [id*="warning"], [id*="Warning"], .alert-warning')).map(el => ({
+            tagName: el.tagName,
+            className: el.className,
+            id: el.id,
+            visible: window.getComputedStyle(el).display !== 'none',
+            text: el.textContent?.trim()
+          })),
+
+          // Check form elements
+          forms: Array.from(document.forms).map(form => ({
+            id: form.id,
+            name: form.name,
+            action: form.action,
+            method: form.method,
+            inputs: Array.from(form.elements).map(input => ({
+              type: input.type,
+              name: input.name,
+              id: input.id,
+              value: input.type === 'password' ? '[HIDDEN]' : input.value,
+              placeholder: input.placeholder,
+              required: input.required,
+              disabled: input.disabled
+            }))
+          })),
+
+          // Check buttons
+          buttons: Array.from(document.querySelectorAll('button, input[type="button"], input[type="submit"]')).map(btn => ({
+            tagName: btn.tagName,
+            type: btn.type,
+            id: btn.id,
+            className: btn.className,
+            text: btn.textContent?.trim() || btn.value,
+            disabled: btn.disabled,
+            visible: window.getComputedStyle(btn).display !== 'none'
+          })),
+
+          // Get page structure
+          bodyClasses: document.body.className,
+          bodyId: document.body.id,
+
+          // Full HTML (truncated for readability)
+          fullHTML: document.documentElement.outerHTML.substring(0, 3000) + (document.documentElement.outerHTML.length > 3000 ? '...[TRUNCATED]' : '')
+        }, null, 2)
