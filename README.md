@@ -116,19 +116,19 @@ While Terminator aims for full cross-platform support, current capabilities vary
 | Feature                      | Windows | macOS | Linux | Notes                                                |
 | ---------------------------- | :-----: | :---: | :---: | ---------------------------------------------------- |
 | **Core Automation**          |         |       |       |                                                      |
-| Element Locators             |   ✅    |  🟡   |  🟡   | Find elements by `name`, `role`, `window`, etc.      |
-| UI Actions (`click`, `type`) |   ✅    |  🟡   |  🟡   | Core interactions with UI elements.                  |
-| Application Management       |   ✅    |  🟡   |  🟡   | Launch, list, and manage applications.               |
-| Window Management            |   ✅    |  🟡   |  🟡   | Get active window, list windows.                     |
+| Element Locators             |    ✅    |   🟡   |   🟡   | Find elements by `name`, `role`, `window`, etc.      |
+| UI Actions (`click`, `type`) |    ✅    |   🟡   |   🟡   | Core interactions with UI elements.                  |
+| Application Management       |    ✅    |   🟡   |   🟡   | Launch, list, and manage applications.               |
+| Window Management            |    ✅    |   🟡   |   🟡   | Get active window, list windows.                     |
 | **Advanced Features**        |         |       |       |                                                      |
-| Workflow Recording           |   ✅    |  ❌   |  ❌   | Record human workflows for deterministic automation. |
-| Monitor Management           |   ✅    |  🟡   |  🟡   | Multi-display support.                               |
-| Screen & Element Capture     |   ✅    |  ✅   |  🟡   | Take screenshots of displays or elements.            |
+| Workflow Recording           |    ✅    |   ❌   |   ❌   | Record human workflows for deterministic automation. |
+| Monitor Management           |    ✅    |   🟡   |   🟡   | Multi-display support.                               |
+| Screen & Element Capture     |    ✅    |   ✅   |   🟡   | Take screenshots of displays or elements.            |
 | **Language Bindings**        |         |       |       |                                                      |
-| Python (`terminator.py`)     |   ✅    |  ✅   |  ✅   | `pip install terminator.py`                          |
-| TypeScript (`terminator.js`) |   ✅    |  ✅   |  ✅   | `npm i terminator.js`                                |
-| MCP (`terminator-mcp-agent`) |   ✅    |  ✅   |  ✅   | `npx -y terminator-mcp-agent --add-to-app [app]`     |
-| Rust (`terminator-rs`)       |   ✅    |  ✅   |  ✅   | `cargo add terminator-rs`                            |
+| Python (`terminator.py`)     |    ✅    |   ✅   |   ✅   | `pip install terminator.py`                          |
+| TypeScript (`terminator.js`) |    ✅    |   ✅   |   ✅   | `npm i terminator.js`                                |
+| MCP (`terminator-mcp-agent`) |    ✅    |   ✅   |   ✅   | `npx -y terminator-mcp-agent --add-to-app [app]`     |
+| Rust (`terminator-rs`)       |    ✅    |   ✅   |   ✅   | `cargo add terminator-rs`                            |
 
 **Legend:**
 
@@ -185,16 +185,17 @@ You can build and debug selector paths incrementally using `.locator()` chaining
 
 ## Explore Further
 
-- [https://github.com/mediar-ai/terminator/examples](https://github.com/mediar-ai/terminator/tree/main/examples)
+- **[Examples](https://github.com/mediar-ai/terminator/tree/main/examples)**
+- **[Documentation](https://github.com/mediar-ai/terminator/tree/main/docs)**
 
 ## Troubleshooting
 
 For detailed troubleshooting, debugging, and MCP server logs, see the [MCP Agent documentation](https://github.com/mediar-ai/terminator/tree/main/terminator-mcp-agent#troubleshooting--debugging).
 
-## contributing
+## Contributing
 
-contributions are welcome! please feel free to submit issues and pull requests. many parts are experimental, and help is appreciated. join our [discord](https://discord.gg/dU9EBuw7Uq) to discuss.
+Contributions are welcome! Please feel free to submit issues and pull requests. many parts are experimental, and help is appreciated. join our [Discord](https://discord.gg/dU9EBuw7Uq) to discuss.
 
-## businesses
+## Businesses
 
-if you want desktop automation at scale for your business, [let's talk](https://mediar.ai)
+If you want desktop automation at scale for your business, [let's talk](https://mediar.ai).
