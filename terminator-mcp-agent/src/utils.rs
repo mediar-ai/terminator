@@ -59,6 +59,8 @@ pub struct DesktopWrapper {
     pub log_capture: Option<LogCapture>,
     #[serde(skip)]
     pub current_workflow_dir: Arc<Mutex<Option<std::path::PathBuf>>>,
+    #[serde(skip)]
+    pub current_scripts_base_path: Arc<Mutex<Option<String>>>,
 }
 
 impl Default for DesktopWrapper {
@@ -864,6 +866,10 @@ pub struct ExecuteSequenceArgs {
         description = "Whether to follow fallback_id when end_at_step is specified. When false (default), execution stops at end_at_step regardless of failures. When true, allows following fallback_id even beyond end_at_step boundary."
     )]
     pub follow_fallback: Option<bool>,
+    #[schemars(
+        description = "Optional base path for resolving script files. When script_file is used in run_command or execute_browser_script, relative paths will first be searched in this directory, then fallback to workflow directory or current directory. Useful for mounting external file sources like S3 via rclone."
+    )]
+    pub scripts_base_path: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema, Clone)]

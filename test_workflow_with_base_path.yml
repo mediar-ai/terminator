@@ -1,0 +1,11 @@
+name: Test scripts_base_path functionality
+description: Tests that JavaScript files can be loaded from a base path specified at workflow root level
+
+# This is the new field - it will be used for all script_file references in the workflow
+scripts_base_path: "C:/Users/louis/Documents/terminator/test_base_path/shared_scripts"
+
+steps:
+  - tool_name: run_command
+    arguments:
+      engine: "javascript"
+      script_file: "hello.js"  # This will be resolved from scripts_base_path

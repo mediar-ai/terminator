@@ -233,6 +233,18 @@ impl DesktopWrapper {
                 "Successfully loaded workflow from URL with {} steps",
                 args.steps.as_ref().map(|s| s.len()).unwrap_or(0)
             );
+
+            // Also merge scripts_base_path if not provided locally
+            if args.scripts_base_path.is_none() {
+                args.scripts_base_path = remote_workflow.scripts_base_path;
+            }
+        }
+
+        // Set the scripts_base_path for file resolution in run_command and execute_browser_script
+        if let Some(scripts_base_path) = &args.scripts_base_path {
+            let mut scripts_base_path_guard = self.current_scripts_base_path.lock().await;
+            *scripts_base_path_guard = Some(scripts_base_path.clone());
+            info!("Set scripts_base_path for workflow: {}", scripts_base_path);
         }
 
         // Handle backward compatibility: 'continue' is opposite of 'stop_on_error'

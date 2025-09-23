@@ -12,6 +12,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 fn test_execute_sequence_args_serialization() {
     let args = ExecuteSequenceArgs {
         url: None,
+        scripts_base_path: None,
         steps: Some(vec![SequenceStep {
             tool_name: Some("click_element".to_string()),
             arguments: Some(json!({

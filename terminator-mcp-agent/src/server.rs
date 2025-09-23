@@ -311,6 +311,7 @@ impl DesktopWrapper {
             active_highlights: Arc::new(Mutex::new(Vec::new())),
             log_capture,
             current_workflow_dir: Arc::new(Mutex::new(None)),
+            current_scripts_base_path: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -1272,32 +1273,75 @@ impl DesktopWrapper {
                     ));
                 }
 
-                // Resolve relative paths against workflow directory
+                // Resolve script file with priority order:
+                // 1. Try scripts_base_path if provided (from workflow root level)
+                // 2. Fallback to workflow directory if available
+                // 3. Use path as-is
                 let resolved_path = {
-                    let workflow_dir_guard = self.current_workflow_dir.lock().await;
                     let script_path = std::path::Path::new(script_file);
+                    let mut resolved_path = None;
+                    let mut resolution_attempts = Vec::new();
 
-                    // Check if path is relative (not absolute)
+                    // Only resolve if path is relative
                     if script_path.is_relative() {
-                        if let Some(ref workflow_dir) = *workflow_dir_guard {
-                            let resolved = workflow_dir.join(script_file);
+                        // Priority 1: Try scripts_base_path if provided
+                        let scripts_base_guard = self.current_scripts_base_path.lock().await;
+                        if let Some(ref base_path) = *scripts_base_guard {
+                            let base = std::path::Path::new(base_path);
+                            if base.exists() && base.is_dir() {
+                                let candidate = base.join(script_file);
+                                resolution_attempts.push(format!("scripts_base_path: {}", candidate.display()));
+                                if candidate.exists() {
+                                    tracing::info!(
+                                        "[run_command] Resolved via scripts_base_path: {} -> {}",
+                                        script_file,
+                                        candidate.display()
+                                    );
+                                    resolved_path = Some(candidate);
+                                }
+                            } else {
+                                tracing::warn!(
+                                    "[run_command] scripts_base_path provided but not valid directory: {}",
+                                    base_path
+                                );
+                            }
+                        }
+                        drop(scripts_base_guard);
+
+                        // Priority 2: Try workflow directory if not found yet
+                        if resolved_path.is_none() {
+                            let workflow_dir_guard = self.current_workflow_dir.lock().await;
+                            if let Some(ref workflow_dir) = *workflow_dir_guard {
+                                let candidate = workflow_dir.join(script_file);
+                                resolution_attempts.push(format!("workflow_dir: {}", candidate.display()));
+                                if candidate.exists() {
+                                    tracing::info!(
+                                        "[run_command] Resolved via workflow directory: {} -> {}",
+                                        script_file,
+                                        candidate.display()
+                                    );
+                                    resolved_path = Some(candidate);
+                                }
+                            }
+                        }
+
+                        // Priority 3: Use as-is if still not found
+                        if resolved_path.is_none() {
+                            let candidate = script_path.to_path_buf();
+                            resolution_attempts.push(format!("as-is: {}", candidate.display()));
                             tracing::info!(
-                                "[run_command] Resolved relative path: {} -> {}",
-                                script_file,
-                                resolved.display()
-                            );
-                            resolved
-                        } else {
-                            tracing::info!(
-                                "[run_command] No workflow directory set, using path as-is: {}",
+                                "[run_command] Using path as-is (not found in base paths): {}",
                                 script_file
                             );
-                            script_path.to_path_buf()
+                            resolved_path = Some(candidate);
                         }
                     } else {
+                        // Absolute path - use as-is
                         tracing::info!("[run_command] Using absolute path: {}", script_file);
-                        script_path.to_path_buf()
+                        resolved_path = Some(script_path.to_path_buf());
                     }
+
+                    resolved_path.unwrap()
                 };
 
                 // Read script from resolved file path
@@ -1638,32 +1682,72 @@ impl DesktopWrapper {
             }
 
             // Read script from file
-            // Resolve relative paths against workflow directory
+            // Resolve script file with priority order (same logic as engine mode)
             let resolved_path = {
-                let workflow_dir_guard = self.current_workflow_dir.lock().await;
                 let script_path = std::path::Path::new(script_file);
+                let mut resolved_path = None;
+                let mut resolution_attempts = Vec::new();
 
-                // Check if path is relative (not absolute)
+                // Only resolve if path is relative
                 if script_path.is_relative() {
-                    if let Some(ref workflow_dir) = *workflow_dir_guard {
-                        let resolved = workflow_dir.join(script_file);
+                    // Priority 1: Try scripts_base_path if provided
+                    let scripts_base_guard = self.current_scripts_base_path.lock().await;
+                    if let Some(ref base_path) = *scripts_base_guard {
+                        let base = std::path::Path::new(base_path);
+                        if base.exists() && base.is_dir() {
+                            let candidate = base.join(script_file);
+                            resolution_attempts.push(format!("scripts_base_path: {}", candidate.display()));
+                            if candidate.exists() {
+                                tracing::info!(
+                                    "[run_command shell] Resolved via scripts_base_path: {} -> {}",
+                                    script_file,
+                                    candidate.display()
+                                );
+                                resolved_path = Some(candidate);
+                            }
+                        } else {
+                            tracing::warn!(
+                                "[run_command shell] scripts_base_path provided but not valid directory: {}",
+                                base_path
+                            );
+                        }
+                    }
+                    drop(scripts_base_guard);
+
+                    // Priority 2: Try workflow directory if not found yet
+                    if resolved_path.is_none() {
+                        let workflow_dir_guard = self.current_workflow_dir.lock().await;
+                        if let Some(ref workflow_dir) = *workflow_dir_guard {
+                            let candidate = workflow_dir.join(script_file);
+                            resolution_attempts.push(format!("workflow_dir: {}", candidate.display()));
+                            if candidate.exists() {
+                                tracing::info!(
+                                    "[run_command shell] Resolved via workflow directory: {} -> {}",
+                                    script_file,
+                                    candidate.display()
+                                );
+                                resolved_path = Some(candidate);
+                            }
+                        }
+                    }
+
+                    // Priority 3: Use as-is if still not found
+                    if resolved_path.is_none() {
+                        let candidate = script_path.to_path_buf();
+                        resolution_attempts.push(format!("as-is: {}", candidate.display()));
                         tracing::info!(
-                            "[run_command] Resolved relative path: {} -> {}",
-                            script_file,
-                            resolved.display()
-                        );
-                        resolved
-                    } else {
-                        tracing::info!(
-                            "[run_command] No workflow directory set, using path as-is: {}",
+                            "[run_command shell] Using path as-is (not found in base paths): {}",
                             script_file
                         );
-                        script_path.to_path_buf()
+                        resolved_path = Some(candidate);
                     }
                 } else {
-                    tracing::info!("[run_command] Using absolute path: {}", script_file);
-                    script_path.to_path_buf()
+                    // Absolute path - use as-is
+                    tracing::info!("[run_command shell] Using absolute path: {}", script_file);
+                    resolved_path = Some(script_path.to_path_buf());
                 }
+
+                resolved_path.unwrap()
             };
 
             // Read script from resolved file path
@@ -3670,35 +3754,72 @@ Requires Chrome extension to be installed. See browser_dom_extraction.yml and de
 
         // Resolve the script content
         let script_content = if let Some(script_file) = &args.script_file {
-            // Resolve relative paths against workflow directory
+            // Resolve script file with priority order (same logic as run_command)
             let resolved_path = {
-                let workflow_dir_guard = self.current_workflow_dir.lock().await;
                 let script_path = std::path::Path::new(script_file);
+                let mut resolved_path = None;
+                let mut resolution_attempts = Vec::new();
 
-                // Check if path is relative (not absolute)
+                // Only resolve if path is relative
                 if script_path.is_relative() {
-                    if let Some(ref workflow_dir) = *workflow_dir_guard {
-                        let resolved = workflow_dir.join(script_file);
+                    // Priority 1: Try scripts_base_path if provided
+                    let scripts_base_guard = self.current_scripts_base_path.lock().await;
+                    if let Some(ref base_path) = *scripts_base_guard {
+                        let base = std::path::Path::new(base_path);
+                        if base.exists() && base.is_dir() {
+                            let candidate = base.join(script_file);
+                            resolution_attempts.push(format!("scripts_base_path: {}", candidate.display()));
+                            if candidate.exists() {
+                                tracing::info!(
+                                    "[execute_browser_script] Resolved via scripts_base_path: {} -> {}",
+                                    script_file,
+                                    candidate.display()
+                                );
+                                resolved_path = Some(candidate);
+                            }
+                        } else {
+                            tracing::warn!(
+                                "[execute_browser_script] scripts_base_path provided but not valid directory: {}",
+                                base_path
+                            );
+                        }
+                    }
+                    drop(scripts_base_guard);
+
+                    // Priority 2: Try workflow directory if not found yet
+                    if resolved_path.is_none() {
+                        let workflow_dir_guard = self.current_workflow_dir.lock().await;
+                        if let Some(ref workflow_dir) = *workflow_dir_guard {
+                            let candidate = workflow_dir.join(script_file);
+                            resolution_attempts.push(format!("workflow_dir: {}", candidate.display()));
+                            if candidate.exists() {
+                                tracing::info!(
+                                    "[execute_browser_script] Resolved via workflow directory: {} -> {}",
+                                    script_file,
+                                    candidate.display()
+                                );
+                                resolved_path = Some(candidate);
+                            }
+                        }
+                    }
+
+                    // Priority 3: Use as-is if still not found
+                    if resolved_path.is_none() {
+                        let candidate = script_path.to_path_buf();
+                        resolution_attempts.push(format!("as-is: {}", candidate.display()));
                         tracing::info!(
-                            "[execute_browser_script] Resolved relative path: {} -> {}",
-                            script_file,
-                            resolved.display()
-                        );
-                        resolved
-                    } else {
-                        tracing::info!(
-                            "[execute_browser_script] No workflow directory set, using path as-is: {}",
+                            "[execute_browser_script] Using path as-is (not found in base paths): {}",
                             script_file
                         );
-                        script_path.to_path_buf()
+                        resolved_path = Some(candidate);
                     }
                 } else {
-                    tracing::info!(
-                        "[execute_browser_script] Using absolute path: {}",
-                        script_file
-                    );
-                    script_path.to_path_buf()
+                    // Absolute path - use as-is
+                    tracing::info!("[execute_browser_script] Using absolute path: {}", script_file);
+                    resolved_path = Some(script_path.to_path_buf());
                 }
+
+                resolved_path.unwrap()
             };
 
             // Read script from resolved file path
