@@ -244,7 +244,11 @@ impl DesktopWrapper {
         if let Some(scripts_base_path) = &args.scripts_base_path {
             let mut scripts_base_path_guard = self.current_scripts_base_path.lock().await;
             *scripts_base_path_guard = Some(scripts_base_path.clone());
-            info!("Set scripts_base_path for workflow: {}", scripts_base_path);
+            info!("[SCRIPTS_BASE_PATH] Setting scripts_base_path for workflow: {}", scripts_base_path);
+            info!("[SCRIPTS_BASE_PATH] Script files will be searched first in: {}", scripts_base_path);
+            info!("[SCRIPTS_BASE_PATH] Fallback search will use workflow directory or current directory");
+        } else {
+            info!("[SCRIPTS_BASE_PATH] No scripts_base_path specified, using default file resolution");
         }
 
         // Handle backward compatibility: 'continue' is opposite of 'stop_on_error'

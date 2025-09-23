@@ -1284,28 +1284,50 @@ impl DesktopWrapper {
 
                     // Only resolve if path is relative
                     if script_path.is_relative() {
+                        tracing::info!(
+                            "[SCRIPTS_BASE_PATH] Resolving relative script file: '{}'",
+                            script_file
+                        );
+
                         // Priority 1: Try scripts_base_path if provided
                         let scripts_base_guard = self.current_scripts_base_path.lock().await;
                         if let Some(ref base_path) = *scripts_base_guard {
+                            tracing::info!(
+                                "[SCRIPTS_BASE_PATH] Checking scripts_base_path: {}",
+                                base_path
+                            );
                             let base = std::path::Path::new(base_path);
                             if base.exists() && base.is_dir() {
                                 let candidate = base.join(script_file);
                                 resolution_attempts
                                     .push(format!("scripts_base_path: {}", candidate.display()));
+                                tracing::info!(
+                                    "[SCRIPTS_BASE_PATH] Looking for file at: {}",
+                                    candidate.display()
+                                );
                                 if candidate.exists() {
                                     tracing::info!(
-                                        "[run_command] Resolved via scripts_base_path: {} -> {}",
+                                        "[SCRIPTS_BASE_PATH] ✓ Found in scripts_base_path: {} -> {}",
                                         script_file,
                                         candidate.display()
                                     );
                                     resolved_path = Some(candidate);
+                                } else {
+                                    tracing::info!(
+                                        "[SCRIPTS_BASE_PATH] ✗ Not found in scripts_base_path: {}",
+                                        candidate.display()
+                                    );
                                 }
                             } else {
                                 tracing::warn!(
-                                    "[run_command] scripts_base_path provided but not valid directory: {}",
+                                    "[SCRIPTS_BASE_PATH] Base path does not exist or is not a directory: {}",
                                     base_path
                                 );
                             }
+                        } else {
+                            tracing::debug!(
+                                "[SCRIPTS_BASE_PATH] No scripts_base_path configured for this workflow"
+                            );
                         }
                         drop(scripts_base_guard);
 
@@ -1313,17 +1335,34 @@ impl DesktopWrapper {
                         if resolved_path.is_none() {
                             let workflow_dir_guard = self.current_workflow_dir.lock().await;
                             if let Some(ref workflow_dir) = *workflow_dir_guard {
+                                tracing::info!(
+                                    "[SCRIPTS_BASE_PATH] Checking workflow directory: {}",
+                                    workflow_dir.display()
+                                );
                                 let candidate = workflow_dir.join(script_file);
                                 resolution_attempts
                                     .push(format!("workflow_dir: {}", candidate.display()));
+                                tracing::info!(
+                                    "[SCRIPTS_BASE_PATH] Looking for file at: {}",
+                                    candidate.display()
+                                );
                                 if candidate.exists() {
                                     tracing::info!(
-                                        "[run_command] Resolved via workflow directory: {} -> {}",
+                                        "[SCRIPTS_BASE_PATH] ✓ Found in workflow directory: {} -> {}",
                                         script_file,
                                         candidate.display()
                                     );
                                     resolved_path = Some(candidate);
+                                } else {
+                                    tracing::info!(
+                                        "[SCRIPTS_BASE_PATH] ✗ Not found in workflow directory: {}",
+                                        candidate.display()
+                                    );
                                 }
+                            } else {
+                                tracing::debug!(
+                                    "[SCRIPTS_BASE_PATH] No workflow directory available"
+                                );
                             }
                         }
 
@@ -1332,7 +1371,7 @@ impl DesktopWrapper {
                             let candidate = script_path.to_path_buf();
                             resolution_attempts.push(format!("as-is: {}", candidate.display()));
                             tracing::info!(
-                                "[run_command] Using path as-is (not found in base paths): {}",
+                                "[SCRIPTS_BASE_PATH] Using path as-is (not found in base paths): {}",
                                 script_file
                             );
                             resolved_path = Some(candidate);
@@ -1692,28 +1731,50 @@ impl DesktopWrapper {
 
                 // Only resolve if path is relative
                 if script_path.is_relative() {
+                    tracing::info!(
+                        "[SCRIPTS_BASE_PATH] Resolving relative shell script: '{}'",
+                        script_file
+                    );
+
                     // Priority 1: Try scripts_base_path if provided
                     let scripts_base_guard = self.current_scripts_base_path.lock().await;
                     if let Some(ref base_path) = *scripts_base_guard {
+                        tracing::info!(
+                            "[SCRIPTS_BASE_PATH] Checking scripts_base_path for shell script: {}",
+                            base_path
+                        );
                         let base = std::path::Path::new(base_path);
                         if base.exists() && base.is_dir() {
                             let candidate = base.join(script_file);
                             resolution_attempts
                                 .push(format!("scripts_base_path: {}", candidate.display()));
+                            tracing::info!(
+                                "[SCRIPTS_BASE_PATH] Looking for shell script at: {}",
+                                candidate.display()
+                            );
                             if candidate.exists() {
                                 tracing::info!(
-                                    "[run_command shell] Resolved via scripts_base_path: {} -> {}",
+                                    "[SCRIPTS_BASE_PATH] ✓ Found shell script in scripts_base_path: {} -> {}",
                                     script_file,
                                     candidate.display()
                                 );
                                 resolved_path = Some(candidate);
+                            } else {
+                                tracing::info!(
+                                    "[SCRIPTS_BASE_PATH] ✗ Shell script not found in scripts_base_path: {}",
+                                    candidate.display()
+                                );
                             }
                         } else {
                             tracing::warn!(
-                                "[run_command shell] scripts_base_path provided but not valid directory: {}",
+                                "[SCRIPTS_BASE_PATH] Base path does not exist or is not a directory: {}",
                                 base_path
                             );
                         }
+                    } else {
+                        tracing::debug!(
+                            "[SCRIPTS_BASE_PATH] No scripts_base_path configured for shell script"
+                        );
                     }
                     drop(scripts_base_guard);
 
@@ -3766,28 +3827,50 @@ Requires Chrome extension to be installed. See browser_dom_extraction.yml and de
 
                 // Only resolve if path is relative
                 if script_path.is_relative() {
+                    tracing::info!(
+                        "[SCRIPTS_BASE_PATH] Resolving relative browser script: '{}'",
+                        script_file
+                    );
+
                     // Priority 1: Try scripts_base_path if provided
                     let scripts_base_guard = self.current_scripts_base_path.lock().await;
                     if let Some(ref base_path) = *scripts_base_guard {
+                        tracing::info!(
+                            "[SCRIPTS_BASE_PATH] Checking scripts_base_path for browser script: {}",
+                            base_path
+                        );
                         let base = std::path::Path::new(base_path);
                         if base.exists() && base.is_dir() {
                             let candidate = base.join(script_file);
                             resolution_attempts
                                 .push(format!("scripts_base_path: {}", candidate.display()));
+                            tracing::info!(
+                                "[SCRIPTS_BASE_PATH] Looking for browser script at: {}",
+                                candidate.display()
+                            );
                             if candidate.exists() {
                                 tracing::info!(
-                                    "[execute_browser_script] Resolved via scripts_base_path: {} -> {}",
+                                    "[SCRIPTS_BASE_PATH] ✓ Found browser script in scripts_base_path: {} -> {}",
                                     script_file,
                                     candidate.display()
                                 );
                                 resolved_path = Some(candidate);
+                            } else {
+                                tracing::info!(
+                                    "[SCRIPTS_BASE_PATH] ✗ Browser script not found in scripts_base_path: {}",
+                                    candidate.display()
+                                );
                             }
                         } else {
                             tracing::warn!(
-                                "[execute_browser_script] scripts_base_path provided but not valid directory: {}",
+                                "[SCRIPTS_BASE_PATH] Base path does not exist or is not a directory: {}",
                                 base_path
                             );
                         }
+                    } else {
+                        tracing::debug!(
+                            "[SCRIPTS_BASE_PATH] No scripts_base_path configured for browser script"
+                        );
                     }
                     drop(scripts_base_guard);
 
