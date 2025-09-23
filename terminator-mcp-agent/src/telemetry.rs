@@ -26,7 +26,7 @@ mod with_telemetry {
         SCHEMA_URL,
     };
     use std::time::Duration;
-    use tracing::info;
+    use tracing::{info, debug};
 
     pub struct WorkflowSpan {
         span: BoxedSpan,
@@ -110,6 +110,34 @@ mod with_telemetry {
         }
     }
 
+    /// Check if the OpenTelemetry collector is available
+    fn check_collector_availability(endpoint: &str) -> bool {
+        use std::net::{TcpStream, SocketAddr};
+        use std::time::Duration;
+
+        // Extract host and port from endpoint
+        if let Ok(url) = reqwest::Url::parse(endpoint) {
+            if let Some(host) = url.host_str() {
+                let port = url.port().unwrap_or(4318);
+                let addr = format!("{}:{}", host, port);
+
+                // Try to connect with a short timeout
+                if let Ok(addr) = addr.parse::<SocketAddr>() {
+                    return TcpStream::connect_timeout(&addr, Duration::from_millis(100)).is_ok();
+                } else {
+                    // Try DNS resolution
+                    use std::net::ToSocketAddrs;
+                    if let Ok(mut addrs) = addr.to_socket_addrs() {
+                        if let Some(addr) = addrs.next() {
+                            return TcpStream::connect_timeout(&addr, Duration::from_millis(100)).is_ok();
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
     pub fn init_telemetry() -> anyhow::Result<()> {
         // Check if telemetry is enabled via environment variable
         if std::env::var("OTEL_SDK_DISABLED").unwrap_or_default() == "true" {
@@ -123,6 +151,22 @@ mod with_telemetry {
         // Configure OTLP exporter
         let otlp_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
             .unwrap_or_else(|_| "http://localhost:4318".to_string());
+
+        // Check if collector is available (optional, for early detection)
+        // Can be disabled with OTEL_SKIP_COLLECTOR_CHECK=true for environments where
+        // the collector starts after the application
+        let skip_check = std::env::var("OTEL_SKIP_COLLECTOR_CHECK")
+            .unwrap_or_default()
+            .eq_ignore_ascii_case("true");
+
+        if !skip_check {
+            let collector_available = check_collector_availability(&otlp_endpoint);
+            if !collector_available {
+                debug!("OpenTelemetry collector not available at {}. Telemetry will be disabled. Set OTEL_SKIP_COLLECTOR_CHECK=true to skip this check.", otlp_endpoint);
+                // Silently disable telemetry if collector is not available
+                return Ok(());
+            }
+        }
 
         info!(
             "Initializing OpenTelemetry with endpoint: {}",
@@ -154,7 +198,8 @@ mod with_telemetry {
     }
 
     pub fn shutdown_telemetry() {
-        global::shutdown_tracer_provider();
+        // Shutdown with a short timeout to avoid hanging
+        let _ = global::shutdown_tracer_provider();
     }
 }
 
