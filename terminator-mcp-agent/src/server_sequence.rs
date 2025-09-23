@@ -438,17 +438,15 @@ impl DesktopWrapper {
         // NEW: Check if we should start from a specific step (now searches both main and troubleshooting)
         let start_from_index = if let Some(start_step) = &args.start_from_step {
             // Find the step index by ID using the complete map
-            id_to_index.get(start_step)
-                .copied()
-                .ok_or_else(|| {
-                    McpError::invalid_params(
-                        format!("start_from_step '{}' not found in workflow or troubleshooting steps", start_step),
-                        Some(json!({
-                            "requested_step": start_step,
-                            "available_steps": id_to_index.keys().cloned().collect::<Vec<_>>()
-                        })),
-                    )
-                })?
+            id_to_index.get(start_step).copied().ok_or_else(|| {
+                McpError::invalid_params(
+                    format!("start_from_step '{start_step}' not found in workflow or troubleshooting steps"),
+                    Some(json!({
+                        "requested_step": start_step,
+                        "available_steps": id_to_index.keys().cloned().collect::<Vec<_>>()
+                    })),
+                )
+            })?
         } else {
             0
         };
@@ -456,17 +454,15 @@ impl DesktopWrapper {
         // NEW: Check if we should end at a specific step (now searches both main and troubleshooting)
         let end_at_index = if let Some(end_step) = &args.end_at_step {
             // Find the step index by ID (inclusive) using the complete map
-            id_to_index.get(end_step)
-                .copied()
-                .ok_or_else(|| {
-                    McpError::invalid_params(
-                        format!("end_at_step '{}' not found in workflow or troubleshooting steps", end_step),
-                        Some(json!({
-                            "requested_step": end_step,
-                            "available_steps": id_to_index.keys().cloned().collect::<Vec<_>>()
-                        })),
-                    )
-                })?
+            id_to_index.get(end_step).copied().ok_or_else(|| {
+                McpError::invalid_params(
+                    format!("end_at_step '{end_step}' not found in workflow or troubleshooting steps"),
+                    Some(json!({
+                        "requested_step": end_step,
+                        "available_steps": id_to_index.keys().cloned().collect::<Vec<_>>()
+                    })),
+                )
+            })?
         } else {
             // No end_at_step specified, run to the end of MAIN steps only
             // This preserves the default behavior of not entering troubleshooting during normal execution
@@ -676,7 +672,10 @@ impl DesktopWrapper {
             } else {
                 "main workflow"
             };
-            info!("Will stop after {} step at index {} (inclusive)", step_type, end_at_index);
+            info!(
+                "Will stop after {} step at index {} (inclusive)",
+                step_type, end_at_index
+            );
         }
 
         while current_index < sequence_items.len()
