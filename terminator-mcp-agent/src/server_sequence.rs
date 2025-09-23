@@ -399,22 +399,53 @@ impl DesktopWrapper {
         // Initialize an internal env bag for dynamic, step-to-step values set at runtime (e.g., via JS)
         execution_context_map.insert("env".to_string(), json!({}));
 
-        // NEW: Check if we should start from a specific step
+        // Build a map from step ID to its index for quick lookup (includes both main and troubleshooting steps)
+        use std::collections::HashMap;
+        let mut id_to_index: HashMap<String, usize> = HashMap::new();
+
+        // Map main workflow steps
+        if let Some(steps) = &args.steps {
+            for (idx, step) in steps.iter().enumerate() {
+                if let Some(id) = &step.id {
+                    if id_to_index.insert(id.clone(), idx).is_some() {
+                        warn!(
+                            "Duplicate step id '{}' found; later occurrence overrides earlier.",
+                            id
+                        );
+                    }
+                }
+            }
+        }
+
+        // Track the boundary between main steps and troubleshooting steps
+        let main_steps_len = args.steps.as_ref().map(|s| s.len()).unwrap_or(0);
+
+        // Map troubleshooting steps (they come after main steps in the sequence)
+        if let Some(troubleshooting) = &args.troubleshooting {
+            for (idx, step) in troubleshooting.iter().enumerate() {
+                if let Some(id) = &step.id {
+                    let global_idx = main_steps_len + idx;
+                    if id_to_index.insert(id.clone(), global_idx).is_some() {
+                        warn!(
+                            "Duplicate step id '{}' found in troubleshooting; later occurrence overrides earlier.",
+                            id
+                        );
+                    }
+                }
+            }
+        }
+
+        // NEW: Check if we should start from a specific step (now searches both main and troubleshooting)
         let start_from_index = if let Some(start_step) = &args.start_from_step {
-            // Find the step index by ID
-            args.steps
-                .as_ref()
-                .and_then(|steps| steps.iter().position(|s| s.id.as_ref() == Some(start_step)))
+            // Find the step index by ID using the complete map
+            id_to_index.get(start_step)
+                .copied()
                 .ok_or_else(|| {
                     McpError::invalid_params(
-                        format!("start_from_step '{start_step}' not found in workflow steps"),
+                        format!("start_from_step '{}' not found in workflow or troubleshooting steps", start_step),
                         Some(json!({
                             "requested_step": start_step,
-                            "available_steps": args.steps.as_ref().map(|steps|
-                                steps.iter()
-                                    .filter_map(|s| s.id.as_ref())
-                                    .collect::<Vec<_>>()
-                            ).unwrap_or_default()
+                            "available_steps": id_to_index.keys().cloned().collect::<Vec<_>>()
                         })),
                     )
                 })?
@@ -422,28 +453,24 @@ impl DesktopWrapper {
             0
         };
 
-        // NEW: Check if we should end at a specific step
+        // NEW: Check if we should end at a specific step (now searches both main and troubleshooting)
         let end_at_index = if let Some(end_step) = &args.end_at_step {
-            // Find the step index by ID (inclusive)
-            args.steps
-                .as_ref()
-                .and_then(|steps| steps.iter().position(|s| s.id.as_ref() == Some(end_step)))
+            // Find the step index by ID (inclusive) using the complete map
+            id_to_index.get(end_step)
+                .copied()
                 .ok_or_else(|| {
                     McpError::invalid_params(
-                        format!("end_at_step '{end_step}' not found in workflow steps"),
+                        format!("end_at_step '{}' not found in workflow or troubleshooting steps", end_step),
                         Some(json!({
                             "requested_step": end_step,
-                            "available_steps": args.steps.as_ref().map(|steps|
-                                steps.iter()
-                                    .filter_map(|s| s.id.as_ref())
-                                    .collect::<Vec<_>>()
-                            ).unwrap_or_default()
+                            "available_steps": id_to_index.keys().cloned().collect::<Vec<_>>()
                         })),
                     )
                 })?
         } else {
-            // No end_at_step specified, run to the end
-            args.steps.as_ref().map(|s| s.len() - 1).unwrap_or(0)
+            // No end_at_step specified, run to the end of MAIN steps only
+            // This preserves the default behavior of not entering troubleshooting during normal execution
+            main_steps_len.saturating_sub(1)
         };
 
         // NEW: Load saved state if starting from a specific step
@@ -610,9 +637,18 @@ impl DesktopWrapper {
         let max_iterations = sequence_items.len() * 10; // Prevent infinite fallback loops
         let mut iterations = 0usize;
 
-        // Track main steps boundary and whether we've jumped to troubleshooting
-        let main_steps_len = args.steps.as_ref().map(|s| s.len()).unwrap_or(0);
+        // Track whether we've jumped to troubleshooting
         let mut jumped_to_troubleshooting = false;
+
+        // Detect if we're starting directly in the troubleshooting section
+        if start_from_index >= main_steps_len {
+            jumped_to_troubleshooting = true;
+            info!(
+                "Starting execution directly in troubleshooting section at step index {} (troubleshooting step #{})",
+                start_from_index,
+                start_from_index - main_steps_len + 1
+            );
+        }
 
         // Get follow_fallback setting (default to false when end_at_step is specified)
         let follow_fallback = args.follow_fallback.unwrap_or(false);
@@ -622,47 +658,25 @@ impl DesktopWrapper {
 
         // Log if we're skipping steps
         if start_from_index > 0 {
+            let step_type = if start_from_index >= main_steps_len {
+                "troubleshooting"
+            } else {
+                "main workflow"
+            };
             info!(
-                "Skipping first {} steps, starting from index {}",
-                start_from_index, start_from_index
+                "Starting from {} step at index {}",
+                step_type, start_from_index
             );
         }
 
         // Log if we're stopping at a specific step
         if end_at_index < sequence_items.len() - 1 {
-            info!("Will stop after step at index {} (inclusive)", end_at_index);
-        }
-
-        // Build a map from step ID to its index for quick fallback lookup
-        use std::collections::HashMap;
-        let mut id_to_index: HashMap<String, usize> = HashMap::new();
-        if let Some(steps) = &args.steps {
-            for (idx, step) in steps.iter().enumerate() {
-                if let Some(id) = &step.id {
-                    if id_to_index.insert(id.clone(), idx).is_some() {
-                        warn!(
-                            "Duplicate step id '{}' found; later occurrence overrides earlier.",
-                            id
-                        );
-                    }
-                }
-            }
-        }
-
-        // Add troubleshooting steps to the id map (they come after main steps)
-        if let Some(troubleshooting) = &args.troubleshooting {
-            // Use the main_steps_len we already defined above
-            for (idx, step) in troubleshooting.iter().enumerate() {
-                if let Some(id) = &step.id {
-                    let global_idx = main_steps_len + idx;
-                    if id_to_index.insert(id.clone(), global_idx).is_some() {
-                        warn!(
-                            "Duplicate step id '{}' found in troubleshooting; later occurrence overrides earlier.",
-                            id
-                        );
-                    }
-                }
-            }
+            let step_type = if end_at_index >= main_steps_len {
+                "troubleshooting"
+            } else {
+                "main workflow"
+            };
+            info!("Will stop after {} step at index {} (inclusive)", step_type, end_at_index);
         }
 
         while current_index < sequence_items.len()
