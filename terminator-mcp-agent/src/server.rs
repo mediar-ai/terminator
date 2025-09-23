@@ -1290,7 +1290,8 @@ impl DesktopWrapper {
                             let base = std::path::Path::new(base_path);
                             if base.exists() && base.is_dir() {
                                 let candidate = base.join(script_file);
-                                resolution_attempts.push(format!("scripts_base_path: {}", candidate.display()));
+                                resolution_attempts
+                                    .push(format!("scripts_base_path: {}", candidate.display()));
                                 if candidate.exists() {
                                     tracing::info!(
                                         "[run_command] Resolved via scripts_base_path: {} -> {}",
@@ -1313,7 +1314,8 @@ impl DesktopWrapper {
                             let workflow_dir_guard = self.current_workflow_dir.lock().await;
                             if let Some(ref workflow_dir) = *workflow_dir_guard {
                                 let candidate = workflow_dir.join(script_file);
-                                resolution_attempts.push(format!("workflow_dir: {}", candidate.display()));
+                                resolution_attempts
+                                    .push(format!("workflow_dir: {}", candidate.display()));
                                 if candidate.exists() {
                                     tracing::info!(
                                         "[run_command] Resolved via workflow directory: {} -> {}",
@@ -1696,7 +1698,8 @@ impl DesktopWrapper {
                         let base = std::path::Path::new(base_path);
                         if base.exists() && base.is_dir() {
                             let candidate = base.join(script_file);
-                            resolution_attempts.push(format!("scripts_base_path: {}", candidate.display()));
+                            resolution_attempts
+                                .push(format!("scripts_base_path: {}", candidate.display()));
                             if candidate.exists() {
                                 tracing::info!(
                                     "[run_command shell] Resolved via scripts_base_path: {} -> {}",
@@ -1719,7 +1722,8 @@ impl DesktopWrapper {
                         let workflow_dir_guard = self.current_workflow_dir.lock().await;
                         if let Some(ref workflow_dir) = *workflow_dir_guard {
                             let candidate = workflow_dir.join(script_file);
-                            resolution_attempts.push(format!("workflow_dir: {}", candidate.display()));
+                            resolution_attempts
+                                .push(format!("workflow_dir: {}", candidate.display()));
                             if candidate.exists() {
                                 tracing::info!(
                                     "[run_command shell] Resolved via workflow directory: {} -> {}",
@@ -3768,7 +3772,8 @@ Requires Chrome extension to be installed. See browser_dom_extraction.yml and de
                         let base = std::path::Path::new(base_path);
                         if base.exists() && base.is_dir() {
                             let candidate = base.join(script_file);
-                            resolution_attempts.push(format!("scripts_base_path: {}", candidate.display()));
+                            resolution_attempts
+                                .push(format!("scripts_base_path: {}", candidate.display()));
                             if candidate.exists() {
                                 tracing::info!(
                                     "[execute_browser_script] Resolved via scripts_base_path: {} -> {}",
@@ -3791,7 +3796,8 @@ Requires Chrome extension to be installed. See browser_dom_extraction.yml and de
                         let workflow_dir_guard = self.current_workflow_dir.lock().await;
                         if let Some(ref workflow_dir) = *workflow_dir_guard {
                             let candidate = workflow_dir.join(script_file);
-                            resolution_attempts.push(format!("workflow_dir: {}", candidate.display()));
+                            resolution_attempts
+                                .push(format!("workflow_dir: {}", candidate.display()));
                             if candidate.exists() {
                                 tracing::info!(
                                     "[execute_browser_script] Resolved via workflow directory: {} -> {}",
@@ -3815,7 +3821,10 @@ Requires Chrome extension to be installed. See browser_dom_extraction.yml and de
                     }
                 } else {
                     // Absolute path - use as-is
-                    tracing::info!("[execute_browser_script] Using absolute path: {}", script_file);
+                    tracing::info!(
+                        "[execute_browser_script] Using absolute path: {}",
+                        script_file
+                    );
                     resolved_path = Some(script_path.to_path_buf());
                 }
 

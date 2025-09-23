@@ -26,7 +26,7 @@ mod with_telemetry {
         SCHEMA_URL,
     };
     use std::time::Duration;
-    use tracing::{info, debug};
+    use tracing::{debug, info};
 
     pub struct WorkflowSpan {
         span: BoxedSpan,
@@ -112,14 +112,14 @@ mod with_telemetry {
 
     /// Check if the OpenTelemetry collector is available
     fn check_collector_availability(endpoint: &str) -> bool {
-        use std::net::{TcpStream, SocketAddr};
+        use std::net::{SocketAddr, TcpStream};
         use std::time::Duration;
 
         // Extract host and port from endpoint
         if let Ok(url) = reqwest::Url::parse(endpoint) {
             if let Some(host) = url.host_str() {
                 let port = url.port().unwrap_or(4318);
-                let addr = format!("{}:{}", host, port);
+                let addr = format!("{host}:{port}");
 
                 // Try to connect with a short timeout
                 if let Ok(addr) = addr.parse::<SocketAddr>() {
@@ -129,7 +129,8 @@ mod with_telemetry {
                     use std::net::ToSocketAddrs;
                     if let Ok(mut addrs) = addr.to_socket_addrs() {
                         if let Some(addr) = addrs.next() {
-                            return TcpStream::connect_timeout(&addr, Duration::from_millis(100)).is_ok();
+                            return TcpStream::connect_timeout(&addr, Duration::from_millis(100))
+                                .is_ok();
                         }
                     }
                 }
@@ -199,7 +200,7 @@ mod with_telemetry {
 
     pub fn shutdown_telemetry() {
         // Shutdown with a short timeout to avoid hanging
-        let _ = global::shutdown_tracer_provider();
+        global::shutdown_tracer_provider();
     }
 }
 

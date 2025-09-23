@@ -20,7 +20,10 @@ mod scripts_base_path_tests {
         let serialized = serde_json::to_string(&args).unwrap();
         let deserialized: ExecuteSequenceArgs = serde_json::from_str(&serialized).unwrap();
 
-        assert_eq!(deserialized.scripts_base_path, Some("/mnt/workflows/123".to_string()));
+        assert_eq!(
+            deserialized.scripts_base_path,
+            Some("/mnt/workflows/123".to_string())
+        );
     }
 
     #[test]
@@ -57,7 +60,10 @@ steps:
 "#;
 
         let parsed: ExecuteSequenceArgs = serde_yaml::from_str(yaml_content).unwrap();
-        assert_eq!(parsed.scripts_base_path, Some("/mnt/shared/scripts".to_string()));
+        assert_eq!(
+            parsed.scripts_base_path,
+            Some("/mnt/shared/scripts".to_string())
+        );
         assert!(parsed.steps.is_some());
     }
 
@@ -104,7 +110,10 @@ steps:
         let serialized = serde_json::to_string(&args).unwrap();
         let deserialized: ExecuteSequenceArgs = serde_json::from_str(&serialized).unwrap();
 
-        assert_eq!(deserialized.scripts_base_path, Some("/custom/path".to_string()));
+        assert_eq!(
+            deserialized.scripts_base_path,
+            Some("/custom/path".to_string())
+        );
         assert_eq!(deserialized.url, Some("file://workflow.yml".to_string()));
         assert_eq!(deserialized.stop_on_error, Some(true));
     }
@@ -273,6 +282,9 @@ inputs:
 
         // The actual environment variable substitution would happen at runtime
         // This test just ensures the field accepts such patterns
-        assert_eq!(workflow.scripts_base_path, Some("${WORKFLOW_MOUNT_PATH}/scripts".to_string()));
+        assert_eq!(
+            workflow.scripts_base_path,
+            Some("${WORKFLOW_MOUNT_PATH}/scripts".to_string())
+        );
     }
 }
