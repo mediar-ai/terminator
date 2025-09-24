@@ -31,7 +31,7 @@ arguments:
     - tool_name: run_command
       arguments:
         engine: javascript
-        script: |
+        run: |
           const fs = require('fs');
           const path = require('path');
           const os = require('os');
@@ -59,25 +59,50 @@ arguments:
           })();
       delay_ms: 200
 
-    # Extract the downloaded zip to the destination folder (Windows + Unix)
+    # Extract the downloaded zip to the destination folder (cross-platform)
     - tool_name: run_command
       arguments:
+        engine: javascript
         run: |
-          $ErrorActionPreference = 'Stop'
-          # Avoid template substitution issues: compute paths directly
-          $zip = Join-Path $env:TEMP 'terminator-browser-extension.zip'
-          $dest = Join-Path $env:TEMP 'terminator-bridge'
-          if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
-          New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          Expand-Archive -Path $zip -DestinationPath $dest -Force
-        shell: powershell
+          const fs = require('fs');
+          const path = require('path');
+          const os = require('os');
+          const { execSync } = require('child_process');
+
+          (async () => {
+            const isWin = process.platform === 'win32';
+            const tmp = isWin ? (process.env.TEMP || os.tmpdir()) : os.tmpdir();
+            const zipPath = path.join(tmp, 'terminator-browser-extension.zip');
+            const destDir = path.join(tmp, 'terminator-bridge');
+
+            // Remove existing directory if it exists
+            try { fs.rmSync(destDir, { recursive: true, force: true }); } catch (_) {}
+
+            // Create destination directory
+            fs.mkdirSync(destDir, { recursive: true });
+
+            // Extract based on platform
+            try {
+              if (isWin) {
+                // Windows: Use PowerShell's Expand-Archive
+                execSync(`powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${destDir}' -Force"`, { stdio: 'pipe' });
+              } else {
+                // Unix/macOS: Use unzip command
+                execSync(`unzip -q -o "${zipPath}" -d "${destDir}"`, { stdio: 'pipe' });
+              }
+              console.log(`Extracted to: ${destDir}`);
+              return { status: 'success', extracted_to: destDir };
+            } catch (error) {
+              throw new Error(`Extraction failed: ${error.message}`);
+            }
+          })();
       delay_ms: 400
 
     # Find the actual folder that contains manifest.json (some zips have a nested folder)
     - tool_name: run_command
       arguments:
         engine: javascript
-        script: |
+        run: |
           const fs = require('fs');
           const path = require('path');
           const os = require('os');
@@ -147,7 +172,7 @@ arguments:
     - tool_name: run_command
       arguments:
         engine: javascript
-        script: |
+        run: |
           // Use terminator.js via global 'desktop'
           const toggleSel = "role:Button|name:Developer mode";
           const loadSel = "role:Button|name:Load unpacked";
