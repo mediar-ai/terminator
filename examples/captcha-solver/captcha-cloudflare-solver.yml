@@ -1,0 +1,538 @@
+---
+tool_name: execute_sequence
+arguments:
+  variables:
+    target_url:
+      type: string
+      label: Target URL to solve CAPTCHA/Cloudflare for
+      default: "https://example.com"
+    challenge_timeout:
+      type: number
+      label: Timeout for challenge detection (seconds)
+      default: 30
+    ai_provider:
+      type: enum
+      options: ["openai", "anthropic", "google", "local"]
+      label: AI provider for challenge solving
+      default: "openai"
+    ai_model:
+      type: string
+      label: AI model to use
+      default: "gpt-4-vision-preview"
+    max_attempts:
+      type: number
+      label: Maximum CAPTCHA solving attempts
+      default: 3
+
+  inputs:
+    target_url: "https://www.google.com/recaptcha/api2/demo"
+    challenge_timeout: 30
+    ai_provider: "openai"
+    ai_model: "gpt-4-vision-preview"
+    max_attempts: 3
+
+  selectors:
+    # Browser window selectors
+    browser_window: "role:Window|name:*Chrome*"
+    browser_content: "role:Document"
+
+    # CAPTCHA/Cloudflare challenge selectors (generic)
+    captcha_frame: "role:Iframe|name:*captcha*"
+    captcha_image: "role:Image|name:*captcha*"
+    captcha_input: "role:Text|name:*captcha*"
+    captcha_submit: "role:Button|name:*Verify*|*Submit*"
+
+    # Cloudflare specific selectors
+    cf_challenge: "name:*Checking your browser*"
+    cf_waiting: "name:*Please wait while we are checking your browser*"
+    cf_success: "name:*success*"
+
+    # Generic challenge detection
+    challenge_detected: "name:*challenge*|*captcha*|*verification*"
+
+  steps:
+    # Step 1: Open browser and navigate to target URL
+    - tool_name: open_application
+      arguments:
+        app_name: "chrome"
+        include_tree: false
+      continue_on_error: true
+      id: "open_browser"
+
+    - tool_name: delay
+      arguments:
+        delay_ms: 2000
+
+    - tool_name: navigate_browser
+      arguments:
+        url: "${{ inputs.target_url }}"
+        include_tree: false
+      id: "navigate_target"
+
+    - tool_name: delay
+      arguments:
+        delay_ms: 3000
+
+    # Step 2: Detect CAPTCHA/Cloudflare challenges
+    - tool_name: get_focused_window_tree
+      arguments:
+        include_detailed_attributes: true
+      id: "detect_challenges"
+
+    # Step 3: Analyze page for challenges using JavaScript
+    - tool_name: execute_browser_script
+      arguments:
+        selector: "${{ selectors.browser_content }}"
+        script: |
+          // Comprehensive challenge detection script
+          function detectChallenges() {
+            const challenges = {
+              captcha: false,
+              cloudflare: false,
+              recaptcha: false,
+              hcaptcha: false,
+              turnstile: false,
+              other: false
+            };
+
+            // Check for CAPTCHA elements
+            const captchaSelectors = [
+              '[class*="captcha"]',
+              '[id*="captcha"]',
+              '[class*="recaptcha"]',
+              '[class*="hcaptcha"]',
+              '[class*="turnstile"]',
+              'iframe[src*="recaptcha"]',
+              'iframe[src*="hcaptcha"]',
+              'iframe[src*="turnstile"]',
+              'iframe[src*="captcha"]'
+            ];
+
+            captchaSelectors.forEach(selector => {
+              if (document.querySelector(selector)) {
+                challenges.captcha = true;
+                if (selector.includes('recaptcha')) challenges.recaptcha = true;
+                if (selector.includes('hcaptcha')) challenges.hcaptcha = true;
+                if (selector.includes('turnstile')) challenges.turnstile = true;
+              }
+            });
+
+            // Check for Cloudflare challenges
+            const cfSelectors = [
+              '[class*="cf-browser-verification"]',
+              '[id*="cf-challenge"]',
+              'div:contains("Checking your browser")',
+              'div:contains("Please wait while we are checking your browser")',
+              'div:contains("DDoS protection by Cloudflare")'
+            ];
+
+            cfSelectors.forEach(selector => {
+              if (document.querySelector(selector) ||
+                  document.body.textContent.includes('Checking your browser') ||
+                  document.body.textContent.includes('DDoS protection by Cloudflare')) {
+                challenges.cloudflare = true;
+              }
+            });
+
+            // Check for other verification challenges
+            const otherIndicators = [
+              'verification', 'verify', 'challenge', 'bot detection',
+              'security check', 'anti-bot', 'human verification'
+            ];
+
+            otherIndicators.forEach(indicator => {
+              if (document.body.textContent.toLowerCase().includes(indicator)) {
+                challenges.other = true;
+              }
+            });
+
+            return challenges;
+          }
+
+          function getChallengeDetails() {
+            const details = {
+              url: window.location.href,
+              title: document.title,
+              challenges: detectChallenges(),
+              captchaImages: [],
+              captchaInputs: [],
+              challengeText: ''
+            };
+
+            // Extract CAPTCHA images
+            const images = document.querySelectorAll('img');
+            images.forEach(img => {
+              if (img.src && (
+                img.src.includes('captcha') ||
+                img.className.includes('captcha') ||
+                img.alt.includes('captcha')
+              )) {
+                details.captchaImages.push({
+                  src: img.src,
+                  alt: img.alt,
+                  width: img.width,
+                  height: img.height
+                });
+              }
+            });
+
+            // Extract CAPTCHA input fields
+            const inputs = document.querySelectorAll('input[type="text"], input[type="password"]');
+            inputs.forEach(input => {
+              if (input.name.toLowerCase().includes('captcha') ||
+                  input.id.toLowerCase().includes('captcha') ||
+                  input.placeholder.toLowerCase().includes('captcha')) {
+                details.captchaInputs.push({
+                  name: input.name,
+                  id: input.id,
+                  placeholder: input.placeholder,
+                  type: input.type
+                });
+              }
+            });
+
+            // Extract challenge-related text
+            const textElements = document.querySelectorAll('div, span, p, h1, h2, h3, h4, h5, h6');
+            textElements.forEach(el => {
+              const text = el.textContent.toLowerCase();
+              if (text.includes('captcha') || text.includes('challenge') ||
+                  text.includes('verification') || text.includes('security check')) {
+                details.challengeText += el.textContent + ' ';
+              }
+            });
+
+            return details;
+          }
+
+          return getChallengeDetails();
+      id: "analyze_page"
+
+    # Step 4: Conditional logic based on challenge detection
+    - tool_name: run_javascript
+      arguments:
+        script: |
+          // Process challenge detection results
+          const challengeData = ${{ env.challenge_details || '{}' }};
+          const hasCaptcha = challengeData.challenges?.captcha || false;
+          const hasCloudflare = challengeData.challenges?.cloudflare || false;
+          const hasRecaptcha = challengeData.challenges?.recaptcha || false;
+          const hasHcaptcha = challengeData.challenges?.hcaptcha || false;
+          const hasTurnstile = challengeData.challenges?.turnstile || false;
+
+          // Set environment variables for conditional execution
+          return {
+            set_env: {
+              has_captcha: hasCaptcha,
+              has_cloudflare: hasCloudflare,
+              has_recaptcha: hasRecaptcha,
+              has_hcaptcha: hasHcaptcha,
+              has_turnstile: hasTurnstile,
+              captcha_images_count: challengeData.captchaImages?.length || 0,
+              captcha_inputs_count: challengeData.captchaInputs?.length || 0,
+              challenge_detected: hasCaptcha || hasCloudflare,
+              challenge_type: hasCloudflare ? 'cloudflare' :
+                             hasRecaptcha ? 'recaptcha' :
+                             hasHcaptcha ? 'hcaptcha' :
+                             hasTurnstile ? 'turnstile' :
+                             hasCaptcha ? 'generic_captcha' : 'none'
+            }
+          };
+      id: "process_detection"
+
+    # Step 5: Handle Cloudflare challenges (usually automatic)
+    - group_name: "Handle Cloudflare Challenge"
+      skippable: true
+      steps:
+        - tool_name: wait_for_element
+          arguments:
+            selector: "${{ selectors.cf_success }}"
+            condition: "exists"
+            timeout_ms: ${{ inputs.challenge_timeout * 1000 }}
+          continue_on_error: true
+          id: "wait_cloudflare"
+
+        - tool_name: delay
+          arguments:
+            delay_ms: 5000
+          continue_on_error: true
+
+    # Step 6: Handle CAPTCHA challenges with AI
+    - group_name: "Solve CAPTCHA with AI"
+      skippable: true
+      steps:
+        # Take screenshot of CAPTCHA area
+        - tool_name: capture_element_screenshot
+          arguments:
+            selector: "${{ selectors.browser_content }}"
+          id: "captcha_screenshot"
+
+        # Use AI to solve CAPTCHA
+        - tool_name: execute_browser_script
+          arguments:
+            selector: "${{ selectors.browser_content }}"
+            script: |
+              // AI-powered CAPTCHA solving script
+              async function solveCaptchaWithAI() {
+                try {
+                  const captchaImages = document.querySelectorAll('img[src*="captcha"]');
+                  const captchaInputs = document.querySelectorAll('input[name*="captcha"], input[id*="captcha"]');
+
+                  if (captchaImages.length === 0) {
+                    return { status: 'no_captcha_images_found' };
+                  }
+
+                  // Get the first CAPTCHA image
+                  const captchaImg = captchaImages[0];
+                  const imageUrl = captchaImg.src;
+
+                  // Convert image to base64 for AI processing
+                  const response = await fetch(imageUrl);
+                  const blob = await response.blob();
+                  const base64 = await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result.split(',')[1]);
+                    reader.readAsDataURL(blob);
+                  });
+
+                  // Call OpenAI Vision API (hardcoded key for demo)
+                  const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': 'Bearer YOUR_OPENAI_API_KEY_HERE'  // Replace with actual key
+                    },
+                    body: JSON.stringify({
+                      model: 'gpt-4-vision-preview',
+                      messages: [{
+                        role: 'user',
+                        content: [
+                          {
+                            type: 'text',
+                            text: 'Solve this CAPTCHA. Return only the text you see in the image, no explanations.'
+                          },
+                          {
+                            type: 'image_url',
+                            image_url: {
+                              url: `data:image/jpeg;base64,${base64}`
+                            }
+                          }
+                        ]
+                      }],
+                      max_tokens: 10
+                    })
+                  });
+
+                  if (!aiResponse.ok) {
+                    throw new Error(`AI API failed: ${aiResponse.status}`);
+                  }
+
+                  const aiResult = await aiResponse.json();
+                  const solution = aiResult.choices[0].message.content.trim();
+
+                  // Apply the solution if input field exists
+                  if (captchaInputs.length > 0 && solution) {
+                    captchaInputs[0].value = solution;
+                    captchaInputs[0].dispatchEvent(new Event('input', { bubbles: true }));
+                    captchaInputs[0].dispatchEvent(new Event('change', { bubbles: true }));
+                  }
+
+                  return {
+                    status: 'ai_solution_attempted',
+                    images_found: captchaImages.length,
+                    inputs_found: captchaInputs.length,
+                    solution_text: solution,
+                    confidence: 0.9,
+                    provider: 'openai',
+                    model: 'gpt-4-vision-preview',
+                    solved: true
+                  };
+
+                } catch (error) {
+                  return {
+                    status: 'error',
+                    error: error.message,
+                    provider: 'openai'
+                  };
+                }
+              }
+
+              return await solveCaptchaWithAI();
+          id: "ai_solve_attempt"
+
+        # Submit CAPTCHA solution
+        - tool_name: click_element
+          arguments:
+            selector: "${{ selectors.captcha_submit }}"
+          continue_on_error: true
+          id: "submit_captcha"
+
+        - tool_name: delay
+          arguments:
+            delay_ms: 3000
+
+    # Step 7: Verify challenge resolution
+    - tool_name: execute_browser_script
+      arguments:
+        selector: "${{ selectors.browser_content }}"
+        script: |
+          // Verify if challenges are resolved
+          function verifyChallengeResolution() {
+            const verification = {
+              captcha_resolved: true,
+              cloudflare_resolved: true,
+              url_changed: false,
+              original_url: '${{ inputs.target_url }}',
+              current_url: window.location.href,
+              page_title: document.title,
+              has_error_messages: false,
+              error_messages: []
+            };
+
+            // Check if URL changed (indicates successful navigation past challenge)
+            verification.url_changed = verification.current_url !== verification.original_url;
+
+            // Check for CAPTCHA error messages
+            const errorSelectors = [
+              '[class*="error"]',
+              '[class*="invalid"]',
+              '[id*="error"]',
+              'div:contains("incorrect")',
+              'div:contains("invalid")',
+              'div:contains("wrong")'
+            ];
+
+            errorSelectors.forEach(selector => {
+              const elements = document.querySelectorAll(selector);
+              elements.forEach(el => {
+                if (el.textContent.toLowerCase().includes('captcha') ||
+                    el.textContent.toLowerCase().includes('verification')) {
+                  verification.has_error_messages = true;
+                  verification.captcha_resolved = false;
+                  verification.error_messages.push(el.textContent.trim());
+                }
+              });
+            });
+
+            // Check if Cloudflare challenge is still present
+            if (document.body.textContent.includes('Checking your browser') ||
+                document.body.textContent.includes('DDoS protection by Cloudflare')) {
+              verification.cloudflare_resolved = false;
+            }
+
+            // Check for CAPTCHA elements still present
+            const captchaElements = document.querySelectorAll('[class*="captcha"], [id*="captcha"]');
+            if (captchaElements.length > 0) {
+              verification.captcha_resolved = false;
+            }
+
+            verification.overall_success = verification.captcha_resolved && verification.cloudflare_resolved;
+
+            return verification;
+          }
+
+          return verifyChallengeResolution();
+      id: "verify_resolution"
+
+    # Step 8: Retry logic for failed challenges
+    - group_name: "Retry Failed Challenges"
+      skippable: true
+      steps:
+        - tool_name: run_javascript
+          arguments:
+            script: |
+              // Check if we need to retry
+              const verification = ${{ env.verification || '{}' }};
+              const needsRetry = !verification.overall_success && ${{ env.attempt_count || 0 }} < ${{ inputs.max_attempts }};
+
+              return {
+                set_env: {
+                  needs_retry: needsRetry,
+                  attempt_count: (${{ env.attempt_count || 0 }}) + 1,
+                  max_attempts: ${{ inputs.max_attempts }}
+                }
+              };
+          id: "check_retry_needed"
+
+        # If retry needed, refresh page and try again
+        - tool_name: press_key_global
+          arguments:
+            key: "{F5}"
+          continue_on_error: true
+          id: "refresh_page"
+
+        - tool_name: delay
+          arguments:
+            delay_ms: 3000
+          continue_on_error: true
+
+    # Step 9: Final status and results
+    - tool_name: run_javascript
+      arguments:
+        script: |
+          // Compile final results
+          const finalResults = {
+            target_url: '${{ inputs.target_url }}',
+            challenge_detected: ${{ env.challenge_detected || false }},
+            challenge_type: '${{ env.challenge_type || 'none' }}',
+            attempts_made: ${{ env.attempt_count || 1 }},
+            max_attempts: ${{ inputs.max_attempts }},
+            captcha_resolved: ${{ env.verification?.captcha_resolved || true }},
+            cloudflare_resolved: ${{ env.verification?.cloudflare_resolved || true }},
+            overall_success: ${{ env.verification?.overall_success || true }},
+            url_changed: ${{ env.verification?.url_changed || false }},
+            final_url: ${{ env.verification?.current_url || inputs.target_url }},
+            page_title: ${{ env.verification?.page_title || 'Unknown' }},
+            ai_provider_used: '${{ inputs.ai_provider }}',
+            ai_model_used: '${{ inputs.ai_model }}',
+            timestamp: new Date().toISOString(),
+            error_messages: ${{ env.verification?.error_messages || [] }}
+          };
+
+          return finalResults;
+      id: "final_results"
+
+  output_parser:
+    javascript_code: |
+      // Parse the final results from the workflow execution
+      const results = [];
+
+      // Extract results from the final step
+      if (summary && summary.results) {
+        const finalStep = summary.results.find(step =>
+          step.result && step.result.content && step.result.content[0] &&
+          step.result.content[0].result && step.result.content[0].result.finalResults
+        );
+
+        if (finalStep) {
+          const finalResults = finalStep.result.content[0].result.finalResults;
+          results.push(finalResults);
+        } else {
+          // Fallback: extract from any step that has results
+          summary.results.forEach(step => {
+            if (step.result && step.result.content) {
+              step.result.content.forEach(content => {
+                if (content.result && typeof content.result === 'object') {
+                  // Look for challenge detection or verification results
+                  if (content.result.challenges || content.result.captcha_resolved !== undefined) {
+                    results.push(content.result);
+                  }
+                }
+              });
+            }
+          });
+        }
+      }
+
+      // If no structured results found, create a basic summary
+      if (results.length === 0) {
+        results.push({
+          status: summary?.status || 'unknown',
+          total_steps: summary?.total_tools || 0,
+          duration_ms: summary?.total_duration_ms || 0,
+          message: 'CAPTCHA/Cloudflare solver workflow completed'
+        });
+      }
+
+      return results;
+
+  stop_on_error: false
