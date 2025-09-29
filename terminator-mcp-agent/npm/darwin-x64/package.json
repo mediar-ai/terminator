@@ -20,5 +20,5 @@
   "scripts": {
     "prepare": "chmod +x terminator-mcp-agent"
   },
-  "version": "0.15.19"
+  "version": "0.16.0"
 }

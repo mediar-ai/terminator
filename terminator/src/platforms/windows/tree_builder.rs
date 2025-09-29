@@ -114,8 +114,13 @@ pub(crate) fn build_ui_node_tree_configurable(
                             child_path.push(child_index);
 
                             // Recursively build child node (with depth limit to prevent deep recursion)
-                            if work_item.depth < 100 { // Limit recursion depth
-                                match build_ui_node_tree_configurable(child_element, work_item.depth + 1, context) {
+                            if work_item.depth < 100 {
+                                // Limit recursion depth
+                                match build_ui_node_tree_configurable(
+                                    child_element,
+                                    work_item.depth + 1,
+                                    context,
+                                ) {
                                     Ok(child_node) => node.children.push(child_node),
                                     Err(e) => {
                                         debug!(
