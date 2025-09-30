@@ -357,6 +357,60 @@ arguments:
       condition: "${{steps.download.installer_path}}"
       timeout_ms: 300000
 
+    # Step 4b: If silent install fails, try running installer with UI
+    - tool_name: open_application
+      arguments:
+        app_name: "${{steps.download.installer_path}}"
+      id: "run_installer_ui"
+      condition: "${{steps.download.installer_path && steps.silent_install.status == 'error'}}"
+      continue_on_error: true
+      delay_ms: 3000
+
+    # Step 4c: Try to click through common installer UI patterns
+    - tool_name: click_element
+      arguments:
+        selector: "role:Button|name:Next"
+      id: "click_next"
+      condition: "${{steps.run_installer_ui.status == 'success'}}"
+      continue_on_error: true
+      timeout_ms: 10000
+      delay_ms: 2000
+
+    - tool_name: click_element
+      arguments:
+        selector: "role:CheckBox|name:I agree"
+      id: "click_agree"
+      condition: "${{steps.run_installer_ui.status == 'success'}}"
+      continue_on_error: true
+      timeout_ms: 5000
+      delay_ms: 1000
+
+    - tool_name: click_element
+      arguments:
+        selector: "role:Button|name:Install"
+      id: "click_install"
+      condition: "${{steps.run_installer_ui.status == 'success'}}"
+      continue_on_error: true
+      timeout_ms: 10000
+      delay_ms: 2000
+
+    - tool_name: wait_for_element
+      arguments:
+        selector: "role:Button|name:Finish"
+        timeout_ms: 180000
+      id: "wait_finish"
+      condition: "${{steps.run_installer_ui.status == 'success'}}"
+      continue_on_error: true
+      delay_ms: 2000
+
+    - tool_name: click_element
+      arguments:
+        selector: "role:Button|name:Finish"
+      id: "click_finish"
+      condition: "${{steps.run_installer_ui.status == 'success'}}"
+      continue_on_error: true
+      delay_ms: 1000
+
     # Step 5: Fallback to UI - open browser to download if all else fails
     - tool_name: run_command
       arguments:
@@ -413,19 +467,31 @@ arguments:
       const steps = context.steps || [];
       const cliSuccess = steps.find(s => s.id === 'cli_install' && s.status === 'success');
       const silentSuccess = steps.find(s => s.id === 'silent_install' && s.status === 'success');
+      const uiSuccess = steps.find(s => s.id === 'click_finish' && s.status === 'success');
       const software = steps.find(s => s.id === 'map_software')?.result?.name || context.inputs.software;
 
       let method = 'failed';
-      if (cliSuccess) method = 'package_manager';
-      else if (silentSuccess) method = 'silent_install';
-      else if (steps.find(s => s.id === 'open_browser' && s.status === 'success')) method = 'manual_browser';
+      let success = false;
+
+      if (cliSuccess) {
+        method = 'package_manager';
+        success = true;
+      } else if (silentSuccess) {
+        method = 'silent_install';
+        success = true;
+      } else if (uiSuccess) {
+        method = 'ui_install';
+        success = true;
+      } else if (steps.find(s => s.id === 'open_browser' && s.status === 'success')) {
+        method = 'manual_browser';
+      }
 
       return {
-        success: cliSuccess || silentSuccess ? true : false,
+        success: success,
         data: {
           software: software,
           method: method,
-          message: cliSuccess || silentSuccess
+          message: success
             ? `${software} installed successfully via ${method}`
             : `Could not install ${software} automatically. Manual installation may be required.`
         }
