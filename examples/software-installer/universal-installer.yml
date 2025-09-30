@@ -20,7 +20,7 @@ arguments:
       arguments:
         engine: javascript
         run: |
-          const softwareName = (context.inputs?.software || '${{inputs.software}}').toLowerCase().trim();
+          const softwareName = '${{inputs.software}}'.toLowerCase().trim();
 
           // Software database with package IDs and download URLs
           const softwareMap = {
@@ -432,7 +432,7 @@ arguments:
             return { success: true };
           }
 
-          const userSoftware = context.inputs?.software || 'unknown';
+          const userSoftware = '${{inputs.software}}';
           console.log(`Automated installation failed for ${userSoftware}`);
           console.log('Opening browser for manual download...');
 

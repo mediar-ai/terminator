@@ -1,0 +1,18 @@
+---
+tool_name: execute_sequence
+arguments:
+  steps:
+    - tool_name: execute_sequence
+      arguments:
+        workflow_file: "./examples/software-installer/universal-installer.yml"
+        inputs:
+          software: "onedrive"
+      id: "install_onedrive"
+
+  output_parser:
+    javascript_code: |
+      const step = context.steps.find(s => s.id === 'install_onedrive');
+      return {
+        success: step?.status === 'success',
+        data: step?.result || {}
+      };
