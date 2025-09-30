@@ -497,8 +497,8 @@ arguments:
       const results = [];
 
       // Extract results from the final step
-      if (summary && summary.results) {
-        const finalStep = summary.results.find(step =>
+      if (sequenceResult && sequenceResult.results) {
+        const finalStep = sequenceResult.results.find(step =>
           step.result && step.result.content && step.result.content[0] &&
           step.result.content[0].result && step.result.content[0].result.finalResults
         );
@@ -508,7 +508,7 @@ arguments:
           results.push(finalResults);
         } else {
           // Fallback: extract from any step that has results
-          summary.results.forEach(step => {
+          sequenceResult.results.forEach(step => {
             if (step.result && step.result.content) {
               step.result.content.forEach(content => {
                 if (content.result && typeof content.result === 'object') {
@@ -526,9 +526,9 @@ arguments:
       // If no structured results found, create a basic summary
       if (results.length === 0) {
         results.push({
-          status: summary?.status || 'unknown',
-          total_steps: summary?.total_tools || 0,
-          duration_ms: summary?.total_duration_ms || 0,
+          status: sequenceResult?.status || 'unknown',
+          total_steps: sequenceResult?.total_tools || 0,
+          duration_ms: sequenceResult?.total_duration_ms || 0,
           message: 'CAPTCHA/Cloudflare solver workflow completed'
         });
       }
