@@ -9,6 +9,10 @@ arguments:
       type: string
       label: "Software to install (e.g., chrome, vscode, git, nodejs, python, discord, slack, etc.)"
       required: true
+      default: "onedrive"
+
+  inputs:
+    software: "onedrive"
 
   steps:
     # Step 1: Map software name to package IDs and download URLs
@@ -16,7 +20,7 @@ arguments:
       arguments:
         engine: javascript
         run: |
-          const software = '${{inputs.software}}'.toLowerCase().trim();
+          const softwareName = (context.inputs?.software || '${{inputs.software}}').toLowerCase().trim();
 
           // Software database with package IDs and download URLs
           const softwareMap = {
@@ -201,10 +205,10 @@ arguments:
             }
           };
 
-          const info = softwareMap[software] || {
-            name: software.charAt(0).toUpperCase() + software.slice(1),
-            winget: software,
-            choco: software,
+          const info = softwareMap[softwareName] || {
+            name: softwareName.charAt(0).toUpperCase() + softwareName.slice(1),
+            winget: softwareName,
+            choco: softwareName,
             download: null,
             silent: '/quiet'
           };
@@ -428,17 +432,17 @@ arguments:
             return { success: true };
           }
 
-          const software = context.inputs.software;
-          console.log(`Automated installation failed for ${software}`);
+          const userSoftware = context.inputs?.software || 'unknown';
+          console.log(`Automated installation failed for ${userSoftware}`);
           console.log('Opening browser for manual download...');
 
           // Build search URL
-          const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(software + ' download windows')}`;
+          const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(userSoftware + ' download windows')}`;
 
           return {
             fallback_to_ui: true,
             search_url: searchUrl,
-            software: software
+            software: userSoftware
           };
       id: "check_status"
       delay_ms: 1000
