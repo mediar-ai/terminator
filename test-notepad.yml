@@ -1,0 +1,35 @@
+name: Test Notepad Workflow
+steps:
+  - id: launch_notepad
+    action: run_command
+    engine: javascript
+    run: |
+      console.log("Launching Notepad...");
+      await desktop.openApplication("notepad");
+      await sleep(2000);
+      console.log("Notepad launched, waiting for it to appear...");
+      return { success: true };
+
+  - id: type_text
+    action: run_command
+    engine: javascript
+    run: |
+      console.log("Looking for Notepad window...");
+      const apps = await desktop.applications();
+      console.log("Running applications:", apps.map(a => a.name));
+
+      const notepad = apps.find(a => a.name.toLowerCase().includes("notepad") || a.name.toLowerCase().includes("untitled"));
+      if (notepad) {
+        console.log("Found Notepad, activating...");
+        await notepad.activateWindow();
+        await sleep(1000);
+
+        console.log("Typing text...");
+        await desktop.typeText("Hello from MCP v0.16.3!");
+        await desktop.pressKey("{Enter}");
+        await desktop.typeText("UI Automation is working!");
+
+        return { success: true, message: "Text typed successfully" };
+      } else {
+        return { error: "Could not find Notepad window" };
+      }

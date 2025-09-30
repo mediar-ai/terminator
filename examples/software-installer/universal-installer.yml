@@ -1,0 +1,432 @@
+---
+# Universal Software Installer
+# Input: software name (e.g., "chrome", "vscode", "onedrive", "discord", etc.)
+# Automatically tries CLI first, then falls back to UI installation
+tool_name: execute_sequence
+arguments:
+  variables:
+    software:
+      type: string
+      label: "Software to install (e.g., chrome, vscode, git, nodejs, python, discord, slack, etc.)"
+      required: true
+
+  steps:
+    # Step 1: Map software name to package IDs and download URLs
+    - tool_name: run_command
+      arguments:
+        engine: javascript
+        run: |
+          const software = '${{inputs.software}}'.toLowerCase().trim();
+
+          // Software database with package IDs and download URLs
+          const softwareMap = {
+            'chrome': {
+              name: 'Google Chrome',
+              winget: 'Google.Chrome',
+              choco: 'googlechrome',
+              scoop: 'googlechrome',
+              brew: 'google-chrome',
+              download: 'https://dl.google.com/chrome/install/latest/chrome_installer.exe',
+              silent: '/silent /install'
+            },
+            'firefox': {
+              name: 'Mozilla Firefox',
+              winget: 'Mozilla.Firefox',
+              choco: 'firefox',
+              scoop: 'firefox',
+              brew: 'firefox',
+              download: 'https://download.mozilla.org/?product=firefox-latest&os=win64&lang=en-US',
+              silent: '/S'
+            },
+            'vscode': {
+              name: 'Visual Studio Code',
+              winget: 'Microsoft.VisualStudioCode',
+              choco: 'vscode',
+              scoop: 'vscode',
+              brew: 'visual-studio-code',
+              download: 'https://code.visualstudio.com/sha/download?build=stable&os=win32-x64-user',
+              silent: '/verysilent /mergetasks=!runcode'
+            },
+            'git': {
+              name: 'Git',
+              winget: 'Git.Git',
+              choco: 'git',
+              scoop: 'git',
+              brew: 'git',
+              apt: 'git',
+              download: 'https://github.com/git-for-windows/git/releases/latest/download/Git-2.43.0-64-bit.exe',
+              silent: '/VERYSILENT'
+            },
+            'nodejs': {
+              name: 'Node.js',
+              winget: 'OpenJS.NodeJS',
+              choco: 'nodejs',
+              scoop: 'nodejs',
+              brew: 'node',
+              apt: 'nodejs',
+              download: 'https://nodejs.org/dist/latest-lts/node-latest-lts-x64.msi',
+              silent: '/quiet'
+            },
+            'python': {
+              name: 'Python',
+              winget: 'Python.Python.3.11',
+              choco: 'python',
+              scoop: 'python',
+              brew: 'python@3.11',
+              apt: 'python3',
+              download: 'https://www.python.org/ftp/python/3.11.0/python-3.11.0-amd64.exe',
+              silent: '/quiet InstallAllUsers=1 PrependPath=1'
+            },
+            'discord': {
+              name: 'Discord',
+              winget: 'Discord.Discord',
+              choco: 'discord',
+              scoop: 'discord',
+              brew: 'discord',
+              download: 'https://discord.com/api/downloads/distributions/app/installers/latest?channel=stable&platform=win&arch=x86',
+              silent: '-s'
+            },
+            'slack': {
+              name: 'Slack',
+              winget: 'SlackTechnologies.Slack',
+              choco: 'slack',
+              scoop: 'slack',
+              brew: 'slack',
+              download: 'https://slack.com/downloads/windows',
+              silent: '/S'
+            },
+            'zoom': {
+              name: 'Zoom',
+              winget: 'Zoom.Zoom',
+              choco: 'zoom',
+              scoop: 'zoom',
+              brew: 'zoom',
+              download: 'https://zoom.us/client/latest/ZoomInstaller.exe',
+              silent: '/quiet'
+            },
+            'spotify': {
+              name: 'Spotify',
+              winget: 'Spotify.Spotify',
+              choco: 'spotify',
+              scoop: 'spotify',
+              brew: 'spotify',
+              download: 'https://download.scdn.co/SpotifySetup.exe',
+              silent: '/silent'
+            },
+            '7zip': {
+              name: '7-Zip',
+              winget: '7zip.7zip',
+              choco: '7zip',
+              scoop: '7zip',
+              brew: 'p7zip',
+              apt: 'p7zip-full',
+              download: 'https://www.7-zip.org/a/7z2301-x64.exe',
+              silent: '/S'
+            },
+            'vlc': {
+              name: 'VLC Media Player',
+              winget: 'VideoLAN.VLC',
+              choco: 'vlc',
+              scoop: 'vlc',
+              brew: 'vlc',
+              apt: 'vlc',
+              download: 'https://get.videolan.org/vlc/latest/win64/vlc-latest-win64.exe',
+              silent: '/S'
+            },
+            'notepad++': {
+              name: 'Notepad++',
+              winget: 'Notepad++.Notepad++',
+              choco: 'notepadplusplus',
+              scoop: 'notepadplusplus',
+              download: 'https://github.com/notepad-plus-plus/notepad-plus-plus/releases/latest/download/npp.Installer.x64.exe',
+              silent: '/S'
+            },
+            'docker': {
+              name: 'Docker Desktop',
+              winget: 'Docker.DockerDesktop',
+              choco: 'docker-desktop',
+              brew: 'docker',
+              download: 'https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe',
+              silent: 'install --quiet'
+            },
+            'postman': {
+              name: 'Postman',
+              winget: 'Postman.Postman',
+              choco: 'postman',
+              scoop: 'postman',
+              brew: 'postman',
+              download: 'https://dl.pstmn.io/download/latest/win64',
+              silent: '-s'
+            },
+            'onedrive': {
+              name: 'Microsoft OneDrive',
+              winget: 'Microsoft.OneDrive',
+              choco: 'onedrive',
+              download: 'https://go.microsoft.com/fwlink/?linkid=844652',
+              silent: '/silent'
+            },
+            'teams': {
+              name: 'Microsoft Teams',
+              winget: 'Microsoft.Teams',
+              choco: 'microsoft-teams',
+              brew: 'microsoft-teams',
+              download: 'https://go.microsoft.com/fwlink/?linkid=2187327&clcid=0x409&culture=en-us&country=us',
+              silent: '/s'
+            },
+            'steam': {
+              name: 'Steam',
+              winget: 'Valve.Steam',
+              choco: 'steam',
+              brew: 'steam',
+              download: 'https://cdn.akamai.steamstatic.com/client/installer/SteamSetup.exe',
+              silent: '/S'
+            },
+            'obs': {
+              name: 'OBS Studio',
+              winget: 'OBSProject.OBSStudio',
+              choco: 'obs-studio',
+              scoop: 'obs-studio',
+              brew: 'obs',
+              download: 'https://cdn-fastly.obsproject.com/downloads/OBS-Studio-Windows-Installer.exe',
+              silent: '/S'
+            },
+            'brave': {
+              name: 'Brave Browser',
+              winget: 'Brave.Brave',
+              choco: 'brave',
+              scoop: 'brave',
+              brew: 'brave-browser',
+              download: 'https://laptop-updates.brave.com/latest/winx64',
+              silent: '/silent /install'
+            }
+          };
+
+          const info = softwareMap[software] || {
+            name: software.charAt(0).toUpperCase() + software.slice(1),
+            winget: software,
+            choco: software,
+            download: null,
+            silent: '/quiet'
+          };
+
+          console.log(`Software: ${info.name}`);
+          console.log(`Winget ID: ${info.winget || 'N/A'}`);
+          console.log(`Chocolatey ID: ${info.choco || 'N/A'}`);
+          console.log(`Download URL: ${info.download || 'N/A'}`);
+
+          return info;
+      id: "map_software"
+      delay_ms: 500
+
+    # Step 2: Try CLI installation with available package managers
+    - tool_name: run_command
+      arguments:
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $software = '${{steps.map_software.name}}'
+          $wingetId = '${{steps.map_software.winget}}'
+          $chocoId = '${{steps.map_software.choco}}'
+
+          Write-Host "Attempting to install $software via package manager..."
+
+          # Try winget first
+          if (Get-Command winget -ErrorAction SilentlyContinue) {
+            Write-Host "Trying winget..."
+            try {
+              winget install --id $wingetId --accept-package-agreements --accept-source-agreements -h
+              if ($LASTEXITCODE -eq 0) {
+                Write-Host "Successfully installed via winget"
+                exit 0
+              }
+            } catch {
+              Write-Host "Winget failed: $_"
+            }
+          }
+
+          # Try chocolatey
+          if (Get-Command choco -ErrorAction SilentlyContinue) {
+            Write-Host "Trying chocolatey..."
+            try {
+              choco install $chocoId -y --no-progress
+              if ($LASTEXITCODE -eq 0) {
+                Write-Host "Successfully installed via chocolatey"
+                exit 0
+              }
+            } catch {
+              Write-Host "Chocolatey failed: $_"
+            }
+          }
+
+          # Try scoop
+          if (Get-Command scoop -ErrorAction SilentlyContinue) {
+            Write-Host "Trying scoop..."
+            $scoopId = '${{steps.map_software.scoop}}'
+            if ($scoopId) {
+              try {
+                scoop install $scoopId
+                if ($LASTEXITCODE -eq 0) {
+                  Write-Host "Successfully installed via scoop"
+                  exit 0
+                }
+              } catch {
+                Write-Host "Scoop failed: $_"
+              }
+            }
+          }
+
+          Write-Host "All package managers failed or not available"
+          exit 1
+        shell: powershell
+      id: "cli_install"
+      continue_on_error: true
+      timeout_ms: 180000
+
+    # Step 3: Download and run installer if CLI failed
+    - tool_name: run_command
+      arguments:
+        engine: javascript
+        run: |
+          const fs = require('fs');
+          const path = require('path');
+          const os = require('os');
+
+          // Check if CLI succeeded
+          const cliStep = context.steps.find(s => s.id === 'cli_install');
+          if (cliStep && cliStep.status === 'success') {
+            console.log('CLI installation succeeded, skipping download');
+            return { skip: true };
+          }
+
+          const downloadUrl = context.steps.find(s => s.id === 'map_software')?.result?.download;
+          if (!downloadUrl) {
+            console.log('No download URL available, will try UI search');
+            return { skip: true };
+          }
+
+          console.log(`Downloading from: ${downloadUrl}`);
+
+          try {
+            const response = await fetch(downloadUrl);
+            if (!response.ok) throw new Error(`Download failed: ${response.status}`);
+
+            const ext = downloadUrl.includes('.msi') ? '.msi' : '.exe';
+            const installerPath = path.join(os.tmpdir(), `installer_${Date.now()}${ext}`);
+
+            const buffer = Buffer.from(await response.arrayBuffer());
+            fs.writeFileSync(installerPath, buffer);
+
+            console.log(`Downloaded to: ${installerPath}`);
+            return { installer_path: installerPath, ext: ext };
+          } catch (error) {
+            console.log(`Download failed: ${error.message}`);
+            return { skip: true };
+          }
+      id: "download"
+      continue_on_error: true
+      delay_ms: 2000
+
+    # Step 4: Try silent installation
+    - tool_name: run_command
+      arguments:
+        run: |
+          $installerPath = '${{steps.download.installer_path}}'
+          $silent = '${{steps.map_software.silent}}'
+
+          if (-not $installerPath -or -not (Test-Path $installerPath)) {
+            Write-Host "No installer to run"
+            exit 1
+          }
+
+          Write-Host "Running silent install: $installerPath $silent"
+
+          try {
+            if ($installerPath -match '\.msi$') {
+              Start-Process msiexec -ArgumentList "/i `"$installerPath`" $silent" -Wait -NoNewWindow
+            } else {
+              Start-Process $installerPath -ArgumentList $silent -Wait -NoNewWindow
+            }
+            Write-Host "Installation completed"
+            exit 0
+          } catch {
+            Write-Host "Silent install failed: $_"
+            exit 1
+          }
+        shell: powershell
+      id: "silent_install"
+      continue_on_error: true
+      condition: "${{steps.download.installer_path}}"
+      timeout_ms: 300000
+
+    # Step 5: Fallback to UI - open browser to download if all else fails
+    - tool_name: run_command
+      arguments:
+        engine: javascript
+        run: |
+          // Check if any installation succeeded
+          const steps = context.steps || [];
+          const success = steps.find(s =>
+            (s.id === 'cli_install' || s.id === 'silent_install') &&
+            s.status === 'success'
+          );
+
+          if (success) {
+            console.log('Installation completed successfully');
+            return { success: true };
+          }
+
+          const software = context.inputs.software;
+          console.log(`Automated installation failed for ${software}`);
+          console.log('Opening browser for manual download...');
+
+          // Build search URL
+          const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(software + ' download windows')}`;
+
+          return {
+            fallback_to_ui: true,
+            search_url: searchUrl,
+            software: software
+          };
+      id: "check_status"
+      delay_ms: 1000
+
+    # Step 6: Open browser for manual download
+    - tool_name: navigate_browser
+      arguments:
+        url: "${{steps.check_status.search_url}}"
+        browser: "chrome"
+      id: "open_browser"
+      condition: "${{steps.check_status.fallback_to_ui}}"
+      continue_on_error: true
+      delay_ms: 2000
+
+    # Step 7: Try to click first download result
+    - tool_name: click_element
+      arguments:
+        selector: "role:Link|name:Download"
+      id: "click_download"
+      condition: "${{steps.check_status.fallback_to_ui}}"
+      continue_on_error: true
+      timeout_ms: 10000
+
+  output_parser:
+    javascript_code: |
+      const steps = context.steps || [];
+      const cliSuccess = steps.find(s => s.id === 'cli_install' && s.status === 'success');
+      const silentSuccess = steps.find(s => s.id === 'silent_install' && s.status === 'success');
+      const software = steps.find(s => s.id === 'map_software')?.result?.name || context.inputs.software;
+
+      let method = 'failed';
+      if (cliSuccess) method = 'package_manager';
+      else if (silentSuccess) method = 'silent_install';
+      else if (steps.find(s => s.id === 'open_browser' && s.status === 'success')) method = 'manual_browser';
+
+      return {
+        success: cliSuccess || silentSuccess ? true : false,
+        data: {
+          software: software,
+          method: method,
+          message: cliSuccess || silentSuccess
+            ? `${software} installed successfully via ${method}`
+            : `Could not install ${software} automatically. Manual installation may be required.`
+        }
+      };
