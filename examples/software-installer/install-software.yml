@@ -1,0 +1,438 @@
+---
+# General-purpose software installation workflow
+# Attempts CLI installation first, then falls back to UI-based installation
+tool_name: execute_sequence
+arguments:
+  # Input variables
+  variables:
+    software_name:
+      type: string
+      label: "Name of the software to install"
+      required: true
+
+    package_manager:
+      type: string
+      label: "Package manager to use (winget, choco, scoop, apt, brew, npm, pip)"
+      default: "auto"
+
+    package_id:
+      type: string
+      label: "Package ID for the package manager"
+      required: false
+
+    download_url:
+      type: string
+      label: "Direct download URL if package manager fails"
+      required: false
+
+    installer_type:
+      type: string
+      label: "Type of installer (msi, exe, dmg, deb, rpm)"
+      default: "auto"
+
+    silent_install_args:
+      type: string
+      label: "Arguments for silent installation"
+      default: "/quiet /norestart"
+
+    ui_install_steps:
+      type: array
+      label: "Custom UI installation steps if CLI fails"
+      required: false
+
+  steps:
+    # Step 1: Detect operating system and package manager
+    - tool_name: run_command
+      arguments:
+        engine: javascript
+        run: |
+          const os = require('os');
+          const { execSync } = require('child_process');
+
+          const platform = os.platform();
+          const packageManager = '${{inputs.package_manager}}';
+          let selectedPM = packageManager;
+          let pmCommand = '';
+          let installCommand = '';
+
+          // Auto-detect package manager if needed
+          if (packageManager === 'auto') {
+            if (platform === 'win32') {
+              // Check for winget
+              try {
+                execSync('winget --version', { stdio: 'pipe' });
+                selectedPM = 'winget';
+              } catch {
+                // Check for chocolatey
+                try {
+                  execSync('choco --version', { stdio: 'pipe' });
+                  selectedPM = 'choco';
+                } catch {
+                  // Check for scoop
+                  try {
+                    execSync('scoop --version', { stdio: 'pipe' });
+                    selectedPM = 'scoop';
+                  } catch {
+                    selectedPM = 'none';
+                  }
+                }
+              }
+            } else if (platform === 'darwin') {
+              try {
+                execSync('brew --version', { stdio: 'pipe' });
+                selectedPM = 'brew';
+              } catch {
+                selectedPM = 'none';
+              }
+            } else if (platform === 'linux') {
+              try {
+                execSync('apt --version', { stdio: 'pipe' });
+                selectedPM = 'apt';
+              } catch {
+                try {
+                  execSync('yum --version', { stdio: 'pipe' });
+                  selectedPM = 'yum';
+                } catch {
+                  selectedPM = 'none';
+                }
+              }
+            }
+          }
+
+          // Build install command based on package manager
+          const packageId = '${{inputs.package_id}}' || '${{inputs.software_name}}';
+
+          switch(selectedPM) {
+            case 'winget':
+              installCommand = `winget install --id ${packageId} --accept-package-agreements --accept-source-agreements -h`;
+              break;
+            case 'choco':
+              installCommand = `choco install ${packageId} -y`;
+              break;
+            case 'scoop':
+              installCommand = `scoop install ${packageId}`;
+              break;
+            case 'brew':
+              installCommand = `brew install ${packageId}`;
+              break;
+            case 'apt':
+              installCommand = `sudo apt-get update && sudo apt-get install -y ${packageId}`;
+              break;
+            case 'yum':
+              installCommand = `sudo yum install -y ${packageId}`;
+              break;
+            case 'npm':
+              installCommand = `npm install -g ${packageId}`;
+              break;
+            case 'pip':
+              installCommand = `pip install ${packageId}`;
+              break;
+          }
+
+          console.log(`Platform: ${platform}`);
+          console.log(`Selected package manager: ${selectedPM}`);
+          console.log(`Install command: ${installCommand}`);
+
+          return {
+            platform,
+            package_manager: selectedPM,
+            install_command: installCommand,
+            package_id: packageId
+          };
+      id: "detect_system"
+      delay_ms: 1000
+
+    # Step 2: Try CLI installation
+    - tool_name: run_command
+      arguments:
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $command = '${{steps.detect_system.install_command}}'
+
+          if ($command -and $command -ne '') {
+            Write-Host "Attempting CLI installation with: $command"
+            try {
+              if ($command -match '^sudo') {
+                # For commands requiring sudo, we'll need to handle differently
+                Write-Host "Command requires elevated permissions. Attempting with elevation..."
+                Start-Process powershell -Verb RunAs -ArgumentList "-Command", $command -Wait
+              } else {
+                Invoke-Expression $command
+              }
+              Write-Host "CLI installation completed successfully"
+              exit 0
+            } catch {
+              Write-Host "CLI installation failed: $_"
+              exit 1
+            }
+          } else {
+            Write-Host "No CLI package manager available"
+            exit 1
+          }
+        shell: powershell
+      id: "cli_install"
+      continue_on_error: true
+      delay_ms: 2000
+      timeout_ms: 120000
+
+    # Step 3: Download installer if CLI failed and URL provided
+    - tool_name: run_command
+      arguments:
+        engine: javascript
+        run: |
+          const fs = require('fs');
+          const path = require('path');
+          const os = require('os');
+
+          // Check if CLI installation succeeded
+          const cliResult = context.steps.find(s => s.id === 'cli_install');
+          if (cliResult && cliResult.status === 'success') {
+            console.log('CLI installation succeeded, skipping download');
+            return { skip: true };
+          }
+
+          const downloadUrl = '${{inputs.download_url}}';
+          if (!downloadUrl || downloadUrl === '') {
+            console.log('No download URL provided, will attempt UI installation');
+            return { skip: true };
+          }
+
+          // Download the installer
+          console.log(`Downloading installer from: ${downloadUrl}`);
+          const response = await fetch(downloadUrl);
+
+          if (!response.ok) {
+            throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+          }
+
+          const fileName = path.basename(downloadUrl) || 'installer.exe';
+          const installerPath = path.join(os.tmpdir(), fileName);
+
+          const arrayBuffer = await response.arrayBuffer();
+          fs.writeFileSync(installerPath, Buffer.from(arrayBuffer));
+
+          console.log(`Installer downloaded to: ${installerPath}`);
+          return {
+            installer_path: installerPath,
+            downloaded: true
+          };
+      id: "download_installer"
+      continue_on_error: true
+      delay_ms: 2000
+
+    # Step 4: Try silent installation of downloaded installer
+    - tool_name: run_command
+      arguments:
+        run: |
+          $ErrorActionPreference = 'Continue'
+
+          # Check if we have an installer to run
+          $installerPath = '${{steps.download_installer.installer_path}}'
+          if (-not $installerPath -or $installerPath -eq '' -or -not (Test-Path $installerPath)) {
+            Write-Host "No installer available for silent installation"
+            exit 1
+          }
+
+          $silentArgs = '${{inputs.silent_install_args}}'
+          Write-Host "Running silent installation: $installerPath $silentArgs"
+
+          try {
+            if ($installerPath -match '\.msi$') {
+              Start-Process msiexec -ArgumentList "/i", "`"$installerPath`"", $silentArgs.Split(' ') -Wait -NoNewWindow
+            } else {
+              Start-Process $installerPath -ArgumentList $silentArgs.Split(' ') -Wait -NoNewWindow
+            }
+            Write-Host "Silent installation completed"
+            exit 0
+          } catch {
+            Write-Host "Silent installation failed: $_"
+            exit 1
+          }
+        shell: powershell
+      id: "silent_install"
+      continue_on_error: true
+      delay_ms: 2000
+      timeout_ms: 180000
+
+    # Step 5: Fallback to UI-based installation
+    - tool_name: run_command
+      arguments:
+        engine: javascript
+        run: |
+          // Check if any previous installation succeeded
+          const steps = context.steps || [];
+          const cliSuccess = steps.find(s => s.id === 'cli_install' && s.status === 'success');
+          const silentSuccess = steps.find(s => s.id === 'silent_install' && s.status === 'success');
+
+          if (cliSuccess || silentSuccess) {
+            console.log('Installation already completed successfully');
+            return { skip: true, success: true };
+          }
+
+          console.log('All automated installation methods failed.');
+          console.log('Preparing for UI-based installation...');
+
+          const customSteps = context.inputs?.ui_install_steps;
+          if (customSteps && customSteps.length > 0) {
+            console.log('Custom UI installation steps provided');
+            return { use_custom_ui: true };
+          }
+
+          console.log('Will attempt generic UI installation flow');
+          return { use_generic_ui: true };
+      id: "prepare_ui_install"
+      delay_ms: 1000
+
+    # Step 6: Open installer if downloaded
+    - tool_name: open_application
+      arguments:
+        app_name: "${{steps.download_installer.installer_path}}"
+      id: "open_installer"
+      continue_on_error: true
+      condition: "${{steps.prepare_ui_install.use_generic_ui || steps.prepare_ui_install.use_custom_ui}}"
+      delay_ms: 3000
+
+    # Step 7: Generic UI flow - click Next/Install/Finish
+    - tool_name: click_element
+      arguments:
+        selector: "role:Button|name:Next"
+      id: "click_next_1"
+      continue_on_error: true
+      condition: "${{steps.prepare_ui_install.use_generic_ui}}"
+      timeout_ms: 10000
+      delay_ms: 2000
+
+    - tool_name: click_element
+      arguments:
+        selector: "role:CheckBox|name:I agree"
+      id: "accept_license"
+      continue_on_error: true
+      condition: "${{steps.prepare_ui_install.use_generic_ui}}"
+      timeout_ms: 5000
+      delay_ms: 1000
+
+    - tool_name: click_element
+      arguments:
+        selector: "role:Button|name:Next"
+      id: "click_next_2"
+      continue_on_error: true
+      condition: "${{steps.prepare_ui_install.use_generic_ui}}"
+      timeout_ms: 5000
+      delay_ms: 2000
+
+    - tool_name: click_element
+      arguments:
+        selector: "role:Button|name:Install"
+      id: "click_install"
+      continue_on_error: true
+      condition: "${{steps.prepare_ui_install.use_generic_ui}}"
+      timeout_ms: 10000
+      delay_ms: 5000
+
+    - tool_name: wait_for_element
+      arguments:
+        selector: "role:Button|name:Finish"
+        timeout_ms: 180000
+      id: "wait_for_finish"
+      continue_on_error: true
+      condition: "${{steps.prepare_ui_install.use_generic_ui}}"
+      delay_ms: 2000
+
+    - tool_name: click_element
+      arguments:
+        selector: "role:Button|name:Finish"
+      id: "click_finish"
+      continue_on_error: true
+      condition: "${{steps.prepare_ui_install.use_generic_ui}}"
+      delay_ms: 1000
+
+    # Step 8: Verify installation
+    - tool_name: run_command
+      arguments:
+        engine: javascript
+        run: |
+          const { execSync } = require('child_process');
+          const softwareName = '${{inputs.software_name}}';
+
+          console.log(`Verifying installation of ${softwareName}...`);
+
+          // Check if the software is accessible
+          const checks = [
+            () => {
+              try {
+                // Try running the command
+                execSync(`${softwareName} --version`, { stdio: 'pipe' });
+                return true;
+              } catch { return false; }
+            },
+            () => {
+              try {
+                // Check Windows registry
+                if (process.platform === 'win32') {
+                  const output = execSync('reg query "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall" /s', { stdio: 'pipe' }).toString();
+                  return output.toLowerCase().includes(softwareName.toLowerCase());
+                }
+                return false;
+              } catch { return false; }
+            },
+            () => {
+              try {
+                // Check common installation paths
+                const fs = require('fs');
+                const paths = [
+                  `C:\\Program Files\\${softwareName}`,
+                  `C:\\Program Files (x86)\\${softwareName}`,
+                  `/usr/local/bin/${softwareName}`,
+                  `/opt/${softwareName}`
+                ];
+                return paths.some(p => fs.existsSync(p));
+              } catch { return false; }
+            }
+          ];
+
+          const isInstalled = checks.some(check => check());
+
+          if (isInstalled) {
+            console.log(`✓ ${softwareName} installation verified successfully!`);
+            return { installed: true, software: softwareName };
+          } else {
+            console.log(`✗ Could not verify ${softwareName} installation`);
+            console.log('The software may still be installed but require a system restart or PATH update.');
+            return { installed: false, software: softwareName, note: 'May require restart' };
+          }
+      id: "verify_installation"
+      delay_ms: 2000
+
+  # Output parser
+  output_parser:
+    javascript_code: |
+      const steps = context.steps || [];
+      const verifyStep = steps.find(s => s.id === 'verify_installation');
+      const cliStep = steps.find(s => s.id === 'cli_install');
+      const silentStep = steps.find(s => s.id === 'silent_install');
+
+      let installMethod = 'unknown';
+      if (cliStep && cliStep.status === 'success') {
+        installMethod = 'cli';
+      } else if (silentStep && silentStep.status === 'success') {
+        installMethod = 'silent';
+      } else if (steps.find(s => s.id === 'click_finish' && s.status === 'success')) {
+        installMethod = 'ui';
+      }
+
+      const success = verifyStep?.result?.installed || false;
+
+      return {
+        success: success,
+        data: {
+          software: context.inputs?.software_name,
+          installation_method: installMethod,
+          verified: success,
+          package_manager: steps.find(s => s.id === 'detect_system')?.result?.package_manager,
+          message: success
+            ? `Successfully installed ${context.inputs?.software_name} using ${installMethod} method`
+            : `Installation of ${context.inputs?.software_name} could not be verified`,
+          steps_executed: steps.length,
+          steps_succeeded: steps.filter(s => s.status === 'success').length
+        }
+      };

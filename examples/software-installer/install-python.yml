@@ -1,0 +1,227 @@
+---
+# Install Python with pip and virtual environment setup
+tool_name: execute_sequence
+arguments:
+  variables:
+    python_version:
+      type: string
+      label: "Python version (e.g., 3.11, 3.12)"
+      default: "3.11"
+
+    add_to_path:
+      type: boolean
+      label: "Add Python to PATH"
+      default: true
+
+    pip_packages:
+      type: array
+      label: "Python packages to install globally"
+      default:
+        - "pip"
+        - "setuptools"
+        - "wheel"
+        - "virtualenv"
+        - "pipenv"
+
+  steps:
+    # Determine Python download URL
+    - tool_name: run_command
+      arguments:
+        engine: javascript
+        run: |
+          const version = '${{inputs.python_version}}';
+          const platform = require('os').platform();
+          const arch = require('os').arch();
+
+          let downloadUrl = '';
+
+          if (platform === 'win32') {
+            // Python Windows installer URL format
+            const versionParts = version.split('.');
+            const major = versionParts[0];
+            const minor = versionParts[1] || '11';
+            const patch = versionParts[2] || '0';
+
+            if (arch === 'x64') {
+              downloadUrl = `https://www.python.org/ftp/python/${major}.${minor}.${patch}/python-${major}.${minor}.${patch}-amd64.exe`;
+            } else {
+              downloadUrl = `https://www.python.org/ftp/python/${major}.${minor}.${patch}/python-${major}.${minor}.${patch}.exe`;
+            }
+          }
+
+          console.log(`Python download URL: ${downloadUrl}`);
+
+          return {
+            download_url: downloadUrl,
+            version: version,
+            platform: platform
+          };
+      id: "prepare_python"
+      delay_ms: 1000
+
+    # Install Python
+    - tool_name: execute_sequence
+      arguments:
+        workflow_file: "./install-software.yml"
+        inputs:
+          software_name: "Python"
+          package_id: "Python.Python.${{inputs.python_version}}"
+          download_url: "${{steps.prepare_python.download_url}}"
+          silent_install_args: "/quiet InstallAllUsers=1 PrependPath=${{inputs.add_to_path ? 1 : 0}} Include_test=0"
+          ui_install_steps:
+            - tool_name: click_element
+              arguments:
+                selector: "role:CheckBox|name:Add Python to PATH"
+              condition: "${{inputs.add_to_path}}"
+            - tool_name: click_element
+              arguments:
+                selector: "role:Button|name:Install Now"
+            - tool_name: wait_for_element
+              arguments:
+                selector: "role:Button|name:Close"
+                timeout_ms: 180000
+            - tool_name: click_element
+              arguments:
+                selector: "role:Button|name:Close"
+      id: "install_python"
+
+    # Wait for installation
+    - tool_name: wait
+      arguments:
+        seconds: 5
+      id: "wait_for_python"
+
+    # Verify Python installation
+    - tool_name: run_command
+      arguments:
+        run: |
+          # Refresh PATH
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+
+          # Verify Python and pip
+          python --version
+          pip --version
+
+          # Upgrade pip
+          python -m pip install --upgrade pip
+        shell: powershell
+      id: "verify_python"
+      continue_on_error: true
+      delay_ms: 2000
+
+    # Install Python packages
+    - tool_name: run_command
+      arguments:
+        engine: javascript
+        run: |
+          const { execSync } = require('child_process');
+          const packages = ${{inputs.pip_packages}};
+
+          if (!packages || packages.length === 0) {
+            console.log('No packages to install');
+            return { installed: [] };
+          }
+
+          console.log(`Installing ${packages.length} Python packages...`);
+
+          const installed = [];
+          const failed = [];
+
+          // Upgrade pip first
+          try {
+            execSync('python -m pip install --upgrade pip', { stdio: 'pipe' });
+          } catch {}
+
+          for (const pkg of packages) {
+            try {
+              console.log(`Installing ${pkg}...`);
+              execSync(`python -m pip install --upgrade ${pkg}`, { stdio: 'pipe' });
+              installed.push(pkg);
+              console.log(`✓ ${pkg} installed successfully`);
+            } catch (error) {
+              console.log(`✗ Failed to install ${pkg}: ${error.message}`);
+              failed.push(pkg);
+            }
+          }
+
+          console.log(`\nInstalled ${installed.length} of ${packages.length} packages`);
+
+          // Show installed packages
+          try {
+            const listOutput = execSync('python -m pip list', { stdio: 'pipe' }).toString();
+            console.log('\nInstalled packages:\n', listOutput);
+          } catch {}
+
+          return {
+            total: packages.length,
+            installed: installed,
+            failed: failed
+          };
+      id: "install_packages"
+      continue_on_error: true
+      delay_ms: 2000
+
+    # Create example virtual environment
+    - tool_name: run_command
+      arguments:
+        run: |
+          Write-Host "Creating example virtual environment..."
+
+          # Create a test project directory
+          $testDir = "$env:USERPROFILE\python_test_env"
+          if (-not (Test-Path $testDir)) {
+            New-Item -ItemType Directory -Path $testDir -Force
+          }
+
+          cd $testDir
+
+          # Create virtual environment
+          python -m venv venv
+
+          Write-Host "Virtual environment created at: $testDir\venv"
+          Write-Host ""
+          Write-Host "To activate the virtual environment, run:"
+          Write-Host "  Windows: $testDir\venv\Scripts\Activate"
+          Write-Host "  Linux/Mac: source $testDir/venv/bin/activate"
+
+          # Create a requirements.txt example
+          @"
+# Example requirements.txt
+requests>=2.28.0
+numpy>=1.24.0
+pandas>=2.0.0
+matplotlib>=3.7.0
+"@ | Out-File -FilePath "$testDir\requirements.txt" -Encoding utf8
+
+          Write-Host ""
+          Write-Host "Example requirements.txt created at: $testDir\requirements.txt"
+        shell: powershell
+      id: "create_venv"
+      continue_on_error: true
+      delay_ms: 2000
+
+  output_parser:
+    javascript_code: |
+      const steps = context.steps || [];
+      const installStep = steps.find(s => s.id === 'install_python');
+      const verifyStep = steps.find(s => s.id === 'verify_python');
+      const packagesStep = steps.find(s => s.id === 'install_packages');
+      const venvStep = steps.find(s => s.id === 'create_venv');
+
+      const success = installStep?.status === 'success' && verifyStep?.status === 'success';
+
+      return {
+        success: success,
+        data: {
+          software: 'Python',
+          version: context.inputs?.python_version,
+          installed: success,
+          path_configured: context.inputs?.add_to_path,
+          packages_installed: packagesStep?.result?.installed || [],
+          packages_failed: packagesStep?.result?.failed || [],
+          virtual_env_created: venvStep?.status === 'success',
+          message: success
+            ? `Python ${context.inputs?.python_version} installed with ${packagesStep?.result?.installed?.length || 0} packages`
+            : 'Python installation failed'
+        }
+      };

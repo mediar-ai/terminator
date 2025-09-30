@@ -1,0 +1,153 @@
+---
+# Install Visual Studio Code with extensions
+# Demonstrates CLI installation with post-install configuration
+tool_name: execute_sequence
+arguments:
+  variables:
+    extensions:
+      type: array
+      label: "VS Code extensions to install"
+      default:
+        - "ms-python.python"
+        - "dbaeumer.vscode-eslint"
+        - "esbenp.prettier-vscode"
+
+  steps:
+    # Install VS Code
+    - tool_name: execute_sequence
+      arguments:
+        workflow_file: "./install-software.yml"
+        inputs:
+          software_name: "Visual Studio Code"
+          package_id: "Microsoft.VisualStudioCode"
+          download_url: "https://code.visualstudio.com/sha/download?build=stable&os=win32-x64"
+          silent_install_args: "/verysilent /mergetasks=!runcode,addcontextmenufiles,addcontextmenufolders,associatewithfiles,addtopath"
+      id: "install_vscode"
+
+    # Wait for installation to complete
+    - tool_name: wait
+      arguments:
+        seconds: 5
+      id: "wait_for_install"
+
+    # Install extensions via CLI
+    - tool_name: run_command
+      arguments:
+        engine: javascript
+        run: |
+          const { execSync } = require('child_process');
+          const extensions = ${{inputs.extensions}};
+
+          console.log('Installing VS Code extensions...');
+
+          // Ensure VS Code CLI is in PATH
+          const codePath = process.platform === 'win32'
+            ? 'code.cmd'
+            : 'code';
+
+          let installedCount = 0;
+          let failedExtensions = [];
+
+          for (const ext of extensions) {
+            try {
+              console.log(`Installing extension: ${ext}`);
+              execSync(`${codePath} --install-extension ${ext} --force`, { stdio: 'pipe' });
+              installedCount++;
+            } catch (error) {
+              console.log(`Failed to install ${ext}: ${error.message}`);
+              failedExtensions.push(ext);
+            }
+          }
+
+          console.log(`Successfully installed ${installedCount} of ${extensions.length} extensions`);
+
+          return {
+            total_extensions: extensions.length,
+            installed: installedCount,
+            failed: failedExtensions
+          };
+      id: "install_extensions"
+      continue_on_error: true
+      delay_ms: 2000
+
+    # Configure VS Code settings
+    - tool_name: run_command
+      arguments:
+        engine: javascript
+        run: |
+          const fs = require('fs');
+          const path = require('path');
+          const os = require('os');
+
+          // Default VS Code settings for better development experience
+          const settings = {
+            "editor.formatOnSave": true,
+            "editor.minimap.enabled": false,
+            "editor.fontSize": 14,
+            "editor.wordWrap": "on",
+            "files.autoSave": "afterDelay",
+            "files.autoSaveDelay": 1000,
+            "terminal.integrated.defaultProfile.windows": "PowerShell",
+            "git.autofetch": true,
+            "git.confirmSync": false
+          };
+
+          // Find VS Code settings directory
+          const settingsPath = process.platform === 'win32'
+            ? path.join(os.homedir(), 'AppData', 'Roaming', 'Code', 'User', 'settings.json')
+            : process.platform === 'darwin'
+            ? path.join(os.homedir(), 'Library', 'Application Support', 'Code', 'User', 'settings.json')
+            : path.join(os.homedir(), '.config', 'Code', 'User', 'settings.json');
+
+          try {
+            // Create directory if it doesn't exist
+            const dir = path.dirname(settingsPath);
+            if (!fs.existsSync(dir)) {
+              fs.mkdirSync(dir, { recursive: true });
+            }
+
+            // Merge with existing settings if file exists
+            let existingSettings = {};
+            if (fs.existsSync(settingsPath)) {
+              const content = fs.readFileSync(settingsPath, 'utf8');
+              try {
+                existingSettings = JSON.parse(content);
+              } catch {}
+            }
+
+            const mergedSettings = { ...existingSettings, ...settings };
+
+            fs.writeFileSync(settingsPath, JSON.stringify(mergedSettings, null, 2));
+            console.log(`VS Code settings configured at: ${settingsPath}`);
+
+            return { configured: true, settings_path: settingsPath };
+          } catch (error) {
+            console.log(`Failed to configure settings: ${error.message}`);
+            return { configured: false, error: error.message };
+          }
+      id: "configure_settings"
+      continue_on_error: true
+      delay_ms: 1000
+
+  output_parser:
+    javascript_code: |
+      const steps = context.steps || [];
+      const installStep = steps.find(s => s.id === 'install_vscode');
+      const extensionsStep = steps.find(s => s.id === 'install_extensions');
+      const settingsStep = steps.find(s => s.id === 'configure_settings');
+
+      const success = installStep?.status === 'success';
+
+      return {
+        success: success,
+        data: {
+          software: 'Visual Studio Code',
+          installed: success,
+          extensions_installed: extensionsStep?.result?.installed || 0,
+          extensions_failed: extensionsStep?.result?.failed || [],
+          settings_configured: settingsStep?.result?.configured || false,
+          message: success
+            ? `VS Code installed with ${extensionsStep?.result?.installed || 0} extensions`
+            : 'VS Code installation failed'
+        }
+      };

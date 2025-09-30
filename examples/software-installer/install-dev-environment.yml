@@ -1,0 +1,251 @@
+---
+# Install a complete development environment
+# Installs multiple development tools in sequence
+tool_name: execute_sequence
+arguments:
+  variables:
+    install_list:
+      type: array
+      label: "Software to install"
+      default:
+        - "git"
+        - "vscode"
+        - "nodejs"
+        - "python"
+
+    configure_git:
+      type: boolean
+      label: "Configure Git with user details"
+      default: true
+
+    git_user:
+      type: string
+      label: "Git user name"
+      required: false
+
+    git_email:
+      type: string
+      label: "Git user email"
+      required: false
+
+  steps:
+    # Display installation plan
+    - tool_name: run_command
+      arguments:
+        engine: javascript
+        run: |
+          const installList = ${{inputs.install_list}};
+
+          console.log('='.repeat(50));
+          console.log('DEVELOPMENT ENVIRONMENT INSTALLER');
+          console.log('='.repeat(50));
+          console.log('\nThe following software will be installed:');
+
+          installList.forEach((software, index) => {
+            console.log(`  ${index + 1}. ${software.charAt(0).toUpperCase() + software.slice(1)}`);
+          });
+
+          console.log('\nInstallation will begin in 5 seconds...');
+          console.log('Press Ctrl+C to cancel\n');
+
+          return {
+            total_software: installList.length,
+            software_list: installList
+          };
+      id: "display_plan"
+      delay_ms: 5000
+
+    # Install Git if in list
+    - tool_name: execute_sequence
+      arguments:
+        workflow_file: "./install-git.yml"
+        inputs:
+          user_name: "${{inputs.git_user}}"
+          user_email: "${{inputs.git_email}}"
+          configure_ssh: false
+      id: "install_git"
+      condition: "${{inputs.install_list.includes('git')}}"
+      continue_on_error: true
+
+    # Install VS Code if in list
+    - tool_name: execute_sequence
+      arguments:
+        workflow_file: "./install-vscode.yml"
+        inputs:
+          extensions:
+            - "ms-python.python"
+            - "dbaeumer.vscode-eslint"
+            - "esbenp.prettier-vscode"
+            - "ms-azuretools.vscode-docker"
+            - "github.copilot"
+      id: "install_vscode"
+      condition: "${{inputs.install_list.includes('vscode')}}"
+      continue_on_error: true
+
+    # Install Node.js if in list
+    - tool_name: execute_sequence
+      arguments:
+        workflow_file: "./install-nodejs.yml"
+        inputs:
+          node_version: "lts"
+          install_yarn: true
+          install_pnpm: false
+          global_packages:
+            - "typescript"
+            - "nodemon"
+            - "eslint"
+            - "prettier"
+      id: "install_nodejs"
+      condition: "${{inputs.install_list.includes('nodejs')}}"
+      continue_on_error: true
+
+    # Install Python if in list
+    - tool_name: execute_sequence
+      arguments:
+        workflow_file: "./install-python.yml"
+        inputs:
+          python_version: "3.11"
+          add_to_path: true
+          pip_packages:
+            - "pip"
+            - "setuptools"
+            - "wheel"
+            - "virtualenv"
+            - "black"
+            - "pylint"
+            - "pytest"
+      id: "install_python"
+      condition: "${{inputs.install_list.includes('python')}}"
+      continue_on_error: true
+
+    # Install Chrome if in list
+    - tool_name: execute_sequence
+      arguments:
+        workflow_file: "./install-chrome.yml"
+      id: "install_chrome"
+      condition: "${{inputs.install_list.includes('chrome')}}"
+      continue_on_error: true
+
+    # Install Docker Desktop if in list
+    - tool_name: execute_sequence
+      arguments:
+        workflow_file: "./install-software.yml"
+        inputs:
+          software_name: "Docker Desktop"
+          package_id: "Docker.DockerDesktop"
+          download_url: "https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe"
+          silent_install_args: "install --quiet"
+      id: "install_docker"
+      condition: "${{inputs.install_list.includes('docker')}}"
+      continue_on_error: true
+
+    # Final verification
+    - tool_name: run_command
+      arguments:
+        engine: javascript
+        run: |
+          const steps = context.steps || [];
+          const installList = ${{inputs.install_list}};
+
+          console.log('\n' + '='.repeat(50));
+          console.log('INSTALLATION SUMMARY');
+          console.log('='.repeat(50) + '\n');
+
+          const results = [];
+
+          // Check each installation
+          const installations = {
+            'git': 'install_git',
+            'vscode': 'install_vscode',
+            'nodejs': 'install_nodejs',
+            'python': 'install_python',
+            'chrome': 'install_chrome',
+            'docker': 'install_docker'
+          };
+
+          for (const software of installList) {
+            const stepId = installations[software];
+            const step = steps.find(s => s.id === stepId);
+
+            if (step) {
+              const status = step.status === 'success' ? '✓' : '✗';
+              const message = step.status === 'success' ? 'Installed' : 'Failed';
+              console.log(`${status} ${software.toUpperCase()}: ${message}`);
+              results.push({
+                software: software,
+                status: step.status,
+                success: step.status === 'success'
+              });
+            }
+          }
+
+          // Verify installations with commands
+          console.log('\n' + '-'.repeat(50));
+          console.log('VERIFYING INSTALLATIONS:');
+          console.log('-'.repeat(50) + '\n');
+
+          const { execSync } = require('child_process');
+
+          const verifications = {
+            'git': 'git --version',
+            'nodejs': 'node --version && npm --version',
+            'python': 'python --version && pip --version',
+            'docker': 'docker --version'
+          };
+
+          for (const [software, command] of Object.entries(verifications)) {
+            if (installList.includes(software)) {
+              try {
+                const output = execSync(command, { stdio: 'pipe' }).toString().trim();
+                console.log(`${software}: ${output}`);
+              } catch {
+                console.log(`${software}: Not found in PATH (may require restart)`);
+              }
+            }
+          }
+
+          const successCount = results.filter(r => r.success).length;
+
+          console.log('\n' + '='.repeat(50));
+          console.log(`Successfully installed ${successCount} of ${installList.length} packages`);
+
+          if (successCount < installList.length) {
+            console.log('\nSome installations failed. You may need to:');
+            console.log('  1. Run this workflow with administrator privileges');
+            console.log('  2. Restart your terminal/computer');
+            console.log('  3. Check individual error messages above');
+          } else {
+            console.log('\n🎉 All software installed successfully!');
+            console.log('\nNext steps:');
+            console.log('  1. Restart your terminal to update PATH');
+            console.log('  2. Verify each tool works correctly');
+            console.log('  3. Configure your development environment');
+          }
+
+          return {
+            total: installList.length,
+            successful: successCount,
+            results: results
+          };
+      id: "verify_all"
+      delay_ms: 3000
+
+  output_parser:
+    javascript_code: |
+      const verifyStep = context.steps.find(s => s.id === 'verify_all');
+      const results = verifyStep?.result?.results || [];
+      const successCount = verifyStep?.result?.successful || 0;
+      const total = verifyStep?.result?.total || 0;
+
+      return {
+        success: successCount === total,
+        data: {
+          total_software: total,
+          successful_installations: successCount,
+          failed_installations: total - successCount,
+          results: results,
+          message: successCount === total
+            ? `All ${total} software packages installed successfully`
+            : `${successCount} of ${total} software packages installed successfully`
+        }
+      };
