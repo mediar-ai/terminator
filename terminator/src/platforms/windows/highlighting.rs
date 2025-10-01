@@ -195,9 +195,8 @@ pub fn highlight(
             thread::sleep(Duration::from_millis(50));
         }
 
-        // Let the overlay window be destroyed by the OS when the process exits
-        // or when a subsequent highlight replaces it. Avoid explicit DestroyWindow
-        // here to reduce flakiness if the caller drops the handle early.
+        // Clean up the overlay window when highlight expires or is manually closed
+        cleanup_overlay_window();
 
         // info!(
         //     "OVERLAY_THREAD_DONE elapsed_ms={}",
@@ -234,6 +233,9 @@ fn create_and_show_overlay(
     unsafe {
         let instance = GetModuleHandleW(None)
             .map_err(|e| AutomationError::PlatformError(format!("GetModuleHandleW failed: {e}")))?;
+
+        // Clean up any previous overlay window before creating a new one
+        cleanup_previous_overlay();
 
         // Register window class (ignore already registered)
         let wc = WNDCLASSEXW {
@@ -413,4 +415,22 @@ unsafe extern "system" fn overlay_window_proc(
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
+}
+
+/// Cleans up the previous overlay window stored in thread-local storage
+fn cleanup_previous_overlay() {
+    LAST_CREATED_OVERLAY.with(|cell| {
+        if let Some(hwnd) = cell.borrow_mut().take() {
+            unsafe {
+                use windows::Win32::UI::WindowsAndMessaging::DestroyWindow;
+                let _ = DestroyWindow(hwnd);
+                debug!("Destroyed previous overlay window");
+            }
+        }
+    });
+}
+
+/// Cleans up the current overlay window and clears thread-local storage
+fn cleanup_overlay_window() {
+    cleanup_previous_overlay();
 }
