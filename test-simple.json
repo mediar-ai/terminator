@@ -1,0 +1,1 @@
+{"tool_name":"execute_sequence","arguments":{"variables":{"software":{"type":"string","label":"Software to install","required":true}},"steps":[{"tool_name":"run_command","arguments":{"engine":"javascript","run":"console.log(\"Testing software: \" + context.inputs.software); return {software: context.inputs.software};"},"id":"test"}],"inputs":{"software":"onedrive"}}}
