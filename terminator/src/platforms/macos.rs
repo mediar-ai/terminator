@@ -2689,6 +2689,49 @@ impl AccessibilityEngine for MacOSEngine {
         }
 
         match &actual_selector {
+            Selector::Or(options) => {
+                // Union of results
+                let mut seen = std::collections::HashSet::new();
+                let mut results = Vec::new();
+                for opt in options {
+                    match self.find_elements(opt, Some(&self.wrap_element(start_element.clone())), timeout, None) {
+                        Ok(elements) => {
+                            for el in elements {
+                                if seen.insert(el.clone()) {
+                                    results.push(el);
+                                }
+                            }
+                        }
+                        Err(AutomationError::ElementNotFound(_)) => {}
+                        Err(e) => return Err(e),
+                    }
+                }
+                Ok(results)
+            }
+            Selector::And(options) => {
+                if options.is_empty() {
+                    return Ok(Vec::new());
+                }
+                let mut iter = options.iter();
+                let first_sel = iter.next().unwrap();
+                let mut current: std::collections::HashSet<UIElement> = self
+                    .find_elements(first_sel, Some(&self.wrap_element(start_element.clone())), timeout, None)?
+                    .into_iter()
+                    .collect();
+                for opt in iter {
+                    let next_set: std::collections::HashSet<UIElement> = match self.find_elements(opt, Some(&self.wrap_element(start_element.clone())), timeout, None) {
+                        Ok(v) => v.into_iter().collect(),
+                        Err(AutomationError::ElementNotFound(_)) => std::collections::HashSet::new(),
+                        Err(e) => return Err(e),
+                    };
+                    current = current
+                        .into_iter()
+                        .filter(|el| next_set.contains(el))
+                        .collect();
+                    if current.is_empty() { break; }
+                }
+                Ok(current.into_iter().collect())
+            }
             Selector::Role { role, name } => {
                 let target_roles = map_generic_role_to_macos_roles(role);
                 let name_filter = name.as_ref().map(|n| n.to_lowercase());
@@ -3006,6 +3049,42 @@ impl AccessibilityEngine for MacOSEngine {
 
         debug!("find_element called with selector: {:?}", selector);
         match &actual_selector {
+            Selector::Or(options) => {
+                for opt in options {
+                    match self.find_element(opt, Some(&self.wrap_element(start_element.clone())), timeout) {
+                        Ok(el) => return Ok(el),
+                        Err(AutomationError::ElementNotFound(_)) => continue,
+                        Err(e) => return Err(e),
+                    }
+                }
+                return Err(AutomationError::ElementNotFound("No element matched any of the OR options".to_string()));
+            }
+            Selector::And(options) => {
+                if options.is_empty() {
+                    return Err(AutomationError::ElementNotFound("Empty AND selector".to_string()));
+                }
+                // Intersect sets and return first
+                let mut iter = options.iter();
+                let first_sel = iter.next().unwrap();
+                let mut current: std::collections::HashSet<UIElement> = self
+                    .find_elements(first_sel, Some(&self.wrap_element(start_element.clone())), timeout, None)?
+                    .into_iter()
+                    .collect();
+                for opt in iter {
+                    let next_set: std::collections::HashSet<UIElement> = match self.find_elements(opt, Some(&self.wrap_element(start_element.clone())), timeout, None) {
+                        Ok(v) => v.into_iter().collect(),
+                        Err(AutomationError::ElementNotFound(_)) => std::collections::HashSet::new(),
+                        Err(e) => return Err(e),
+                    };
+                    current = current
+                        .into_iter()
+                        .filter(|el| next_set.contains(el))
+                        .collect();
+                    if current.is_empty() { break; }
+                }
+                if let Some(el) = current.into_iter().next() { return Ok(el); }
+                return Err(AutomationError::ElementNotFound("No element matched all AND conditions".to_string()));
+            }
             Selector::Role { role, name } => {
                 let target_roles = map_generic_role_to_macos_roles(role);
                 let name_filter = name.as_ref().map(|n| n.to_lowercase());
