@@ -68,6 +68,12 @@ claude mcp add terminator "npx -y terminator-mcp-agent@latest" -s user
 
 Or install via the [MCP directory](https://github.com/mediar-ai/terminator/tree/main/terminator-mcp-agent) for other clients.
 
+### Quick MCP install for Windows
+In powershell:
+```powershell
+irm https://mediar.ai/install-agent.ps1 | iex
+```
+
 ## ⚡ Quick start: CLI
 
 #### macOS/Linux
