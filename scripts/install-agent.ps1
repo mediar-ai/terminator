@@ -45,6 +45,9 @@ $installDir = "$env:ProgramFiles"
 $destPath = Join-Path $installDir "terminator-mcp-agent.exe"
 Move-Item -Path $binPath -Destination $destPath -Force
 
+# Set permissions for all users to read and execute
+icacls "$destPath" /grant "Users:(RX)" | Out-Null
+
 $currentIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notlike "*Loopback*" -and $_.IPAddress -notlike "169.254.*" } | Select-Object -First 1).IPAddress
 
 Write-Host "✅ Terminator Agent installed at $destPath" -ForegroundColor Green
