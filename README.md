@@ -74,6 +74,12 @@ In powershell:
 irm https://mediar.ai/install-agent.ps1 | iex
 ```
 
+#### (Optional) Autologin and expose on port 3000 MCP for Windows
+In powershell:
+```powershell
+irm https://mediar.ai/agent-autologing.ps1 | iex
+```
+
 ## ⚡ Quick start: CLI
 
 #### macOS/Linux
