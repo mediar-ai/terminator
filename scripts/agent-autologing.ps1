@@ -102,6 +102,25 @@ if (-not (Test-Path $oobePath)) {
 }
 Set-ItemProperty -Path $oobePath -Name "DoNotOpenInitialConfigurationTasksAtLogon" -Value 1 -Type DWord
 
+# 1) Disable the privacy experience screen for all users
+$OobeKey = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\OOBE'
+New-Item -Path $OobeKey -Force | Out-Null
+New-ItemProperty -Path $OobeKey -Name 'DisablePrivacyExperience' -Value 1 -PropertyType DWord -Force | Out-Null
+
+# 2) (Optional) Force diagnostic data = Required only (aka Basic)
+# Note: Value 0 (Security) is honored only on Enterprise/Education.
+$DCKey = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection'
+New-Item -Path $DCKey -Force | Out-Null
+New-ItemProperty -Path $DCKey -Name 'AllowTelemetry' -Value 1 -PropertyType DWord -Force | Out-Null
+
+# 3) (Optional) Reduce feedback nags
+$SIKey = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Feedback'
+New-Item -Path $SIKey -Force | Out-Null
+New-ItemProperty -Path $SIKey -Name 'DoNotShowFeedbackNotifications' -Value 1 -PropertyType DWord -Force | Out-Null
+
+# Disable DisablePrivacyExperience
+reg-check-set -reg_path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\OOBE" -reg_name "DisablePrivacyExperience" -reg_type dword -reg_value "1"
+
 Write-Host "Server Manager and diagnostic settings disabled at login" -ForegroundColor Green
 
 Write-Host "`n✅ Setup completed successfully!" -ForegroundColor Green
