@@ -3,7 +3,6 @@
     Auto-login Configuration Script with User Creation and Terminator MCP Agent Setup
 .DESCRIPTION
     This script performs the following actions:
-    - Verifies Windows Server 2019 or above
     - Creates a local user account (if it doesn't exist) and adds it to Administrators group
     - Configures Windows auto-login for the specified user
     - Configures Windows Firewall to allow TCP port 3000 in all profiles
@@ -24,7 +23,6 @@
     powershell -ExecutionPolicy Bypass -File .\agent-autologing.ps1 -Username "admin" -Password "SecurePass!123" -Domain "CORPORATE"
 .NOTES
     Requires Administrator privileges
-    Compatible with Windows Server 2019 and above
 #>
 # Run as Administrator
 param(
@@ -32,23 +30,6 @@ param(
     $Password = "ai#25#AI#26#",
     $Domain = ""
 )
-
-# Check Windows Server version
-$osInfo = Get-WmiObject -Class Win32_OperatingSystem
-$osVersion = [System.Version]$osInfo.Version
-$osCaption = $osInfo.Caption
-
-# Windows Server 2019 is version 10.0.17763
-$minVersion = [System.Version]"10.0.17763"
-
-if ($osVersion -lt $minVersion) {
-    Write-Host "❌ ERROR: This script requires Windows Server 2019 or above" -ForegroundColor Red
-    Write-Host "Current OS: $osCaption (Version: $osVersion)" -ForegroundColor Yellow
-    Write-Host "Minimum required: Windows Server 2019 (Version: 10.0.17763)" -ForegroundColor Yellow
-    exit 1
-}
-
-Write-Host "✓ OS Version Check: $osCaption (Version: $osVersion)" -ForegroundColor Green
 
 # Check if user exists, create if not
 $userExists = Get-LocalUser -Name $Username -ErrorAction SilentlyContinue
@@ -117,9 +98,6 @@ New-ItemProperty -Path $DCKey -Name 'AllowTelemetry' -Value 1 -PropertyType DWor
 $SIKey = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Feedback'
 New-Item -Path $SIKey -Force | Out-Null
 New-ItemProperty -Path $SIKey -Name 'DoNotShowFeedbackNotifications' -Value 1 -PropertyType DWord -Force | Out-Null
-
-# Disable DisablePrivacyExperience
-reg-check-set -reg_path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\OOBE" -reg_name "DisablePrivacyExperience" -reg_type dword -reg_value "1"
 
 Write-Host "Server Manager and diagnostic settings disabled at login" -ForegroundColor Green
 
