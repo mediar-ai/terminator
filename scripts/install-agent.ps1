@@ -48,6 +48,14 @@ Move-Item -Path $binPath -Destination $destPath -Force
 # Set permissions for all users to read and execute
 icacls "$destPath" /grant "Users:(RX)" | Out-Null
 
+# Install Visual C++ Redistributable 2015-2022 x64
+Write-Host "Installing Microsoft Visual C++ Redistributable..." -ForegroundColor Cyan
+$vcRedistUrl = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+$vcRedistFile = Join-Path $env:TEMP "vc_redist.x64.exe"
+Invoke-WebRequest -Uri $vcRedistUrl -OutFile $vcRedistFile -UseBasicParsing
+Start-Process -FilePath $vcRedistFile -ArgumentList "/install", "/quiet", "/norestart" -Wait -NoNewWindow
+Remove-Item $vcRedistFile -Force
+
 $currentIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notlike "*Loopback*" -and $_.IPAddress -notlike "169.254.*" } | Select-Object -First 1).IPAddress
 
 Write-Host "✅ Terminator Agent installed at $destPath" -ForegroundColor Green
