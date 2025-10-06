@@ -312,33 +312,38 @@ mod with_telemetry {
             otlp_endpoint
         );
 
-        let exporter = opentelemetry_otlp::SpanExporter::builder()
+        // Shared resource for both traces and logs
+        let resource = Resource::from_schema_url(
+            [
+                KeyValue::new(SERVICE_NAME, "terminator-mcp-agent"),
+                KeyValue::new(SERVICE_VERSION, env!("CARGO_PKG_VERSION")),
+            ],
+            SCHEMA_URL,
+        );
+
+        // Initialize traces exporter
+        let trace_exporter = opentelemetry_otlp::SpanExporter::builder()
             .with_http()
             .with_endpoint(format!("{otlp_endpoint}/v1/traces"))
             .with_timeout(Duration::from_millis(500))
             .build()?;
 
         // Create tracer provider with OTLP exporter
-        let provider = SdkTracerProvider::builder()
-            .with_batch_exporter(exporter, runtime::Tokio)
-            .with_resource(Resource::from_schema_url(
-                [
-                    KeyValue::new(SERVICE_NAME, "terminator-mcp-agent"),
-                    KeyValue::new(SERVICE_VERSION, env!("CARGO_PKG_VERSION")),
-                ],
-                SCHEMA_URL,
-            ))
+        let tracer_provider = SdkTracerProvider::builder()
+            .with_batch_exporter(trace_exporter, runtime::Tokio)
+            .with_resource(resource)
             .build();
 
-        global::set_tracer_provider(provider);
+        global::set_tracer_provider(tracer_provider);
 
-        info!("OpenTelemetry telemetry initialized successfully");
+        info!("OpenTelemetry traces initialized successfully");
         Ok(())
     }
 
     pub fn shutdown_telemetry() {
         // Shutdown with a short timeout to avoid hanging
         global::shutdown_tracer_provider();
+        // Note: Logger provider shutdown is handled by the tracing subscriber layer
     }
 }
 
