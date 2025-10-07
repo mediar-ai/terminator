@@ -60,7 +60,7 @@ $ipAddress = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.Interface
 Write-Host "Current IP address: $ipAddress" -ForegroundColor Yellow
 # Add Terminator MCP Agent to autorun for ALL users
 $exePath = Join-Path $env:ProgramFiles "terminator-mcp-agent.exe"
-$startupCommand = "`"$exePath`" --transport http --port 3000 --host $ipAddress"
+$startupCommand = "`"$exePath`" --transport http --port 3000 --host 0.0.0.0"
 $runPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
 Set-ItemProperty -Path $runPath -Name "TerminatorMCPAgent" -Value $startupCommand
 Write-Host "`nTerminator MCP Agent added to autorun for ALL users"
