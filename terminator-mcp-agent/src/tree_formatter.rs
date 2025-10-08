@@ -66,14 +66,14 @@ fn format_node(node: &SerializableUIElement, indent: usize, output: &mut String)
     // Add name if present
     if let Some(ref name) = node.name {
         if !name.is_empty() {
-            output.push_str(&format!(" {}", name));
+            output.push_str(&format!(" {name}"));
         }
     }
 
     // Add ID if present
     if let Some(ref id) = node.id {
         if !id.is_empty() {
-            output.push_str(&format!(" #{}", id));
+            output.push_str(&format!(" #{id}"));
         }
     }
 
@@ -83,13 +83,13 @@ fn format_node(node: &SerializableUIElement, indent: usize, output: &mut String)
     // Add text if present (for hyperlinks)
     if let Some(ref text) = node.text {
         if !text.is_empty() {
-            context_parts.push(format!("text: {}", text));
+            context_parts.push(format!("text: {text}"));
         }
     }
 
     // Add bounds if present
     if let Some((x, y, w, h)) = node.bounds {
-        context_parts.push(format!("bounds: [{:.0},{:.0},{:.0},{:.0}]", x, y, w, h));
+        context_parts.push(format!("bounds: [{x:.0},{y:.0},{w:.0},{h:.0}]"));
     }
 
     // Add state flags
@@ -118,7 +118,7 @@ fn format_node(node: &SerializableUIElement, indent: usize, output: &mut String)
     // Add value if present
     if let Some(ref value) = node.value {
         if !value.is_empty() {
-            context_parts.push(format!("value: {}", value));
+            context_parts.push(format!("value: {value}"));
         }
     }
 
@@ -126,7 +126,7 @@ fn format_node(node: &SerializableUIElement, indent: usize, output: &mut String)
     if node.children.is_none() {
         if let Some(count) = node.child_count {
             if count > 0 {
-                context_parts.push(format!("{} children", count));
+                context_parts.push(format!("{count} children"));
             }
         }
     }

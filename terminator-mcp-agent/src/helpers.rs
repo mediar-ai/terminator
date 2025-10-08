@@ -431,9 +431,7 @@ pub async fn maybe_attach_tree(
                 let yaml_string = format_tree_as_compact_yaml(&tree, 0);
                 Ok(json!(yaml_string))
             }
-            TreeOutputFormat::VerboseJson => {
-                serde_json::to_value(tree).map_err(|e| e.to_string())
-            }
+            TreeOutputFormat::VerboseJson => serde_json::to_value(tree).map_err(|e| e.to_string()),
         }
     };
 
@@ -503,9 +501,7 @@ pub async fn maybe_attach_tree(
                 let yaml_string = format_ui_node_as_compact_yaml(&tree, 0);
                 Ok(json!(yaml_string))
             }
-            TreeOutputFormat::VerboseJson => {
-                serde_json::to_value(tree)
-            }
+            TreeOutputFormat::VerboseJson => serde_json::to_value(tree),
         };
 
         if let Ok(tree_val) = tree_val_result {
