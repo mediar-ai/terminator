@@ -37,11 +37,11 @@
     }
   },
   "optionalDependencies": {
-    "terminator.js-darwin-arm64": "0.17.1",
-    "terminator.js-darwin-x64": "0.17.1",
-    "terminator.js-linux-x64-gnu": "0.17.1",
-    "terminator.js-win32-arm64-msvc": "0.17.1",
-    "terminator.js-win32-x64-msvc": "0.17.1"
+    "terminator.js-darwin-arm64": "0.17.2",
+    "terminator.js-darwin-x64": "0.17.2",
+    "terminator.js-linux-x64-gnu": "0.17.2",
+    "terminator.js-win32-arm64-msvc": "0.17.2",
+    "terminator.js-win32-x64-msvc": "0.17.2"
   },
   "repository": {
     "type": "git",
@@ -60,5 +60,5 @@
     "test:chaining": "node tests/element-chaining.test.js"
   },
   "types": "wrapper.d.ts",
-  "version": "0.17.1"
+  "version": "0.17.2"
 }
