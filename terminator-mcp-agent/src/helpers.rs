@@ -1,4 +1,6 @@
 use crate::expression_eval;
+use crate::mcp_types::TreeOutputFormat;
+use crate::tree_formatter::{format_tree_as_compact_yaml, format_ui_node_as_compact_yaml};
 use crate::utils::ToolCall;
 use regex::Regex;
 use rmcp::ErrorData as McpError;
@@ -384,6 +386,7 @@ pub async fn maybe_attach_tree(
     tree_max_depth: Option<usize>,
     tree_from_selector: Option<&str>,
     include_detailed_attributes: Option<bool>,
+    tree_output_format: Option<TreeOutputFormat>,
     pid_opt: Option<u32>,
     result_json: &mut Value,
     found_element: Option<&terminator::UIElement>,
@@ -418,6 +421,22 @@ pub async fn maybe_attach_tree(
         max_depth: tree_max_depth,
     };
 
+    // Determine output format (default to CompactYaml)
+    let format = tree_output_format.unwrap_or(TreeOutputFormat::CompactYaml);
+
+    // Helper function to format tree based on output format
+    let format_tree = |tree: terminator::element::SerializableUIElement| -> Result<Value, String> {
+        match format {
+            TreeOutputFormat::CompactYaml => {
+                let yaml_string = format_tree_as_compact_yaml(&tree, 0);
+                Ok(json!(yaml_string))
+            }
+            TreeOutputFormat::VerboseJson => {
+                serde_json::to_value(tree).map_err(|e| e.to_string())
+            }
+        }
+    };
+
     // Handle from_selector logic
     if let Some(from_selector_value) = tree_from_selector {
         if from_selector_value == "true" {
@@ -425,7 +444,7 @@ pub async fn maybe_attach_tree(
             if let Some(element) = found_element {
                 let max_depth = tree_max_depth.unwrap_or(100);
                 let subtree = element.to_serializable_tree(max_depth);
-                if let Ok(tree_val) = serde_json::to_value(subtree) {
+                if let Ok(tree_val) = format_tree(subtree) {
                     if let Some(obj) = result_json.as_object_mut() {
                         obj.insert("ui_tree".to_string(), tree_val);
                         obj.insert("tree_type".to_string(), json!("subtree"));
@@ -443,7 +462,7 @@ pub async fn maybe_attach_tree(
                     // Build tree from this different element
                     let max_depth = tree_max_depth.unwrap_or(100);
                     let subtree = from_element.to_serializable_tree(max_depth);
-                    if let Ok(tree_val) = serde_json::to_value(subtree) {
+                    if let Ok(tree_val) = format_tree(subtree) {
                         if let Some(obj) = result_json.as_object_mut() {
                             obj.insert("ui_tree".to_string(), tree_val);
                             obj.insert("tree_type".to_string(), json!("subtree"));
@@ -477,7 +496,19 @@ pub async fn maybe_attach_tree(
 
     // Default: get the full window tree
     if let Ok(tree) = desktop.get_window_tree(pid, None, Some(tree_config)) {
-        if let Ok(tree_val) = serde_json::to_value(tree) {
+        // Format UINode based on output format
+        let tree_val_result = match format {
+            TreeOutputFormat::CompactYaml => {
+                // Convert UINode to SerializableUIElement and use compact formatter
+                let yaml_string = format_ui_node_as_compact_yaml(&tree, 0);
+                Ok(json!(yaml_string))
+            }
+            TreeOutputFormat::VerboseJson => {
+                serde_json::to_value(tree)
+            }
+        };
+
+        if let Ok(tree_val) = tree_val_result {
             if let Some(obj) = result_json.as_object_mut() {
                 obj.insert("ui_tree".to_string(), tree_val);
                 obj.insert("tree_type".to_string(), json!("full_window"));

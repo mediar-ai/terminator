@@ -1,6 +1,6 @@
 use crate::cancellation::RequestManager;
 use crate::log_capture::{LogCapture, LogCaptureLayer};
-use crate::mcp_types::{FontStyle, TextPosition};
+use crate::mcp_types::{FontStyle, TextPosition, TreeOutputFormat};
 use anyhow::Result;
 use rmcp::{schemars, schemars::JsonSchema};
 use serde::{Deserialize, Serialize};
@@ -127,6 +127,10 @@ pub struct GetWindowTreeArgs {
     )]
     pub tree_from_selector: Option<String>,
     #[schemars(
+        description = "Output format for UI tree. Options: 'verbose_json' (full JSON with all fields), 'compact_yaml' (minimal YAML: [ROLE] name #id). Defaults to 'compact_yaml'."
+    )]
+    pub tree_output_format: Option<TreeOutputFormat>,
+    #[schemars(
         description = "Whether to include screenshots of all monitors in the response. Defaults to false."
     )]
     pub include_monitor_screenshots: Option<bool>,
@@ -150,6 +154,10 @@ pub struct GetFocusedWindowTreeArgs {
         description = "Selector to start tree from instead of window root (only used if include_tree is true). Use 'true' to start from focused element."
     )]
     pub tree_from_selector: Option<String>,
+    #[schemars(
+        description = "Output format for UI tree. Options: 'verbose_json' (full JSON with all fields), 'compact_yaml' (minimal YAML: [ROLE] name #id). Defaults to 'compact_yaml'."
+    )]
+    pub tree_output_format: Option<TreeOutputFormat>,
     #[schemars(
         description = "Whether to include screenshots of all monitors in the response. Defaults to false."
     )]

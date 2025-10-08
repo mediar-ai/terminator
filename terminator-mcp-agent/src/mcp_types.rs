@@ -45,6 +45,22 @@ impl From<TextPosition> for terminator::platforms::windows::TextPosition {
     }
 }
 
+/// Output format for UI tree
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TreeOutputFormat {
+    #[schemars(description = "Full JSON format with all fields (current behavior)")]
+    VerboseJson,
+    #[schemars(description = "Compact YAML format: [ROLE] name #id (default)")]
+    CompactYaml,
+}
+
+impl Default for TreeOutputFormat {
+    fn default() -> Self {
+        TreeOutputFormat::CompactYaml
+    }
+}
+
 /// Font styling options for text overlay
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct FontStyle {
