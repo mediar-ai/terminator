@@ -239,6 +239,7 @@ This is the most powerful and flexible method. You build a workflow step-by-step
     - Use `tree_max_depth: 2` to limit tree depth when you only need shallow inspection
     - Use `tree_from_selector: "role:Dialog"` to get subtree from a specific element
     - Use `tree_from_selector: "true"` to start from the currently focused element
+    - Use `tree_output_format: "compact_yaml"` (default) for readable format or `"verbose_json"` for full data
 2.  **Build a Sequence**: Create an `execute_sequence` tool call with a series of actions (`click_element`, `type_into_element`, etc.). Use robust selectors (like `role|name` or stable `properties:AutomationId:value` selectors) whenever possible.
 3.  **Capture the Final State**: Ensure the last step in your sequence is an action that returns a UI tree. The `wait_for_element` tool with `include_tree: true` is perfect for this, as it captures the application's state after your automation has run.
 4.  **Extract Structured Data with `output_parser`**: Add the `output_parser` argument to your `execute_sequence` call. Write JavaScript code to parse the final UI tree and extract structured data. If successful, the tool result will contain a `parsed_output` field with your clean JSON data.
@@ -723,6 +724,7 @@ The virtual display manager creates a memory-based display context that satisfie
   - `tree_max_depth: 2` - Limit depth for large trees
   - `tree_from_selector: "role:List"` - Get subtree from specific element
   - `tree_from_selector: "true"` - Start from focused element
+  - `tree_output_format: "compact_yaml"` - Readable format (default) or `"verbose_json"` for full data
 
 **JavaScript Performance**:
 
