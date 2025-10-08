@@ -71,7 +71,6 @@ Or install via the [MCP directory](https://github.com/mediar-ai/terminator/tree/
 ### Quick MCP install for Windows
 In powershell as an Administrator:
 ```powershell
-irm https://mediar.ai/install-agent.ps1 | iex
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://mediar.ai/install-agent.ps1 | iex"
 ```
 
