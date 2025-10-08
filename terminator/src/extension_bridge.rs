@@ -93,6 +93,7 @@ enum TypedIncoming {
 
 struct Client {
     sender: mpsc::UnboundedSender<Message>,
+    connected_at: std::time::Instant,
 }
 
 pub struct ExtensionBridge {
@@ -256,7 +257,10 @@ impl ExtensionBridge {
 
                     // register client
                     {
-                        ws_clients.lock().await.push(Client { sender: tx.clone() });
+                        ws_clients.lock().await.push(Client {
+                            sender: tx.clone(),
+                            connected_at: std::time::Instant::now(),
+                        });
                     }
 
                     // reader loop
@@ -356,18 +360,31 @@ impl ExtensionBridge {
                         }
                     }
 
-                    // Clean up disconnected client
+                    // Clean up disconnected client and pending requests
                     {
                         let mut clients = ws_clients.lock().await;
                         clients.retain(|c| !c.sender.is_closed());
                         let remaining = clients.len();
-                        if remaining > 0 {
+
+                        // Clear all pending requests when last client disconnects
+                        // This prevents memory leaks and ensures clean state for next connection
+                        if remaining == 0 {
+                            let mut pending = ws_pending.lock().await;
+                            let pending_count = pending.len();
+                            if pending_count > 0 {
+                                tracing::warn!(
+                                    "Last client disconnected with {} pending requests - clearing all",
+                                    pending_count
+                                );
+                                pending.clear();
+                            } else {
+                                tracing::info!("Last client disconnected, extension bridge idle");
+                            }
+                        } else {
                             tracing::info!(
                                 "Client disconnected, {} client(s) remaining",
                                 remaining
                             );
-                        } else {
-                            tracing::info!("Last client disconnected, extension bridge idle");
                         }
                     }
 
@@ -554,8 +571,12 @@ impl ExtensionBridge {
         let payload = serde_json::to_string(&req)
             .map_err(|e| AutomationError::PlatformError(format!("serialize reset: {e}")))?;
 
-        let clients = self.clients.lock().await;
-        if let Some(c) = clients.first() {
+        let mut clients = self.clients.lock().await;
+        // Clean up dead clients first
+        clients.retain(|c| !c.sender.is_closed());
+
+        // Use the most recent client (last connected)
+        if let Some(c) = clients.last() {
             if c.sender.send(Message::Text(payload)).is_ok() {
                 tracing::info!("Sent reset command to extension");
                 // Give the extension time to reset
@@ -618,18 +639,29 @@ impl ExtensionBridge {
         let payload = serde_json::to_string(&req)
             .map_err(|e| AutomationError::PlatformError(format!("bridge serialize: {e}")))?;
 
-        // send over first client
+        // Clean up dead clients and send to most recent client
         let mut ok = false;
         {
-            let clients = self.clients.lock().await;
+            let mut clients = self.clients.lock().await;
+            // Remove dead clients before attempting to send
+            clients.retain(|c| !c.sender.is_closed());
+
             tracing::info!(clients = clients.len(), preview = %payload.chars().take(120).collect::<String>(), "Sending eval to extension");
-            if let Some(c) = clients.first() {
+
+            // Use the most recent client (last connected) instead of first
+            if let Some(c) = clients.last() {
                 ok = c.sender.send(Message::Text(payload)).is_ok();
+                if ok {
+                    tracing::debug!(
+                        "Successfully sent eval to most recent client (connected at {:?})",
+                        c.connected_at
+                    );
+                }
             }
         }
         if !ok {
             self.pending.lock().await.remove(&id);
-            tracing::warn!("ExtensionBridge: failed to send eval to first client");
+            tracing::warn!("ExtensionBridge: failed to send eval - no active clients available");
             return Ok(None);
         }
 
