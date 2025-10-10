@@ -68,6 +68,18 @@ claude mcp add terminator "npx -y terminator-mcp-agent@latest" -s user
 
 Or install via the [MCP directory](https://github.com/mediar-ai/terminator/tree/main/terminator-mcp-agent) for other clients.
 
+### Quick MCP install for Windows
+In powershell as an Administrator:
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://mediar.ai/install-agent.ps1 | iex"
+```
+
+#### (Optional) Autologin and expose on port 3000 MCP for Windows
+In powershell as an Administrator:
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://mediar.ai/agent-autologing.ps1 | iex"
+```
+
 ## ⚡ Quick start: CLI
 
 #### macOS/Linux
