@@ -788,7 +788,7 @@ pub struct SequenceStep {
 #[derive(Debug, serde::Deserialize, serde::Serialize, Clone, Default, JsonSchema)]
 pub struct ExecuteSequenceArgs {
     #[schemars(
-        description = "Optional URL to fetch workflow definition from (HTTP/HTTPS or file:// supported)."
+        description = "Optional URL or file path to fetch workflow definition from. Supports: plain file paths (e.g., 'workflow.yml'), file:// URLs, and HTTP/HTTPS URLs."
     )]
     pub url: Option<String>,
     #[schemars(

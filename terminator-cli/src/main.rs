@@ -1323,9 +1323,13 @@ async fn run_workflow(transport: mcp_client::Transport, args: McpRunArgs) -> any
 
     info!("Executing workflow with {steps_count} steps via MCP");
 
-    // For local files, use file:// URL to avoid verbose logging
-    let workflow_str = if resolved_type == InputType::File {
-        info!("Using file:// URL for local file");
+    // Check if we're using a remote HTTP transport
+    let is_remote_http = matches!(transport, mcp_client::Transport::Http(_));
+
+    // For local files with stdio transport, use file:// URL to avoid verbose logging
+    // For remote HTTP transport, send the workflow content directly
+    let workflow_str = if resolved_type == InputType::File && !is_remote_http {
+        info!("Using file:// URL for local file with stdio transport");
 
         // Convert to absolute path and create file:// URL
         let abs_path = std::fs::canonicalize(&args.input)
@@ -1621,9 +1625,13 @@ async fn run_workflow_once(
         }
     }
 
+    // Check if we're using a remote HTTP transport
+    let is_remote_http = matches!(transport, mcp_client::Transport::Http(_));
+
     // For cron jobs, use simple execution to avoid connection spam
-    // For local files, use file:// URL to avoid verbose logging
-    let workflow_str = if resolved_type == InputType::File {
+    // For local files with stdio transport, use file:// URL to avoid verbose logging
+    // For remote HTTP transport, send the workflow content directly
+    let workflow_str = if resolved_type == InputType::File && !is_remote_http {
         // Convert to absolute path and create file:// URL
         let abs_path = std::fs::canonicalize(&args.input)
             .with_context(|| format!("Failed to resolve path: {}", args.input))?;
