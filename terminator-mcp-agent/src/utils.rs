@@ -679,6 +679,38 @@ pub struct ExecuteBrowserScriptArgs {
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct GetNetworkRequestsArgs {
+    #[schemars(description = "Tab ID to retrieve network requests from")]
+    pub tab_id: u32,
+    #[schemars(
+        description = "Optional URL pattern to filter requests (substring match)"
+    )]
+    pub url_pattern: Option<String>,
+    #[schemars(
+        description = "Optional HTTP method filter (e.g., 'GET', 'POST', 'PUT', 'DELETE')"
+    )]
+    pub method_filter: Option<String>,
+    #[schemars(
+        description = "Optional HTTP status code filter (e.g., 200, 404, 500)"
+    )]
+    pub status_filter: Option<i32>,
+    #[schemars(
+        description = "Whether to include screenshots of all monitors in the response. Defaults to false."
+    )]
+    pub include_monitor_screenshots: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ClearNetworkRequestsArgs {
+    #[schemars(description = "Tab ID to clear network requests for")]
+    pub tab_id: u32,
+    #[schemars(
+        description = "Whether to include screenshots of all monitors in the response. Defaults to false."
+    )]
+    pub include_monitor_screenshots: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct OpenApplicationArgs {
     #[schemars(description = "Name of the application to open")]
     pub app_name: String,

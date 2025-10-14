@@ -6,6 +6,10 @@ let reconnectTimer = null;
 const attachedTabs = new Set();
 // Track which tabs have Runtime and Log domains enabled
 const enabledTabs = new Set();
+// NEW: Track which tabs have Network domain enabled
+const networkEnabledTabs = new Set();
+// NEW: Track persistent network listeners (one per tab)
+const activeNetworkListeners = new Map(); // Map<tabId, listenerFunction>
 
 // Clear stored tabs on startup since debugger sessions don't persist across restarts
 chrome.storage.session.remove('attached').then(() => {
@@ -92,7 +96,7 @@ function connect() {
       try {
         const tabId = await getActiveTabId();
         const result = await evalInTab(tabId, code, awaitPromise, id);
-        safeSend({ id, ok: true, result });
+        safeSend({ id, ok: true, result, tabId });
       } catch (err) {
         safeSend({ id, ok: false, error: String(err && (err.message || err)) });
       }
@@ -238,6 +242,16 @@ chrome.tabs.onRemoved.addListener(tabId => {
   if (attachedTabs.has(tabId)) {
     attachedTabs.delete(tabId);
     enabledTabs.delete(tabId);  // Also clean enabled domains state
+    networkEnabledTabs.delete(tabId);  // NEW: Clean network domain state
+
+    // NEW: Remove persistent network listener
+    const networkListener = activeNetworkListeners.get(tabId);
+    if (networkListener) {
+      chrome.debugger.onEvent.removeListener(networkListener);
+      activeNetworkListeners.delete(tabId);
+      log(`Removed persistent network listener for tab ${tabId}`);
+    }
+
     chrome.storage.session.set({attached: [...attachedTabs]});
     log(`Tab ${tabId} closed, removed from attached tabs and enabled domains`);
   }
@@ -249,6 +263,16 @@ chrome.debugger.onDetach.addListener((source, reason) => {
   if (attachedTabs.has(tabId)) {
     attachedTabs.delete(tabId);
     enabledTabs.delete(tabId);  // Also clean enabled domains state
+    networkEnabledTabs.delete(tabId);  // NEW: Clean network domain state
+
+    // NEW: Remove persistent network listener
+    const networkListener = activeNetworkListeners.get(tabId);
+    if (networkListener) {
+      chrome.debugger.onEvent.removeListener(networkListener);
+      activeNetworkListeners.delete(tabId);
+      log(`Removed persistent network listener for tab ${tabId}`);
+    }
+
     chrome.storage.session.set({attached: [...attachedTabs]});
     log(`Debugger detached from tab ${tabId}, reason: ${reason}`);
   }
@@ -299,6 +323,18 @@ async function forceResetDebuggerState() {
   // 2. THEN: Clear in-memory state (after detachment completes)
   attachedTabs.clear();
   enabledTabs.clear();
+  networkEnabledTabs.clear();  // NEW: Clear network domain state
+
+  // NEW: Remove all persistent network listeners
+  for (const [tabId, networkListener] of activeNetworkListeners.entries()) {
+    try {
+      chrome.debugger.onEvent.removeListener(networkListener);
+      log(`Removed persistent network listener for tab ${tabId} during reset`);
+    } catch (e) {
+      // Ignore - listener might already be removed
+    }
+  }
+  activeNetworkListeners.clear();
 
   // 3. Clear session storage
   await chrome.storage.session.remove('attached');
@@ -571,7 +607,96 @@ async function evalInTab(tabId, code, awaitPromise, evalId) {
       timings.totalEnable = 0;
     }
 
+    // NEW: Enable Network domain for network request capture and create persistent listener
+    if (!networkEnabledTabs.has(tabId)) {
+      const networkStart = performance.now();
+      try {
+        await sendCommand(tabId, "Network.enable", {});
+        timings.networkEnable = performance.now() - networkStart;
+        networkEnabledTabs.add(tabId);
+        log(`Network domain enabled for tab ${tabId} (${timings.networkEnable.toFixed(1)}ms)`);
+
+        // Create persistent network listener for this tab (one per tab, not per script)
+        const networkListener = (source, method, params) => {
+          try {
+            if (!source || source.tabId !== tabId) return;
+
+            if (method === "Network.requestWillBeSent") {
+              safeSend({
+                type: "network_request",
+                tabId: tabId,
+                requestId: params.requestId,
+                request: {
+                  url: params.request.url,
+                  method: params.request.method,
+                  headers: params.request.headers,
+                  postData: params.request.postData,
+                  hasPostData: params.request.hasPostData,
+                  initialPriority: params.request.initialPriority,
+                  referrerPolicy: params.request.referrerPolicy,
+                },
+                documentURL: params.documentURL,
+                timestamp: params.timestamp,
+                wallTime: params.wallTime,
+                initiator: params.initiator,
+                resourceType: params.type,
+                frameId: params.frameId,
+                redirectResponse: params.redirectResponse ? {
+                  url: params.redirectResponse.url,
+                  status: params.redirectResponse.status,
+                  statusText: params.redirectResponse.statusText,
+                } : null
+              });
+            } else if (method === "Network.responseReceived") {
+              safeSend({
+                type: "network_response",
+                tabId: tabId,
+                requestId: params.requestId,
+                response: {
+                  url: params.response.url,
+                  status: params.response.status,
+                  statusText: params.response.statusText,
+                  headers: params.response.headers,
+                  mimeType: params.response.mimeType,
+                  requestHeaders: params.response.requestHeaders,
+                  connectionReused: params.response.connectionReused,
+                  connectionId: params.response.connectionId,
+                  remoteIPAddress: params.response.remoteIPAddress,
+                  remotePort: params.response.remotePort,
+                  fromDiskCache: params.response.fromDiskCache,
+                  fromServiceWorker: params.response.fromServiceWorker,
+                  fromPrefetchCache: params.response.fromPrefetchCache,
+                  encodedDataLength: params.response.encodedDataLength,
+                  timing: params.response.timing,
+                  protocol: params.response.protocol,
+                  securityState: params.response.securityState,
+                },
+                timestamp: params.timestamp,
+                resourceType: params.type,
+                frameId: params.frameId
+              });
+            }
+          } catch (e) {
+            // swallow
+          }
+        };
+
+        // Add persistent network listener (will remain active for tab lifetime)
+        chrome.debugger.onEvent.addListener(networkListener);
+        activeNetworkListeners.set(tabId, networkListener);
+        log(`Persistent network listener added for tab ${tabId}`);
+      } catch (e) {
+        log(`Could not enable Network domain for tab ${tabId}:`, e.message);
+        // Network domain is optional - don't fail if it can't be enabled
+        timings.networkEnable = 0;
+      }
+    } else {
+      log(`Reusing enabled Network domain for tab ${tabId}`);
+      timings.networkEnable = 0;
+    }
+
     // Listen for console/log/exception events for this tab while the eval runs
+    // NOTE: Network events are now handled by the persistent networkListener above
     onEvent = (source, method, params) => {
       try {
         if (!source || source.tabId !== tabId) return;

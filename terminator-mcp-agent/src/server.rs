@@ -4,9 +4,10 @@ use crate::telemetry::StepSpan;
 use crate::utils::find_and_execute_with_retry_with_fallback;
 pub use crate::utils::DesktopWrapper;
 use crate::utils::{
-    get_timeout, ActionHighlightConfig, ActivateElementArgs, ClickElementArgs, CloseElementArgs,
-    DelayArgs, ExecuteBrowserScriptArgs, ExecuteSequenceArgs, ExportWorkflowSequenceArgs,
-    GetApplicationsArgs, GetFocusedWindowTreeArgs, GetWindowTreeArgs, GlobalKeyArgs,
+    get_timeout, ActionHighlightConfig, ActivateElementArgs, ClearNetworkRequestsArgs,
+    ClickElementArgs, CloseElementArgs, DelayArgs, ExecuteBrowserScriptArgs,
+    ExecuteSequenceArgs, ExportWorkflowSequenceArgs, GetApplicationsArgs,
+    GetFocusedWindowTreeArgs, GetNetworkRequestsArgs, GetWindowTreeArgs, GlobalKeyArgs,
     HighlightElementArgs, ImportWorkflowSequenceArgs, LocatorArgs, MaximizeWindowArgs,
     MinimizeWindowArgs, MouseDragArgs, NavigateBrowserArgs, OpenApplicationArgs, PressKeyArgs,
     RecordWorkflowArgs, RunCommandArgs, ScrollElementArgs, SelectOptionArgs, SetRangeValueArgs,
@@ -4672,6 +4673,132 @@ const count = (typeof retry_count !== 'undefined') ? parseInt(retry_count) : 0; 
         result
     }
 
+    #[tool(
+        description = "Retrieves network requests captured from a browser tab via the Chrome DevTools Protocol. Returns request/response data including URLs, methods, headers, status codes, and timing information. Useful for debugging API calls, inspecting network traffic, and extracting data from HTTP responses."
+    )]
+    pub async fn get_network_requests(
+        &self,
+        Parameters(args): Parameters<GetNetworkRequestsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        // Start telemetry span
+        let mut span = StepSpan::new("get_network_requests", None);
+
+        // Add comprehensive telemetry attributes
+        span.set_attribute("tab_id", args.tab_id.to_string());
+        if let Some(ref pattern) = args.url_pattern {
+            span.set_attribute("url_pattern", pattern.clone());
+        }
+        if let Some(ref method) = args.method_filter {
+            span.set_attribute("method_filter", method.clone());
+        }
+        if let Some(status) = args.status_filter {
+            span.set_attribute("status_filter", status.to_string());
+        }
+
+        // Retrieve network requests from extension bridge
+        let requests = terminator::extension_bridge::ExtensionBridge::get_network_requests(
+            args.tab_id,
+            args.url_pattern,
+            args.method_filter,
+            args.status_filter,
+        )
+        .await;
+
+        // Convert NetworkRequestEntry to JSON
+        let requests_json: Vec<serde_json::Value> = requests
+            .into_iter()
+            .map(|entry| {
+                json!({
+                    "request_id": entry.request_id,
+                    "tab_id": entry.tab_id,
+                    "request": {
+                        "url": entry.request.url,
+                        "method": entry.request.method,
+                        "headers": entry.request.headers,
+                        "post_data": entry.request.post_data,
+                        "has_post_data": entry.request.has_post_data,
+                    },
+                    "response": entry.response.map(|resp| json!({
+                        "url": resp.url,
+                        "status": resp.status,
+                        "status_text": resp.status_text,
+                        "headers": resp.headers,
+                        "mime_type": resp.mime_type,
+                        "remote_ip_address": resp.remote_ip_address,
+                        "remote_port": resp.remote_port,
+                        "from_disk_cache": resp.from_disk_cache,
+                        "from_service_worker": resp.from_service_worker,
+                        "encoded_data_length": resp.encoded_data_length,
+                        "protocol": resp.protocol,
+                    })),
+                    "document_url": entry.document_url,
+                    "request_timestamp": entry.request_timestamp,
+                    "response_timestamp": entry.response_timestamp,
+                    "resource_type": entry.resource_type,
+                    "frame_id": entry.frame_id,
+                    "initiator": entry.initiator,
+                })
+            })
+            .collect();
+
+        let result_json = json!({
+            "action": "get_network_requests",
+            "status": "success",
+            "tab_id": args.tab_id,
+            "request_count": requests_json.len(),
+            "requests": requests_json,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        });
+
+        span.set_status(true, None);
+        span.end();
+
+        Ok(CallToolResult::success(
+            append_monitor_screenshots_if_enabled(
+                &self.desktop,
+                vec![Content::json(result_json)?],
+                args.include_monitor_screenshots,
+            )
+            .await,
+        ))
+    }
+
+    #[tool(
+        description = "Clears all stored network requests for a specific browser tab. Useful for resetting captured data before starting a new test or workflow."
+    )]
+    pub async fn clear_network_requests(
+        &self,
+        Parameters(args): Parameters<ClearNetworkRequestsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        // Start telemetry span
+        let mut span = StepSpan::new("clear_network_requests", None);
+
+        // Add comprehensive telemetry attributes
+        span.set_attribute("tab_id", args.tab_id.to_string());
+
+        // Clear network requests from extension bridge
+        terminator::extension_bridge::ExtensionBridge::clear_network_requests(args.tab_id).await;
+
+        let result_json = json!({
+            "action": "clear_network_requests",
+            "status": "success",
+            "tab_id": args.tab_id,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        });
+
+        span.set_status(true, None);
+        span.end();
+
+        Ok(CallToolResult::success(
+            append_monitor_screenshots_if_enabled(
+                &self.desktop,
+                vec![Content::json(result_json)?],
+                args.include_monitor_screenshots,
+            )
+            .await,
+        ))
+    }
+
     #[tool(description = "Maximizes a window.")]
     async fn maximize_window(
         &self,
@@ -5956,6 +6083,24 @@ impl DesktopWrapper {
                     Ok(args) => self.stop_highlighting(Parameters(args)).await,
                     Err(e) => Err(McpError::invalid_params(
                         "Invalid arguments for stop_highlighting",
+                        Some(json!({"error": e.to_string()})),
+                    )),
+                }
+            }
+            "get_network_requests" => {
+                match serde_json::from_value::<GetNetworkRequestsArgs>(arguments.clone()) {
+                    Ok(args) => self.get_network_requests(Parameters(args)).await,
+                    Err(e) => Err(McpError::invalid_params(
+                        "Invalid arguments for get_network_requests",
+                        Some(json!({"error": e.to_string()})),
+                    )),
+                }
+            }
+            "clear_network_requests" => {
+                match serde_json::from_value::<ClearNetworkRequestsArgs>(arguments.clone()) {
+                    Ok(args) => self.clear_network_requests(Parameters(args)).await,
+                    Err(e) => Err(McpError::invalid_params(
+                        "Invalid arguments for clear_network_requests",
                         Some(json!({"error": e.to_string()})),
                     )),
                 }

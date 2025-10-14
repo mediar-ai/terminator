@@ -59,6 +59,8 @@ enum BridgeIncoming {
         ok: bool,
         result: Option<serde_json::Value>,
         error: Option<String>,
+        #[serde(rename = "tabId")]
+        tab_id: Option<u32>,
     },
     Typed(TypedIncoming),
 }
@@ -89,6 +91,114 @@ enum TypedIncoming {
         id: String,
         entry: Option<serde_json::Value>,
     },
+    #[serde(rename = "network_request")]
+    NetworkRequest {
+        #[serde(rename = "tabId")]
+        tab_id: u32,
+        #[serde(rename = "requestId")]
+        request_id: String,
+        request: NetworkRequestData,
+        #[serde(rename = "documentURL")]
+        document_url: Option<String>,
+        timestamp: f64,
+        #[serde(rename = "wallTime")]
+        #[allow(dead_code)]
+        wall_time: Option<f64>,
+        initiator: Option<serde_json::Value>,
+        #[serde(rename = "resourceType")]
+        resource_type: Option<String>,
+        #[serde(rename = "frameId")]
+        #[allow(dead_code)]
+        frame_id: Option<String>,
+        #[serde(rename = "redirectResponse")]
+        #[allow(dead_code)]
+        redirect_response: Option<NetworkResponseSummary>,
+    },
+    #[serde(rename = "network_response")]
+    NetworkResponse {
+        #[serde(rename = "tabId")]
+        tab_id: u32,
+        #[serde(rename = "requestId")]
+        request_id: String,
+        response: NetworkResponseData,
+        timestamp: f64,
+        #[serde(rename = "resourceType")]
+        #[allow(dead_code)]
+        resource_type: Option<String>,
+        #[serde(rename = "frameId")]
+        #[allow(dead_code)]
+        frame_id: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkRequestData {
+    pub url: String,
+    pub method: String,
+    pub headers: serde_json::Value,
+    #[serde(rename = "postData")]
+    pub post_data: Option<String>,
+    #[serde(rename = "hasPostData")]
+    pub has_post_data: Option<bool>,
+    #[serde(rename = "initialPriority")]
+    pub initial_priority: Option<String>,
+    #[serde(rename = "referrerPolicy")]
+    pub referrer_policy: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkResponseData {
+    pub url: String,
+    pub status: i32,
+    #[serde(rename = "statusText")]
+    pub status_text: String,
+    pub headers: serde_json::Value,
+    #[serde(rename = "mimeType")]
+    pub mime_type: String,
+    #[serde(rename = "requestHeaders")]
+    pub request_headers: Option<serde_json::Value>,
+    #[serde(rename = "connectionReused")]
+    pub connection_reused: Option<bool>,
+    #[serde(rename = "connectionId")]
+    pub connection_id: Option<i32>,
+    #[serde(rename = "remoteIPAddress")]
+    pub remote_ip_address: Option<String>,
+    #[serde(rename = "remotePort")]
+    pub remote_port: Option<i32>,
+    #[serde(rename = "fromDiskCache")]
+    pub from_disk_cache: Option<bool>,
+    #[serde(rename = "fromServiceWorker")]
+    pub from_service_worker: Option<bool>,
+    #[serde(rename = "fromPrefetchCache")]
+    pub from_prefetch_cache: Option<bool>,
+    #[serde(rename = "encodedDataLength")]
+    pub encoded_data_length: Option<f64>,
+    pub timing: Option<serde_json::Value>,
+    pub protocol: Option<String>,
+    #[serde(rename = "securityState")]
+    pub security_state: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct NetworkResponseSummary {
+    url: String,
+    status: i32,
+    #[serde(rename = "statusText")]
+    status_text: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct NetworkRequestEntry {
+    pub request_id: String,
+    pub tab_id: u32,
+    pub request: NetworkRequestData,
+    pub response: Option<NetworkResponseData>,
+    pub document_url: Option<String>,
+    pub request_timestamp: f64,
+    pub response_timestamp: Option<f64>,
+    pub resource_type: Option<String>,
+    pub frame_id: Option<String>,
+    pub initiator: Option<serde_json::Value>,
 }
 
 struct Client {
@@ -104,6 +214,16 @@ pub struct ExtensionBridge {
 
 // Supervised bridge that can auto-restart if the server task dies
 static BRIDGE_SUPERVISOR: OnceCell<Arc<RwLock<Option<Arc<ExtensionBridge>>>>> = OnceCell::new();
+
+// Global storage for network requests per tab
+static NETWORK_STORAGE: OnceCell<Arc<RwLock<HashMap<u32, Vec<NetworkRequestEntry>>>>> =
+    OnceCell::new();
+
+fn get_network_storage() -> Arc<RwLock<HashMap<u32, Vec<NetworkRequestEntry>>>> {
+    NETWORK_STORAGE
+        .get_or_init(|| Arc::new(RwLock::new(HashMap::new())))
+        .clone()
+}
 
 impl ExtensionBridge {
     pub async fn global() -> Arc<ExtensionBridge> {
@@ -275,11 +395,12 @@ impl ExtensionBridge {
                                 ok,
                                 result,
                                 error,
+                                tab_id,
                             }) => {
                                 if ok {
                                     let size =
                                         result.as_ref().map(|r| r.to_string().len()).unwrap_or(0);
-                                    tracing::info!(id = %id, ok = ok, result_size = size, "Bridge received EvalResult");
+                                    tracing::info!(id = %id, ok = ok, result_size = size, tab_id = ?tab_id, "Bridge received EvalResult");
                                 } else {
                                     let err_str =
                                         error.clone().unwrap_or_else(|| "unknown error".into());
@@ -351,6 +472,75 @@ impl ExtensionBridge {
                             Ok(BridgeIncoming::Typed(TypedIncoming::LogEvent { id, entry })) => {
                                 let entry_val = entry.unwrap_or(serde_json::Value::Null);
                                 tracing::info!(id = %id, entry = %entry_val, "Log.entryAdded event");
+                            }
+                            Ok(BridgeIncoming::Typed(TypedIncoming::NetworkRequest {
+                                tab_id,
+                                request_id,
+                                request,
+                                document_url,
+                                timestamp,
+                                wall_time: _,
+                                initiator,
+                                resource_type,
+                                frame_id,
+                                redirect_response: _,
+                            })) => {
+                                tracing::debug!(
+                                    tab_id = tab_id,
+                                    request_id = %request_id,
+                                    method = %request.method,
+                                    url = %request.url,
+                                    "Network request captured"
+                                );
+
+                                let storage = get_network_storage();
+                                let mut map = storage.write().await;
+                                let entries = map.entry(tab_id).or_insert_with(Vec::new);
+
+                                entries.push(NetworkRequestEntry {
+                                    request_id: request_id.clone(),
+                                    tab_id,
+                                    request,
+                                    response: None,
+                                    document_url,
+                                    request_timestamp: timestamp,
+                                    response_timestamp: None,
+                                    resource_type,
+                                    frame_id,
+                                    initiator,
+                                });
+
+                                // Limit storage to last 1000 requests per tab
+                                if entries.len() > 1000 {
+                                    entries.drain(0..entries.len() - 1000);
+                                }
+                            }
+                            Ok(BridgeIncoming::Typed(TypedIncoming::NetworkResponse {
+                                tab_id,
+                                request_id,
+                                response,
+                                timestamp,
+                                resource_type: _,
+                                frame_id: _,
+                            })) => {
+                                tracing::debug!(
+                                    tab_id = tab_id,
+                                    request_id = %request_id,
+                                    status = response.status,
+                                    url = %response.url,
+                                    "Network response captured"
+                                );
+
+                                let storage = get_network_storage();
+                                let mut map = storage.write().await;
+
+                                if let Some(entries) = map.get_mut(&tab_id) {
+                                    // Find matching request and update with response
+                                    if let Some(entry) = entries.iter_mut().find(|e| e.request_id == request_id) {
+                                        entry.response = Some(response);
+                                        entry.response_timestamp = Some(timestamp);
+                                    }
+                                }
                             }
                             Ok(BridgeIncoming::Typed(TypedIncoming::Hello { .. })) => {
                                 tracing::info!("Extension connected");
@@ -584,6 +774,104 @@ impl ExtensionBridge {
             }
         }
         Ok(())
+    }
+
+    /// Get network requests for a specific tab with optional filtering
+    pub async fn get_network_requests(
+        tab_id: u32,
+        url_pattern: Option<String>,
+        method_filter: Option<String>,
+        status_filter: Option<i32>,
+    ) -> Vec<NetworkRequestEntry> {
+        let storage = get_network_storage();
+        let map = storage.read().await;
+
+        let entries = match map.get(&tab_id) {
+            Some(entries) => entries.clone(),
+            None => return Vec::new(),
+        };
+
+        // Apply filters
+        let filtered: Vec<NetworkRequestEntry> = entries
+            .into_iter()
+            .filter(|entry| {
+                // URL pattern filter
+                if let Some(ref pattern) = url_pattern {
+                    if !entry.request.url.contains(pattern) {
+                        return false;
+                    }
+                }
+
+                // Method filter
+                if let Some(ref method) = method_filter {
+                    if entry.request.method.to_uppercase() != method.to_uppercase() {
+                        return false;
+                    }
+                }
+
+                // Status filter (only if response exists)
+                if let Some(status) = status_filter {
+                    if let Some(ref response) = entry.response {
+                        if response.status != status {
+                            return false;
+                        }
+                    } else {
+                        // No response yet, doesn't match status filter
+                        return false;
+                    }
+                }
+
+                true
+            })
+            .collect();
+
+        tracing::debug!(
+            tab_id = tab_id,
+            total_requests = map.get(&tab_id).map(|v| v.len()).unwrap_or(0),
+            filtered_count = filtered.len(),
+            url_pattern = ?url_pattern,
+            method_filter = ?method_filter,
+            status_filter = ?status_filter,
+            "Retrieved network requests"
+        );
+
+        filtered
+    }
+
+    /// Clear all network requests for a specific tab
+    pub async fn clear_network_requests(tab_id: u32) {
+        let storage = get_network_storage();
+        let mut map = storage.write().await;
+
+        if let Some(entries) = map.remove(&tab_id) {
+            tracing::info!(
+                tab_id = tab_id,
+                count = entries.len(),
+                "Cleared network requests for tab"
+            );
+        } else {
+            tracing::debug!(
+                tab_id = tab_id,
+                "No network requests to clear for tab"
+            );
+        }
+    }
+
+    /// Clear all network requests across all tabs
+    pub async fn clear_all_network_requests() {
+        let storage = get_network_storage();
+        let mut map = storage.write().await;
+
+        let total_tabs = map.len();
+        let total_requests: usize = map.values().map(|v| v.len()).sum();
+
+        map.clear();
+
+        tracing::info!(
+            total_tabs = total_tabs,
+            total_requests = total_requests,
+            "Cleared all network requests"
+        );
     }
 
     pub async fn eval_in_active_tab(
