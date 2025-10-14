@@ -1,0 +1,46 @@
+# Example workflow that can be loaded via URL parameter
+# Usage: execute_sequence with url: "file://path/to/this/file.yml"
+
+variables:
+  app_name:
+    type: string
+    label: "Application to open"
+    default: "notepad"
+  wait_time:
+    type: number
+    label: "Wait time in milliseconds"
+    default: 1000
+
+steps:
+  - id: open_app
+    tool_name: open_application
+    arguments:
+      app_name: "{{app_name}}"
+
+  - id: wait
+    tool_name: delay
+    arguments:
+      delay_ms: "{{wait_time}}"
+
+  - id: capture_tree
+    tool_name: get_focused_window_tree
+    arguments:
+      include_tree: true
+      tree_max_depth: 3
+
+stop_on_error: true
+include_detailed_results: false
+
+output:
+  |
+  const appName = (typeof app_name !== 'undefined') ? app_name : 'unknown';
+  const captureStatus = (typeof capture_tree_status !== 'undefined') ? capture_tree_status : 'unknown';
+
+  return {
+    success: captureStatus === 'success',
+    message: `Successfully opened ${appName} and captured UI tree`,
+    data: {
+      app_opened: appName,
+      tree_captured: captureStatus === 'success'
+    }
+  };
