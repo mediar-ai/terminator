@@ -144,8 +144,8 @@ impl DesktopWrapper {
         if let Some(url) = &args.url {
             info!("Fetching workflow from URL: {}", url);
 
-            let workflow_content = if url.starts_with("file://") {
-                // Handle local file URLs
+            let workflow_content = if url.starts_with("file://") || (!url.starts_with("http://") && !url.starts_with("https://")) {
+                // Handle local file URLs and plain file paths
                 let file_path = url.strip_prefix("file://").unwrap_or(url);
                 info!("Reading file from path: {}", file_path);
 
@@ -188,8 +188,10 @@ impl DesktopWrapper {
                     )
                 })?
             } else {
+                // This branch should never be reached due to the condition above,
+                // but kept for safety
                 return Err(McpError::invalid_params(
-                    "URL must start with http://, https://, or file://".to_string(),
+                    "URL must be a file path, file:// URL, or http(s):// URL".to_string(),
                     Some(json!({"url": url})),
                 ));
             };
