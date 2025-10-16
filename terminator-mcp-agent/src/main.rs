@@ -34,6 +34,9 @@ use tower_http::cors::CorsLayer;
 use tracing::{debug, error, info};
 use uuid::Uuid;
 
+#[cfg(feature = "rdp")]
+mod rdp_server;
+
 #[derive(Parser, Debug)]
 #[command(
     author,
@@ -61,6 +64,16 @@ struct Args {
     /// When set, clients must provide matching Bearer token in Authorization header
     #[arg(long, env = "MCP_AUTH_TOKEN")]
     auth_token: Option<String>,
+
+    /// Enable RDP server for remote viewing/control
+    #[cfg(feature = "rdp")]
+    #[arg(long)]
+    rdp: bool,
+
+    /// RDP server bind address
+    #[cfg(feature = "rdp")]
+    #[arg(long, default_value = "127.0.0.1:3389")]
+    rdp_bind: String,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -251,6 +264,20 @@ async fn main() -> Result<()> {
                 }
             };
 
+            #[cfg(feature = "rdp")]
+            if args.rdp {
+                let rdp_config = rdp_server::RdpServerConfig {
+                    bind_address: args.rdp_bind.parse().expect("Invalid RDP bind address"),
+                    ..Default::default()
+                };
+                let rdp_server = rdp_server::RdpServer::new(rdp_config, desktop.desktop.clone());
+                tokio::spawn(async move {
+                    if let Err(e) = rdp_server.run().await {
+                        error!("RDP server error: {:#}", e);
+                    }
+                });
+            }
+
             // Serve with better error handling
             let service = desktop.serve(stdio()).await.inspect_err(|e| {
                 tracing::error!("Serving error: {:?}", e);
@@ -293,6 +320,21 @@ async fn main() -> Result<()> {
             }
 
             let desktop = server::DesktopWrapper::new_with_log_capture(log_capture.clone())?;
+
+            #[cfg(feature = "rdp")]
+            if args.rdp {
+                let rdp_config = rdp_server::RdpServerConfig {
+                    bind_address: args.rdp_bind.parse().expect("Invalid RDP bind address"),
+                    ..Default::default()
+                };
+                let rdp_server = rdp_server::RdpServer::new(rdp_config, desktop.desktop.clone());
+                tokio::spawn(async move {
+                    if let Err(e) = rdp_server.run().await {
+                        error!("RDP server error: {:#}", e);
+                    }
+                });
+            }
+
             let ct = SseServer::serve(addr)
                 .await?
                 .with_service(move || desktop.clone());
@@ -310,6 +352,14 @@ async fn main() -> Result<()> {
         TransportMode::Http => {
             let addr: SocketAddr = format!("{}:{}", args.host, args.port).parse()?;
             tracing::info!("Starting streamable HTTP server on http://{}", addr);
+
+            #[cfg(feature = "rdp")]
+            if args.rdp {
+                tracing::warn!("⚠️  RDP server is not supported with HTTP transport mode");
+                tracing::warn!("⚠️  Use Stdio or SSE transport for RDP viewing/control");
+                tracing::warn!("   Command: terminator-mcp-agent -t stdio --rdp");
+                tracing::warn!("   Or: terminator-mcp-agent -t sse --rdp --port {}", args.port);
+            }
 
             // Lazy-initialize DesktopWrapper on first /mcp use so that /health can succeed on CI
             let service = StreamableHttpService::new(
