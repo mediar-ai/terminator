@@ -89,3 +89,8 @@ name = "terminator-ai-summarizer"
 path = "examples/terminator-ai-summarizer/src/main.rs"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# Patch section to fix rand_core version conflict in sspi dependency
+[patch.crates-io]
+# Pin rand_core to a version compatible with sspi
+rand_core = { version = "0.6" }
