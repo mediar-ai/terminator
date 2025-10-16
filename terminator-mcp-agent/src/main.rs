@@ -264,20 +264,6 @@ async fn main() -> Result<()> {
                 }
             };
 
-            #[cfg(feature = "rdp")]
-            if args.rdp {
-                let rdp_config = rdp_server::RdpServerConfig {
-                    bind_address: args.rdp_bind.parse().expect("Invalid RDP bind address"),
-                    ..Default::default()
-                };
-                let rdp_server = rdp_server::RdpServer::new(rdp_config, desktop.desktop.clone());
-                tokio::spawn(async move {
-                    if let Err(e) = rdp_server.run().await {
-                        error!("RDP server error: {:#}", e);
-                    }
-                });
-            }
-
             // Serve with better error handling
             let service = desktop.serve(stdio()).await.inspect_err(|e| {
                 tracing::error!("Serving error: {:?}", e);
@@ -321,20 +307,6 @@ async fn main() -> Result<()> {
 
             let desktop = server::DesktopWrapper::new_with_log_capture(log_capture.clone())?;
 
-            #[cfg(feature = "rdp")]
-            if args.rdp {
-                let rdp_config = rdp_server::RdpServerConfig {
-                    bind_address: args.rdp_bind.parse().expect("Invalid RDP bind address"),
-                    ..Default::default()
-                };
-                let rdp_server = rdp_server::RdpServer::new(rdp_config, desktop.desktop.clone());
-                tokio::spawn(async move {
-                    if let Err(e) = rdp_server.run().await {
-                        error!("RDP server error: {:#}", e);
-                    }
-                });
-            }
-
             let ct = SseServer::serve(addr)
                 .await?
                 .with_service(move || desktop.clone());
@@ -353,26 +325,61 @@ async fn main() -> Result<()> {
             let addr: SocketAddr = format!("{}:{}", args.host, args.port).parse()?;
             tracing::info!("Starting streamable HTTP server on http://{}", addr);
 
+            // If RDP is enabled, we need to eagerly initialize DesktopWrapper to start RDP server
+            #[cfg(feature = "rdp")]
+            let desktop_for_rdp = if args.rdp {
+                Some(Arc::new(server::DesktopWrapper::new_with_log_capture(log_capture.clone())?))
+            } else {
+                None
+            };
+
+            #[cfg(not(feature = "rdp"))]
+            let desktop_for_rdp: Option<Arc<server::DesktopWrapper>> = None;
+
+            // Start RDP server if enabled
             #[cfg(feature = "rdp")]
             if args.rdp {
-                tracing::warn!("⚠️  RDP server is not supported with HTTP transport mode");
-                tracing::warn!("⚠️  Use Stdio or SSE transport for RDP viewing/control");
-                tracing::warn!("   Command: terminator-mcp-agent -t stdio --rdp");
-                tracing::warn!("   Or: terminator-mcp-agent -t sse --rdp --port {}", args.port);
+                let rdp_config = rdp_server::RdpServerConfig {
+                    bind_address: args.rdp_bind.parse().expect("Invalid RDP bind address"),
+                    ..Default::default()
+                };
+
+                if let Some(desktop) = &desktop_for_rdp {
+                    let rdp_server = rdp_server::RdpServer::new(rdp_config, desktop.desktop.clone());
+                    tokio::spawn(async move {
+                        if let Err(e) = rdp_server.run().await {
+                            error!("RDP server error: {:#}", e);
+                        }
+                    });
+                    tracing::info!("✅ RDP server enabled on {}", args.rdp_bind);
+                }
             }
 
-            // Lazy-initialize DesktopWrapper on first /mcp use so that /health can succeed on CI
-            let service = StreamableHttpService::new(
-                {
-                    let log_capture = log_capture.clone();
-                    move || {
-                        server::DesktopWrapper::new_with_log_capture(log_capture.clone())
-                            .map_err(|e| std::io::Error::other(e.to_string()))
-                    }
-                },
-                LocalSessionManager::default().into(),
-                Default::default(),
-            );
+            // Create service - lazy init if no RDP, eager init if RDP enabled
+            let service = if let Some(desktop_arc) = desktop_for_rdp {
+                // Eager initialization for RDP - use cloned wrapper
+                StreamableHttpService::new(
+                    {
+                        let desktop_clone = desktop_arc.clone();
+                        move || Ok((*desktop_clone).clone())
+                    },
+                    LocalSessionManager::default().into(),
+                    Default::default(),
+                )
+            } else {
+                // Lazy initialization (original behavior) - for health check on CI
+                StreamableHttpService::new(
+                    {
+                        let log_capture = log_capture.clone();
+                        move || {
+                            server::DesktopWrapper::new_with_log_capture(log_capture.clone())
+                                .map_err(|e| std::io::Error::other(e.to_string()))
+                        }
+                    },
+                    LocalSessionManager::default().into(),
+                    Default::default(),
+                )
+            };
 
             // Busy-aware concurrency state with request tracking
             #[derive(Clone)]
