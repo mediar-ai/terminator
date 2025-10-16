@@ -148,9 +148,21 @@ impl RdpServer {
                             monitor_idx, screenshot.width, screenshot.height
                         );
 
-                        // TODO: Convert RGBA screenshot to RDP bitmap format and send
-                        // This requires implementing bitmap encoding according to RDP spec
-                        // For now, just log the capture
+                        // NOTE: This is an MVP implementation. A production RDP server requires:
+                        // 1. Complete TLS handshake
+                        // 2. Capability exchange
+                        // 3. License exchange
+                        // 4. Connection finalization
+                        // 5. Proper bitmap update PDUs with compression
+                        //
+                        // For now, log capture success to demonstrate screen capture works
+                        info!(
+                            "Screen capture successful: monitor {} ({}x{} pixels, {} bytes)",
+                            monitor_idx,
+                            screenshot.width,
+                            screenshot.height,
+                            screenshot.rgba_data.len()
+                        );
                     }
                 }
                 Err(e) => {
