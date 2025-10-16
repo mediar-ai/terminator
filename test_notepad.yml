@@ -1,0 +1,14 @@
+steps:
+  - tool_name: open_application
+    arguments:
+      app_name: "notepad"
+
+  - tool_name: delay
+    arguments:
+      delay_ms: 1500
+
+  - tool_name: type_into_element
+    arguments:
+      selector: "role:Edit"
+      text_to_type: "Hello World from Terminator!"
+      verify_action: false

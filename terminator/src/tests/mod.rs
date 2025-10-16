@@ -13,6 +13,8 @@ mod performance_tests;
 #[cfg(all(test, target_os = "windows"))]
 mod selector_tests;
 mod test_serialization;
+#[cfg(test)]
+mod utf8_selector_tests;
 
 // Initialize tracing for tests
 pub fn init_tracing() {
