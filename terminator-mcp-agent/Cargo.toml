@@ -6,7 +6,7 @@ edition.workspace = true
 [features]
 default = ["telemetry"]
 telemetry = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-semantic-conventions", "dep:opentelemetry-appender-tracing"]
-rdp = ["dep:ironrdp", "dep:ironrdp-async", "dep:ironrdp-pdu", "dep:ironrdp-tls"]
+rdp = ["dep:ironrdp", "dep:ironrdp-async", "dep:ironrdp-pdu", "dep:ironrdp-tls", "dep:ironrdp-acceptor", "dep:ironrdp-server"]
 
 [lib]
 name = "terminator_mcp_agent"
@@ -68,6 +68,8 @@ ironrdp = { version = "0.13.0", optional = true }
 ironrdp-async = { version = "0.7.0", optional = true }
 ironrdp-pdu = { version = "0.6.0", optional = true }
 ironrdp-tls = { version = "0.1.4", optional = true, features = ["rustls"] }
+ironrdp-acceptor = { version = "0.4.0", optional = true }
+ironrdp-server = { version = "0.9.0", optional = true }
 
 # Dependencies for AI summarizer binary - TODO add behind feature flag
 ollama-rs = "0.3.2"

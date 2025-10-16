@@ -345,7 +345,7 @@ async fn main() -> Result<()> {
                 };
 
                 if let Some(desktop) = &desktop_for_rdp {
-                    let rdp_server = rdp_server::RdpServer::new(rdp_config, desktop.desktop.clone());
+                    let rdp_server = rdp_server::RdpServerRunner::new(rdp_config, desktop.desktop.clone());
                     tokio::spawn(async move {
                         if let Err(e) = rdp_server.run().await {
                             error!("RDP server error: {:#}", e);
