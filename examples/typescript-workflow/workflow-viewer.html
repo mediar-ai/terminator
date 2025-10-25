@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terminator Workflow Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .workflow-card {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .workflow-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem;
+        }
+
+        .workflow-header h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .workflow-header p {
+            opacity: 0.9;
+            font-size: 1rem;
+        }
+
+        .workflow-meta {
+            padding: 1.5rem 2rem;
+            background: #f7fafc;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+
+        .meta-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .meta-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #718096;
+            margin-bottom: 0.25rem;
+        }
+
+        .meta-value {
+            font-size: 0.875rem;
+            color: #2d3748;
+            font-weight: 600;
+        }
+
+        .inputs-section {
+            padding: 1.5rem 2rem;
+            background: #f7fafc;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .inputs-section h3 {
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #718096;
+            margin-bottom: 1rem;
+        }
+
+        .input-item {
+            background: white;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            border: 1px solid #e2e8f0;
+        }
+
+        .input-name {
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 0.25rem;
+        }
+
+        .input-type {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 0.125rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            margin-right: 0.5rem;
+        }
+
+        .input-default {
+            color: #718096;
+            font-size: 0.875rem;
+        }
+
+        .input-description {
+            color: #4a5568;
+            font-size: 0.875rem;
+            margin-top: 0.5rem;
+        }
+
+        .steps-section {
+            padding: 2rem;
+        }
+
+        .steps-section h2 {
+            font-size: 1.25rem;
+            color: #2d3748;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+        }
+
+        .steps-section h2::before {
+            content: '📋';
+            margin-right: 0.5rem;
+        }
+
+        .step {
+            position: relative;
+            padding-left: 3rem;
+            padding-bottom: 2rem;
+        }
+
+        .step:last-child {
+            padding-bottom: 0;
+        }
+
+        .step::before {
+            content: '';
+            position: absolute;
+            left: 1.125rem;
+            top: 2.5rem;
+            bottom: 0;
+            width: 2px;
+            background: #e2e8f0;
+        }
+
+        .step:last-child::before {
+            display: none;
+        }
+
+        .step-number {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 2.5rem;
+            height: 2.5rem;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 0.875rem;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .step-content {
+            background: #f7fafc;
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid #e2e8f0;
+            transition: all 0.2s;
+        }
+
+        .step-content:hover {
+            border-color: #667eea;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+        }
+
+        .step-name {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 0.5rem;
+        }
+
+        .step-id {
+            display: inline-block;
+            background: #edf2f7;
+            color: #4a5568;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-family: 'Courier New', monospace;
+            margin-bottom: 0.75rem;
+        }
+
+        .step-description {
+            color: #4a5568;
+            line-height: 1.6;
+            margin-bottom: 1rem;
+        }
+
+        .step-features {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .feature-badge {
+            background: white;
+            border: 1px solid #e2e8f0;
+            padding: 0.375rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            color: #4a5568;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .feature-badge.has-error {
+            border-color: #fc8181;
+            color: #c53030;
+            background: #fff5f5;
+        }
+
+        .feature-badge.has-timeout {
+            border-color: #f6ad55;
+            color: #c05621;
+            background: #fffaf0;
+        }
+
+        .code-preview {
+            background: #1a202c;
+            color: #e2e8f0;
+            padding: 1rem;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.875rem;
+            overflow-x: auto;
+            margin-top: 1rem;
+        }
+
+        .code-preview code {
+            display: block;
+            white-space: pre;
+        }
+
+        @media (max-width: 640px) {
+            body {
+                padding: 1rem;
+            }
+
+            .workflow-header h1 {
+                font-size: 1.5rem;
+            }
+
+            .meta-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .step {
+                padding-left: 2.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="workflow-card">
+            <!-- Workflow Header -->
+            <div class="workflow-header">
+                <h1 id="workflow-name">Simple Notepad Demo</h1>
+                <p id="workflow-description">Opens Notepad and types a personalized greeting</p>
+            </div>
+
+            <!-- Workflow Metadata -->
+            <div class="workflow-meta">
+                <div class="meta-grid">
+                    <div class="meta-item">
+                        <span class="meta-label">Version</span>
+                        <span class="meta-value" id="workflow-version">1.0.0</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Total Steps</span>
+                        <span class="meta-value" id="total-steps">2</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">File</span>
+                        <span class="meta-value">simple-workflow.ts</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Schema -->
+            <div class="inputs-section">
+                <h3>Input Schema</h3>
+                <div id="inputs-container">
+                    <div class="input-item">
+                        <div class="input-name">userName</div>
+                        <div>
+                            <span class="input-type">string</span>
+                            <span class="input-default">default: "World"</span>
+                        </div>
+                        <div class="input-description">User name to greet</div>
+                    </div>
+                    <div class="input-item">
+                        <div class="input-name">includeDate</div>
+                        <div>
+                            <span class="input-type">boolean</span>
+                            <span class="input-default">default: true</span>
+                        </div>
+                        <div class="input-description">Include current date in message</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Steps -->
+            <div class="steps-section">
+                <h2>Workflow Steps</h2>
+
+                <!-- Step 1 -->
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <div class="step-name">Open Notepad</div>
+                        <div class="step-id">open-notepad</div>
+                        <div class="step-description">
+                            Opens Notepad application and waits for it to be ready
+                        </div>
+                        <div class="step-features">
+                            <div class="feature-badge">✨ Desktop automation</div>
+                            <div class="feature-badge">⏱️ 2s delay</div>
+                        </div>
+                        <div class="code-preview"><code>desktop.openApplication('notepad');
+await desktop.delay(2000);</code></div>
+                    </div>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <div class="step-name">Type Greeting Message</div>
+                        <div class="step-id">type-greeting</div>
+                        <div class="step-description">
+                            Types personalized greeting using the input userName and optionally includes the current date
+                        </div>
+                        <div class="step-features">
+                            <div class="feature-badge">✍️ Text input</div>
+                            <div class="feature-badge">🔍 Locator: role:Edit</div>
+                            <div class="feature-badge">📝 Uses input variables</div>
+                        </div>
+                        <div class="code-preview"><code>const textbox = await desktop.locator('role:Edit').first(5000);
+textbox.typeText(`Hello, ${input.userName}!\n\n`);
+
+if (input.includeDate) {
+  const date = new Date().toLocaleDateString();
+  textbox.typeText(`Date: ${date}\n`);
+}</code></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // This could be dynamically generated from workflow.getMetadata()
+        // For now it's hardcoded to show the simple-workflow.ts example
+
+        // Example of how you'd parse a workflow in mediar-app:
+        console.log('In mediar-app, you would:');
+        console.log('1. Import the workflow file: const workflow = await import("./simple-workflow.ts")');
+        console.log('2. Get metadata: const metadata = workflow.default.getMetadata()');
+        console.log('3. Render this UI from metadata.steps');
+    </script>
+</body>
+</html>
