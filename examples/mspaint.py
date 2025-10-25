@@ -69,6 +69,7 @@ async def select_shape(shape: Shape, paint_window, desktop):
     print(f"Selecting shape tool: {shape_name}")
     if is_windows_11():
         shapes_box = paint_window.locator("Group:Shapes").locator("role:List")
+        tool = await shapes_box.locator(f"Button:{shape_name}").first()
     else:
         more_shapes_button = await (
             paint_window.locator("Pane:UIRibbonDockTop")
@@ -81,7 +82,7 @@ async def select_shape(shape: Shape, paint_window, desktop):
         more_shapes_button.click()
         await asyncio.sleep(0.2)
         shapes_box = desktop.locator("window:Shapes").locator("List:Shapes")
-    tool = await shapes_box.locator(f"Name:{shape_name}").first()
+        tool = await shapes_box.locator(f"Name:{shape_name}").first()
     tool.click()
     await asyncio.sleep(0.5)
 
@@ -172,6 +173,7 @@ async def run_mspaint():
         if is_windows_11():
             print("Zooming in...")
             paint_window.press_key("{Ctrl}1")
+            paint_window.press_key("{Ctrl}+")
             await asyncio.sleep(0.5)
 
         # Draw shapes

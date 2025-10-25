@@ -1,6 +1,6 @@
 # terminator 🤖 Mediar.ai
 
-https://github.com/user-attachments/assets/00329105-8875-48cb-8970-a62a85a9ebd0
+https://github.com/user-attachments/assets/b7bec5df-64a9-4f0e-aba4-1578c11275c7
 
 <p align="center">
   <a href="https://discord.gg/dU9EBuw7Uq">
