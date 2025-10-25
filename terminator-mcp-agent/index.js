@@ -17,6 +17,12 @@ function getPlatformInfo() {
       bin: "terminator-mcp-agent.exe",
       npmDir: "win32-x64-msvc",
     };
+  if (platform === "win32" && arch === "arm64")
+    return {
+      pkg: "terminator-mcp-win32-arm64-msvc",
+      bin: "terminator-mcp-agent.exe",
+      npmDir: "win32-arm64-msvc",
+    };
   if (platform === "linux" && arch === "x64")
     return {
       pkg: "terminator-mcp-linux-x64-gnu",
