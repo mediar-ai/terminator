@@ -12,8 +12,8 @@
  */
 
 import { createStep, createWorkflow, z, type Desktop } from '../../packages/terminator-workflow/src';
-import fs from 'fs/promises';
-import path from 'path';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 
 // ============================================================================
 // Input Schema
@@ -32,8 +32,8 @@ const InputSchema = z.object({
 
   startRow: z
     .number()
-    .default(1)
     .min(1)
+    .default(1)
     .describe('Row to start from (1-indexed, skips header)'),
 
   endRow: z
@@ -202,13 +202,17 @@ const fillWebFormFromExcel = createStep({
         // Title (radio buttons)
         logger.info('  Setting title...');
         if (rowData.Title === 'Dr.') {
-          await chromeWindow.locator('role:RadioButton|name:Dr.').first(1000).setToggled(true);
+          const radio = await chromeWindow.locator('role:RadioButton|name:Dr.').first(1000);
+          await radio.setToggled(true);
         } else if (rowData.Title === 'Prof.') {
-          await chromeWindow.locator('role:RadioButton|name:Prof.').first(1000).setToggled(true);
+          const radio = await chromeWindow.locator('role:RadioButton|name:Prof.').first(1000);
+          await radio.setToggled(true);
         } else if (rowData.Title === 'Mr.') {
-          await chromeWindow.locator('role:RadioButton|name:Mr.').first(1000).setToggled(true);
+          const radio = await chromeWindow.locator('role:RadioButton|name:Mr.').first(1000);
+          await radio.setToggled(true);
         } else if (rowData.Title === 'Ms.') {
-          await chromeWindow.locator('role:RadioButton|name:Ms.').first(1000).setToggled(true);
+          const radio = await chromeWindow.locator('role:RadioButton|name:Ms.').first(1000);
+          await radio.setToggled(true);
         }
 
         // First Name
@@ -341,7 +345,7 @@ const generateReport = createStep({
 // Workflow Definition
 // ============================================================================
 
-export default createWorkflow({
+const workflow = createWorkflow({
   name: 'Excel to Web Form Data Entry',
   description: 'Automate data entry from CSV/Excel to web form with error handling',
   version: '1.0.0',
@@ -366,17 +370,20 @@ export default createWorkflow({
   // Error handler
   .onError(async ({ error, step, logger }) => {
     logger.error('\n💥 Workflow failed!');
-    logger.error(`   Failed at step: ${step.name}`);
+    logger.error(`   Failed at step: ${step.config.name}`);
     logger.error(`   Error: ${error.message}`);
   })
 
   .build();
 
+export default workflow;
+
 // ============================================================================
 // CLI Execution
 // ============================================================================
 
-if (require.main === module) {
+// CLI Execution
+async function main() {
   const input: Input = {
     csvFile: process.argv[2] || './sample-data.csv',
     webFormUrl: 'https://www.andrews.edu/~bidwell/examples/form.html',
@@ -391,9 +398,13 @@ if (require.main === module) {
   console.log('='.repeat(60));
   console.log('');
 
-  workflow.run(input).catch(error => {
+  await workflow.run(input).catch(error => {
     console.error('\n❌ Workflow execution failed');
     console.error(error);
     process.exit(1);
   });
+}
+
+if (require.main === module) {
+  main();
 }
