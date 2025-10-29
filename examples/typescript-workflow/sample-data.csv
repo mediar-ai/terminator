@@ -1,0 +1,6 @@
+FirstName,LastName,Title,Organization,Phone,Email,Address1,City,State,Zip
+John,Smith,Dr.,Acme Corp,(269) 555-0123,john.smith@example.com,123 Main St,Berrien Springs,MI,49103
+Jane,Doe,Prof.,Tech University,(269) 555-0124,jane.doe@example.com,456 Oak Ave,Berrien Springs,MI,49104
+Robert,Johnson,Mr.,Global Industries,(269) 555-0125,robert.johnson@example.com,789 Pine Rd,Berrien Springs,MI,49105
+Mary,Williams,Ms.,Innovation Labs,(269) 555-0126,mary.williams@example.com,321 Elm St,Berrien Springs,MI,49106
+Michael,Brown,Dr.,Research Institute,(269) 555-0127,michael.brown@example.com,654 Maple Dr,Berrien Springs,MI,49107
