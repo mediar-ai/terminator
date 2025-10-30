@@ -219,11 +219,27 @@ impl TypeScriptWorkflow {
         let workflow_path = self.workflow_path.display();
         let entry_file = &self.entry_file;
 
+        // Use relative path to terminator-workflow package
+        let terminator_workflow_path = self.workflow_path
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|p| p.join("packages/terminator-workflow/dist"))
+            .unwrap_or_else(|| PathBuf::from("../../packages/terminator-workflow/dist"));
+
         Ok(format!(
             r#"
-import {{ createWorkflowRunner }} from '@mediar/terminator-workflow/runner';
+import {{ createWorkflowRunner }} from 'file://{terminator_workflow_path}/runner.js';
 
 const workflow = await import('file://{workflow_path}/{entry_file}');
+
+// Create a silent logger that writes to stderr instead of stdout
+const silentLogger = {{
+    info: (msg) => console.error(msg),
+    success: (msg) => console.error(msg),
+    warn: (msg) => console.error(msg),
+    error: (msg) => console.error(msg),
+    debug: (msg) => console.error(msg),
+}};
 
 const runner = createWorkflowRunner({{
     workflow: workflow.default,
@@ -231,17 +247,19 @@ const runner = createWorkflowRunner({{
     startFromStep: {start_from_json},
     endAtStep: {end_at_json},
     restoredState: {restored_state_json},
+    logger: silentLogger,
 }});
 
 const result = await runner.run();
 
-// Output: metadata + execution result + state
+// Output ONLY JSON to stdout (logs went to stderr)
 console.log(JSON.stringify({{
     metadata: workflow.default.getMetadata(),
     result: result,
     state: runner.getState(),
 }}));
-"#
+"#,
+            terminator_workflow_path = terminator_workflow_path.display().to_string().replace('\\', "/")
         ))
     }
 }
@@ -270,6 +288,7 @@ pub struct StepMetadata {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkflowExecutionResult {
     pub status: String,
     pub last_step_id: Option<String>,

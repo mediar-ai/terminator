@@ -7,6 +7,7 @@ export interface WorkflowRunnerOptions {
   startFromStep?: string;
   endAtStep?: string;
   restoredState?: WorkflowState;
+  logger?: Logger;
 }
 
 export interface WorkflowState {
@@ -30,7 +31,7 @@ export class WorkflowRunner {
     this.inputs = options.inputs;
     this.startFromStep = options.startFromStep;
     this.endAtStep = options.endAtStep;
-    this.logger = new ConsoleLogger();
+    this.logger = options.logger || new ConsoleLogger();
 
     // Initialize or restore state
     if (options.restoredState) {
