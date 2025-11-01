@@ -168,9 +168,8 @@ Creates a workflow builder.
 See `examples/` for complete examples:
 
 - `meeting_notes_workflow.ts` - Complete real-world Windows-only example demonstrating:
-  - Multi-step automation (open Notepad, type notes, save file, screenshot)
+  - Multi-step automation (open Notepad, type notes, save file)
   - Context sharing between steps
-  - Conditional execution
   - Error recovery with retry logic
   - Type safety with Zod schemas
 

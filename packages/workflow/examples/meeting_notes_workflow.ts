@@ -4,12 +4,11 @@
  * A practical workflow example that demonstrates:
  * - Multi-step automation
  * - Context sharing between steps
- * - Conditional execution
  * - Error recovery
  * - Type safety with Zod schemas
  * 
- * This workflow automates creating structured meeting notes in Notepad,
- * saving the file, and optionally taking a screenshot for documentation.
+ * This workflow automates creating structured meeting notes in Notepad
+ * and saving the file.
  * 
  * NOTE: This example is Windows-only.
  * 
@@ -62,7 +61,6 @@ const InputSchema = z.object({
         dueDate: z.string().optional(),
     })).default([]).describe('Action items with assignees'),
     includeTimestamp: z.boolean().default(true).describe('Include timestamp in notes'),
-    takeScreenshot: z.boolean().default(false).describe('Take screenshot after saving'),
     outputDirectory: z.string().optional().describe('Directory to save the file (defaults to home directory)'),
 });
 
@@ -280,36 +278,6 @@ const saveFile = createStep<WorkflowInput>({
     },
 });
 
-// Step 4: Take screenshot (conditional)
-const takeScreenshot = createStep<WorkflowInput>({
-    id: 'take-screenshot',
-    name: 'Take Screenshot',
-    description: 'Takes a screenshot of the Notepad window',
-    condition: ({ input }: { input: WorkflowInput; context: import('../src/types').WorkflowContext }) => input.takeScreenshot === true,
-    execute: async ({ desktop, logger, context }: StepContext<WorkflowInput>) => {
-        logger.info('Taking screenshot of Notepad...');
-
-        const editor = context.data.editorWindow;
-        const windowElement = await editor.first();
-
-        try {
-            const screenshot = windowElement.capture();
-
-            // Store screenshot info in context
-            context.data.screenshot = {
-                width: screenshot.width,
-                height: screenshot.height,
-                dataLength: screenshot.imageData.length,
-            };
-
-            logger.success(`✅ Screenshot captured: ${screenshot.width}x${screenshot.height}`);
-        } catch (error: any) {
-            logger.error(`Failed to capture screenshot: ${error.message}`);
-            throw error;
-        }
-    },
-});
-
 // Create the workflow
 // TypeScript needs help: createWorkflow returns WorkflowBuilder | Workflow
 // Since we're not providing steps in config, we know it returns WorkflowBuilder
@@ -324,7 +292,6 @@ const meetingNotesWorkflow = (
     .step(openEditor)
     .step(typeNotes)
     .step(saveFile)
-    .step(takeScreenshot)
     .onSuccess(async ({ logger, context, duration }: WorkflowSuccessContext<WorkflowInput>) => {
         logger.info('');
         logger.success('📝 Meeting notes workflow completed successfully!');
@@ -372,7 +339,6 @@ async function main() {
             },
         ],
         includeTimestamp: true,
-        takeScreenshot: true,
         outputDirectory: undefined, // Will default to home directory (os.homedir())
     };
 
