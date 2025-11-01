@@ -165,10 +165,20 @@ Creates a workflow builder.
 
 ## Examples
 
-See `examples/typescript-workflow/` for complete examples:
+See `examples/` for complete examples:
 
-- `simple-workflow.ts` - Basic pattern
-- `production-workflow.ts` - Real-world with error recovery
+- `meeting_notes_workflow.ts` - Complete real-world Windows-only example demonstrating:
+  - Multi-step automation (open Notepad, type notes, save file, screenshot)
+  - Context sharing between steps
+  - Conditional execution
+  - Error recovery with retry logic
+  - Type safety with Zod schemas
+
+To run the example:
+```bash
+cd packages/workflow
+npx ts-node examples/meeting_notes_workflow.ts
+```
 
 ## License
 
