@@ -41,6 +41,22 @@ import type {
 } from '../src/types';
 import { createWorkflow } from '../src/workflow';
 
+// Detect Windows 11 (build number >= 22000)
+function isWindows11(): boolean {
+    if (process.platform !== 'win32') {
+        return false;
+    }
+    const release = os.release();
+    // os.release() on Windows returns something like "10.0.22000"
+    // Windows 11 has build number >= 22000
+    const parts = release.split('.');
+    if (parts.length >= 3) {
+        const buildNumber = parseInt(parts[2], 10);
+        return !isNaN(buildNumber) && buildNumber >= 22000;
+    }
+    return false;
+}
+
 // Type assertion helper - createWorkflow returns WorkflowBuilder when no steps provided
 type BuilderResult<T> = ReturnType<typeof createWorkflow<T>> & {
     step: <TOutput = any>(step: any) => BuilderResult<T>;
@@ -62,6 +78,7 @@ const InputSchema = z.object({
     })).default([]).describe('Action items with assignees'),
     includeTimestamp: z.boolean().default(true).describe('Include timestamp in notes'),
     outputDirectory: z.string().optional().describe('Directory to save the file (defaults to home directory)'),
+    useClipboard: z.boolean().default(true).describe('Use clipboard for faster text input (recommended for large text blocks)'),
 });
 
 type WorkflowInput = z.infer<typeof InputSchema>;
@@ -180,19 +197,19 @@ const typeNotes = createStep<WorkflowInput>({
         // Handle Windows 11 vs Windows 10 Notepad differences (matching notepad.py logic)
         // Windows 11 requires clicking "Add New Tab" first
         let document;
-        // Check for Windows 11 by trying to find the "Add New Tab" button
-        try {
-            const addButton = await editor.locator('name:Add New Tab').first(2000);
+        if (isWindows11()) {
+            // Windows 11: Click "Add New Tab" button first
+            const addButton = await editor.locator('name:Add New Tab').first(5000);
             addButton.click();
             await desktop.delay(500);
             document = await editor.locator('role:Document').first(5000);
-        } catch {
-            // Windows 10 or button not found - use direct Edit locator
+        } else {
+            // Windows 10: Use direct Edit locator
             document = await editor.locator('role:Edit').first(5000);
         }
 
-        // Type the notes
-        document.typeText(notesText);
+        // Type the notes (using clipboard if enabled)
+        document.typeText(notesText, input.useClipboard);
         await desktop.delay(500);
 
         logger.success(`✅ Typed ${notesText.split('\n').length} lines of meeting notes`);
@@ -245,8 +262,8 @@ const saveFile = createStep<WorkflowInput>({
             .locator('role:Edit')
             .first(5000);
 
-        // Type file path (no need to clear - just type, matching notepad.py)
-        fileInput.typeText(filePath);
+        // Type file path (using clipboard if enabled)
+        fileInput.typeText(filePath, input.useClipboard);
         await desktop.delay(500);
 
         // Check if file already exists
@@ -340,6 +357,7 @@ async function main() {
         ],
         includeTimestamp: true,
         outputDirectory: undefined, // Will default to home directory (os.homedir())
+        useClipboard: true,
     };
 
     // Run the workflow
