@@ -143,6 +143,30 @@ To create reliable selectors (e.g. `name:Seven`, `role:Button`, `window:Calculat
 
 ## Troubleshooting
 
+### Windows: Visual C++ Redistributables
+
+**Automatic Installation (Default)**: Starting from v0.22.0, the MCP server automatically attempts to install Visual C++ Redistributables if missing. This happens silently in the background using:
+1. **winget** (Windows 11+, preferred method)
+2. **Direct download** (fallback for older Windows versions)
+
+**To disable auto-install**, set environment variable:
+```bash
+VCREDIST_AUTO_INSTALL=false
+```
+
+**Manual Installation**: If auto-install fails, install manually:
+```bash
+# Via winget (Windows 11+)
+winget install Microsoft.VCRedist.2015+.x64
+
+# Or download directly
+# https://aka.ms/vs/17/release/vc_redist.x64.exe
+```
+
+**Why required?**: Visual C++ Redistributables are needed for JavaScript/TypeScript execution via the `@mediar-ai/terminator` Node.js package.
+
+### Other Issues
+
 For detailed troubleshooting, debugging, and MCP server logs, [send us a message](https://www.mediar.ai/).
 
 ## Contributing

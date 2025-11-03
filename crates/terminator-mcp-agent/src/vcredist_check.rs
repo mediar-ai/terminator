@@ -1,5 +1,6 @@
 use std::path::PathBuf;
-use tracing::{info, warn};
+use std::process::Command;
+use tracing::{error, info, warn};
 
 /// Check if Visual C++ Redistributables are installed on Windows
 /// This is checked once at startup to avoid runtime overhead
@@ -89,5 +90,151 @@ pub fn is_vcredist_available() -> bool {
             VCREDIST_CHECKED = true;
         }
         VCREDIST_INSTALLED
+    }
+}
+
+/// Attempt to automatically install VC++ Redistributables
+/// Returns true if installation succeeded or was skipped, false if it failed
+pub fn try_auto_install_vcredist() -> bool {
+    // Only relevant on Windows
+    if !cfg!(windows) {
+        return true;
+    }
+
+    // Check if auto-install is disabled via environment variable
+    if std::env::var("VCREDIST_AUTO_INSTALL")
+        .unwrap_or_default()
+        .eq_ignore_ascii_case("false")
+    {
+        info!("VC++ auto-install disabled via VCREDIST_AUTO_INSTALL=false");
+        return false;
+    }
+
+    info!("Attempting to auto-install Visual C++ Redistributables...");
+
+    // Try winget first (cleanest method, built into Windows 11+)
+    if try_install_via_winget() {
+        info!("Successfully installed VC++ Redistributables via winget");
+        return true;
+    }
+
+    // Fall back to direct download + silent install
+    info!("winget installation failed, trying direct download method...");
+    if try_install_via_download() {
+        info!("Successfully installed VC++ Redistributables via direct download");
+        return true;
+    }
+
+    error!("Failed to auto-install VC++ Redistributables. Please install manually.");
+    false
+}
+
+/// Try to install VC++ Redistributables using winget
+fn try_install_via_winget() -> bool {
+    info!("Trying winget installation...");
+
+    // Check if winget is available
+    let winget_check = Command::new("winget")
+        .arg("--version")
+        .output();
+
+    if winget_check.is_err() {
+        warn!("winget not available on this system");
+        return false;
+    }
+
+    // Run winget install with --silent and --accept-package-agreements flags
+    let result = Command::new("winget")
+        .args([
+            "install",
+            "--id",
+            "Microsoft.VCRedist.2015+.x64",
+            "--silent",
+            "--accept-package-agreements",
+            "--accept-source-agreements",
+        ])
+        .output();
+
+    match result {
+        Ok(output) => {
+            if output.status.success() {
+                info!("winget installation completed successfully");
+                true
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                warn!("winget installation failed: {}", stderr);
+                false
+            }
+        }
+        Err(e) => {
+            warn!("Failed to execute winget: {}", e);
+            false
+        }
+    }
+}
+
+/// Try to install VC++ Redistributables via direct download
+fn try_install_via_download() -> bool {
+    info!("Downloading VC++ Redistributables installer...");
+
+    // URL for VC++ Redistributables 2015-2022 x64
+    let download_url = "https://aka.ms/vs/17/release/vc_redist.x64.exe";
+
+    // Get temp directory
+    let temp_dir = std::env::temp_dir();
+    let installer_path = temp_dir.join("vc_redist.x64.exe");
+
+    // Download the installer using PowerShell (available on all Windows systems)
+    let download_result = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            &format!(
+                "Invoke-WebRequest -Uri '{}' -OutFile '{}'",
+                download_url,
+                installer_path.display()
+            ),
+        ])
+        .output();
+
+    match download_result {
+        Ok(output) if output.status.success() => {
+            info!("Downloaded installer to {}", installer_path.display());
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            warn!("Failed to download installer: {}", stderr);
+            return false;
+        }
+        Err(e) => {
+            warn!("Failed to execute PowerShell download: {}", e);
+            return false;
+        }
+    }
+
+    // Run the installer silently
+    info!("Running VC++ Redistributables installer silently...");
+    let install_result = Command::new(&installer_path)
+        .args(["/install", "/quiet", "/norestart"])
+        .output();
+
+    // Clean up installer file
+    let _ = std::fs::remove_file(&installer_path);
+
+    match install_result {
+        Ok(output) => {
+            if output.status.success() {
+                info!("Direct download installation completed successfully");
+                true
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                warn!("Installer execution failed: {}", stderr);
+                false
+            }
+        }
+        Err(e) => {
+            warn!("Failed to execute installer: {}", e);
+            false
+        }
     }
 }

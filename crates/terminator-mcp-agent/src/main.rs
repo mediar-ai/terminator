@@ -294,7 +294,19 @@ async fn main() -> Result<()> {
 
     // Check for Visual C++ Redistributables on Windows (one-time at startup)
     if cfg!(windows) {
-        terminator_mcp_agent::vcredist_check::check_vcredist_installed();
+        let vcredist_installed = terminator_mcp_agent::vcredist_check::check_vcredist_installed();
+
+        // Try to auto-install if missing (can be disabled via VCREDIST_AUTO_INSTALL=false)
+        if !vcredist_installed {
+            tracing::info!("VC++ Redistributables not found. Attempting auto-install...");
+            if terminator_mcp_agent::vcredist_check::try_auto_install_vcredist() {
+                tracing::info!("VC++ Redistributables installed successfully!");
+                tracing::info!("NOTE: You may need to restart the MCP server for changes to take effect.");
+            } else {
+                tracing::warn!("Auto-install failed. JavaScript/TypeScript execution may not work.");
+                tracing::warn!("To disable auto-install attempts, set VCREDIST_AUTO_INSTALL=false");
+            }
+        }
     }
 
     // Start PID watcher if requested (Windows only auto-destruct feature)
