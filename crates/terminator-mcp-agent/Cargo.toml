@@ -28,6 +28,7 @@ serde_json = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing-appender = { workspace = true }
 time = { workspace = true }
+dirs = { workspace = true }
 rmcp = { version = "0.6.3", features = [
     "server",
     "client",

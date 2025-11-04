@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use tracing::{error, info};
+use tracing::{info, warn};
 
 /// Check if Visual C++ Redistributables are installed on Windows
 /// This is checked once at startup to avoid runtime overhead
@@ -36,19 +36,22 @@ pub fn check_vcredist_installed() -> bool {
     }
 
     if !all_found {
-        error!("====================================================================");
-        error!("WARNING: Visual C++ Redistributables are not installed!");
-        error!("====================================================================");
-        error!("Missing DLLs: {}", missing_dlls.join(", "));
-        error!("");
-        error!("JavaScript/TypeScript execution with terminator.js will fail.");
-        error!("");
-        error!("To fix this issue, install Visual C++ Redistributables 2015-2022:");
-        error!("  winget install Microsoft.VCRedist.2015+.x64");
-        error!("");
-        error!("Or download from:");
-        error!("  https://aka.ms/vs/17/release/vc_redist.x64.exe");
-        error!("====================================================================");
+        warn!(
+            "====================================================================\n\
+             WARNING: Visual C++ Redistributables are not installed!\n\
+             ====================================================================\n\
+             Missing DLLs: {}\n\
+             \n\
+             JavaScript/TypeScript execution with terminator.js will fail.\n\
+             \n\
+             To fix this issue, install Visual C++ Redistributables 2015-2022:\n\
+               winget install Microsoft.VCRedist.2015+.x64\n\
+             \n\
+             Or download from:\n\
+               https://aka.ms/vs/17/release/vc_redist.x64.exe\n\
+             ====================================================================",
+            missing_dlls.join(", ")
+        );
     } else {
         info!("Visual C++ Redistributables check: OK");
     }

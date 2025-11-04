@@ -1082,26 +1082,12 @@ pub fn init_logging() -> Result<Option<LogCapture>> {
     let log_dir = if let Ok(custom_dir) = env::var("TERMINATOR_LOG_DIR") {
         // User-specified log directory via environment variable
         std::path::PathBuf::from(custom_dir)
-    } else if cfg!(target_os = "windows") {
-        // Windows: Use %LOCALAPPDATA%\terminator\logs or fallback to %TEMP%\terminator\logs
-        env::var("LOCALAPPDATA")
-            .map(|p| std::path::PathBuf::from(p).join("terminator").join("logs"))
-            .or_else(|_| {
-                env::var("TEMP")
-                    .map(|p| std::path::PathBuf::from(p).join("terminator").join("logs"))
-            })
-            .unwrap_or_else(|_| std::path::PathBuf::from("C:\\temp\\terminator\\logs"))
     } else {
-        // Unix/Linux/macOS: Use ~/.local/share/terminator/logs or /tmp/terminator/logs
-        env::var("HOME")
-            .map(|p| {
-                std::path::PathBuf::from(p)
-                    .join(".local")
-                    .join("share")
-                    .join("terminator")
-                    .join("logs")
-            })
-            .unwrap_or_else(|_| std::path::PathBuf::from("/tmp/terminator/logs"))
+        // Use standard directories: data_local_dir on all platforms with temp fallback
+        dirs::data_local_dir()
+            .unwrap_or_else(std::env::temp_dir)
+            .join("terminator")
+            .join("logs")
     };
 
     // Create log directory if it doesn't exist

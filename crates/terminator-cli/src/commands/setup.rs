@@ -407,11 +407,17 @@ impl SetupCommand {
             "  3. Open Chrome and go to: {}",
             "chrome://extensions".bold()
         );
-        println!("  4. Enable {} mode (toggle in top right)", "Developer".bold());
+        println!(
+            "  4. Enable {} mode (toggle in top right)",
+            "Developer".bold()
+        );
         println!("  5. Click {} (button in top left)", "Load unpacked".bold());
         println!("  6. Select the extracted folder containing manifest.json");
         println!();
-        println!("  {} This also works with Chromium-based browsers (Brave, Edge, Vivaldi)", "ℹ️".blue());
+        println!(
+            "  {} This also works with Chromium-based browsers (Brave, Edge, Vivaldi)",
+            "ℹ️".blue()
+        );
     }
 
     async fn verify_installation(&self) -> (&'static str, Result<String>) {

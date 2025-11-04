@@ -5,11 +5,25 @@ use std::path::Path;
 
 /// Check if the input is a TypeScript/JavaScript workflow
 pub fn is_typescript_workflow(input: &str, is_file_input: bool) -> bool {
+    use tracing::debug;
+
+    debug!(
+        "Checking TypeScript workflow: input={}, is_file_input={}",
+        input, is_file_input
+    );
+
     if !is_file_input {
+        debug!("Not a file input, returning false");
         return false;
     }
 
     let path = Path::new(input);
+    debug!(
+        "Path exists: {}, is_dir: {}, is_file: {}",
+        path.exists(),
+        path.is_dir(),
+        path.is_file()
+    );
 
     if path.is_file() {
         // Check if it's a .ts/.js file
@@ -18,14 +32,28 @@ pub fn is_typescript_workflow(input: &str, is_file_input: bool) -> bool {
             .map(|ext| ext == "ts" || ext == "js")
             .unwrap_or(false)
     } else if path.is_dir() {
-        // Check for package.json AND (terminator.ts OR workflow.ts OR index.ts)
+        // Check for package.json AND (terminator.ts OR src/terminator.ts OR workflow.ts OR index.ts)
         let package_json = path.join("package.json");
         let terminator_ts = path.join("terminator.ts");
+        let src_terminator_ts = path.join("src").join("terminator.ts");
         let workflow_ts = path.join("workflow.ts");
         let index_ts = path.join("index.ts");
 
-        package_json.exists()
-            && (terminator_ts.exists() || workflow_ts.exists() || index_ts.exists())
+        debug!("Checking directory for TypeScript workflow files:");
+        debug!("  package.json exists: {}", package_json.exists());
+        debug!("  terminator.ts exists: {}", terminator_ts.exists());
+        debug!("  src/terminator.ts exists: {}", src_terminator_ts.exists());
+        debug!("  workflow.ts exists: {}", workflow_ts.exists());
+        debug!("  index.ts exists: {}", index_ts.exists());
+
+        let result = package_json.exists()
+            && (terminator_ts.exists()
+                || src_terminator_ts.exists()
+                || workflow_ts.exists()
+                || index_ts.exists());
+
+        debug!("Is TypeScript workflow: {}", result);
+        result
     } else {
         false
     }
@@ -36,8 +64,26 @@ pub fn path_to_file_url(input: &str) -> Result<String> {
     let abs_path = std::fs::canonicalize(input)
         .with_context(|| format!("Failed to resolve path: {}", input))?;
 
+    // If it's a directory with TypeScript workflow files, point to the specific file
+    let target_path = if abs_path.is_dir() {
+        // Check for terminator.ts first (root), then src/terminator.ts, then workflow.ts, then index.ts
+        if abs_path.join("terminator.ts").exists() {
+            abs_path.join("terminator.ts")
+        } else if abs_path.join("src").join("terminator.ts").exists() {
+            abs_path.join("src").join("terminator.ts")
+        } else if abs_path.join("workflow.ts").exists() {
+            abs_path.join("workflow.ts")
+        } else if abs_path.join("index.ts").exists() {
+            abs_path.join("index.ts")
+        } else {
+            abs_path
+        }
+    } else {
+        abs_path
+    };
+
     // Strip Windows \\?\ prefix if present
-    let path_str = abs_path.display().to_string();
+    let path_str = target_path.display().to_string();
     let normalized_path = path_str.strip_prefix(r"\\?\").unwrap_or(&path_str);
 
     Ok(format!("file://{}", normalized_path))

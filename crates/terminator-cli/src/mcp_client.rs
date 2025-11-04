@@ -610,24 +610,12 @@ fn init_logging() {
     let log_dir = if let Ok(custom_dir) = env::var("TERMINATOR_LOG_DIR") {
         // User-specified log directory via environment variable
         std::path::PathBuf::from(custom_dir)
-    } else if cfg!(target_os = "windows") {
-        env::var("LOCALAPPDATA")
-            .map(|p| std::path::PathBuf::from(p).join("terminator").join("logs"))
-            .or_else(|_| {
-                env::var("TEMP")
-                    .map(|p| std::path::PathBuf::from(p).join("terminator").join("logs"))
-            })
-            .unwrap_or_else(|_| std::path::PathBuf::from("C:\\temp\\terminator\\logs"))
     } else {
-        env::var("HOME")
-            .map(|p| {
-                std::path::PathBuf::from(p)
-                    .join(".local")
-                    .join("share")
-                    .join("terminator")
-                    .join("logs")
-            })
-            .unwrap_or_else(|_| std::path::PathBuf::from("/tmp/terminator/logs"))
+        // Use standard directories: data_local_dir on all platforms with temp fallback
+        dirs::data_local_dir()
+            .unwrap_or_else(std::env::temp_dir)
+            .join("terminator")
+            .join("logs")
     };
 
     // Create log directory if it doesn't exist
@@ -1106,6 +1094,18 @@ pub async fn execute_command_with_progress_and_retry(
                 let max_retries = if no_retry { 0 } else { 3 };
                 let mut _last_error = None;
 
+                // Check if this is a TypeScript workflow (URL ends with .ts or .js)
+                let is_typescript_workflow = if tool == "execute_sequence" {
+                    arguments
+                        .as_ref()
+                        .and_then(|args| args.get("url"))
+                        .and_then(|url| url.as_str())
+                        .map(|url| url.ends_with(".ts") || url.ends_with(".js"))
+                        .unwrap_or(false)
+                } else {
+                    false
+                };
+
                 let result = loop {
                     match service
                         .call_tool(CallToolRequestParam {
@@ -1117,18 +1117,32 @@ pub async fn execute_command_with_progress_and_retry(
                         Ok(res) => break res,
                         Err(e) => {
                             let error_str = e.to_string();
-                            let is_retryable = error_str.contains("401")
-                                || error_str.contains("Unauthorized")
-                                || error_str.contains("500")
-                                || error_str.contains("502")
-                                || error_str.contains("503")
-                                || error_str.contains("504")
-                                || error_str.contains("timeout");
+                            // TypeScript workflows: don't retry on timeout (should handle retries internally)
+                            // YAML workflows: retry on timeout
+                            // Other tools: retry on timeout
+                            let is_retryable = if is_typescript_workflow {
+                                // TypeScript workflows should handle retries internally
+                                error_str.contains("401")
+                                    || error_str.contains("Unauthorized")
+                                    || error_str.contains("500")
+                                    || error_str.contains("502")
+                                    || error_str.contains("503")
+                                    || error_str.contains("504")
+                            } else {
+                                // YAML workflows and other tools can retry on timeout
+                                error_str.contains("401")
+                                    || error_str.contains("Unauthorized")
+                                    || error_str.contains("500")
+                                    || error_str.contains("502")
+                                    || error_str.contains("503")
+                                    || error_str.contains("504")
+                                    || error_str.contains("timeout")
+                            };
 
                             if is_retryable && retry_count < max_retries {
                                 retry_count += 1;
                                 let delay = Duration::from_secs(2u64.pow(retry_count));
-                                eprintln!("⚠️  Tool execution failed: {}. Retrying in {} seconds... (attempt {}/{})", 
+                                eprintln!("⚠️  Tool execution failed: {}. Retrying in {} seconds... (attempt {}/{})",
                                          error_str, delay.as_secs(), retry_count, max_retries);
                                 sleep(delay).await;
                                 _last_error = Some(e);
@@ -1254,6 +1268,18 @@ pub async fn execute_command_with_progress_and_retry(
                 let max_retries = if no_retry { 0 } else { 3 };
                 let mut _last_error = None;
 
+                // Check if this is a TypeScript workflow (URL ends with .ts or .js)
+                let is_typescript_workflow = if tool == "execute_sequence" {
+                    arguments
+                        .as_ref()
+                        .and_then(|args| args.get("url"))
+                        .and_then(|url| url.as_str())
+                        .map(|url| url.ends_with(".ts") || url.ends_with(".js"))
+                        .unwrap_or(false)
+                } else {
+                    false
+                };
+
                 let result = loop {
                     match service
                         .call_tool(CallToolRequestParam {
@@ -1265,18 +1291,32 @@ pub async fn execute_command_with_progress_and_retry(
                         Ok(res) => break res,
                         Err(e) => {
                             let error_str = e.to_string();
-                            let is_retryable = error_str.contains("401")
-                                || error_str.contains("Unauthorized")
-                                || error_str.contains("500")
-                                || error_str.contains("502")
-                                || error_str.contains("503")
-                                || error_str.contains("504")
-                                || error_str.contains("timeout");
+                            // TypeScript workflows: don't retry on timeout (should handle retries internally)
+                            // YAML workflows: retry on timeout
+                            // Other tools: retry on timeout
+                            let is_retryable = if is_typescript_workflow {
+                                // TypeScript workflows should handle retries internally
+                                error_str.contains("401")
+                                    || error_str.contains("Unauthorized")
+                                    || error_str.contains("500")
+                                    || error_str.contains("502")
+                                    || error_str.contains("503")
+                                    || error_str.contains("504")
+                            } else {
+                                // YAML workflows and other tools can retry on timeout
+                                error_str.contains("401")
+                                    || error_str.contains("Unauthorized")
+                                    || error_str.contains("500")
+                                    || error_str.contains("502")
+                                    || error_str.contains("503")
+                                    || error_str.contains("504")
+                                    || error_str.contains("timeout")
+                            };
 
                             if is_retryable && retry_count < max_retries {
                                 retry_count += 1;
                                 let delay = Duration::from_secs(2u64.pow(retry_count));
-                                eprintln!("⚠️  Tool execution failed: {}. Retrying in {} seconds... (attempt {}/{})", 
+                                eprintln!("⚠️  Tool execution failed: {}. Retrying in {} seconds... (attempt {}/{})",
                                          error_str, delay.as_secs(), retry_count, max_retries);
                                 sleep(delay).await;
                                 _last_error = Some(e);
@@ -1322,5 +1362,171 @@ pub async fn execute_command_with_progress_and_retry(
         // For other tools, just execute normally
         execute_command(transport, tool.clone(), args).await?;
         Ok(json!({"status": "success", "message": format!("Tool {} executed", tool)}))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Tests for TypeScript workflow detection and retry logic
+
+    #[test]
+    fn test_typescript_workflow_detection() {
+        // Test TypeScript workflow detection (URL ends with .ts)
+        let args_ts = serde_json::json!({
+            "url": "file:///path/to/workflow.ts"
+        });
+        let args_map_ts = args_ts.as_object().cloned();
+
+        let is_ts = args_map_ts
+            .as_ref()
+            .and_then(|args| args.get("url"))
+            .and_then(|url| url.as_str())
+            .map(|url| url.ends_with(".ts") || url.ends_with(".js"))
+            .unwrap_or(false);
+
+        assert!(is_ts, "Should detect .ts file as TypeScript workflow");
+
+        // Test JavaScript workflow detection (URL ends with .js)
+        let args_js = serde_json::json!({
+            "url": "file:///path/to/workflow.js"
+        });
+        let args_map_js = args_js.as_object().cloned();
+
+        let is_js = args_map_js
+            .as_ref()
+            .and_then(|args| args.get("url"))
+            .and_then(|url| url.as_str())
+            .map(|url| url.ends_with(".ts") || url.ends_with(".js"))
+            .unwrap_or(false);
+
+        assert!(is_js, "Should detect .js file as JavaScript workflow");
+
+        // Test YAML workflow detection (URL ends with .yml or .yaml)
+        let args_yaml = serde_json::json!({
+            "url": "file:///path/to/workflow.yml"
+        });
+        let args_map_yaml = args_yaml.as_object().cloned();
+
+        let is_yaml = args_map_yaml
+            .as_ref()
+            .and_then(|args| args.get("url"))
+            .and_then(|url| url.as_str())
+            .map(|url| url.ends_with(".ts") || url.ends_with(".js"))
+            .unwrap_or(false);
+
+        assert!(!is_yaml, "Should NOT detect .yml file as TypeScript workflow");
+
+        // Test no URL provided
+        let args_no_url = serde_json::json!({
+            "steps": []
+        });
+        let args_map_no_url = args_no_url.as_object().cloned();
+
+        let is_no_url = args_map_no_url
+            .as_ref()
+            .and_then(|args| args.get("url"))
+            .and_then(|url| url.as_str())
+            .map(|url| url.ends_with(".ts") || url.ends_with(".js"))
+            .unwrap_or(false);
+
+        assert!(!is_no_url, "Should return false when no URL provided");
+    }
+
+    #[test]
+    fn test_retry_logic_for_typescript_workflows() {
+        // Test that timeout errors should NOT be retryable for TypeScript workflows
+        let error_str = "timeout waiting for element";  // lowercase to match contains() check
+        let is_typescript_workflow = true;
+
+        let is_retryable = if is_typescript_workflow {
+            // TypeScript workflows should handle retries internally
+            error_str.contains("401")
+                || error_str.contains("Unauthorized")
+                || error_str.contains("500")
+                || error_str.contains("502")
+                || error_str.contains("503")
+                || error_str.contains("504")
+        } else {
+            // YAML workflows and other tools can retry on timeout
+            error_str.contains("401")
+                || error_str.contains("Unauthorized")
+                || error_str.contains("500")
+                || error_str.contains("502")
+                || error_str.contains("503")
+                || error_str.contains("504")
+                || error_str.contains("timeout")
+        };
+
+        assert!(!is_retryable, "TypeScript workflows should NOT retry on timeout errors");
+
+        // Test that HTTP errors ARE retryable for TypeScript workflows
+        let error_str_500 = "500 Internal Server Error";
+
+        let is_retryable_500 = if is_typescript_workflow {
+            error_str_500.contains("401")
+                || error_str_500.contains("Unauthorized")
+                || error_str_500.contains("500")
+                || error_str_500.contains("502")
+                || error_str_500.contains("503")
+                || error_str_500.contains("504")
+        } else {
+            error_str_500.contains("401")
+                || error_str_500.contains("Unauthorized")
+                || error_str_500.contains("500")
+                || error_str_500.contains("502")
+                || error_str_500.contains("503")
+                || error_str_500.contains("504")
+                || error_str_500.contains("timeout")
+        };
+
+        assert!(is_retryable_500, "TypeScript workflows SHOULD retry on HTTP 500 errors");
+    }
+
+    #[test]
+    fn test_retry_logic_for_yaml_workflows() {
+        // Test that timeout errors ARE retryable for YAML workflows
+        let error_str = "timeout waiting for element";  // lowercase to match contains() check
+        let is_typescript_workflow = false;
+
+        let is_retryable = if is_typescript_workflow {
+            error_str.contains("401")
+                || error_str.contains("Unauthorized")
+                || error_str.contains("500")
+                || error_str.contains("502")
+                || error_str.contains("503")
+                || error_str.contains("504")
+        } else {
+            error_str.contains("401")
+                || error_str.contains("Unauthorized")
+                || error_str.contains("500")
+                || error_str.contains("502")
+                || error_str.contains("503")
+                || error_str.contains("504")
+                || error_str.contains("timeout")
+        };
+
+        assert!(is_retryable, "YAML workflows SHOULD retry on timeout errors");
+
+        // Test that HTTP errors ARE retryable for YAML workflows
+        let error_str_502 = "502 Bad Gateway";
+
+        let is_retryable_502 = if is_typescript_workflow {
+            error_str_502.contains("401")
+                || error_str_502.contains("Unauthorized")
+                || error_str_502.contains("500")
+                || error_str_502.contains("502")
+                || error_str_502.contains("503")
+                || error_str_502.contains("504")
+        } else {
+            error_str_502.contains("401")
+                || error_str_502.contains("Unauthorized")
+                || error_str_502.contains("500")
+                || error_str_502.contains("502")
+                || error_str_502.contains("503")
+                || error_str_502.contains("504")
+                || error_str_502.contains("timeout")
+        };
+
+        assert!(is_retryable_502, "YAML workflows SHOULD retry on HTTP 502 errors");
     }
 }

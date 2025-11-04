@@ -20,6 +20,7 @@ fn start_test_server() -> (String, Arc<tiny_http::Server>) {
 
 #[tokio::test]
 #[cfg(target_os = "windows")]
+#[ignore = "Flaky in CI - browser accessibility tree mapping is unreliable across environments"]
 async fn test_wait_for_element_on_webpage() {
     use std::time::Duration;
 

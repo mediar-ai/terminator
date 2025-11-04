@@ -2229,19 +2229,16 @@ impl WindowsRecorder {
         };
 
         let ui_element = if ctx.config.capture_ui_elements {
-            // Use deepest element finder for more precise click detection
-            // Try with 350ms timeout first
-            let mut element =
-                Self::get_deepest_element_from_point_with_timeout(ctx.config, *ctx.position, 350);
+            // Try to get deepest element with 5 second timeout for slow UIA implementations (File Explorer)
+            // If deepest traversal fails, the function will automatically return surface element as fallback
+            debug!("Attempting to capture UI element with 5000ms timeout (auto-fallback to surface element)...");
+            let element =
+                Self::get_deepest_element_from_point_with_timeout(ctx.config, *ctx.position, 5000);
 
-            // If first attempt failed, retry once with another 350ms
-            if element.is_none() {
-                debug!("First element capture attempt failed, retrying with 350ms timeout...");
-                element = Self::get_deepest_element_from_point_with_timeout(
-                    ctx.config,
-                    *ctx.position,
-                    350,
-                );
+            if element.is_some() {
+                debug!("✓ Successfully captured UI element");
+            } else {
+                debug!("✗ Element capture failed (timeout or UIA error)");
             }
 
             element
@@ -2738,8 +2735,9 @@ impl WindowsRecorder {
         let _ = ctx.event_tx.send(WorkflowEvent::Mouse(mouse_event));
     }
 
-    /// Find the deepest/most specific element at the given coordinates.
+    /// Find the deepest/most specific element at the given coordinates with automatic fallback.
     /// This drills down through the UI hierarchy to find the smallest element that contains the click point.
+    /// If deepest traversal fails, automatically returns the surface element as fallback.
     fn get_deepest_element_from_point_with_timeout(
         config: &WorkflowRecorderConfig,
         position: Position,
@@ -2753,17 +2751,23 @@ impl WindowsRecorder {
                 let automation = Self::create_configured_automation_instance(&config_clone).ok()?;
                 let point = Point::new(position.x, position.y);
                 let element = automation.element_from_point(point).ok()?;
-                let terminator_element = convert_uiautomation_element_to_terminator(element);
+                let surface_element = convert_uiautomation_element_to_terminator(element);
 
                 // Find the deepest element that contains our click point
-                Self::find_deepest_element_at_coordinates(&terminator_element, position)
+                // If this fails/times out, we'll return the surface element as fallback
+                if let Some(deepest) = Self::find_deepest_element_at_coordinates(&surface_element, position) {
+                    Some(deepest)
+                } else {
+                    // Fallback to surface element if deepest search failed
+                    debug!("Deepest element search failed, returning surface element as fallback");
+                    Some(surface_element)
+                }
             })();
             let _ = tx.send(result);
         });
 
         match rx.recv_timeout(Duration::from_millis(timeout_ms)) {
-            Ok(Some(element)) => Some(element),
-            Ok(None) => None,
+            Ok(result) => result,  // Result is already Option<UIElement> due to ? operators in closure
             Err(_) => {
                 debug!(
                     "UIA call to get deepest element from point timed out after {}ms.",

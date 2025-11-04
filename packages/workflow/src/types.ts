@@ -16,34 +16,41 @@ export interface Logger {
 
 /**
  * Workflow context shared between steps
+ * @template TInput - Type of workflow input
+ * @template TState - Type of accumulated state from previous steps
  */
-export interface WorkflowContext {
-  /** Mutable data storage shared between steps */
-  data: any;
-  /** Additional state storage */
-  state: Record<string, any>;
-  /** Workflow input variables */
-  variables: any;
+export interface WorkflowContext<TInput = any, TState = Record<string, any>> {
+  /** Mutable data storage shared between steps - keyed by step ID */
+  data: Record<string, any>;
+  /** Additional state storage - typed based on accumulated step outputs */
+  state: TState;
+  /** Workflow input variables - typed from Zod schema */
+  variables: TInput;
 }
 
 /**
  * Step execution context
+ * @template TInput - Type of workflow input
+ * @template TState - Type of accumulated state from previous steps
  */
-export interface StepContext<TInput = any> {
+export interface StepContext<TInput = any, TState = Record<string, any>> {
   /** Desktop automation instance */
   desktop: import('@mediar-ai/terminator').Desktop;
   /** Workflow input (validated by Zod schema) */
   input: TInput;
-  /** Shared workflow context */
-  context: WorkflowContext;
+  /** Shared workflow context with typed state and variables */
+  context: WorkflowContext<TInput, TState>;
   /** Logger instance */
   logger: Logger;
 }
 
 /**
  * Error recovery context
+ * @template TInput - Type of workflow input
+ * @template TOutput - Type of step output
+ * @template TState - Type of accumulated state from previous steps
  */
-export interface ErrorContext<TInput = any, TOutput = any> {
+export interface ErrorContext<TInput = any, TOutput = any, TState = Record<string, any>> {
   /** The error that occurred */
   error: Error;
   /** Desktop instance for recovery actions */
@@ -54,8 +61,8 @@ export interface ErrorContext<TInput = any, TOutput = any> {
   attempt: number;
   /** Workflow input */
   input: TInput;
-  /** Shared context */
-  context: WorkflowContext;
+  /** Shared context with typed state and variables */
+  context: WorkflowContext<TInput, TState>;
   /** Logger instance */
   logger: Logger;
 }
@@ -84,16 +91,19 @@ export interface ExpectationResult {
 
 /**
  * Expectation context - runs after execute() to verify step outcome
+ * @template TInput - Type of workflow input
+ * @template TOutput - Type of step output
+ * @template TState - Type of accumulated state from previous steps
  */
-export interface ExpectationContext<TInput = any, TOutput = any> {
+export interface ExpectationContext<TInput = any, TOutput = any, TState = Record<string, any>> {
   /** Desktop instance for validation checks */
   desktop: import('@mediar-ai/terminator').Desktop;
   /** Workflow input */
   input: TInput;
   /** Result from execute() */
   result: TOutput;
-  /** Shared context */
-  context: WorkflowContext;
+  /** Shared context with typed state and variables */
+  context: WorkflowContext<TInput, TState>;
   /** Logger instance */
   logger: Logger;
 }
@@ -158,18 +168,29 @@ export interface ExecutionResponse<TData = any> {
 
 /**
  * Step execution result - enforces structured output
+ * @template TData - Type of data returned by the step
+ * @template TStateUpdate - Type of state updates (will be merged with existing state)
  */
-export interface StepResult<TData = any> {
+export interface StepResult<TData = any, TStateUpdate = Record<string, any>> {
   /** Optional data to store in workflow context */
   data?: TData;
   /** Optional state updates to merge into workflow context.state */
-  state?: Record<string, any>;
+  state?: TStateUpdate;
 }
 
 /**
  * Step configuration
+ * @template TInput - Type of workflow input
+ * @template TOutput - Type of step output (data)
+ * @template TStateIn - Type of state available from previous steps
+ * @template TStateOut - Type of state updates this step produces
  */
-export interface StepConfig<TInput = any, TOutput = any> {
+export interface StepConfig<
+  TInput = any,
+  TOutput = any,
+  TStateIn extends Record<string, any> = Record<string, any>,
+  TStateOut extends Record<string, any> = Record<string, any>
+> {
   /** Unique step identifier */
   id: string;
   /** Human-readable step name */
@@ -185,31 +206,44 @@ export interface StepConfig<TInput = any, TOutput = any> {
    * - void (for side-effect only steps)
    * - Plain object (backward compatibility - will be wrapped in StepResult)
    */
-  execute: (context: StepContext<TInput>) => Promise<StepResult<TOutput> | TOutput | void>;
+  execute: (
+    context: StepContext<TInput, TStateIn>
+  ) => Promise<StepResult<TOutput, TStateOut> | TOutput | void>;
 
   /** Expectation validation - runs after execute() to verify outcome */
-  expect?: (context: ExpectationContext<TInput, TOutput>) => Promise<ExpectationResult>;
+  expect?: (
+    context: ExpectationContext<TInput, TOutput, TStateIn>
+  ) => Promise<ExpectationResult>;
 
   /** Error recovery function */
   onError?: (
-    context: ErrorContext<TInput, TOutput>
+    context: ErrorContext<TInput, TOutput, TStateIn>
   ) => Promise<ErrorRecoveryResult | void>;
 
   /** Step timeout in milliseconds */
   timeout?: number;
 
   /** Condition to determine if step should run */
-  condition?: (context: { input: TInput; context: WorkflowContext }) => boolean;
+  condition?: (context: { input: TInput; context: WorkflowContext<TInput, TStateIn> }) => boolean;
 }
 
 /**
  * Step instance
+ * @template TInput - Type of workflow input
+ * @template TOutput - Type of step output
+ * @template TStateIn - Type of state available from previous steps
+ * @template TStateOut - Type of state updates this step produces
  */
-export interface Step<TInput = any, TOutput = any> {
-  config: StepConfig<TInput, TOutput>;
+export interface Step<
+  TInput = any,
+  TOutput = any,
+  TStateIn extends Record<string, any> = Record<string, any>,
+  TStateOut extends Record<string, any> = Record<string, any>
+> {
+  config: StepConfig<TInput, TOutput, TStateIn, TStateOut>;
 
   /** Execute the step */
-  run(context: StepContext<TInput>): Promise<TOutput | void>;
+  run(context: StepContext<TInput, TStateIn>): Promise<TOutput | void>;
 
   /** Get step metadata */
   getMetadata(): {
@@ -242,13 +276,13 @@ export interface WorkflowConfig<TInput = any> {
 /**
  * Workflow execution context
  */
-export interface WorkflowExecutionContext<TInput = any> {
+export interface WorkflowExecutionContext<TInput = any, TState = Record<string, any>> {
   /** Current step being executed */
   step: Step;
   /** Workflow input */
   input: TInput;
-  /** Shared context */
-  context: WorkflowContext;
+  /** Shared context with typed state and variables */
+  context: WorkflowContext<TInput, TState>;
   /** Logger */
   logger: Logger;
 }
@@ -256,11 +290,11 @@ export interface WorkflowExecutionContext<TInput = any> {
 /**
  * Workflow success handler context
  */
-export interface WorkflowSuccessContext<TInput = any> {
+export interface WorkflowSuccessContext<TInput = any, TState = Record<string, any>> {
   /** Workflow input */
   input: TInput;
-  /** Final context state */
-  context: WorkflowContext;
+  /** Final context state with typed state and variables */
+  context: WorkflowContext<TInput, TState>;
   /** Logger */
   logger: Logger;
   /** Execution duration in ms */
@@ -270,15 +304,15 @@ export interface WorkflowSuccessContext<TInput = any> {
 /**
  * Workflow error handler context
  */
-export interface WorkflowErrorContext<TInput = any> {
+export interface WorkflowErrorContext<TInput = any, TState = Record<string, any>> {
   /** The error that occurred */
   error: Error;
   /** Step where error occurred */
   step: Step;
   /** Workflow input */
   input: TInput;
-  /** Context at time of error */
-  context: WorkflowContext;
+  /** Context at time of error with typed state and variables */
+  context: WorkflowContext<TInput, TState>;
   /** Logger */
   logger: Logger;
 }

@@ -27,7 +27,6 @@ futures = "0.3"
 thiserror = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-anyhow = "1.0"
 rdev = "0.5.2"
 notify = "8.0"
 arboard = "3.0"

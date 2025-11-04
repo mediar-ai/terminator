@@ -528,6 +528,115 @@ impl WindowsEngine {
 
         best_match.map(|window| (window, best_score))
     }
+
+    /// Helper function to check if an element matches a selector
+    /// Used for filtering elements in AND operations
+    fn element_matches_selector(
+        &self,
+        element: &UIElement,
+        selector: &Selector,
+    ) -> Result<bool, AutomationError> {
+        // Get the underlying Windows element
+        let win_element = if let Some(ele) = element.as_any().downcast_ref::<WindowsUIElement>() {
+            &ele.element.0
+        } else {
+            return Ok(false);
+        };
+
+        match selector {
+            Selector::Role { role, name } => {
+                // Check role
+                let element_role = win_element.get_control_type().ok();
+                let expected_type = map_generic_role_to_win_roles(role);
+
+                let role_matches = if let Some(elem_type) = element_role {
+                    elem_type == expected_type
+                } else {
+                    false
+                };
+
+                if !role_matches {
+                    return Ok(false);
+                }
+
+                // Check name if specified
+                if let Some(expected_name) = name {
+                    let element_name = win_element.get_name().unwrap_or_default();
+                    Ok(element_name.contains(expected_name))
+                } else {
+                    Ok(true)
+                }
+            }
+            Selector::Name(expected_name) => {
+                let element_name = win_element.get_name().unwrap_or_default();
+                Ok(element_name.contains(expected_name))
+            }
+            Selector::Text(expected_text) => {
+                let element_name = win_element.get_name().unwrap_or_default();
+                // Value property might not exist for all elements, check if it's a text-like element
+                Ok(element_name.contains(expected_text))
+            }
+            Selector::ClassName(expected_class) => {
+                let element_class = win_element.get_classname().unwrap_or_default();
+                Ok(element_class == *expected_class)
+            }
+            Selector::Visible(expected_visibility) => {
+                let is_visible = !win_element.is_offscreen().unwrap_or(true);
+                Ok(is_visible == *expected_visibility)
+            }
+            Selector::Id(expected_id) => {
+                let target_id = expected_id.strip_prefix('#').unwrap_or(expected_id);
+                match generate_element_id(win_element)
+                    .map(|id| id.to_string().chars().take(6).collect::<String>())
+                {
+                    Ok(element_id) => Ok(element_id == target_id),
+                    Err(_) => Ok(false),
+                }
+            }
+            Selector::And(selectors) => {
+                // Recursively check all AND conditions
+                for sel in selectors {
+                    if !self.element_matches_selector(element, sel)? {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
+            Selector::Or(selectors) => {
+                // Check if any OR condition matches
+                for sel in selectors {
+                    if self.element_matches_selector(element, sel)? {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            }
+            Selector::Not(inner_selector) => {
+                // Negate the inner selector
+                Ok(!self.element_matches_selector(element, inner_selector)?)
+            }
+            // Complex selectors that would need more context
+            Selector::Chain(_)
+            | Selector::Has(_)
+            | Selector::Parent
+            | Selector::RightOf(_)
+            | Selector::LeftOf(_)
+            | Selector::Above(_)
+            | Selector::Below(_)
+            | Selector::Near(_)
+            | Selector::Path(_)
+            | Selector::NativeId(_)
+            | Selector::Attributes(_)
+            | Selector::Filter(_)
+            | Selector::LocalizedRole(_)
+            | Selector::Nth(_)
+            | Selector::Invalid(_) => {
+                // These selectors require searching relative to other elements or are complex queries
+                // For now, we'll return false as they can't be evaluated on a single element
+                Ok(false)
+            }
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -781,30 +890,37 @@ impl AccessibilityEngine for WindowsEngine {
                     return Ok(Vec::new());
                 }
 
-                // Find elements matching first selector
-                let mut result_set: std::collections::HashSet<UIElement> = self
-                    .find_elements(&selectors[0], root, timeout, depth)?
-                    .into_iter()
-                    .collect();
+                // For AND, we need to find elements that match ALL conditions
+                // We can't just intersect separate sets because that would only work if
+                // the elements are found by each selector independently.
+                // Instead, we need to check each element against all conditions.
 
-                // Intersect with each subsequent selector
-                for sel in &selectors[1..] {
-                    let next_set: std::collections::HashSet<UIElement> = self
-                        .find_elements(sel, root, timeout, depth)?
-                        .into_iter()
-                        .collect();
+                // First, we need to get all candidate elements. We'll use a broad search
+                // and then filter. The challenge is determining what "all elements" means.
+                // We'll use the first selector to get candidates, then filter by the rest.
 
-                    result_set = result_set
-                        .into_iter()
-                        .filter(|el| next_set.contains(el))
-                        .collect();
+                // Get initial candidates from the first selector
+                let candidates = self.find_elements(&selectors[0], root, timeout, depth)?;
 
-                    if result_set.is_empty() {
-                        break;
+                // Filter candidates by checking if they match ALL remaining selectors
+                let mut results = Vec::new();
+                for candidate in candidates {
+                    let mut matches_all = true;
+
+                    // Check if this candidate matches all other selectors
+                    for sel in &selectors[1..] {
+                        if !self.element_matches_selector(&candidate, sel)? {
+                            matches_all = false;
+                            break;
+                        }
+                    }
+
+                    if matches_all {
+                        results.push(candidate);
                     }
                 }
 
-                Ok(result_set.into_iter().collect())
+                Ok(results)
             }
             Selector::Or(selectors) => {
                 let mut seen = std::collections::HashSet::new();
@@ -1046,7 +1162,7 @@ impl AccessibilityEngine for WindowsEngine {
                     .0
                     .create_matcher()
                     .from_ref(root_ele)
-                    .depth(depth.unwrap_or(50) as u32)
+                    .depth(depth.unwrap_or(500) as u32) // Increased default depth for deep web applications in browsers
                     .filter_fn(Box::new(move |e: &uiautomation::UIElement| {
                         match e.get_automation_id() {
                             Ok(id) => {
@@ -1744,7 +1860,7 @@ impl AccessibilityEngine for WindowsEngine {
                     .0
                     .create_matcher()
                     .from_ref(root_ele)
-                    .depth(50) // Add depth limit
+                    .depth(500) // Increased depth for deep web applications in browsers
                     .filter_fn(Box::new(move |e: &uiautomation::UIElement| {
                         match e.get_automation_id() {
                             Ok(id) => {

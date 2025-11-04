@@ -7,6 +7,7 @@ mod get_applications_tests;
 mod high_level_inputs_tests;
 #[cfg(all(test, target_os = "windows"))]
 mod id_stability_tests;
+mod notepad_selector_test;
 #[cfg(test)]
 mod parent_navigation_tests;
 #[cfg(test)]

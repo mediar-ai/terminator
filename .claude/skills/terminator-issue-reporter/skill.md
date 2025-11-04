@@ -181,7 +181,7 @@ Title: [Auto-generated concise title]
 
 🔗 **Next Steps:**
 1. Review issue above
-2. Click to create: https://github.com/louis030195/terminator/issues/new
+2. Click to create: https://github.com/mediar-ai/terminator/issues/new
 3. Copy issue body (I can do this for you)
 
 💡 **Immediate Workaround:**

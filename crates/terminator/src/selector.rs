@@ -70,6 +70,24 @@ enum Token {
     RParen, // )
 }
 
+/// Check if a string has unbalanced parentheses
+fn has_unbalanced_parens(s: &str) -> bool {
+    let mut depth = 0;
+    for ch in s.chars() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth < 0 {
+                    return true; // More closing than opening
+                }
+            }
+            _ => {}
+        }
+    }
+    depth != 0 // Unbalanced if depth is not zero
+}
+
 /// Tokenize a selector string into tokens for boolean expression parsing
 fn tokenize(input: &str) -> Result<Vec<Token>, String> {
     let mut tokens = Vec::new();
@@ -78,14 +96,7 @@ fn tokenize(input: &str) -> Result<Vec<Token>, String> {
 
     while let Some(ch) = chars.next() {
         match ch {
-            // Whitespace - flush current token
-            ' ' | '\t' | '\n' | '\r' => {
-                if !current.is_empty() {
-                    tokens.push(Token::Selector(current.trim().to_string()));
-                    current.clear();
-                }
-            }
-            // Parentheses
+            // Parentheses - these are operators/delimiters
             '(' => {
                 if !current.is_empty() {
                     tokens.push(Token::Selector(current.trim().to_string()));
@@ -100,47 +111,77 @@ fn tokenize(input: &str) -> Result<Vec<Token>, String> {
                 }
                 tokens.push(Token::RParen);
             }
-            // Logical operators
+            // Logical operators - check for && and ||
             '&' => {
+                // Look ahead for second &
                 if chars.peek() == Some(&'&') {
                     chars.next(); // consume second &
+
+                    // Check if we should flush surrounding whitespace
+                    // Trim whitespace from current token before pushing
                     if !current.is_empty() {
                         tokens.push(Token::Selector(current.trim().to_string()));
                         current.clear();
                     }
                     tokens.push(Token::And);
+
+                    // Skip any following whitespace
+                    while chars.peek() == Some(&' ') || chars.peek() == Some(&'\t') {
+                        chars.next();
+                    }
                 } else {
+                    // Single &, add to current selector
                     current.push(ch);
                 }
             }
             '|' => {
+                // Look ahead for second |
                 if chars.peek() == Some(&'|') {
                     chars.next(); // consume second |
+
+                    // Trim whitespace from current token before pushing
                     if !current.is_empty() {
                         tokens.push(Token::Selector(current.trim().to_string()));
                         current.clear();
                     }
                     tokens.push(Token::Or);
+
+                    // Skip any following whitespace
+                    while chars.peek() == Some(&' ') || chars.peek() == Some(&'\t') {
+                        chars.next();
+                    }
                 } else {
                     // Single pipe - could be legacy role|name syntax or part of selector
                     current.push(ch);
                 }
             }
             ',' => {
+                // Comma is an OR operator
                 if !current.is_empty() {
                     tokens.push(Token::Selector(current.trim().to_string()));
                     current.clear();
                 }
                 tokens.push(Token::Or);
+
+                // Skip any following whitespace
+                while chars.peek() == Some(&' ') || chars.peek() == Some(&'\t') {
+                    chars.next();
+                }
             }
             '!' => {
+                // NOT operator
                 if !current.is_empty() {
                     tokens.push(Token::Selector(current.trim().to_string()));
                     current.clear();
                 }
                 tokens.push(Token::Not);
             }
-            // Everything else is part of a selector
+            // Whitespace handling - only skip leading whitespace after operators
+            ' ' | '\t' | '\n' | '\r' if current.is_empty() => {
+                // Skip leading whitespace
+                continue;
+            }
+            // Everything else (including spaces within selectors) is part of a selector
             _ => current.push(ch),
         }
     }
@@ -421,7 +462,23 @@ impl From<&str> for Selector {
         if s.contains(">>") {
             let parts: Vec<&str> = s.split(">>").map(|p| p.trim()).collect();
             if parts.len() > 1 {
-                return Selector::Chain(parts.into_iter().map(Selector::from).collect());
+                // Strip outer parentheses from each part if present
+                let cleaned_parts: Vec<Selector> = parts.into_iter()
+                    .map(|part| {
+                        let trimmed = part.trim();
+                        // Check if the part is wrapped in parentheses
+                        if trimmed.starts_with('(') && trimmed.ends_with(')') {
+                            // Check if these are truly outer parentheses (balanced)
+                            let inner = &trimmed[1..trimmed.len()-1];
+                            // Only strip if the parentheses are balanced at this level
+                            if !has_unbalanced_parens(inner) {
+                                return Selector::from(inner);
+                            }
+                        }
+                        Selector::from(trimmed)
+                    })
+                    .collect();
+                return Selector::Chain(cleaned_parts);
             }
         }
 
@@ -446,5 +503,120 @@ impl From<&str> for Selector {
 
         // No boolean operators - parse as atomic selector
         parse_atomic_selector(s)
+    }
+}
+// Comprehensive unit tests for selector parsing and behavior
+
+#[cfg(test)]
+#[path = "selector_tests.rs"]
+mod selector_tests;
+
+#[cfg(test)]
+mod debug_selector_test {
+    use crate::selector::Selector;
+
+    #[test]
+    fn test_debug_best_plan_pro() {
+        let input = "(role:Window && name:Best Plan Pro) >> nativeid:dob";
+        println!("Testing selector: {}", input);
+
+        let selector = Selector::from(input);
+        println!("Parsed result: {:?}", selector);
+
+        // Let's see what we actually get
+        match &selector {
+            Selector::Chain(parts) => {
+                println!("Got Chain with {} parts:", parts.len());
+                for (i, part) in parts.iter().enumerate() {
+                    println!("  Part {}: {:?}", i, part);
+                }
+            }
+            Selector::Invalid(msg) => {
+                println!("Got Invalid selector: {}", msg);
+            }
+            other => {
+                println!("Got unexpected selector type: {:?}", other);
+            }
+        }
+    }
+
+    #[test]
+    fn test_debug_parentheses_only() {
+        let input = "(role:Window && name:Best Plan Pro)";
+        println!("Testing selector: {}", input);
+
+        let selector = Selector::from(input);
+        println!("Parsed result: {:?}", selector);
+    }
+
+    #[test]
+    fn test_debug_chain_simple() {
+        let input = "role:Window >> nativeid:dob";
+        println!("Testing selector: {}", input);
+
+        let selector = Selector::from(input);
+        println!("Parsed result: {:?}", selector);
+    }
+
+    #[test]
+    fn test_debug_and_no_parens() {
+        let input = "role:Window && name:Best Plan Pro";
+        println!("Testing selector: {}", input);
+
+        let selector = Selector::from(input);
+        println!("Parsed result: {:?}", selector);
+    }
+}// Debug test to understand tokenization issue
+
+#[cfg(test)]
+mod tokenizer_debug_test {
+    use crate::selector::tokenize;
+
+    #[test]
+    fn test_tokenize_simple_and() {
+        let input = "role:Window && name:Best Plan Pro";
+        println!("Tokenizing: {}", input);
+
+        match tokenize(input) {
+            Ok(tokens) => {
+                println!("Tokens ({} total):", tokens.len());
+                for (i, token) in tokens.iter().enumerate() {
+                    println!("  [{}] {:?}", i, token);
+                }
+            }
+            Err(e) => println!("Tokenization error: {}", e),
+        }
+    }
+
+    #[test]
+    fn test_tokenize_with_parentheses() {
+        let input = "(role:Window && name:Best Plan Pro)";
+        println!("Tokenizing: {}", input);
+
+        match tokenize(input) {
+            Ok(tokens) => {
+                println!("Tokens ({} total):", tokens.len());
+                for (i, token) in tokens.iter().enumerate() {
+                    println!("  [{}] {:?}", i, token);
+                }
+            }
+            Err(e) => println!("Tokenization error: {}", e),
+        }
+    }
+
+    #[test]
+    fn test_tokenize_spaces_in_name() {
+        let input = "name:Best Plan Pro";
+        println!("Tokenizing: {}", input);
+
+        match tokenize(input) {
+            Ok(tokens) => {
+                println!("Tokens ({} total):", tokens.len());
+                for (i, token) in tokens.iter().enumerate() {
+                    println!("  [{}] {:?}", i, token);
+                }
+            }
+            Err(e) => println!("Tokenization error: {}", e),
+        }
     }
 }

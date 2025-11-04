@@ -11,10 +11,11 @@ import {
 } from './types';
 
 /**
- * Creates a workflow step
+ * Creates a workflow step with optional type inference for state
  *
  * @example
  * ```typescript
+ * // Basic step
  * const login = createStep({
  *   id: 'login',
  *   name: 'Login to Application',
@@ -28,15 +29,30 @@ import {
  *     }
  *   }
  * });
+ *
+ * // Step with typed state
+ * const processData = createStep<MyInput, MyOutput, { userId: string }, { processedCount: number }>({
+ *   id: 'process',
+ *   name: 'Process Data',
+ *   execute: async ({ context }) => {
+ *     const id = context.state.userId; // TypeScript knows this is a string
+ *     return { state: { processedCount: 42 } };
+ *   }
+ * });
  * ```
  */
-export function createStep<TInput = any, TOutput = any>(
-  config: StepConfig<TInput, TOutput>
-): Step<TInput, TOutput> {
+export function createStep<
+  TInput = any,
+  TOutput = any,
+  TStateIn extends Record<string, any> = Record<string, any>,
+  TStateOut extends Record<string, any> = Record<string, any>
+>(
+  config: StepConfig<TInput, TOutput, TStateIn, TStateOut>
+): Step<TInput, TOutput, TStateIn, TStateOut> {
   return {
     config,
 
-    async run(context: StepContext<TInput>): Promise<TOutput | void> {
+    async run(context: StepContext<TInput, TStateIn>): Promise<TOutput | void> {
       const { logger } = context;
       const startTime = Date.now();
 
@@ -74,13 +90,13 @@ export function createStep<TInput = any, TOutput = any>(
         }
 
         // Normalize result to StepResult format
-        let normalizedResult: StepResult<TOutput> | void;
+        let normalizedResult: StepResult<TOutput, TStateOut> | void;
 
         if (result === undefined || result === null) {
           normalizedResult = undefined;
         } else if (typeof result === 'object' && ('data' in result || 'state' in result)) {
           // Already a StepResult
-          normalizedResult = result as StepResult<TOutput>;
+          normalizedResult = result as StepResult<TOutput, TStateOut>;
         } else {
           // Plain object - wrap it as state updates for backward compatibility
           normalizedResult = { state: result as any };
@@ -100,7 +116,7 @@ export function createStep<TInput = any, TOutput = any>(
         if (config.expect) {
           logger.info(`🔍 Validating expectations for: ${config.name}`);
 
-          const expectContext: ExpectationContext<TInput, TOutput> = {
+          const expectContext: ExpectationContext<TInput, TOutput, TStateIn> = {
             desktop: context.desktop,
             input: context.input,
             result: normalizedResult?.data as TOutput,
@@ -140,7 +156,7 @@ export function createStep<TInput = any, TOutput = any>(
 
         // Try error recovery if handler provided
         if (config.onError) {
-          const errorContext: ErrorContext<TInput, TOutput> = {
+          const errorContext: ErrorContext<TInput, TOutput, TStateIn> = {
             error,
             desktop: context.desktop,
             input: context.input,

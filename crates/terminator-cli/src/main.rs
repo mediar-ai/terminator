@@ -7,7 +7,7 @@
 //!
 //! Usage from workspace root:
 //!   cargo run --bin terminator -- patch      # Bump patch version
-//!   cargo run --bin terminator -- minor      # Bump minor version  
+//!   cargo run --bin terminator -- minor      # Bump minor version
 //!   cargo run --bin terminator -- major      # Bump major version
 //!   cargo run --bin terminator -- sync       # Sync all versions
 //!   cargo run --bin terminator -- status     # Show current status
@@ -21,7 +21,7 @@ use serde_json::Value;
 use std::env;
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader as AsyncBufReader};
@@ -1023,26 +1023,11 @@ async fn run_logged_workflow(_args: McpRunArgs) -> anyhow::Result<()> {
     use chrono::Local;
     use colored::Colorize;
 
-    // Get the log directory path
-    let log_dir = if cfg!(target_os = "windows") {
-        env::var("LOCALAPPDATA")
-            .map(|p| PathBuf::from(p).join("terminator").join("workflow-results"))
-            .or_else(|_| {
-                env::var("APPDATA")
-                    .map(|p| PathBuf::from(p).join("terminator").join("workflow-results"))
-            })
-            .unwrap_or_else(|_| PathBuf::from("C:\\temp\\terminator\\workflow-results"))
-    } else {
-        env::var("HOME")
-            .map(|p| {
-                PathBuf::from(p)
-                    .join(".local")
-                    .join("share")
-                    .join("terminator")
-                    .join("workflow-results")
-            })
-            .unwrap_or_else(|_| PathBuf::from("/tmp/terminator/workflow-results"))
-    };
+    // Get the log directory path using standard directories
+    let log_dir = dirs::cache_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("terminator")
+        .join("workflow-results");
 
     // Create directory if it doesn't exist
     fs::create_dir_all(&log_dir)?;
@@ -1225,26 +1210,12 @@ async fn run_workflow(transport: mcp_client::Transport, args: McpRunArgs) -> any
         let log_dir = if let Ok(custom_dir) = env::var("TERMINATOR_LOG_DIR") {
             // User-specified log directory via environment variable
             std::path::PathBuf::from(custom_dir)
-        } else if cfg!(target_os = "windows") {
-            // Windows: Use %LOCALAPPDATA%\terminator\logs or fallback to %TEMP%\terminator\logs
-            env::var("LOCALAPPDATA")
-                .map(|p| std::path::PathBuf::from(p).join("terminator").join("logs"))
-                .or_else(|_| {
-                    env::var("TEMP")
-                        .map(|p| std::path::PathBuf::from(p).join("terminator").join("logs"))
-                })
-                .unwrap_or_else(|_| std::path::PathBuf::from("C:\\temp\\terminator\\logs"))
         } else {
-            // Unix/Linux/macOS: Use ~/.local/share/terminator/logs or /tmp/terminator/logs
-            env::var("HOME")
-                .map(|p| {
-                    std::path::PathBuf::from(p)
-                        .join(".local")
-                        .join("share")
-                        .join("terminator")
-                        .join("logs")
-                })
-                .unwrap_or_else(|_| std::path::PathBuf::from("/tmp/terminator/logs"))
+            // Use standard directories: data_local_dir on all platforms with temp fallback
+            dirs::data_local_dir()
+                .unwrap_or_else(std::env::temp_dir)
+                .join("terminator")
+                .join("logs")
         };
 
         // Create log directory if it doesn't exist
@@ -1701,7 +1672,65 @@ async fn run_workflow_once(
     // Resolve actual input type (auto-detect if needed)
     let resolved_type = determine_input_type(&args.input, args.input_type);
 
-    // Fetch workflow content
+    // Check if this is a TypeScript/JavaScript workflow
+    let is_ts_workflow =
+        typescript_workflow::is_typescript_workflow(&args.input, resolved_type == InputType::File);
+
+    // For TypeScript workflows, delegate to MCP server
+    if is_ts_workflow {
+        info!("Detected TypeScript/JavaScript workflow - delegating to MCP server");
+
+        // Convert to absolute path and create file:// URL
+        let file_url = typescript_workflow::path_to_file_url(&args.input)?;
+        info!("TypeScript workflow URL: {}", file_url);
+
+        // Build workflow args for TypeScript
+        let workflow_args = typescript_workflow::build_typescript_workflow_args(
+            file_url,
+            args.inputs.as_ref(),
+            args.start_from_step.as_ref(),
+            args.end_at_step.as_ref(),
+            args.follow_fallback,
+            args.execute_jumps_at_end,
+            args.no_stop_on_error,
+            args.no_detailed_results,
+        )?;
+
+        let workflow_str = serde_json::to_string(&workflow_args)?;
+        info!("Sending TypeScript workflow args to MCP: {}", workflow_str);
+
+        // Execute via MCP
+        let result_json = mcp_client::execute_command_with_progress_and_retry(
+            transport,
+            "execute_sequence".to_string(),
+            Some(workflow_str),
+            true, // Show progress for workflow steps
+            args.no_retry,
+        )
+        .await?;
+
+        // Parse and display the workflow result
+        let workflow_result = WorkflowResult::from_mcp_response(&result_json)?;
+        workflow_result.display();
+
+        // Always show parsed_output if it exists
+        if let Some(parsed_output) = result_json.get("parsed_output") {
+            println!("{}", "─".repeat(60));
+            println!("📋 Complete Output Parser Result:");
+            println!("{}", serde_json::to_string_pretty(parsed_output)?);
+        }
+
+        // If verbose mode, also show FULL raw MCP response
+        if args.verbose {
+            println!("{}", "─".repeat(60));
+            println!("📝 Full Raw MCP Response:");
+            println!("{}", serde_json::to_string_pretty(&result_json)?);
+        }
+
+        return Ok(());
+    }
+
+    // Fetch workflow content (for YAML workflows)
     let content = match resolved_type {
         InputType::File => read_local_file(&args.input).await?,
         InputType::Gist => {
