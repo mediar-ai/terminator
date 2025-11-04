@@ -294,6 +294,21 @@ const saveFile = createStep<WorkflowInput>({
     },
 });
 
+// Step 4: Close the editor
+const closeEditor = createStep<WorkflowInput>({
+    id: 'close-editor',
+    name: 'Close Editor',
+    description: 'Closes the Notepad window',
+    execute: async ({ desktop, logger, context }: StepContext<WorkflowInput>) => {
+        logger.info('Closing Notepad...');
+
+        const editor = context.data.editorWindow;
+        editor.close();
+
+        logger.success('✅ Notepad closed successfully');
+    },
+});
+
 // Create the workflow
 // TypeScript needs help: createWorkflow returns WorkflowBuilder | Workflow
 // Since we're not providing steps in config, we know it returns WorkflowBuilder
@@ -308,6 +323,7 @@ const meetingNotesWorkflow = (
     .step(openEditor)
     .step(typeNotes)
     .step(saveFile)
+    .step(closeEditor)
     .onSuccess(async ({ logger, context, duration }: WorkflowSuccessContext<WorkflowInput>) => {
         logger.info('');
         logger.success('📝 Meeting notes workflow completed successfully!');
