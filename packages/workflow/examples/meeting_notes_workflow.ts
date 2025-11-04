@@ -160,7 +160,6 @@ const openEditor = createStep<WorkflowInput>({
         logger.info('Opening Notepad...');
 
         const editor = desktop.openApplication('notepad.exe');
-        await desktop.delay(2000); // Wait for app to fully load
 
         // Store window reference in context for later steps
         context.data.editorWindow = editor;
