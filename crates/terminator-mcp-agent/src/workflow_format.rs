@@ -17,12 +17,13 @@ pub fn detect_workflow_format(url: &str) -> WorkflowFormat {
 
         // Check if it's a directory
         if path.is_dir() {
-            // Look for package.json AND workflow.ts/index.ts
+            // Look for package.json AND terminator.ts/workflow.ts/index.ts
             let package_json = path.join("package.json");
+            let terminator_ts = path.join("terminator.ts");
             let workflow_ts = path.join("workflow.ts");
             let index_ts = path.join("index.ts");
 
-            if package_json.exists() && (workflow_ts.exists() || index_ts.exists()) {
+            if package_json.exists() && (terminator_ts.exists() || workflow_ts.exists() || index_ts.exists()) {
                 return WorkflowFormat::TypeScript;
             }
         } else if path.is_file() {

@@ -307,6 +307,8 @@ export interface WorkflowSuccessContext<TInput = any, TState = Record<string, an
 export interface WorkflowErrorContext<TInput = any, TState = Record<string, any>> {
   /** The error that occurred */
   error: Error;
+  /** Desktop instance for recovery actions */
+  desktop: import('@mediar-ai/terminator').Desktop;
   /** Step where error occurred */
   step: Step;
   /** Workflow input */

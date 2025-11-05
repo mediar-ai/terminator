@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.10] - 2025-11-04
+
+### Added
+- MCP: Multi-instance mode with smart parent process checking for running multiple MCP servers
+- Workflow SDK: TypeScript workflows now have full feature parity with YAML workflows (partial execution, state restoration)
+- Testing: TERMINATOR_MCP_BINARY env var support for local binary testing without publishing
+
+### Fixed
+- Workflow SDK: TypeScript workflow execution now properly uses WorkflowRunner for advanced features
+- Tests: MCP integration test selectors fixed to use `role:Window` to avoid matching taskbar buttons
+- Workflow SDK: Made WorkflowExecutionResult fields optional to support both SDK and runner formats
+
+## [0.22.9] - 2025-11-04
+
+### Added
+- CLI: Automatic peerDependencies update for @mediar-ai/terminator in workflow package during version sync
+- Workflow format detection: Added support for `terminator.ts` as workflow entry file (alongside workflow.ts and index.ts)
+
+### Fixed
+- CI: Workflow package publish now waits for @mediar-ai/terminator to be available on NPM, preventing race condition errors
+- CI: Added dependency sequencing between publish-npm and publish-workflow workflows with 10-minute timeout
+
+### Changed
+- Workflow SDK: MCP integration tests refactored to use stdio transport with npx instead of hardcoded binary paths
+
+## [0.22.8] - 2025-11-04
+
+### Changed
+- Documentation: Updated CLAUDE.md with CLI workflow execution examples and best practices
+
+## [0.22.7] - 2025-11-04
+
+### Changed
+- CI: Upgraded macOS runners from macos-13/14 to macos-15
+- CI: Removed x86_64 macOS builds (Intel) - only ARM64 (Apple Silicon) supported going forward
+
 ## [0.22.6] - 2025-11-04
 
 ### Fixed

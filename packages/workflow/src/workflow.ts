@@ -171,6 +171,7 @@ function createWorkflowInstance<TInput = any>(
         if (config.onError) {
           try {
             const errorResponse = await config.onError({
+              desktop: desktopInstance,
               error,
               step: failedStep,
               input: validatedInput,
@@ -191,6 +192,7 @@ function createWorkflowInstance<TInput = any>(
         if (errorHandler) {
           try {
             await errorHandler({
+              desktop: desktopInstance,
               error,
               step: failedStep,
               input: validatedInput,

@@ -66,6 +66,12 @@ struct Args {
     /// When set, the MCP server will automatically shut down if the specified process terminates
     #[arg(long)]
     watch_pid: Option<u32>,
+
+    /// Enforce single instance mode (production mode)
+    /// When enabled, kills all other MCP agents to ensure only one instance runs
+    /// Default: false (allows multiple instances via smart parent checking)
+    #[arg(long)]
+    enforce_single_instance: bool,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -141,10 +147,16 @@ async fn watch_pid(pid: u32) {
     }
 }
 
-fn kill_previous_mcp_instances() {
+fn kill_previous_mcp_instances(enforce_single: bool) {
     let current_pid = std::process::id();
     let mut system = System::new();
     system.refresh_processes(ProcessesToUpdate::All, true);
+
+    if enforce_single {
+        eprintln!("🔒 Production mode: enforcing single instance");
+    } else {
+        eprintln!("🔧 Multi-instance mode: allowing multiple instances, only cleaning orphans");
+    }
 
     let mut killed_count = 0;
     for (pid, process) in system.processes() {
@@ -162,28 +174,64 @@ fn kill_previous_mcp_instances() {
             continue;
         }
 
-        // Check if parent is alive - if so, skip this process (belongs to another app)
-        if let Some(parent_pid) = process.parent() {
-            #[cfg(target_os = "windows")]
-            let parent_alive = is_process_alive(parent_pid.as_u32());
+        // Default (enforce_single=false): check if parent is alive (allow multiple instances)
+        // Production (enforce_single=true): kill all other instances
+        if !enforce_single {
+            // Multi-instance mode: only kill orphaned processes
+            if let Some(parent_pid) = process.parent() {
+                #[cfg(target_os = "windows")]
+                let parent_alive = is_process_alive(parent_pid.as_u32());
 
-            #[cfg(not(target_os = "windows"))]
-            let parent_alive = system.processes().contains_key(&parent_pid);
+                #[cfg(not(target_os = "windows"))]
+                let parent_alive = system.processes().contains_key(&parent_pid);
 
-            if parent_alive {
-                continue; // Parent alive, leave it alone
+                if parent_alive {
+                    eprintln!(
+                        "✅ Skipping {} PID {} (belongs to parent PID {}, still alive)",
+                        if process_name.contains("mcp-agent") {
+                            "MCP agent"
+                        } else {
+                            "bridge service"
+                        },
+                        pid.as_u32(),
+                        parent_pid.as_u32()
+                    );
+                    continue; // Parent alive, leave it alone
+                }
             }
         }
 
-        // Parent is dead or doesn't exist - kill the orphaned process
+        // Single-instance mode: kill all other instances
+        // Multi-instance mode: kill orphaned processes only (we reach here if no parent or parent is dead)
+        eprintln!(
+            "🔴 Killing {} PID {}{}",
+            if process_name.contains("mcp-agent") {
+                "MCP agent"
+            } else {
+                "bridge service"
+            },
+            pid.as_u32(),
+            if enforce_single {
+                " (enforcing single instance)"
+            } else {
+                " (orphaned)"
+            }
+        );
         if process.kill() {
             killed_count += 1;
+            eprintln!("✅ Successfully killed PID {}", pid.as_u32());
+        } else {
+            eprintln!(
+                "❌ Failed to kill PID {} (may require elevated permissions)",
+                pid.as_u32()
+            );
         }
     }
 
     if killed_count > 0 {
         eprintln!(
-            "Killed {killed_count} previous instance(s), waiting for ports to be released..."
+            "🧹 Cleaned up {} process(es), waiting for ports to be released...",
+            killed_count
         );
         // Increase wait time to 2 seconds for Windows to properly release ports
         std::thread::sleep(std::time::Duration::from_millis(2000));
@@ -208,6 +256,8 @@ fn kill_previous_mcp_instances() {
                 }
             }
         }
+    } else {
+        eprintln!("✨ No orphaned or conflicting processes found");
     }
 }
 
@@ -216,7 +266,7 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     // Kill any previous MCP instances before starting
-    kill_previous_mcp_instances();
+    kill_previous_mcp_instances(args.enforce_single_instance);
 
     // Install panic hook to prevent stdout corruption (used by other MCP servers)
     std::panic::set_hook(Box::new(|panic_info| {

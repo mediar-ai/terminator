@@ -33,11 +33,7 @@ jobs:
           #   archive: terminator-cli-linux-aarch64.tar.gz
           #   ext: ""
           # ---------- macOS ----------
-          - os: macos-13
-            target: x86_64-apple-darwin
-            archive: terminator-cli-macos-x86_64.tar.gz
-            ext: ""
-          - os: macos-14
+          - os: macos-15
             target: aarch64-apple-darwin
             archive: terminator-cli-macos-aarch64.tar.gz
             ext: ""
@@ -120,7 +116,6 @@ jobs:
 
             ### Available Downloads:
             - **Linux x64**: `terminator-cli-linux-x86_64.tar.gz`
-            - **macOS x64 (Intel)**: `terminator-cli-macos-x86_64.tar.gz`
             - **macOS ARM64 (Apple Silicon)**: `terminator-cli-macos-aarch64.tar.gz`
             - **Windows x64**: `terminator-cli-windows-x86_64.zip`
             - **Windows ARM64**: `terminator-cli-windows-aarch64.zip`

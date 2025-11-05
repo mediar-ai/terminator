@@ -287,9 +287,9 @@ impl TypeScriptWorkflow {
     fn create_execution_script(
         &self,
         inputs: Value,
-        _start_from_step: Option<&str>,
-        _end_at_step: Option<&str>,
-        _restored_state: Option<Value>,
+        start_from_step: Option<&str>,
+        end_at_step: Option<&str>,
+        restored_state: Option<Value>,
     ) -> Result<String, McpError> {
         let inputs_json = serde_json::to_string(&inputs).map_err(|e| {
             McpError::internal_error(
@@ -297,6 +297,12 @@ impl TypeScriptWorkflow {
                 Some(json!({"error": e.to_string()})),
             )
         })?;
+
+        let start_from_step_json = start_from_step.map(|s| format!("\"{}\"", s)).unwrap_or_else(|| "undefined".to_string());
+        let end_at_step_json = end_at_step.map(|s| format!("\"{}\"", s)).unwrap_or_else(|| "undefined".to_string());
+        let restored_state_json = restored_state.as_ref()
+            .map(|s| serde_json::to_string(s).unwrap_or_else(|_| "undefined".to_string()))
+            .unwrap_or_else(|| "undefined".to_string());
 
         // Convert Windows path to forward slashes for file:// URL
         let workflow_path_str = self.workflow_path.display().to_string();
@@ -339,9 +345,42 @@ try {{
         process.exit(0);
     }}
 
-    // Run the workflow
+    // Prepare execution options
     const inputs = {inputs_json};
-    const result = await workflow.run(inputs);
+    const startFromStep = {start_from_step_json};
+    const endAtStep = {end_at_step_json};
+    const restoredState = {restored_state_json};
+
+    // Use WorkflowRunner for advanced features (partial execution, state restoration)
+    let result;
+    let finalState;
+
+    if (startFromStep || endAtStep || restoredState) {{
+        // Import WorkflowRunner for partial execution
+        const {{ createWorkflowRunner }} = await import('file://{workflow_path}/node_modules/@mediar-ai/workflow/dist/runner.js');
+
+        const runner = createWorkflowRunner({{
+            workflow: workflow,
+            inputs: inputs,
+            startFromStep: startFromStep,
+            endAtStep: endAtStep,
+            restoredState: restoredState
+        }});
+
+        const runnerResult = await runner.run();
+        finalState = runner.getState();
+
+        // Convert runner result to workflow result format
+        result = {{
+            status: runnerResult.status,
+            message: runnerResult.error || `Workflow partial execution completed`,
+            data: finalState.context.data
+        }};
+    }} else {{
+        // Simple execution - use workflow.run() directly
+        result = await workflow.run(inputs);
+        finalState = {{}};
+    }}
 
     // Get metadata
     const metadata = workflow.getMetadata ? workflow.getMetadata() : {{
@@ -355,10 +394,10 @@ try {{
     originalLog(JSON.stringify({{
         metadata: metadata,
         result: result,
-        state: result.state || {{}}
+        state: finalState
     }}, null, 2));
 
-    process.exit(result.success ? 0 : 1);
+    process.exit(result.status === 'success' ? 0 : 1);
 }} catch (error) {{
     console.error('Workflow execution error:', error);
     originalLog(JSON.stringify({{
@@ -404,14 +443,9 @@ try {{
                 true
             } else {
                 // Compare modification times
-                let package_json_mtime = package_json_path
-                    .metadata()
-                    .and_then(|m| m.modified())
-                    .ok();
-                let lockfile_mtime = lockfile_path
-                    .metadata()
-                    .and_then(|m| m.modified())
-                    .ok();
+                let package_json_mtime =
+                    package_json_path.metadata().and_then(|m| m.modified()).ok();
+                let lockfile_mtime = lockfile_path.metadata().and_then(|m| m.modified()).ok();
 
                 match (package_json_mtime, lockfile_mtime) {
                     (Some(pkg_time), Some(lock_time)) => {
@@ -503,8 +537,11 @@ pub struct StepMetadata {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct WorkflowExecutionResult {
     pub status: String,
+    pub message: Option<String>,
+    pub data: Option<Value>,
+    // Fields from WorkflowRunner (optional for backward compat)
     pub last_step_id: Option<String>,
-    pub last_step_index: usize,
+    pub last_step_index: Option<usize>,
     pub error: Option<String>,
 }
 

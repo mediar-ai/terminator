@@ -2643,7 +2643,7 @@ impl WindowsRecorder {
                             .event_tx
                             .send(WorkflowEvent::BrowserClick(browser_click_event))
                         {
-                            debug!("Failed to send browser click event: {}", e);
+                            error!("❌ Failed to send BrowserClick event: {} - Event DROPPED! Channel may be full or lagging.", e);
                         } else {
                             debug!("✅ Browser click event sent successfully with DOM data");
                         }
@@ -2668,7 +2668,17 @@ impl WindowsRecorder {
                         )),
                     };
 
-                    let _ = ctx.event_tx.send(WorkflowEvent::Click(click_event));
+                    if let Err(e) = ctx.event_tx.send(WorkflowEvent::Click(click_event.clone())) {
+                        error!(
+                            "❌ Failed to send Click event for '{}' (role: '{}'): {} - Event DROPPED! Channel may be full or lagging.",
+                            click_event.element_text, click_event.element_role, e
+                        );
+                    } else {
+                        debug!(
+                            "✅ Click event sent successfully for '{}'",
+                            click_event.element_text
+                        );
+                    }
                 }
             }
         } else if button == MouseButton::Left {
@@ -2693,7 +2703,14 @@ impl WindowsRecorder {
                 },
             };
 
-            let _ = ctx.event_tx.send(WorkflowEvent::Click(click_event));
+            if let Err(e) = ctx.event_tx.send(WorkflowEvent::Click(click_event)) {
+                error!(
+                    "❌ Failed to send Click event (no UI element): {} - Event DROPPED! Channel may be full or lagging.",
+                    e
+                );
+            } else {
+                debug!("✅ Click event sent successfully (no UI element captured)");
+            }
         }
 
         let mouse_event = MouseEvent {
@@ -2755,7 +2772,9 @@ impl WindowsRecorder {
 
                 // Find the deepest element that contains our click point
                 // If this fails/times out, we'll return the surface element as fallback
-                if let Some(deepest) = Self::find_deepest_element_at_coordinates(&surface_element, position) {
+                if let Some(deepest) =
+                    Self::find_deepest_element_at_coordinates(&surface_element, position)
+                {
                     Some(deepest)
                 } else {
                     // Fallback to surface element if deepest search failed
@@ -2767,7 +2786,7 @@ impl WindowsRecorder {
         });
 
         match rx.recv_timeout(Duration::from_millis(timeout_ms)) {
-            Ok(result) => result,  // Result is already Option<UIElement> due to ? operators in closure
+            Ok(result) => result, // Result is already Option<UIElement> due to ? operators in closure
             Err(_) => {
                 debug!(
                     "UIA call to get deepest element from point timed out after {}ms.",

@@ -727,6 +727,19 @@ fn update_package_json(path: &str, version: &str) -> Result<(), Box<dyn std::err
         }
     }
 
+    // Update peerDependencies for @mediar-ai/terminator
+    if let Some(peer_deps) = pkg
+        .get_mut("peerDependencies")
+        .and_then(|v| v.as_object_mut())
+    {
+        for (key, value) in peer_deps.iter_mut() {
+            if key == "@mediar-ai/terminator" {
+                // Use caret range for peer dependencies (allows compatible versions)
+                *value = serde_json::Value::String(format!("^{}", version));
+            }
+        }
+    }
+
     // Write back with pretty formatting
     let formatted = serde_json::to_string_pretty(&pkg)?;
     fs::write(path, formatted + "\n")?;

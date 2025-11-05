@@ -212,7 +212,7 @@ impl Default for WorkflowRecorderConfig {
             ignore_focus_patterns: HashSet::new(), // TEMPORARILY DISABLED FOR TESTING
             ignore_property_patterns: HashSet::new(), // TEMPORARILY DISABLED FOR TESTING
             ignore_window_titles: HashSet::new(), // TEMPORARILY DISABLED FOR TESTING - File Explorer will now be captured!
-            ignore_applications: HashSet::new(), // TEMPORARILY DISABLED FOR TESTING
+            ignore_applications: HashSet::new(),  // TEMPORARILY DISABLED FOR TESTING
             enable_multithreading: false, // Default to false for better system responsiveness
             performance_mode: PerformanceMode::Normal,
             event_processing_delay_ms: None,
@@ -307,7 +307,7 @@ impl WorkflowRecorder {
     /// Create a new workflow recorder
     pub fn new(name: String, config: WorkflowRecorderConfig) -> Self {
         let workflow = Arc::new(Mutex::new(RecordedWorkflow::new(name)));
-        let (event_tx, _) = broadcast::channel(100); // Buffer size of 100 events
+        let (event_tx, _) = broadcast::channel(1000); // Buffer size increased to 1000 to handle slow UI captures (e.g. File Explorer 5s timeout)
 
         Self {
             workflow,
@@ -323,17 +323,30 @@ impl WorkflowRecorder {
     /// Get a stream of events
     pub fn event_stream(&self) -> impl Stream<Item = WorkflowEvent> {
         let mut rx = self.event_tx.subscribe();
+        let receiver_count = self.event_tx.receiver_count();
+        tracing::info!(
+            "📡 New event stream subscriber created (total capacity: 1000, active receivers: {})",
+            receiver_count
+        );
         Box::pin(async_stream::stream! {
+            let mut received_count = 0;
             loop {
                 match rx.recv().await {
-                    Ok(event) => yield event,
+                    Ok(event) => {
+                        received_count += 1;
+                        if received_count % 10 == 0 {
+                            tracing::debug!("📥 Event stream received {} events so far", received_count);
+                        }
+                        yield event
+                    },
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
                         // Log but continue - don't terminate stream on lag
-                        tracing::warn!("Event stream lagged, skipped {} events", skipped);
+                        tracing::error!("⚠️ Event stream LAGGED! Skipped {} events (received so far: {})", skipped, received_count);
                         continue;
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                         // Channel closed, end stream
+                        tracing::info!("🔚 Event stream closed (received {} total events)", received_count);
                         break;
                     }
                 }
