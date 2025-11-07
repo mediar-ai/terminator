@@ -81,7 +81,12 @@ function createWorkflowInstance<TInput = any>(
     config,
     steps,
 
-    async run(input: TInput, desktop?: Desktop, logger?: Logger): Promise<ExecutionResponse> {
+    async run(
+      input: TInput,
+      desktop?: Desktop,
+      logger?: Logger,
+      options?: { startFromStep?: string; endAtStep?: string; restoredState?: any }
+    ): Promise<ExecutionResponse> {
       const log = logger || new ConsoleLogger();
       const startTime = Date.now();
 
@@ -168,7 +173,10 @@ function createWorkflowInstance<TInput = any>(
         const failedStep = failedStepIndex >= 0 ? steps[failedStepIndex] : steps[steps.length - 1];
 
         // Call workflow-level error handler from config
-        if (config.onError) {
+        // Skip onError if we're doing step control (testing specific steps)
+        const usingStepControl = options?.startFromStep || options?.endAtStep;
+
+        if (config.onError && !usingStepControl) {
           try {
             const errorResponse = await config.onError({
               desktop: desktopInstance,
@@ -186,6 +194,8 @@ function createWorkflowInstance<TInput = any>(
           } catch (handlerError) {
             log.error(`❌ Workflow error handler failed: ${handlerError}`);
           }
+        } else if (usingStepControl) {
+          log.info(`⏭️ Skipping onError handler (step control mode)`);
         }
 
         // Call legacy error handler if provided (for backward compat)

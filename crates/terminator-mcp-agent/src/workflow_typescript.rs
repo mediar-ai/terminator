@@ -291,6 +291,7 @@ impl TypeScriptWorkflow {
         end_at_step: Option<&str>,
         restored_state: Option<Value>,
     ) -> Result<String, McpError> {
+        // Serialize parameters as JSON objects for clean passing to SDK
         let inputs_json = serde_json::to_string(&inputs).map_err(|e| {
             McpError::internal_error(
                 format!("Failed to serialize inputs: {}", e),
@@ -298,17 +299,40 @@ impl TypeScriptWorkflow {
             )
         })?;
 
-        let start_from_step_json = start_from_step.map(|s| format!("\"{}\"", s)).unwrap_or_else(|| "undefined".to_string());
-        let end_at_step_json = end_at_step.map(|s| format!("\"{}\"", s)).unwrap_or_else(|| "undefined".to_string());
-        let restored_state_json = restored_state.as_ref()
-            .map(|s| serde_json::to_string(s).unwrap_or_else(|_| "undefined".to_string()))
-            .unwrap_or_else(|| "undefined".to_string());
-
         // Convert Windows path to forward slashes for file:// URL
         let workflow_path_str = self.workflow_path.display().to_string();
         let workflow_path = workflow_path_str.replace('\\', "/");
         let entry_file = &self.entry_file;
 
+        // Serialize inputs
+        let inputs_json = serde_json::to_string(&inputs).map_err(|e| {
+            McpError::internal_error(
+                format!("Failed to serialize inputs: {}", e),
+                Some(json!({"error": e.to_string()})),
+            )
+        })?;
+
+        // Build step control options object
+        let mut step_options_obj = serde_json::Map::new();
+        if let Some(start) = start_from_step {
+            step_options_obj.insert("startFromStep".to_string(), json!(start));
+        }
+        if let Some(end) = end_at_step {
+            step_options_obj.insert("endAtStep".to_string(), json!(end));
+        }
+        if let Some(state) = restored_state {
+            step_options_obj.insert("restoredState".to_string(), state);
+        }
+
+        let step_options_json = serde_json::to_string(&Value::Object(step_options_obj)).map_err(|e| {
+            McpError::internal_error(
+                format!("Failed to serialize step options: {}", e),
+                Some(json!({"error": e.to_string()})),
+            )
+        })?;
+
+        // Clean approach: Call workflow.run() with step control options
+        // This automatically skips onError when step control options are present
         Ok(format!(
             r#"
 // Suppress workflow progress output by redirecting console methods to stderr
@@ -326,10 +350,10 @@ console.info = console.error;
 
 // Set environment to suppress workflow output if supported
 process.env.WORKFLOW_SILENT = 'true';
-process.env.CI = 'true';  // Many tools respect CI env var for silent mode
+process.env.CI = 'true';
 
 try {{
-    // Dynamically import the workflow
+    // Import workflow
     const workflowModule = await import('file://{workflow_path}/{entry_file}');
     const workflow = workflowModule.default || workflowModule.bestPlanProWorkflow || workflowModule;
 
@@ -345,71 +369,28 @@ try {{
         process.exit(0);
     }}
 
-    // Prepare execution options
+    // Execute workflow using workflow.run() with step control options
+    // This automatically skips onError when step control options are present
     const inputs = {inputs_json};
-    const startFromStep = {start_from_step_json};
-    const endAtStep = {end_at_step_json};
-    const restoredState = {restored_state_json};
+    const stepOptions = {step_options_json};
+    const result = await workflow.run(inputs, undefined, undefined, stepOptions);
 
-    // Use WorkflowRunner for advanced features (partial execution, state restoration)
-    let result;
-    let finalState;
-
-    if (startFromStep || endAtStep || restoredState) {{
-        // Import WorkflowRunner for partial execution
-        const {{ createWorkflowRunner }} = await import('file://{workflow_path}/node_modules/@mediar-ai/workflow/dist/runner.js');
-
-        const runner = createWorkflowRunner({{
-            workflow: workflow,
-            inputs: inputs,
-            startFromStep: startFromStep,
-            endAtStep: endAtStep,
-            restoredState: restoredState
-        }});
-
-        const runnerResult = await runner.run();
-        finalState = runner.getState();
-
-        // Convert runner result to workflow result format
-        result = {{
-            status: runnerResult.status,
-            message: runnerResult.error || `Workflow partial execution completed`,
-            data: finalState.context.data
-        }};
-    }} else {{
-        // Simple execution - use workflow.run() directly
-        const workflowResult = await workflow.run(inputs);
-
-        // Extract context.data if available (for TypeScript workflows that populate it)
-        const contextData = workflowResult.data || workflowResult.context?.data || null;
-
-        result = {{
-            status: workflowResult.status || 'success',
-            message: workflowResult.message || workflowResult.error || 'Workflow completed',
-            data: contextData
-        }};
-
-        // Preserve the full workflow state for state management
-        finalState = {{
-            context: {{
-                data: contextData
-            }}
-        }};
-    }}
-
-    // Get metadata
+    // Get workflow metadata for response
     const metadata = workflow.getMetadata ? workflow.getMetadata() : {{
         name: workflow.config?.name || 'Unknown',
         version: workflow.config?.version || '1.0.0',
-        description: workflow.config?.description || '',
-        steps: workflow.steps || []
+        description: workflow.config?.description || ''
     }};
 
     // Output clean JSON result
     originalLog(JSON.stringify({{
-        metadata: metadata,
-        result: result,
-        state: finalState
+        metadata,
+        result: {{
+            status: result.status || 'success',
+            message: result.message || result.error || 'Workflow completed',
+            data: result.data || result.context?.data || null
+        }},
+        state: result.state || {{ context: {{ data: result.data }} }}
     }}, null, 2));
 
     process.exit(result.status === 'success' ? 0 : 1);
