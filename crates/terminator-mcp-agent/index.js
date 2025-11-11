@@ -138,7 +138,7 @@ if (argv.includes("--add-to-app")) {
   // Filter out --start if it exists, as it's for the wrapper script
   const agentArgs = argv.filter((arg) => arg !== "--start");
 
-  const child = spawn(binary, agentArgs, {
+  let child = spawn(binary, agentArgs, {
     stdio: ["pipe", "pipe", "pipe"],
     shell: false,
     detached: process.platform !== "win32",
@@ -195,11 +195,17 @@ if (argv.includes("--add-to-app")) {
   const MAX_RESTART_ATTEMPTS = 3;
   const RESTART_DELAY = 1000; // 1 second
 
-  child.on("exit", (code, signal) => {
+  // Named function for exit handler so it can be reused
+  function handleChildExit(code, signal) {
     // Check for stack overflow exit code on Windows (3221225725 = 0xC00000FD)
     const isStackOverflow = code === 3221225725 || code === -1073741571;
 
-    if (code !== 0 && !shuttingDown) {
+    // Restart if process exited abnormally (non-zero code or killed by signal)
+    // Don't restart on normal exit (code === 0) or if we're shutting down
+    // Note: code can be null when killed by signal, and signal is set
+    const isAbnormalExit = code !== 0 || signal !== null;
+
+    if (isAbnormalExit && !shuttingDown) {
       console.error(`[MCP exited with code ${code}${signal ? ` (signal: ${signal})` : ''}]`);
 
       // Auto-restart on crash if under max attempts
@@ -213,7 +219,21 @@ if (argv.includes("--add-to-app")) {
         console.error(`[Attempting to restart MCP server (attempt ${restartAttempts}/${MAX_RESTART_ATTEMPTS})...]`);
 
         setTimeout(() => {
+          if (shuttingDown) {
+            // Don't restart if we're shutting down
+            return;
+          }
+
           console.error(`[Restarting MCP server...]`);
+
+          // Clean up old pipes safely
+          try {
+            if (child && child.stdin) {
+              process.stdin.unpipe(child.stdin);
+            }
+          } catch (e) {
+            // Ignore errors if pipes are already closed
+          }
 
           // Spawn new process
           const newChild = spawn(binary, agentArgs, {
@@ -223,16 +243,20 @@ if (argv.includes("--add-to-app")) {
           });
 
           // Reconnect pipes
-          process.stdin.unpipe(child.stdin);
-          process.stdin.pipe(newChild.stdin);
-          newChild.stdout.pipe(process.stdout);
-          newChild.stderr.pipe(process.stderr);
+          try {
+            process.stdin.pipe(newChild.stdin);
+            newChild.stdout.pipe(process.stdout);
+            newChild.stderr.pipe(process.stderr);
+          } catch (e) {
+            console.error(`[Error reconnecting pipes: ${e.message}]`);
+            process.exit(1);
+          }
 
           // Replace child reference
           child = newChild;
 
-          // Reattach exit handler with same logic
-          child.on("exit", arguments.callee);
+          // Reattach exit handler
+          child.on("exit", handleChildExit);
 
           console.error(`[MCP server restarted successfully]`);
         }, RESTART_DELAY);
@@ -244,5 +268,7 @@ if (argv.includes("--add-to-app")) {
     }
 
     process.exit(code);
-  });
+  }
+
+  child.on("exit", handleChildExit);
 }
