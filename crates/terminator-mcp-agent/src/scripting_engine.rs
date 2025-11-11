@@ -1272,24 +1272,6 @@ global.sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
         error!("[Node.js] Process exited with error code: {:?}", exit_code);
         error!("[Node.js] Combined stderr output:\n{}", stderr_combined);
 
-        // Check if this is a VC++ redistributables error on Windows
-        if cfg!(windows) && crate::vcredist_check::is_vcredist_error(&stderr_combined) {
-            // Check the cached status (no filesystem access here)
-            if !crate::vcredist_check::is_vcredist_available() {
-                error!("[Node.js] Execution failed due to missing Visual C++ Redistributables");
-                return Err(McpError::internal_error(
-                    crate::vcredist_check::get_vcredist_error_message(),
-                    Some(json!({
-                        "error": "Missing Visual C++ Redistributables",
-                        "solution": "Run: winget install Microsoft.VCRedist.2015+.x64",
-                        "download_url": "https://aka.ms/vs/17/release/vc_redist.x64.exe",
-                        "exit_code": exit_code,
-                        "details": stderr_combined
-                    })),
-                ));
-            }
-        }
-
         return Err(McpError::internal_error(
             "Node.js process exited with error",
             Some(json!({
@@ -1694,23 +1676,6 @@ console.log('[TypeScript] Current working directory:', process.cwd());
         }
         None => {
             let stderr_combined = stderr_output.join("\n");
-
-            // Check if this is a VC++ redistributables error on Windows
-            if cfg!(windows)
-                && crate::vcredist_check::is_vcredist_error(&stderr_combined)
-                && !crate::vcredist_check::is_vcredist_available()
-            {
-                error!("[TypeScript] Execution failed due to missing Visual C++ Redistributables");
-                return Err(McpError::internal_error(
-                    crate::vcredist_check::get_vcredist_error_message(),
-                    Some(json!({
-                        "error": "Missing Visual C++ Redistributables",
-                        "solution": "Run: winget install Microsoft.VCRedist.2015+.x64",
-                        "download_url": "https://aka.ms/vs/17/release/vc_redist.x64.exe",
-                        "details": stderr_combined
-                    })),
-                ));
-            }
 
             Err(McpError::internal_error(
                 "No result received from TypeScript process",

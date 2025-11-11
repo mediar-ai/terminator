@@ -342,11 +342,6 @@ async fn main() -> Result<()> {
 
     tracing::info!("========================================");
 
-    // Check for Visual C++ Redistributables on Windows (one-time at startup)
-    if cfg!(windows) {
-        terminator_mcp_agent::vcredist_check::check_vcredist_installed();
-    }
-
     // Start PID watcher if requested (Windows only auto-destruct feature)
     #[cfg(target_os = "windows")]
     if let Some(pid) = args.watch_pid {
