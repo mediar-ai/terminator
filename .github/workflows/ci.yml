@@ -102,3 +102,24 @@ jobs:
           cd packages/terminator-nodejs
           npm test
         shell: pwsh
+
+      # Install Chrome extension and run browser tests
+      - name: Install Chrome
+        run: |
+          choco install googlechrome -y
+          Start-Sleep -Seconds 5
+        shell: pwsh
+
+      - name: Install browser extension using workflow
+        run: |
+          Write-Host "Installing browser extension using terminator workflow..."
+          cargo run --bin terminator -- execute-workflow crates/terminator/browser-extension/install_chrome_extension_ui.yml
+        shell: pwsh
+        timeout-minutes: 5
+
+      - name: Run browser extension tests
+        run: |
+          Write-Host "Running browser script tests..."
+          cargo test --test browser_script_edge_cases_test --test debugger_detach_test -- --test-threads=1 --nocapture
+        shell: pwsh
+        timeout-minutes: 10
