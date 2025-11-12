@@ -49,7 +49,7 @@ export interface BrowserScriptOptions<Env extends BrowserScriptEnv = BrowserScri
     env?: Env;
 }
 
-export interface Desktop {
+export interface Desktop extends import('./index.d').Desktop {
     executeBrowserScript<T = unknown, Env extends BrowserScriptEnv = BrowserScriptEnv>(
         fn: BrowserScriptFunction<T, Env>,
         env?: Env
@@ -59,7 +59,7 @@ export interface Desktop {
     ): Promise<string>;
 }
 
-export interface Element {
+export interface Element extends import('./index.d').Element {
     executeBrowserScript<T = unknown, Env extends BrowserScriptEnv = BrowserScriptEnv>(
         fn: BrowserScriptFunction<T, Env>,
         env?: Env

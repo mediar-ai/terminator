@@ -134,5 +134,12 @@ jobs:
         shell: pwsh
         timeout-minutes: 15
 
+      - name: Run TypeScript browser script bridge workflow
+        run: |
+          Write-Host "Running TypeScript workflow to test browser script bridge..."
+          cargo run --bin terminator -- mcp run examples/browser_script_bridge_workflow --skip-type-check
+        shell: pwsh
+        timeout-minutes: 10
+
       - name: Run Rust tests
         run: cargo test --workspace --verbose  -- --test-threads=1
