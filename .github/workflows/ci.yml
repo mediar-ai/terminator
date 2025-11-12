@@ -67,9 +67,6 @@ jobs:
           }
         shell: pwsh
 
-      - name: Run Rust tests
-        run: cargo test --workspace --verbose  -- --test-threads=1
-
       - name: Test with telemetry feature
         run: |
           cargo build -p terminator-mcp-agent --features telemetry
@@ -113,13 +110,9 @@ jobs:
       - name: Install browser extension using workflow
         run: |
           Write-Host "Installing browser extension using terminator workflow..."
-          cargo run --bin terminator -- execute-workflow crates/terminator/browser-extension/install_chrome_extension_ui.yml
+          cargo run --bin terminator -- mcp run crates/terminator/browser-extension/install_chrome_extension_ui.yml
         shell: pwsh
         timeout-minutes: 5
 
-      - name: Run browser extension tests
-        run: |
-          Write-Host "Running browser script tests..."
-          cargo test --test browser_script_edge_cases_test --test debugger_detach_test -- --test-threads=1 --nocapture
-        shell: pwsh
-        timeout-minutes: 10
+      - name: Run Rust tests
+        run: cargo test --workspace --verbose  -- --test-threads=1
