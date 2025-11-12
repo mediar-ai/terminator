@@ -8,8 +8,8 @@ const attachedTabs = new Set();
 const enabledTabs = new Set();
 
 // Clear stored tabs on startup since debugger sessions don't persist across restarts
-chrome.storage.session.remove('attached').then(() => {
-  log('Cleared stale debugger session data on startup');
+chrome.storage.session.remove("attached").then(() => {
+  log("Cleared stale debugger session data on startup");
 });
 
 // Logging is disabled by default to reduce console noise. Toggle via Service Worker console.
@@ -234,11 +234,11 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
 });
 
 // Clean up our tracking when tab closes
-chrome.tabs.onRemoved.addListener(tabId => {
+chrome.tabs.onRemoved.addListener((tabId) => {
   if (attachedTabs.has(tabId)) {
     attachedTabs.delete(tabId);
-    enabledTabs.delete(tabId);  // Also clean enabled domains state
-    chrome.storage.session.set({attached: [...attachedTabs]});
+    enabledTabs.delete(tabId); // Also clean enabled domains state
+    chrome.storage.session.set({ attached: [...attachedTabs] });
     log(`Tab ${tabId} closed, removed from attached tabs and enabled domains`);
   }
 });
@@ -248,8 +248,8 @@ chrome.debugger.onDetach.addListener((source, reason) => {
   const tabId = source.tabId;
   if (attachedTabs.has(tabId)) {
     attachedTabs.delete(tabId);
-    enabledTabs.delete(tabId);  // Also clean enabled domains state
-    chrome.storage.session.set({attached: [...attachedTabs]});
+    enabledTabs.delete(tabId); // Also clean enabled domains state
+    chrome.storage.session.set({ attached: [...attachedTabs] });
     log(`Debugger detached from tab ${tabId}, reason: ${reason}`);
   }
 });
@@ -260,13 +260,15 @@ function scheduleReconnect() {
   const delay = currentReconnectDelayMs;
   currentReconnectDelayMs = Math.min(
     currentReconnectDelayMs * 2,
-    MAX_RECONNECT_DELAY_MS
+    MAX_RECONNECT_DELAY_MS,
   );
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
     // Only log reconnection for first 3 attempts and then every 10th
     if (connectionAttempts <= 3 || connectionAttempts % 10 === 0) {
-      log(`Reconnecting... (attempt ${connectionAttempts + 1}, delay=${delay}ms)`);
+      log(
+        `Reconnecting... (attempt ${connectionAttempts + 1}, delay=${delay}ms)`,
+      );
     }
     connect();
   }, delay);
@@ -301,9 +303,11 @@ async function forceResetDebuggerState() {
   enabledTabs.clear();
 
   // 3. Clear session storage
-  await chrome.storage.session.remove('attached');
+  await chrome.storage.session.remove("attached");
 
-  log(`Reset complete: cleared ${previousSize} tracked tabs, detached from ${detachedCount} tabs`);
+  log(
+    `Reset complete: cleared ${previousSize} tracked tabs, detached from ${detachedCount} tabs`,
+  );
   log("Debugger state reset complete");
 }
 
@@ -340,7 +344,7 @@ function formatRemoteObject(obj) {
 // Helper function to detect if code has top-level return statements
 function hasTopLevelReturn(code) {
   // Quick check if 'return' keyword exists at all
-  if (!code.includes('return')) {
+  if (!code.includes("return")) {
     return false;
   }
 
@@ -355,20 +359,20 @@ function hasTopLevelReturn(code) {
   }
 
   // 2. Is just an expression (no statements)
-  if (!code.includes(';') && !code.includes('\n') && !code.includes('return')) {
+  if (!code.includes(";") && !code.includes("\n") && !code.includes("return")) {
     return false;
   }
 
   // Remove strings and comments for cleaner analysis
   let cleanCode = code
     // Remove single-line comments
-    .replace(/\/\/.*$/gm, '')
+    .replace(/\/\/.*$/gm, "")
     // Remove multi-line comments
-    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, "")
     // Remove strings (simplified - doesn't handle escaped quotes)
     .replace(/"[^"]*"/g, '""')
     .replace(/'[^']*'/g, "''")
-    .replace(/`[^`]*`/g, '``');
+    .replace(/`[^`]*`/g, "``");
 
   // Look for return statements that are likely at the top level
   // Common patterns:
@@ -376,14 +380,14 @@ function hasTopLevelReturn(code) {
   // 2. return after a semicolon or closing brace
   // 3. return on a new line
   const returnPatterns = [
-    /^\s*return\s+/,           // starts with return
-    /;\s*return\s+/,            // return after semicolon
-    /}\s*return\s+/,            // return after closing brace (like after if block)
-    /\n\s*return\s+/            // return on new line
+    /^\s*return\s+/, // starts with return
+    /;\s*return\s+/, // return after semicolon
+    /}\s*return\s+/, // return after closing brace (like after if block)
+    /\n\s*return\s+/, // return on new line
   ];
 
   // Check if any of these patterns exist
-  const hasReturn = returnPatterns.some(pattern => pattern.test(cleanCode));
+  const hasReturn = returnPatterns.some((pattern) => pattern.test(cleanCode));
 
   if (!hasReturn) {
     return false;
@@ -391,7 +395,7 @@ function hasTopLevelReturn(code) {
 
   // Additional check: if it looks like it's inside a function, don't wrap
   // Look for function keyword before the return
-  const beforeReturn = cleanCode.substring(0, cleanCode.indexOf('return'));
+  const beforeReturn = cleanCode.substring(0, cleanCode.indexOf("return"));
 
   // Count unmatched opening braces before return
   const openBraces = (beforeReturn.match(/{/g) || []).length;
@@ -416,10 +420,10 @@ function isAsyncIIFE(code) {
   const asyncIIFEPatterns = [
     /\(\s*async\s+function\s*\([^)]*\)\s*{[\s\S]*?}\s*\)\s*\(\s*\)\s*;?\s*$/,
     /\(\s*async\s*\([^)]*\)\s*=>\s*{[\s\S]*?}\s*\)\s*\(\s*\)\s*;?\s*$/,
-    /\(\s*async\s+function\s+\w+\s*\([^)]*\)\s*{[\s\S]*?}\s*\)\s*\(\s*\)\s*;?\s*$/
+    /\(\s*async\s+function\s+\w+\s*\([^)]*\)\s*{[\s\S]*?}\s*\)\s*\(\s*\)\s*;?\s*$/,
   ];
 
-  return asyncIIFEPatterns.some(pattern => pattern.test(trimmed));
+  return asyncIIFEPatterns.some((pattern) => pattern.test(trimmed));
 }
 
 // Helper function to detect regular (non-async) IIFE pattern
@@ -432,17 +436,19 @@ function isRegularIIFE(code) {
   const iifePatterns = [
     /\(\s*function\s*\([^)]*\)\s*{[\s\S]*?}\s*\)\s*\(\s*\)\s*;?\s*$/,
     /\(\s*function\s+\w+\s*\([^)]*\)\s*{[\s\S]*?}\s*\)\s*\(\s*\)\s*;?\s*$/,
-    /\(\s*\([^)]*\)\s*=>\s*{[\s\S]*?}\s*\)\s*\(\s*\)\s*;?\s*$/
+    /\(\s*\([^)]*\)\s*=>\s*{[\s\S]*?}\s*\)\s*\(\s*\)\s*;?\s*$/,
   ];
 
-  return iifePatterns.some(pattern => pattern.test(trimmed));
+  return iifePatterns.some((pattern) => pattern.test(trimmed));
 }
 
 // Helper function to wrap code in IIFE if it has top-level returns
 function wrapCodeIfNeeded(code) {
   // Check if it's an async IIFE - if so, return as-is since it's already wrapped
   if (isAsyncIIFE(code)) {
-    log("Detected async IIFE pattern, using as-is (will set awaitPromise=true)");
+    log(
+      "Detected async IIFE pattern, using as-is (will set awaitPromise=true)",
+    );
     return code;
   }
 
@@ -464,8 +470,7 @@ function wrapCodeIfNeeded(code) {
 }
 
 async function evalInTab(tabId, code, awaitPromise, evalId) {
-
-  /* 
+  /*
     * executes only for iframes by bypassing the CORS issue
     * so this implementatiton is something
     * first we'll get every single frames from the tab
@@ -473,28 +478,31 @@ async function evalInTab(tabId, code, awaitPromise, evalId) {
       get the selector of iframe from main document
     * after that we'll get the `frameId` of the iframe to execute
       raw js code inside the iframe's document to avoid CORS issue
-    * rewrite the raw js code so it removes the unneccesary `IFRAMESELCTOR` from eval code 
+    * rewrite the raw js code so it removes the unneccesary `IFRAMESELCTOR` from eval code
     * run user code safely by creating a Function rather than eval (still executes arbitrary code)
   */
   if (code.includes("IFRAMESELCTOR")) {
     const frames = await chrome.webNavigation.getAllFrames({ tabId });
     log("Frames seen by extension:", frames);
 
-    const regex = /const\s+IFRAMESELCTOR\s*=\s*['"`]?\s*(querySelector|getElementById)\s*\(\s*(['"`])(.*?)\2\s*\)\s*;?\s*['"`]?/s;
+    const regex =
+      /const\s+IFRAMESELCTOR\s*=\s*['"`]?\s*(querySelector|getElementById)\s*\(\s*(['"`])(.*?)\2\s*\)\s*;?\s*['"`]?/s;
     const match = code.match(regex);
     const iframeInfo = {
       method: match[1],
-      selector: match[3]
+      selector: match[3],
     };
     if (!match) {
       throw new Error(`No selector named 'IFRAMESELCTOR' have been defined please define
        this variable to execute code inside in iframe's document context`);
-    };
+    }
 
     if (iframeInfo) {
       const iframeSelector = iframeInfo.selector;
       if (iframeSelector) {
-        log(`Executing in given iframe of selector: ${iframeSelector}, selector type: ${iframeInfo.method}`);
+        log(
+          `Executing in given iframe of selector: ${iframeSelector}, selector type: ${iframeInfo.method}`,
+        );
         if (!attachedTabs.has(tabId)) {
           await debuggerAttach(tabId);
           attachedTabs.add(tabId);
@@ -506,26 +514,35 @@ async function evalInTab(tabId, code, awaitPromise, evalId) {
         try {
           await sendCommand(tabId, "Page.enable", {});
           await sendCommand(tabId, "DOM.enable", {});
-          const { root } = await sendCommand(tabId, "DOM.getDocument", { depth: -1 });
+          const { root } = await sendCommand(tabId, "DOM.getDocument", {
+            depth: -1,
+          });
           const { nodeId } = await sendCommand(tabId, "DOM.querySelector", {
             nodeId: root.nodeId,
             selector: iframeSelector,
           });
 
           if (!nodeId) {
-            throw new Error(`Iframe with selector "${iframeSelector}" not found.`);
+            throw new Error(
+              `Iframe with selector "${iframeSelector}" not found.`,
+            );
           }
-          const { node } = await sendCommand(tabId, "DOM.describeNode", { nodeId });
+          const { node } = await sendCommand(tabId, "DOM.describeNode", {
+            nodeId,
+          });
           if (!node) {
-            throw new Error(`Could not retrieve node info for the specified iframe, selector ${iframeInfo.selector}`);
+            throw new Error(
+              `Could not retrieve node info for the specified iframe, selector ${iframeInfo.selector}`,
+            );
           }
 
-          /* now here we've to get the actual correct `frameId` from by matching 
-             the `src` attributes of iframe to the all the existing iframe on that opened tab 
+          /* now here we've to get the actual correct `frameId` from by matching
+             the `src` attributes of iframe to the all the existing iframe on that opened tab
           */
-          const iframeSrc = node.attributes?.[node.attributes.indexOf("src") + 1];
-          log("iframeSrc", iframeSrc)
-          const match = frames.find(f => {
+          const iframeSrc =
+            node.attributes?.[node.attributes.indexOf("src") + 1];
+          log("iframeSrc", iframeSrc);
+          const match = frames.find((f) => {
             try {
               const u1 = new URL(f.url);
               const u2 = new URL(iframeSrc);
@@ -543,17 +560,20 @@ async function evalInTab(tabId, code, awaitPromise, evalId) {
             }
           });
           frameId = match.frameId;
-          log(`matched frameId: ${match.frameId}`)
-
+          log(`matched frameId: ${match.frameId}`);
         } catch (err) {
           log("Error finding frame:", err);
-          try { await debuggerDetach(tabId); } catch (_) {}
+          try {
+            await debuggerDetach(tabId);
+          } catch (_) {}
           attachedTabs.delete(tabId);
           throw err;
         }
 
-        const lines = code.split("\n").filter(line => !line.includes("IFRAMESELCTOR"));
-        const rewritten = lines.join("\n")
+        const lines = code
+          .split("\n")
+          .filter((line) => !line.includes("IFRAMESELCTOR"));
+        const rewritten = lines.join("\n");
         log(`Rewritten code for iframe: ${rewritten}`);
 
         /* execute the rewritten code inside the found frame */
@@ -585,7 +605,6 @@ async function evalInTab(tabId, code, awaitPromise, evalId) {
       }
     }
   }
-  
 
   const perfStart = performance.now();
   const timings = {};
@@ -607,15 +626,17 @@ async function evalInTab(tabId, code, awaitPromise, evalId) {
       await debuggerAttach(tabId);
       attachedTabs.add(tabId);
       // Persist (fire and forget)
-      chrome.storage.session.set({attached: [...attachedTabs]});
+      chrome.storage.session.set({ attached: [...attachedTabs] });
       timings.attach = performance.now() - attachStart;
       log(`Debugger attached to tab ${tabId} (${timings.attach.toFixed(1)}ms)`);
     } catch (e) {
       // If already attached by another concurrent operation, treat as attached
       if (e.message && e.message.includes("already attached")) {
-        log(`Tab ${tabId} already attached by another operation, treating as success`);
+        log(
+          `Tab ${tabId} already attached by another operation, treating as success`,
+        );
         attachedTabs.add(tabId);
-        chrome.storage.session.set({attached: [...attachedTabs]});
+        chrome.storage.session.set({ attached: [...attachedTabs] });
         timings.attach = performance.now() - attachStart;
       } else {
         // If we can't attach, we can't continue - throw the error
@@ -624,40 +645,131 @@ async function evalInTab(tabId, code, awaitPromise, evalId) {
       }
     }
   } else {
-    // Verify the debugger is actually still attached
+    // Verify the debugger is actually still attached by checking Chrome's debugger API
+    // We need to check if the debugger is attached BEFORE trying any commands
     try {
-      // Try a simple command to verify connection
-      await sendCommand(tabId, "Runtime.evaluate", { expression: "1", returnByValue: true });
-      log(`Reusing existing debugger for tab ${tabId}`);
-      timings.attach = 0;
-    } catch (e) {
-      // Debugger was detached, need to reattach
-      log(`Debugger was detached from tab ${tabId}, reattaching...`);
-      attachedTabs.delete(tabId);
-      enabledTabs.delete(tabId);
+      // First, check if debugger is still attached using Chrome's getTargets API
+      // If this fails, we know the debugger is detached
+      const targets = await new Promise((resolve, reject) => {
+        chrome.debugger.getTargets((targets) => {
+          if (chrome.runtime.lastError) {
+            reject(chrome.runtime.lastError);
+          } else {
+            resolve(targets);
+          }
+        });
+      });
 
-      const attachStart = performance.now();
-      try {
-        await debuggerAttach(tabId);
-        attachedTabs.add(tabId);
-        chrome.storage.session.set({attached: [...attachedTabs]});
-        timings.attach = performance.now() - attachStart;
-        log(`Debugger reattached to tab ${tabId} (${timings.attach.toFixed(1)}ms)`);
-      } catch (attachError) {
-        // If already attached by another concurrent operation, treat as attached
-        if (attachError.message && attachError.message.includes("already attached")) {
-          log(`Tab ${tabId} already attached by another operation, treating as success`);
+      const isAttached = targets.some(
+        (target) => target.tabId === tabId && target.attached,
+      );
+
+      if (!isAttached) {
+        // Debugger was detached (e.g., by navigation or user canceling)
+        log(
+          `Debugger was detached from tab ${tabId} (detected via getTargets), reattaching...`,
+        );
+        attachedTabs.delete(tabId);
+        enabledTabs.delete(tabId);
+
+        const attachStart = performance.now();
+        try {
+          await debuggerAttach(tabId);
           attachedTabs.add(tabId);
-          chrome.storage.session.set({attached: [...attachedTabs]});
+          chrome.storage.session.set({ attached: [...attachedTabs] });
           timings.attach = performance.now() - attachStart;
-        } else {
-          log(`Failed to reattach to tab ${tabId}:`, attachError.message);
-          throw new Error(`Failed to reattach debugger: ${attachError.message}`);
+          log(
+            `Debugger reattached to tab ${tabId} (${timings.attach.toFixed(1)}ms)`,
+          );
+        } catch (attachError) {
+          // If already attached by another concurrent operation, treat as attached
+          if (
+            attachError.message &&
+            attachError.message.includes("already attached")
+          ) {
+            log(
+              `Tab ${tabId} already attached by another operation, treating as success`,
+            );
+            attachedTabs.add(tabId);
+            chrome.storage.session.set({ attached: [...attachedTabs] });
+            timings.attach = performance.now() - attachStart;
+          } else {
+            log(`Failed to reattach to tab ${tabId}:`, attachError.message);
+            throw new Error(
+              `Failed to reattach debugger: ${attachError.message}`,
+            );
+          }
+        }
+      } else {
+        // Debugger is still attached, verify with a simple command
+        try {
+          await sendCommand(tabId, "Runtime.evaluate", {
+            expression: "1",
+            returnByValue: true,
+          });
+          log(`Reusing existing debugger for tab ${tabId}`);
+          timings.attach = 0;
+        } catch (cmdError) {
+          // Command failed even though debugger appeared attached
+          // This can happen if domains need to be re-enabled
+          log(
+            `Command failed for tab ${tabId}, may need domain re-enable: ${cmdError.message}`,
+          );
+          // Mark domains as needing re-enable (handled in next section)
+          enabledTabs.delete(tabId);
+          timings.attach = 0;
+        }
+      }
+    } catch (e) {
+      // getTargets failed, fall back to trying a command
+      log(
+        `getTargets check failed for tab ${tabId}, trying command: ${e.message}`,
+      );
+      try {
+        await sendCommand(tabId, "Runtime.evaluate", {
+          expression: "1",
+          returnByValue: true,
+        });
+        log(`Reusing existing debugger for tab ${tabId} (fallback path)`);
+        timings.attach = 0;
+      } catch (cmdError) {
+        // Debugger was likely detached, need to reattach
+        log(`Debugger was detached from tab ${tabId}, reattaching...`);
+        attachedTabs.delete(tabId);
+        enabledTabs.delete(tabId);
+
+        const attachStart = performance.now();
+        try {
+          await debuggerAttach(tabId);
+          attachedTabs.add(tabId);
+          chrome.storage.session.set({ attached: [...attachedTabs] });
+          timings.attach = performance.now() - attachStart;
+          log(
+            `Debugger reattached to tab ${tabId} (${timings.attach.toFixed(1)}ms)`,
+          );
+        } catch (attachError) {
+          // If already attached by another concurrent operation, treat as attached
+          if (
+            attachError.message &&
+            attachError.message.includes("already attached")
+          ) {
+            log(
+              `Tab ${tabId} already attached by another operation, treating as success`,
+            );
+            attachedTabs.add(tabId);
+            chrome.storage.session.set({ attached: [...attachedTabs] });
+            timings.attach = performance.now() - attachStart;
+          } else {
+            log(`Failed to reattach to tab ${tabId}:`, attachError.message);
+            throw new Error(
+              `Failed to reattach debugger: ${attachError.message}`,
+            );
+          }
         }
       }
     }
   }
-  
+
   let onEvent = null;
   try {
     // Only enable domains if not already enabled
@@ -674,24 +786,169 @@ async function evalInTab(tabId, code, awaitPromise, evalId) {
 
         enabledTabs.add(tabId);
         timings.totalEnable = performance.now() - enableStart;
-        log(`Domains enabled for tab ${tabId} - Runtime: ${timings.runtimeEnable.toFixed(1)}ms, Log: ${timings.logEnable.toFixed(1)}ms, Total: ${timings.totalEnable.toFixed(1)}ms`);
+        log(
+          `Domains enabled for tab ${tabId} - Runtime: ${timings.runtimeEnable.toFixed(1)}ms, Log: ${timings.logEnable.toFixed(1)}ms, Total: ${timings.totalEnable.toFixed(1)}ms`,
+        );
       } catch (e) {
-        log(`Could not enable domains for tab ${tabId}:`, e.message);
-        // Clear the tab from tracking since it's in a bad state
-        attachedTabs.delete(tabId);
-        enabledTabs.delete(tabId);
-        // Try to detach and clean up
-        try {
-          await debuggerDetach(tabId);
-        } catch (_) {}
-        // Throw the error to trigger retry logic at the higher level
-        throw new Error(`Failed to enable debugger domains: ${e.message}`);
+        const errorMsg = e.message || String(e);
+        // Check if error is due to debugger being detached
+        if (errorMsg.includes("Debugger is not attached")) {
+          log(
+            `Debugger was detached from tab ${tabId} during domain enable, reattaching...`,
+          );
+          // Clear state and reattach
+          attachedTabs.delete(tabId);
+          enabledTabs.delete(tabId);
+
+          try {
+            // Reattach the debugger
+            await debuggerAttach(tabId);
+            attachedTabs.add(tabId);
+            chrome.storage.session.set({ attached: [...attachedTabs] });
+            log(`Successfully reattached debugger to tab ${tabId}`);
+
+            // Now try to enable domains again
+            const runtimeStart = performance.now();
+            await sendCommand(tabId, "Runtime.enable", {});
+            timings.runtimeEnable = performance.now() - runtimeStart;
+
+            const logStart = performance.now();
+            await sendCommand(tabId, "Log.enable", {});
+            timings.logEnable = performance.now() - logStart;
+
+            enabledTabs.add(tabId);
+            timings.totalEnable = performance.now() - enableStart;
+            log(
+              `Domains enabled after reattach for tab ${tabId} - Runtime: ${timings.runtimeEnable.toFixed(1)}ms, Log: ${timings.logEnable.toFixed(1)}ms, Total: ${timings.totalEnable.toFixed(1)}ms`,
+            );
+          } catch (reattachError) {
+            log(
+              `Failed to reattach and enable domains for tab ${tabId}:`,
+              reattachError.message,
+            );
+            // Clean up state
+            attachedTabs.delete(tabId);
+            enabledTabs.delete(tabId);
+            try {
+              await debuggerDetach(tabId);
+            } catch (_) {}
+            throw new Error(
+              `Failed to reattach debugger and enable domains: ${reattachError.message}`,
+            );
+          }
+        } else {
+          // Different error, not related to detachment
+          log(`Could not enable domains for tab ${tabId}:`, e.message);
+          // Clear the tab from tracking since it's in a bad state
+          attachedTabs.delete(tabId);
+          enabledTabs.delete(tabId);
+          // Try to detach and clean up
+          try {
+            await debuggerDetach(tabId);
+          } catch (_) {}
+          // Throw the error to trigger retry logic at the higher level
+          throw new Error(`Failed to enable debugger domains: ${e.message}`);
+        }
       }
     } else {
-      log(`Reusing enabled domains for tab ${tabId}`);
-      timings.runtimeEnable = 0;
-      timings.logEnable = 0;
-      timings.totalEnable = 0;
+      // Verify domains are actually still enabled by testing a simple command
+      try {
+        // Quick test to verify Runtime domain is still active
+        await sendCommand(tabId, "Runtime.evaluate", {
+          expression: "1",
+          returnByValue: true,
+        });
+        log(`Reusing enabled domains for tab ${tabId}`);
+        timings.runtimeEnable = 0;
+        timings.logEnable = 0;
+        timings.totalEnable = 0;
+      } catch (e) {
+        // Domains were disabled (debugger detached), need to re-enable
+        log(`Domains were disabled for tab ${tabId}, re-enabling...`);
+        enabledTabs.delete(tabId);
+
+        const enableStart = performance.now();
+        try {
+          const runtimeStart = performance.now();
+          await sendCommand(tabId, "Runtime.enable", {});
+          timings.runtimeEnable = performance.now() - runtimeStart;
+
+          const logStart = performance.now();
+          await sendCommand(tabId, "Log.enable", {});
+          timings.logEnable = performance.now() - logStart;
+
+          enabledTabs.add(tabId);
+          timings.totalEnable = performance.now() - enableStart;
+          log(
+            `Domains re-enabled for tab ${tabId} - Runtime: ${timings.runtimeEnable.toFixed(1)}ms, Log: ${timings.logEnable.toFixed(1)}ms, Total: ${timings.totalEnable.toFixed(1)}ms`,
+          );
+        } catch (enableError) {
+          // Check if error is due to debugger being detached
+          const errorMsg = enableError.message || String(enableError);
+          if (errorMsg.includes("Debugger is not attached")) {
+            log(
+              `Debugger was detached from tab ${tabId}, need to reattach before enabling domains`,
+            );
+            // Clear state and reattach
+            attachedTabs.delete(tabId);
+            enabledTabs.delete(tabId);
+
+            try {
+              // Reattach the debugger
+              await debuggerAttach(tabId);
+              attachedTabs.add(tabId);
+              chrome.storage.session.set({ attached: [...attachedTabs] });
+              log(`Successfully reattached debugger to tab ${tabId}`);
+
+              // Now try to enable domains again
+              const runtimeStart = performance.now();
+              await sendCommand(tabId, "Runtime.enable", {});
+              timings.runtimeEnable = performance.now() - runtimeStart;
+
+              const logStart = performance.now();
+              await sendCommand(tabId, "Log.enable", {});
+              timings.logEnable = performance.now() - logStart;
+
+              enabledTabs.add(tabId);
+              timings.totalEnable = performance.now() - enableStart;
+              log(
+                `Domains enabled after reattach for tab ${tabId} - Runtime: ${timings.runtimeEnable.toFixed(1)}ms, Log: ${timings.logEnable.toFixed(1)}ms, Total: ${timings.totalEnable.toFixed(1)}ms`,
+              );
+            } catch (reattachError) {
+              log(
+                `Failed to reattach and enable domains for tab ${tabId}:`,
+                reattachError.message,
+              );
+              // Clean up state
+              attachedTabs.delete(tabId);
+              enabledTabs.delete(tabId);
+              try {
+                await debuggerDetach(tabId);
+              } catch (_) {}
+              throw new Error(
+                `Failed to reattach debugger and enable domains: ${reattachError.message}`,
+              );
+            }
+          } else {
+            // Different error, not related to detachment
+            log(
+              `Could not re-enable domains for tab ${tabId}:`,
+              enableError.message,
+            );
+            // Clear the tab from tracking since it's in a bad state
+            attachedTabs.delete(tabId);
+            enabledTabs.delete(tabId);
+            // Try to detach and clean up
+            try {
+              await debuggerDetach(tabId);
+            } catch (_) {}
+            // Throw the error to trigger retry logic at the higher level
+            throw new Error(
+              `Failed to re-enable debugger domains: ${enableError.message}`,
+            );
+          }
+        }
+      }
     }
 
     // Listen for console/log/exception events for this tab while the eval runs
@@ -728,22 +985,18 @@ async function evalInTab(tabId, code, awaitPromise, evalId) {
       }
     };
     chrome.debugger.onEvent.addListener(onEvent);
-    
+
     const evalStart = performance.now();
     let evalResult;
     let retryWithWrapper = false;
 
     try {
-      evalResult = await sendCommand(
-        tabId,
-        "Runtime.evaluate",
-        {
-          expression: code,
-          awaitPromise: !!awaitPromise,
-          returnByValue: true,
-          userGesture: true,
-        }
-      );
+      evalResult = await sendCommand(tabId, "Runtime.evaluate", {
+        expression: code,
+        awaitPromise: !!awaitPromise,
+        returnByValue: true,
+        userGesture: true,
+      });
     } catch (error) {
       // If sendCommand itself fails (not script error), re-throw
       throw error;
@@ -753,16 +1006,24 @@ async function evalInTab(tabId, code, awaitPromise, evalId) {
     timings.evaluate = performance.now() - evalStart;
 
     // Check if we got "Illegal return statement" error and haven't wrapped yet
-    if (exceptionDetails &&
-        code !== originalCode && // Already wrapped, don't retry
-        (exceptionDetails.text?.includes("Illegal return statement") ||
-         exceptionDetails.exception?.description?.includes("Illegal return statement"))) {
+    if (
+      exceptionDetails &&
+      code !== originalCode && // Already wrapped, don't retry
+      (exceptionDetails.text?.includes("Illegal return statement") ||
+        exceptionDetails.exception?.description?.includes(
+          "Illegal return statement",
+        ))
+    ) {
       // This shouldn't happen since we already wrapped, but log it
       log("Still got 'Illegal return statement' after wrapping, not retrying");
-    } else if (exceptionDetails &&
-               code === originalCode && // Not wrapped yet
-               (exceptionDetails.text?.includes("Illegal return statement") ||
-                exceptionDetails.exception?.description?.includes("Illegal return statement"))) {
+    } else if (
+      exceptionDetails &&
+      code === originalCode && // Not wrapped yet
+      (exceptionDetails.text?.includes("Illegal return statement") ||
+        exceptionDetails.exception?.description?.includes(
+          "Illegal return statement",
+        ))
+    ) {
       // Our detection missed it, retry with wrapper
       log("Got 'Illegal return statement' error, retrying with IIFE wrapper");
       retryWithWrapper = true;
@@ -773,16 +1034,12 @@ async function evalInTab(tabId, code, awaitPromise, evalId) {
       const wrappedCode = `(function() {\n${originalCode}\n})()`;
       const retryStart = performance.now();
 
-      evalResult = await sendCommand(
-        tabId,
-        "Runtime.evaluate",
-        {
-          expression: wrappedCode,
-          awaitPromise: !!awaitPromise,
-          returnByValue: true,
-          userGesture: true,
-        }
-      );
+      evalResult = await sendCommand(tabId, "Runtime.evaluate", {
+        expression: wrappedCode,
+        awaitPromise: !!awaitPromise,
+        returnByValue: true,
+        userGesture: true,
+      });
 
       ({ result, exceptionDetails } = evalResult);
       timings.evaluateRetry = performance.now() - retryStart;
@@ -821,13 +1078,15 @@ async function evalInTab(tabId, code, awaitPromise, evalId) {
           code: "EVAL_ERROR",
           message: details.text || "Evaluation error",
           details,
-        })
+        }),
       );
     }
-    
+
     // Log timing summary
     timings.total = performance.now() - perfStart;
-    log(`[TIMING] Total: ${timings.total.toFixed(1)}ms | Attach: ${timings.attach.toFixed(1)}ms | Enable: ${timings.totalEnable.toFixed(1)}ms | Eval: ${timings.evaluate.toFixed(1)}ms`);
+    log(
+      `[TIMING] Total: ${timings.total.toFixed(1)}ms | Attach: ${timings.attach.toFixed(1)}ms | Enable: ${timings.totalEnable.toFixed(1)}ms | Eval: ${timings.evaluate.toFixed(1)}ms`,
+    );
 
     // Return JSON-serializable value
     // Check if result is null or undefined - these should be treated as errors
@@ -840,9 +1099,9 @@ async function evalInTab(tabId, code, awaitPromise, evalId) {
           message: "JavaScript execution returned null or undefined",
           details: {
             text: "Script returned null/undefined value",
-            resultType: resultValue === null ? "null" : "undefined"
-          }
-        })
+            resultType: resultValue === null ? "null" : "undefined",
+          },
+        }),
       );
     }
     return resultValue;
