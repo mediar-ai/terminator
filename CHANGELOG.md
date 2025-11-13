@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.5] - 2025-11-13
+
+### Changed
+- Maintenance release with dependency updates
+
+## [0.23.4] - 2025-11-13
+
+### Fixed
+- CI: Fixed bun install failing on optional dependencies (macOS packages on Windows) by adding `|| true` to continue on error
+- CI: Added ws module to devDependencies for extension bridge WebSocket test
+
 ## [0.23.2] - 2025-11-12
 
 ### Fixed

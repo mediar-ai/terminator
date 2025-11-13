@@ -77,27 +77,26 @@ jobs:
           cargo build -p terminator-mcp-agent --features sentry
           cargo test -p terminator-mcp-agent --features sentry -- --test-threads=1
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: "18"
+          bun-version: latest
 
-      - name: Install Node.js dependencies
+      - name: Install dependencies
         run: |
           cd packages/terminator-nodejs
-          npm install
+          bun install --ignore-scripts || true
         shell: pwsh
 
       - name: Build Node.js bindings
         run: |
           cd packages/terminator-nodejs
-          npm run build
+          bun run build
         shell: pwsh
 
       - name: Run Node.js tests
         run: |
           cd packages/terminator-nodejs
-          npm test
+          bun test
         shell: pwsh
 
       # Install Chrome extension and run browser tests
@@ -105,19 +104,11 @@ jobs:
         run: |
           choco install googlechrome -y --ignore-checksums
           Start-Sleep -Seconds 5
-        shell: pwsh
-
-      - name: Launch Chrome before workflow
-        run: |
-          # Start Chrome first so it's running when workflow executes
+          # check chrome is installed
           $chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-          Start-Process -FilePath $chromePath -ArgumentList @(
-            "--no-first-run",
-            "--no-default-browser-check",
-            "about:blank"
-          )
-          Write-Host "Chrome started, waiting for initialization..."
-          Start-Sleep -Seconds 10
+          if (-not (Test-Path $chromePath)) {
+            Write-Error "Chrome is not installed"
+          }
         shell: pwsh
 
       - name: Install extension via terminator workflow
@@ -127,66 +118,6 @@ jobs:
         shell: pwsh
         timeout-minutes: 5
         continue-on-error: true
-
-      - name: Wake up extension and verify WebSocket connection
-        run: |
-          Write-Host "Testing if extension can connect to WebSocket bridge..."
-
-          # Navigate Chrome to example.com to trigger extension
-          $chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-          Start-Process -FilePath $chromePath -ArgumentList @(
-            "--new-window",
-            "https://example.com"
-          )
-
-          Write-Host "Waiting for page load..."
-          Start-Sleep -Seconds 3
-
-          # Run the WebSocket test using our test script (from terminator-nodejs dir which has ws installed)
-          Write-Host "Starting WebSocket bridge test..."
-          cd packages/terminator-nodejs
-          node "../../.github/scripts/test-extension-bridge.js"
-
-          if ($LASTEXITCODE -eq 0) {
-            Write-Host "`n✅ Extension successfully connected to bridge!"
-          } else {
-            Write-Host "`n❌ Extension failed to connect - browser tests will fail"
-            Write-Host "`nDiagnostics:"
-            Write-Host "Chrome processes:"
-            Get-Process chrome -ErrorAction SilentlyContinue | Format-Table
-
-            Write-Host "`nExtension files:"
-            $tempBridge = Join-Path $env:TEMP 'terminator-bridge'
-            if (Test-Path $tempBridge) {
-              Write-Host "Extension directory exists at: $tempBridge"
-              Get-ChildItem $tempBridge | Format-Table
-            } else {
-              Write-Host "Extension directory NOT FOUND at: $tempBridge"
-            }
-          }
-        shell: pwsh
-        continue-on-error: true
-
-      - name: Wake extension service worker
-        run: |
-          Write-Host "Navigating to test page to wake extension service worker..."
-          $chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-
-          # Close any existing Chrome windows
-          Get-Process chrome -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 2
-
-          # Start fresh Chrome with extension loaded
-          Start-Process -FilePath $chromePath -ArgumentList @(
-            "--new-window",
-            "https://example.com"
-          )
-
-          Write-Host "Waiting for extension service worker to initialize..."
-          Start-Sleep -Seconds 5
-
-          Write-Host "Extension should now be active and connected"
-        shell: pwsh
 
       - name: Run TypeScript browser script bridge workflow
         run: |

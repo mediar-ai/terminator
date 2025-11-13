@@ -402,6 +402,10 @@ pub async fn maybe_attach_tree(
         return;
     }
 
+    // Add delay for UI to stabilize (same as ui_diff_before_after mode)
+    // This ensures we capture the tree after animations/transitions complete
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+
     // Only proceed if we have a PID
     let pid = match pid_opt {
         Some(p) => p,
@@ -758,8 +762,8 @@ where
                     // Execute action
                     match action(element.clone()).await {
                         Ok(result) => {
-                            // Small delay for UI to settle (150ms similar to mediar-app)
-                            tokio::time::sleep(Duration::from_millis(150)).await;
+                            // Small delay for UI to settle (1500ms - same delay used in maybe_attach_tree)
+                            tokio::time::sleep(Duration::from_millis(1500)).await;
 
                             // Capture AFTER tree
                             tracing::debug!(
