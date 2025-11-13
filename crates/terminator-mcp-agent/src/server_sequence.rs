@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tracing::{debug, info, warn};
+use uuid::Uuid;
 
 /// Helper function to recursively validate a value against a variable definition
 fn validate_variable_value(
@@ -281,6 +282,41 @@ impl DesktopWrapper {
     }
 
     pub async fn execute_sequence_impl(
+        &self,
+        peer: Peer<RoleServer>,
+        request_context: RequestContext<RoleServer>,
+        args: ExecuteSequenceArgs,
+    ) -> Result<CallToolResult, McpError> {
+        // Register this execution with the request manager
+        // This allows stop_execution to cancel it
+        let request_id = format!("execute_sequence_{}", Uuid::new_v4());
+        let cancel_context = self
+            .request_manager
+            .register(
+                request_id.clone(),
+                Some(600000), // 10 minute timeout for workflows
+            )
+            .await;
+
+        // Use tokio::select to handle cancellation from request manager
+        tokio::select! {
+            result = self.execute_sequence_inner(peer, request_context, args) => {
+                // Unregister when done
+                self.request_manager.unregister(&request_id).await;
+                result
+            }
+            _ = cancel_context.cancellation_token.cancelled() => {
+                // Unregister on cancellation
+                self.request_manager.unregister(&request_id).await;
+                Err(McpError::internal_error(
+                    "Workflow execution cancelled by stop_execution",
+                    Some(json!({"code": -32001, "request_id": request_id}))
+                ))
+            }
+        }
+    }
+
+    async fn execute_sequence_inner(
         &self,
         peer: Peer<RoleServer>,
         request_context: RequestContext<RoleServer>,

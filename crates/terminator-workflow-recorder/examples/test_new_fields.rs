@@ -36,7 +36,7 @@ fn main() {
     // Serialize to JSON to show the actual output format
     let json = serde_json::to_string_pretty(&event).expect("Failed to serialize");
     println!("\nJSON output:");
-    println!("{}", json);
+    println!("{json}");
 
     println!("\n✅ SUCCESS: All new fields are present and working!");
 }

@@ -719,13 +719,17 @@ fn update_package_json(path: &str, version: &str) -> Result<(), Box<dyn std::err
     // Update main version
     pkg["version"] = serde_json::Value::String(version.to_string());
 
-    // Update optional dependencies that start with terminator-mcp- or terminator.js-
+    // Update optional dependencies for platform packages
     if let Some(deps) = pkg
         .get_mut("optionalDependencies")
         .and_then(|v| v.as_object_mut())
     {
         for (key, value) in deps.iter_mut() {
-            if key.starts_with("terminator-mcp-") || key.starts_with("terminator.js-") {
+            // Update @mediar-ai/terminator-* platform packages
+            if key.starts_with("@mediar-ai/terminator-")
+                || key.starts_with("terminator-mcp-")
+                || key.starts_with("terminator.js-")
+            {
                 *value = serde_json::Value::String(version.to_string());
             }
         }

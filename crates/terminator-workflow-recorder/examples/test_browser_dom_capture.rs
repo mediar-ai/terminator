@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Open test page
         let test_page_path = "file:///C:/Users/screenpipe-windows/AppData/Local/Temp/terminator-tests/test_dom_capture.html";
-        println!("📄 Opening test page: {}", test_page_path);
+        println!("📄 Opening test page: {test_page_path}");
 
         let browser = desktop.open_url(test_page_path, None)?;
 
@@ -62,9 +62,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let click_x = (x + (width / 2.0)) as i32;
                     let click_y = (y + (height / 2.0)) as i32;
 
-                    println!("   Button found at bounds: x={}, y={}, w={}, h={}",
-                             x, y, width, height);
-                    println!("   Click position will be: ({}, {})", click_x, click_y);
+                    println!("   Button found at bounds: x={x}, y={y}, w={width}, h={height}");
+                    println!("   Click position will be: ({click_x}, {click_y})");
 
                     // Test DOM capture at button position
                     println!("\n🔍 Capturing DOM element at button position...");

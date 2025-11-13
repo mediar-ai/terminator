@@ -100,8 +100,8 @@ async fn test_debugger_stale_state_after_close_and_reopen() {
 
     let script = "document.title";
     match browser1.execute_browser_script(script).await {
-        Ok(result) => println!("✅ Script on first tab succeeded: {}", result),
-        Err(e) => println!("❌ Script on first tab failed: {}", e),
+        Ok(result) => println!("✅ Script on first tab succeeded: {result}"),
+        Err(e) => println!("❌ Script on first tab failed: {e}"),
     }
 
     // Step 2: Close the tab
@@ -120,11 +120,11 @@ async fn test_debugger_stale_state_after_close_and_reopen() {
     println!("\n4️⃣ Executing script on new tab");
     match browser2.execute_browser_script(script).await {
         Ok(result) => {
-            println!("✅ Script on second tab succeeded: {}", result);
+            println!("✅ Script on second tab succeeded: {result}");
             println!("   Extension correctly handled tab replacement");
         }
         Err(e) => {
-            println!("❌ Script on second tab failed: {}", e);
+            println!("❌ Script on second tab failed: {e}");
             if e.to_string().contains("Failed to enable debugger domains")
                 || e.to_string().contains("Debugger is not attached")
             {
@@ -155,18 +155,18 @@ async fn test_rapid_script_execution_stale_state() {
     println!("\n⚡ Executing multiple scripts rapidly...");
 
     for i in 1..=10 {
-        println!("\n  Execution {}/10", i);
+        println!("\n  Execution {i}/10");
 
         // Execute script
-        let script = format!("document.title + ' - {}'", i);
+        let script = format!("document.title + ' - {i}'");
         match browser.execute_browser_script(&script).await {
-            Ok(result) => println!("    ✅ Success: {}", result),
+            Ok(result) => println!("    ✅ Success: {result}"),
             Err(e) => {
-                println!("    ❌ Failed: {}", e);
+                println!("    ❌ Failed: {e}");
                 if e.to_string().contains("Failed to enable debugger domains")
                     || e.to_string().contains("Debugger is not attached")
                 {
-                    println!("    🎯 REPRODUCED ERROR at iteration {}", i);
+                    println!("    🎯 REPRODUCED ERROR at iteration {i}");
                 }
             }
         }
@@ -207,8 +207,8 @@ async fn test_sap_login_scenario() {
     println!("\n2️⃣ Checking page loaded");
     let check_script = "document.readyState";
     match browser.execute_browser_script(check_script).await {
-        Ok(result) => println!("✅ Page state: {}", result),
-        Err(e) => println!("❌ Page check failed: {}", e),
+        Ok(result) => println!("✅ Page state: {result}"),
+        Err(e) => println!("❌ Page check failed: {e}"),
     }
 
     // Step 2: Fill form fields (simulating SAP login fields)
@@ -237,9 +237,9 @@ async fn test_sap_login_scenario() {
     "#;
 
     match browser.execute_browser_script(login_script).await {
-        Ok(result) => println!("✅ Login validation: {}", result),
+        Ok(result) => println!("✅ Login validation: {result}"),
         Err(e) => {
-            println!("❌ Login validation failed: {}", e);
+            println!("❌ Login validation failed: {e}");
             if e.to_string().contains("Failed to enable debugger domains")
                 || e.to_string().contains("Debugger is not attached")
             {
@@ -253,9 +253,9 @@ async fn test_sap_login_scenario() {
     println!("\n5️⃣ Post-login navigation check");
     let nav_script = "window.location.href";
     match browser.execute_browser_script(nav_script).await {
-        Ok(result) => println!("✅ Current URL: {}", result),
+        Ok(result) => println!("✅ Current URL: {result}"),
         Err(e) => {
-            println!("❌ Navigation check failed: {}", e);
+            println!("❌ Navigation check failed: {e}");
             if e.to_string().contains("Failed to enable debugger domains")
                 || e.to_string().contains("Debugger is not attached")
             {

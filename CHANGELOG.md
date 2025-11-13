@@ -7,6 +7,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.2] - 2025-11-12
+
+### Fixed
+- Browser scripts: Env variables now injected as single `env` object instead of separate const declarations - scripts access via `env.variableName`
+- CLI: Fixed version sync to update @mediar-ai/terminator-* optionalDependencies
+- Package: Updated platform package optionalDependencies from 0.22.20 to 0.23.2
+
+## [0.23.1] - 2025-11-12
+
+### Added
+- Browser scripts: Env variable injection for file-based scripts - variables passed in `env` option are auto-injected as `const` declarations
+- MCP: Cancellation support for execute_sequence workflows
+- MCP: stop_execution tool for cancelling active workflows
+- Extension Bridge: Proxy mode for subprocesses
+- Subprocess: Inherit parent environment variables in commands
+
+### Changed
+- Dependencies: Bump terminator platform dependencies to 0.22.20
+- Logging: Remove verbose logging from Windows engine and element implementation
+
+### Fixed
+- Documentation: Emphasize always using ui_diff_before_after parameter
+- Line endings: Normalize line endings in example files
+
+## [0.23.0] - 2025-11-12
+
+### Changed
+- Minor version bump
+
+## [0.22.25] - 2025-11-12
+
+### Fixed
+- TypeScript: Use module augmentation instead of conflicting interface declarations to properly extend Desktop/Element classes
+
+## [0.22.24] - 2025-11-12
+
+### Fixed
+- TypeScript: Explicitly re-export Desktop and other classes in wrapper.d.ts to fix "only refers to a type" errors in workflow package
+
+## [0.22.23] - 2025-11-12
+
+### Changed
+- Code quality: Run cargo fmt to fix formatting issues
+
+## [0.22.22] - 2025-11-12
+
+### Fixed
+- Build: Uncommented terminator-python in workspace members to fix Python wheels CI build
+
+## [0.22.21] - 2025-11-12
+
+### Fixed
+- CI: Ensure WebSocket module is available for extension bridge test
+- CI: Move WebSocket test to separate script file to fix YAML syntax
+- CI: Add WebSocket bridge connection test and extension wake-up steps
+- CI: Add extension loading verification step
+- CI: Fix Rust formatting issues and make browser extension tests continue-on-error
+- Browser: Use Browser instead of BrowserType in tests
+- Browser: Use Chrome browser explicitly in browser extension tests
+- Windows: Prevent Chrome-based browsers from killing all windows on close
+- Desktop: Use .first() instead of .wait() for desktop.locator() API
+- Rust: Fix warnings in Windows applications module
+- Browser: Improve Developer mode detection in Chrome extension install workflow
+- CI: Launch Chrome before running extension install workflow
+- CI: Launch Chrome with extension via command line instead of UI automation
+- CI: Ignore checksums for Chrome install (updates frequently)
+- Clippy: Inline format args to fix warnings
+- Browser: Automatically recover from debugger detachment in browser extension (#354)
+
+### Changed
+- Windows: Optimize Chrome detection to query only target process
+- MCP: Remove get_focused_window_tree tool and add verification system to action tools
+- MCP: Add verify_post_action helper for post-action verification
+
+### Added
+- Tests: Add test examples for parent chain, PID window, and verify window scope
+- Screenshots: Add PID support and auto-resize to capture_element_screenshot
+- Documentation: Update server instructions with new best practices
+- Windows: Optimize Windows application lookup with EnumWindows API and caching
+
 ## [0.22.20] - 2025-11-11
 
 ### Added

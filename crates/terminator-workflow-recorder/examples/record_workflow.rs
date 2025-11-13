@@ -516,7 +516,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("     ├─ Confidence: {:?}", file_event.confidence);
                     println!("     ├─ Search Time: {:.2}ms", file_event.search_time_ms);
                     if let Some(primary_path) = &file_event.primary_path {
-                        println!("     ├─ Primary Path: {}", primary_path);
+                        println!("     ├─ Primary Path: {primary_path}");
                     }
                     println!(
                         "     └─ Total Candidates: {}",

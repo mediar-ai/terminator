@@ -5,13 +5,12 @@ use crate::utils::find_and_execute_with_retry_with_fallback;
 pub use crate::utils::DesktopWrapper;
 use crate::utils::{
     get_timeout, ActionHighlightConfig, ActivateElementArgs, CaptureElementScreenshotArgs,
-    ClickElementArgs, CloseElementArgs, DelayArgs, ExecuteBrowserScriptArgs,
-    ExecuteSequenceArgs, GetApplicationsArgs, GetWindowTreeArgs, GlobalKeyArgs,
-    HighlightElementArgs, LocatorArgs, MaximizeWindowArgs, MinimizeWindowArgs, MouseDragArgs,
-    NavigateBrowserArgs, OpenApplicationArgs, PressKeyArgs, RunCommandArgs, ScrollElementArgs,
-    SelectOptionArgs, SetRangeValueArgs, SetSelectedArgs, SetToggledArgs, SetValueArgs,
-    SetZoomArgs, StopHighlightingArgs, TypeIntoElementArgs, ValidateElementArgs,
-    WaitForElementArgs,
+    ClickElementArgs, CloseElementArgs, DelayArgs, ExecuteBrowserScriptArgs, ExecuteSequenceArgs,
+    GetApplicationsArgs, GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs, LocatorArgs,
+    MaximizeWindowArgs, MinimizeWindowArgs, MouseDragArgs, NavigateBrowserArgs,
+    OpenApplicationArgs, PressKeyArgs, RunCommandArgs, ScrollElementArgs, SelectOptionArgs,
+    SetRangeValueArgs, SetSelectedArgs, SetToggledArgs, SetValueArgs, SetZoomArgs,
+    StopHighlightingArgs, TypeIntoElementArgs, ValidateElementArgs, WaitForElementArgs,
 };
 use image::imageops::FilterType;
 use image::{ExtendedColorType, ImageBuffer, ImageEncoder, Rgba};
@@ -1181,7 +1180,7 @@ impl DesktopWrapper {
                     span.set_status(false, Some("Verification failed"));
                     span.end();
                     return Err(McpError::internal_error(
-                        format!("Post-action verification failed: {}", e),
+                        format!("Post-action verification failed: {e}"),
                         Some(json!({
                             "selector_used": successful_selector,
                             "verify_exists": substituted_exists,
@@ -4095,7 +4094,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     span.set_status(false, Some("Verification failed"));
                     span.end();
                     return Err(McpError::internal_error(
-                        format!("Post-action verification failed: {}", e),
+                        format!("Post-action verification failed: {e}"),
                         Some(json!({
                             "selector_used": successful_selector,
                             "timeout_ms": verify_timeout_ms,
@@ -4309,7 +4308,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     span.set_status(false, Some("Verification failed"));
                     span.end();
                     return Err(McpError::internal_error(
-                        format!("Post-action verification failed: {}", e),
+                        format!("Post-action verification failed: {e}"),
                         Some(json!({
                             "selector_used": successful_selector,
                             "timeout_ms": verify_timeout_ms,
@@ -4522,7 +4521,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     span.set_status(false, Some("Verification failed"));
                     span.end();
                     return Err(McpError::internal_error(
-                        format!("Post-action verification failed: {}", e),
+                        format!("Post-action verification failed: {e}"),
                         Some(json!({
                             "selector_used": successful_selector,
                             "timeout_ms": verify_timeout_ms,
@@ -4826,7 +4825,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 .find(|a| a.process_id().unwrap_or(0) == pid)
                 .ok_or_else(|| {
                     McpError::resource_not_found(
-                        format!("No window found for PID {}", pid),
+                        format!("No window found for PID {pid}"),
                         Some(json!({"pid": pid, "available_pids": apps.iter().map(|a| a.process_id().unwrap_or(0)).collect::<Vec<_>>()})),
                     )
                 })?;
@@ -4838,7 +4837,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 )
             })?;
 
-            ((screenshot, app.clone()), format!("pid:{}", pid))
+            ((screenshot, app.clone()), format!("pid:{pid}"))
         } else if let Some(ref selector) = args.selector {
             // Selector-based capture (existing logic)
             match find_and_execute_with_retry_with_fallback(
@@ -5454,7 +5453,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     span.set_status(false, Some("Verification failed"));
                     span.end();
                     return Err(McpError::internal_error(
-                        format!("Post-action verification failed: {}", e),
+                        format!("Post-action verification failed: {e}"),
                         Some(json!({
                             "selector_used": successful_selector,
                             "verify_exists": verify_exists,
@@ -6368,6 +6367,31 @@ console.info = function(...args) {
             .await,
         ))
     }
+
+    #[tool(
+        description = "Stops all currently executing workflows/tools by cancelling active requests. Use this when the user clicks a stop button or wants to abort execution."
+    )]
+    async fn stop_execution(&self) -> Result<CallToolResult, McpError> {
+        info!("🛑 Stop execution requested - cancelling all active requests");
+
+        // Cancel all active requests using the request manager
+        self.request_manager.cancel_all().await;
+
+        let active_count = self.request_manager.active_count().await;
+        info!(
+            "✅ Cancelled all active requests. Active count: {}",
+            active_count
+        );
+
+        let result_json = json!({
+            "action": "stop_execution",
+            "status": "success",
+            "message": "All active requests have been cancelled",
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        });
+
+        Ok(CallToolResult::success(vec![Content::json(result_json)?]))
+    }
 }
 
 impl DesktopWrapper {
@@ -6379,10 +6403,31 @@ impl DesktopWrapper {
         arguments: &serde_json::Value,
     ) -> Result<CallToolResult, McpError> {
         use rmcp::handler::server::wrapper::Parameters;
+
+        // Check if request is already cancelled before dispatching
+        if request_context.ct.is_cancelled() {
+            return Err(McpError::internal_error(
+                format!("Tool {tool_name} cancelled before execution"),
+                Some(json!({"code": -32001, "tool": tool_name})),
+            ));
+        }
+
+        // Wrap each tool call with cancellation support
         match tool_name {
             "get_window_tree" => {
                 match serde_json::from_value::<GetWindowTreeArgs>(arguments.clone()) {
-                    Ok(args) => self.get_window_tree(Parameters(args)).await,
+                    Ok(args) => {
+                        // Use tokio::select with the cancellation token from request_context
+                        tokio::select! {
+                            result = self.get_window_tree(Parameters(args)) => result,
+                            _ = request_context.ct.cancelled() => {
+                                Err(McpError::internal_error(
+                                    format!("{tool_name} cancelled"),
+                                    Some(json!({"code": -32001, "tool": tool_name}))
+                                ))
+                            }
+                        }
+                    }
                     Err(e) => Err(McpError::invalid_params(
                         "Invalid arguments for get_window_tree",
                         Some(json!({"error": e.to_string()})),
@@ -6392,8 +6437,15 @@ impl DesktopWrapper {
             "get_applications_and_windows_list" => {
                 match serde_json::from_value::<GetApplicationsArgs>(arguments.clone()) {
                     Ok(args) => {
-                        self.get_applications_and_windows_list(Parameters(args))
-                            .await
+                        tokio::select! {
+                            result = self.get_applications_and_windows_list(Parameters(args)) => result,
+                            _ = request_context.ct.cancelled() => {
+                                Err(McpError::internal_error(
+                                    format!("{tool_name} cancelled"),
+                                    Some(json!({"code": -32001, "tool": tool_name}))
+                                ))
+                            }
+                        }
                     }
                     Err(e) => Err(McpError::invalid_params(
                         "Invalid arguments for get_applications_and_windows_list",
@@ -6403,7 +6455,17 @@ impl DesktopWrapper {
             }
             "click_element" => {
                 match serde_json::from_value::<ClickElementArgs>(arguments.clone()) {
-                    Ok(args) => self.click_element(Parameters(args)).await,
+                    Ok(args) => {
+                        tokio::select! {
+                            result = self.click_element(Parameters(args)) => result,
+                            _ = request_context.ct.cancelled() => {
+                                Err(McpError::internal_error(
+                                    format!("{tool_name} cancelled"),
+                                    Some(json!({"code": -32001, "tool": tool_name}))
+                                ))
+                            }
+                        }
+                    }
                     Err(e) => Err(McpError::invalid_params(
                         "Invalid arguments for click_element",
                         Some(json!({"error": e.to_string()})),
@@ -6412,7 +6474,17 @@ impl DesktopWrapper {
             }
             "type_into_element" => {
                 match serde_json::from_value::<TypeIntoElementArgs>(arguments.clone()) {
-                    Ok(args) => self.type_into_element(Parameters(args)).await,
+                    Ok(args) => {
+                        tokio::select! {
+                            result = self.type_into_element(Parameters(args)) => result,
+                            _ = request_context.ct.cancelled() => {
+                                Err(McpError::internal_error(
+                                    format!("{tool_name} cancelled"),
+                                    Some(json!({"code": -32001, "tool": tool_name}))
+                                ))
+                            }
+                        }
+                    }
                     Err(e) => Err(McpError::invalid_params(
                         "Invalid arguments for type_into_element",
                         Some(json!({"error": e.to_string()})),
@@ -6420,7 +6492,17 @@ impl DesktopWrapper {
                 }
             }
             "press_key" => match serde_json::from_value::<PressKeyArgs>(arguments.clone()) {
-                Ok(args) => self.press_key(Parameters(args)).await,
+                Ok(args) => {
+                    tokio::select! {
+                        result = self.press_key(Parameters(args)) => result,
+                        _ = request_context.ct.cancelled() => {
+                            Err(McpError::internal_error(
+                                format!("{tool_name} cancelled"),
+                                Some(json!({"code": -32001, "tool": tool_name}))
+                            ))
+                        }
+                    }
+                }
                 Err(e) => Err(McpError::invalid_params(
                     "Invalid arguments for press_key",
                     Some(json!({"error": e.to_string()})),
@@ -6446,7 +6528,17 @@ impl DesktopWrapper {
             }
             "wait_for_element" => {
                 match serde_json::from_value::<WaitForElementArgs>(arguments.clone()) {
-                    Ok(args) => self.wait_for_element(Parameters(args)).await,
+                    Ok(args) => {
+                        tokio::select! {
+                            result = self.wait_for_element(Parameters(args)) => result,
+                            _ = request_context.ct.cancelled() => {
+                                Err(McpError::internal_error(
+                                    format!("{tool_name} cancelled"),
+                                    Some(json!({"code": -32001, "tool": tool_name}))
+                                ))
+                            }
+                        }
+                    }
                     Err(e) => Err(McpError::invalid_params(
                         "Invalid arguments for wait_for_element",
                         Some(json!({"error": e.to_string()})),
@@ -6465,7 +6557,17 @@ impl DesktopWrapper {
             }
             "navigate_browser" => {
                 match serde_json::from_value::<NavigateBrowserArgs>(arguments.clone()) {
-                    Ok(args) => self.navigate_browser(Parameters(args)).await,
+                    Ok(args) => {
+                        tokio::select! {
+                            result = self.navigate_browser(Parameters(args)) => result,
+                            _ = request_context.ct.cancelled() => {
+                                Err(McpError::internal_error(
+                                    format!("{tool_name} cancelled"),
+                                    Some(json!({"code": -32001, "tool": tool_name}))
+                                ))
+                            }
+                        }
+                    }
                     Err(e) => Err(McpError::invalid_params(
                         "Invalid arguments for navigate_browser",
                         Some(json!({"error": e.to_string()})),
@@ -6676,6 +6778,10 @@ impl DesktopWrapper {
                         Some(json!({"error": e.to_string()})),
                     )),
                 }
+            }
+            "stop_execution" => {
+                // No arguments needed for stop_execution
+                self.stop_execution().await
             }
             _ => Err(McpError::internal_error(
                 "Unknown tool called",

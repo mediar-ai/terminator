@@ -91,14 +91,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .block_on(async { desktop.execute_browser_script(test_script).await })?;
 
     println!("📊 Script execution result:");
-    println!("{}\n", result);
+    println!("{result}\n");
 
     // Parse and verify
     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&result) {
         if let Some(error) = parsed.get("error") {
-            eprintln!("❌ Script returned error: {}", error);
+            eprintln!("❌ Script returned error: {error}");
             eprintln!("   This means the script failed to execute properly.");
-            return Err(format!("Script error: {}", error).into());
+            return Err(format!("Script error: {error}").into());
         }
 
         if parsed.get("success").and_then(|v| v.as_bool()) == Some(true) {

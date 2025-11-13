@@ -1,4 +1,4 @@
-use rmcp::ErrorData as McpError;
+﻿use rmcp::ErrorData as McpError;
 use serde_json::json;
 use std::path::PathBuf;
 use tracing::{debug, error, info, trace, warn};
@@ -1048,6 +1048,7 @@ global.sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
         Command::new(&runtime_exe)
             .current_dir(&process_working_dir)
             .arg(&script_arg)
+            .envs(std::env::vars()) // Inherit parent environment (includes TERMINATOR_JS_USE_LOCAL)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -1057,6 +1058,7 @@ global.sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
         Command::new("cmd")
             .current_dir(&process_working_dir)
             .args(["/c", &runtime_exe, &script_arg])
+            .envs(std::env::vars()) // Inherit parent environment (includes TERMINATOR_JS_USE_LOCAL)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -1066,12 +1068,14 @@ global.sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
         Command::new(&runtime_exe)
             .current_dir(&process_working_dir)
             .arg(&script_arg)
+            .envs(std::env::vars()) // Inherit parent environment (includes TERMINATOR_JS_USE_LOCAL)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
     } else {
         info!("[Node.js] Using direct execution");
         Command::new(&runtime_exe)
+            .envs(std::env::vars()) // Inherit parent environment (includes TERMINATOR_JS_USE_LOCAL)
             .current_dir(&process_working_dir)
             .arg(&script_arg)
             .stdout(Stdio::piped())
@@ -1136,7 +1140,6 @@ global.sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
             stdout_line = stdout.next_line() => {
                 match stdout_line {
                     Ok(Some(line)) => {
-                        info!("[Node.js stdout] {}", line);
                         // Capture non-marker lines as logs (excluding wrapper debug output)
                         if !line.starts_with("__RESULT__")
                             && !line.starts_with("__ERROR__")
@@ -1224,7 +1227,6 @@ global.sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
             stderr_line = stderr.next_line() => {
                 match stderr_line {
                     Ok(Some(line)) => {
-                        error!("[Node.js stderr] {}", line);
                         stderr_output.push(line);
                     }
                     Ok(None) => {
@@ -1505,6 +1507,7 @@ console.log('[TypeScript] Current working directory:', process.cwd());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
     cmd.current_dir(&process_working_dir);
+    cmd.env("TERMINATOR_PARENT_BRIDGE_PORT", "17373"); // Enable subprocess proxy mode
 
     info!("[TypeScript] Executing command: {:?}", cmd);
 
@@ -1533,8 +1536,6 @@ console.log('[TypeScript] Current working directory:', process.cwd());
                 line = stdout_reader.next_line() => {
                     match line {
                         Ok(Some(line)) => {
-                            debug!("[TypeScript] stdout: {}", line);
-
                             // Check for result marker
                             if let Some(result_json) = line.strip_prefix("__RESULT__").and_then(|s| s.strip_suffix("__END__")) {
                                 match serde_json::from_str(result_json) {
@@ -1835,6 +1836,7 @@ asyncio.run(__runner__())
         .arg("-u") // Unbuffered output for Windows
         .arg(&script_arg)
         .env("PYTHONUNBUFFERED", "1") // Also set environment variable
+        .env("TERMINATOR_PARENT_BRIDGE_PORT", "17373") // Enable subprocess proxy mode
         .stdin(Stdio::null()) // Close stdin immediately - Python doesn't need it
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1949,7 +1951,6 @@ asyncio.run(__runner__())
             line = stdout.next_line() => {
                 match line {
                     Ok(Some(text)) => {
-                        info!("[Python stdout] {}", text);
                         // Parse GitHub Actions style env updates: ::set-env name=KEY::VALUE
                         if let Some(stripped) = text.strip_prefix("::set-env ") {
                             if let Some(name_pos) = stripped.find("name=") {
@@ -2005,9 +2006,9 @@ asyncio.run(__runner__())
                     Err(e) => { error!("[Python] Error reading stdout: {}", e); break; }
                 }
             },
-            line = stderr.next_line() => {
-                match line {
-                    Ok(Some(text)) => { error!("[Python stderr] {}", text); stderr_output.push(text); },
+                line = stderr.next_line() => {
+                    match line {
+                    Ok(Some(text)) => { stderr_output.push(text); },
                     Ok(None) => {},
                     Err(e) => { error!("[Python] Error reading stderr: {}", e); }
                 }

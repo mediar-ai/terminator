@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "crates/terminator",
     "crates/terminator-cli",
-    # "packages/terminator-python",
+    "packages/terminator-python",
     "packages/terminator-nodejs",
     "crates/terminator-mcp-agent",
     "crates/terminator-workflow-recorder",
@@ -12,14 +12,14 @@ members = [
 
 # Shared metadata for workspace members
 [workspace.package]
-version = "0.22.20"
+version = "0.23.2"
 edition = "2021"         # From your original Cargo.toml
 license-file = "LICENSE"
 
 # Centralized dependency definitions
 [workspace.dependencies]
 # Terminator Core library itself (for other members to depend on)
-terminator = { version = "0.22.20", path = "./crates/terminator", package = "terminator-rs" }
+terminator = { version = "0.23.2", path = "./crates/terminator", package = "terminator-rs" }
 
 # Common dependencies from your original Cargo.toml
 serde = { version = "1.0.219", features = ["derive"] }
