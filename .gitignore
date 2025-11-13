@@ -43,3 +43,6 @@ mcp.json
 # Editor/IDE specific
 .cursor/
 .history/
+
+# MacOS system files
+.DS_Store
