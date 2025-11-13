@@ -1,24 +1,20 @@
 {
   "name": "pypi-cleanup-workflow",
   "version": "1.0.0",
-  "description": "workflow to remove old pypi versions",
-  "keywords": [
-    "terminator",
-    "workflow",
-    "browser",
-    "pypi",
-    "removeOldVersions"
-  ],
-  "author": "",
-  "license": "MIT",
+  "description": "Automated PyPI version cleanup workflow",
+  "main": "dist/pypi-cleanup.js",
+  "scripts": {
+    "build": "tsc",
+    "run": "node dist/pypi-cleanup.js",
+    "dev": "tsc && node dist/pypi-cleanup.js"
+  },
   "dependencies": {
     "@mediar-ai/terminator": "^0.22.0",
     "@mediar-ai/workflow": "^0.22.0",
     "@types/node": "^20.0.0",
     "typescript": "^5.0.0"
   },
-  "scripts": {
-    "build": "tsc",
-    "run": "node dist/index.js"
-  }
+  "keywords": ["pypi", "automation", "cleanup"],
+  "author": "",
+  "license": "ISC"
 }
