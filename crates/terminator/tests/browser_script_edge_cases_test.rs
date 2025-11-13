@@ -116,10 +116,9 @@ async fn test_browser_script_error_handling() {
             || err_msg.contains("Error")
             || err_msg.contains("EVAL_ERROR")
             || err_msg.contains("Uncaught"),
-        "Error message should indicate an error occurred, got: {}",
-        err_msg
+        "Error message should indicate an error occurred, got: {err_msg}"
     );
-    println!("   Error: {}", err_msg);
+    println!("   Error: {err_msg}");
 
     // Test 4: Promise rejection
     println!("\n4️⃣ Testing promise rejection");
@@ -190,7 +189,7 @@ async fn test_browser_script_async_operations() {
     assert!(result.is_ok(), "Async document operation should succeed");
     let json: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
     assert!(json["title"].is_string());
-    println!("   Result: {}", json);
+    println!("   Result: {json}");
 
     browser.close().ok();
     println!("\n✅ All async operation tests passed!");
@@ -293,12 +292,12 @@ async fn test_browser_script_multiple_executions() {
     // Test: Execute 10 scripts sequentially
     println!("\n1️⃣ Executing 10 scripts sequentially");
     for i in 1..=10 {
-        let script = format!("'execution {}'", i);
+        let script = format!("'execution {i}'");
         let result = browser.execute_browser_script(&script).await;
-        assert!(result.is_ok(), "Execution {} should succeed", i);
-        assert_eq!(result.unwrap(), format!("execution {}", i));
+        assert!(result.is_ok(), "Execution {i} should succeed");
+        assert_eq!(result.unwrap(), format!("execution {i}"));
         if i % 3 == 0 {
-            println!("   ✓ Completed {} executions", i);
+            println!("   ✓ Completed {i} executions");
         }
     }
 
@@ -440,7 +439,7 @@ async fn test_browser_script_window_apis() {
         .execute_browser_script("window.navigator.userAgent")
         .await;
     assert!(result.is_ok(), "window.navigator should succeed");
-    assert!(result.unwrap().len() > 0);
+    assert!(!result.unwrap().is_empty());
 
     // Test 3: Document API
     println!("\n3️⃣ Testing document properties");
@@ -551,14 +550,14 @@ async fn test_browser_script_performance() {
     let mut success_count = 0;
 
     for i in 1..=50 {
-        let script = format!("{}", i);
+        let script = format!("{i}");
         if browser.execute_browser_script(&script).await.is_ok() {
             success_count += 1;
         }
         if i % 10 == 0 {
             let elapsed = start.elapsed();
             let avg_ms = elapsed.as_millis() / i as u128;
-            println!("   {} executions - avg {}ms per script", i, avg_ms);
+            println!("   {i} executions - avg {avg_ms}ms per script");
         }
     }
 
@@ -566,15 +565,14 @@ async fn test_browser_script_performance() {
     let avg_ms = total_elapsed.as_millis() / 50;
 
     println!("\n📊 Performance Results:");
-    println!("   Total time: {:?}", total_elapsed);
-    println!("   Average per script: {}ms", avg_ms);
-    println!("   Success rate: {}/50", success_count);
+    println!("   Total time: {total_elapsed:?}");
+    println!("   Average per script: {avg_ms}ms");
+    println!("   Success rate: {success_count}/50");
 
     assert_eq!(success_count, 50, "All scripts should succeed");
     assert!(
         avg_ms < 500,
-        "Average execution should be under 500ms, got {}ms",
-        avg_ms
+        "Average execution should be under 500ms, got {avg_ms}ms"
     );
 
     browser.close().ok();

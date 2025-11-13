@@ -85,23 +85,33 @@ async fn main() -> Result<()> {
 
         if triggered {
             // First get the list of applications to find the focused window's PID
-            let pid_result = match get_mcp_tool_result("get_applications_and_windows_list".to_string(), None).await {
-                Ok(apps_result) => {
-                    // Parse the result to find the focused window
-                    if let Some(apps_array) = apps_result.get("applications").and_then(|v| v.as_array()) {
-                        apps_array.iter()
-                            .find(|app| app.get("is_focused").and_then(|v| v.as_bool()).unwrap_or(false))
-                            .and_then(|app| app.get("pid").and_then(|v| v.as_u64()))
-                            .map(|pid| pid as u32)
-                    } else {
+            let pid_result =
+                match get_mcp_tool_result("get_applications_and_windows_list".to_string(), None)
+                    .await
+                {
+                    Ok(apps_result) => {
+                        // Parse the result to find the focused window
+                        if let Some(apps_array) =
+                            apps_result.get("applications").and_then(|v| v.as_array())
+                        {
+                            apps_array
+                                .iter()
+                                .find(|app| {
+                                    app.get("is_focused")
+                                        .and_then(|v| v.as_bool())
+                                        .unwrap_or(false)
+                                })
+                                .and_then(|app| app.get("pid").and_then(|v| v.as_u64()))
+                                .map(|pid| pid as u32)
+                        } else {
+                            None
+                        }
+                    }
+                    Err(e) => {
+                        error!("failed to get applications list: {}", e);
                         None
                     }
-                }
-                Err(e) => {
-                    error!("failed to get applications list: {}", e);
-                    None
-                }
-            };
+                };
 
             let pid = match pid_result {
                 Some(p) => p,
@@ -116,7 +126,7 @@ async fn main() -> Result<()> {
             // Now get the window tree with the PID
             let mut tool_args = serde_json::Map::new();
             tool_args.insert("pid".to_string(), serde_json::json!(pid));
-            
+
             match get_mcp_tool_result("get_window_tree".to_string(), Some(tool_args)).await {
                 Ok(result) => {
                     debug!("current screen context captured: {}", result);

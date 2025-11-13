@@ -485,7 +485,9 @@ pub struct ValidateElementArgs {
 
     /// Maximum dimension (width or height) for the screenshot. Default: 1920px
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(description = "Maximum dimension (width or height) for the screenshot. Screenshots larger than this will be resized while maintaining aspect ratio. Default: 1920px")]
+    #[schemars(
+        description = "Maximum dimension (width or height) for the screenshot. Screenshots larger than this will be resized while maintaining aspect ratio. Default: 1920px"
+    )]
     pub max_dimension: Option<u32>,
 }
 
@@ -493,7 +495,9 @@ pub struct ValidateElementArgs {
 pub struct CaptureElementScreenshotArgs {
     /// Optional selector to locate the element. Required if pid is not provided.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(description = "A string selector to locate the element. Can be chained with ` >> `. Required if pid is not provided.")]
+    #[schemars(
+        description = "A string selector to locate the element. Can be chained with ` >> `. Required if pid is not provided."
+    )]
     pub selector: Option<String>,
 
     /// Optional alternative selectors to try in parallel
@@ -506,7 +510,9 @@ pub struct CaptureElementScreenshotArgs {
 
     /// Optional process ID to capture screenshot from. Required if selector is not provided.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(description = "Process ID of the window to capture. Required if selector is not provided. This is faster and more reliable than selector-based search.")]
+    #[schemars(
+        description = "Process ID of the window to capture. Required if selector is not provided. This is faster and more reliable than selector-based search."
+    )]
     pub pid: Option<u32>,
 
     #[serde(flatten)]
@@ -520,7 +526,9 @@ pub struct CaptureElementScreenshotArgs {
 
     /// Maximum dimension (width or height) for the screenshot. Default: 1920px
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(description = "Maximum dimension (width or height) for the screenshot. Screenshots larger than this will be resized while maintaining aspect ratio. Default: 1920px")]
+    #[schemars(
+        description = "Maximum dimension (width or height) for the screenshot. Screenshots larger than this will be resized while maintaining aspect ratio. Default: 1920px"
+    )]
     pub max_dimension: Option<u32>,
 }
 
@@ -1168,7 +1176,10 @@ pub fn init_logging() -> Result<Option<LogCapture>> {
                 let base_subscriber = tracing_subscriber::registry().with(
                     // OTEL layer with RUST_LOG filtering - CRITICAL to avoid HTTP client noise
                     otel_layer.with_filter(
-                        EnvFilter::from_default_env()
+                        EnvFilter::try_from_default_env()
+                            .unwrap_or_else(|_| {
+                                EnvFilter::new("info,terminator=info,terminator_mcp_agent=info")
+                            })
                             .add_directive(log_level.into())
                             // Filter out noisy health check and connection logs - set to ERROR to suppress repetitive warnings
                             .add_directive(
@@ -1215,7 +1226,12 @@ pub fn init_logging() -> Result<Option<LogCapture>> {
                             .with_writer(std::io::stderr)
                             .with_ansi(false)
                             .with_filter(
-                                EnvFilter::from_default_env()
+                                EnvFilter::try_from_default_env()
+                                    .unwrap_or_else(|_| {
+                                        EnvFilter::new(
+                                            "info,terminator=info,terminator_mcp_agent=info",
+                                        )
+                                    })
                                     .add_directive(log_level.into())
                                     // Filter out noisy health check and connection logs - set to ERROR to suppress repetitive warnings
                                     .add_directive(
@@ -1250,7 +1266,12 @@ pub fn init_logging() -> Result<Option<LogCapture>> {
                             .with_file(true)
                             .with_line_number(true)
                             .with_filter(
-                                EnvFilter::from_default_env()
+                                EnvFilter::try_from_default_env()
+                                    .unwrap_or_else(|_| {
+                                        EnvFilter::new(
+                                            "info,terminator=info,terminator_mcp_agent=info",
+                                        )
+                                    })
                                     .add_directive(log_level.into())
                                     // Filter out noisy health check and connection logs - set to ERROR to suppress repetitive warnings
                                     .add_directive(
@@ -1305,7 +1326,12 @@ pub fn init_logging() -> Result<Option<LogCapture>> {
                             .with_writer(std::io::stderr)
                             .with_ansi(false)
                             .with_filter(
-                                EnvFilter::from_default_env()
+                                EnvFilter::try_from_default_env()
+                                    .unwrap_or_else(|_| {
+                                        EnvFilter::new(
+                                            "info,terminator=info,terminator_mcp_agent=info",
+                                        )
+                                    })
                                     .add_directive(log_level.into())
                                     // Filter out noisy health check and connection logs - set to ERROR to suppress repetitive warnings
                                     .add_directive(
@@ -1340,7 +1366,12 @@ pub fn init_logging() -> Result<Option<LogCapture>> {
                             .with_file(true)
                             .with_line_number(true)
                             .with_filter(
-                                EnvFilter::from_default_env()
+                                EnvFilter::try_from_default_env()
+                                    .unwrap_or_else(|_| {
+                                        EnvFilter::new(
+                                            "info,terminator=info,terminator_mcp_agent=info",
+                                        )
+                                    })
                                     .add_directive(log_level.into())
                                     // Filter out noisy health check and connection logs - set to ERROR to suppress repetitive warnings
                                     .add_directive(
@@ -1392,7 +1423,13 @@ pub fn init_logging() -> Result<Option<LogCapture>> {
                 tracing_subscriber::fmt::layer()
                     .with_writer(std::io::stderr)
                     .with_ansi(false)
-                    .with_filter(EnvFilter::from_default_env().add_directive(log_level.into())),
+                    .with_filter(
+                        EnvFilter::try_from_default_env()
+                            .unwrap_or_else(|_| {
+                                EnvFilter::new("info,terminator=info,terminator_mcp_agent=info")
+                            })
+                            .add_directive(log_level.into()),
+                    ),
             )
             .with(
                 // File layer with timestamps
@@ -1404,7 +1441,13 @@ pub fn init_logging() -> Result<Option<LogCapture>> {
                     .with_thread_names(false)
                     .with_file(true)
                     .with_line_number(true)
-                    .with_filter(EnvFilter::from_default_env().add_directive(log_level.into())),
+                    .with_filter(
+                        EnvFilter::try_from_default_env()
+                            .unwrap_or_else(|_| {
+                                EnvFilter::new("info,terminator=info,terminator_mcp_agent=info")
+                            })
+                            .add_directive(log_level.into()),
+                    ),
             )
             .with(capture_layer);
 

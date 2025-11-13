@@ -938,16 +938,16 @@ pub async fn verify_post_action(
     _successful_selector: &str,
 ) -> Result<VerificationResult, anyhow::Error> {
     use terminator::Selector;
-    
+
     let start = tokio::time::Instant::now();
-    
+
     // Handle verify_element_exists
     if let Some(exists_selector) = verify_exists_selector {
         tracing::debug!("[verify] Checking element exists: {}", exists_selector);
-        
+
         let mut verification_element = None;
         let mut method = "unknown";
-        
+
         // OPTIMIZATION: Try window-scoped search using PID-based window lookup
         // This is the standard pattern used throughout the codebase (tree capture, ui_diff, etc.)
         match element.application() {
@@ -957,12 +957,12 @@ pub async fn verify_post_action(
                     app_window.name().unwrap_or_default(),
                     app_window.role()
                 );
-                
+
                 // Create locator scoped to the application window using .within()
                 let locator = desktop
                     .locator(Selector::from(exists_selector))
                     .within(app_window);
-                
+
                 match locator
                     .wait(Some(Duration::from_millis(verify_timeout_ms)))
                     .await
@@ -973,23 +973,31 @@ pub async fn verify_post_action(
                         verification_element = Some(found_element);
                     }
                     Err(e) => {
-                        tracing::warn!("[verify] Window-scoped search failed: {}, will try desktop-wide", e);
+                        tracing::warn!(
+                            "[verify] Window-scoped search failed: {}, will try desktop-wide",
+                            e
+                        );
                     }
                 }
             }
             Ok(None) => {
-                tracing::debug!("[verify] element.application() returned None, will use desktop-wide search");
+                tracing::debug!(
+                    "[verify] element.application() returned None, will use desktop-wide search"
+                );
             }
             Err(e) => {
-                tracing::warn!("[verify] Failed to get application by PID: {}, will use desktop-wide search", e);
+                tracing::warn!(
+                    "[verify] Failed to get application by PID: {}, will use desktop-wide search",
+                    e
+                );
             }
         }
-        
+
         // Fallback: Desktop-wide search if window search failed or window not available
         if verification_element.is_none() {
             tracing::info!("[verify] Trying desktop-wide search as fallback");
             method = "desktop_wide_search";
-            
+
             let locator = desktop.locator(Selector::from(exists_selector));
             if let Ok(found_element) = locator
                 .wait(Some(Duration::from_millis(verify_timeout_ms)))
@@ -998,7 +1006,7 @@ pub async fn verify_post_action(
                 verification_element = Some(found_element);
             }
         }
-        
+
         if verification_element.is_none() {
             return Err(anyhow::anyhow!(
                 "Verification failed: expected element '{}' not found after {}ms",
@@ -1006,45 +1014,50 @@ pub async fn verify_post_action(
                 start.elapsed().as_millis()
             ));
         }
-        
+
         return Ok(VerificationResult {
             passed: true,
             method: method.to_string(),
-            details: format!("Element '{}' found", exists_selector),
+            details: format!("Element '{exists_selector}' found"),
             elapsed_ms: start.elapsed().as_millis() as u64,
         });
     }
-    
+
     // Handle verify_element_not_exists
     if let Some(not_exists_selector) = verify_not_exists_selector {
-        tracing::debug!("[verify] Checking element does NOT exist: {}", not_exists_selector);
-        
+        tracing::debug!(
+            "[verify] Checking element does NOT exist: {}",
+            not_exists_selector
+        );
+
         let mut method = "desktop_wide_search";
-        
+
         // Try window-scoped search using PID-based window lookup
         let search_result = match element.application() {
             Ok(Some(app_window)) => {
                 tracing::debug!("[verify] Got application window via PID for NOT_EXISTS check");
                 method = "window_scoped_search";
-                
+
                 let locator = desktop
                     .locator(Selector::from(not_exists_selector))
                     .within(app_window);
-                
+
                 locator
                     .wait(Some(Duration::from_millis(verify_timeout_ms)))
                     .await
             }
             Ok(None) | Err(_) => {
-                tracing::debug!("[verify] PID-based window unavailable, using desktop-wide NOT_EXISTS check");
-                
+                tracing::debug!(
+                    "[verify] PID-based window unavailable, using desktop-wide NOT_EXISTS check"
+                );
+
                 let locator = desktop.locator(Selector::from(not_exists_selector));
                 locator
                     .wait(Some(Duration::from_millis(verify_timeout_ms)))
                     .await
             }
         };
-        
+
         // Check the result - we WANT this to fail (element should NOT exist)
         match search_result {
             Ok(_) => {
@@ -1059,13 +1072,13 @@ pub async fn verify_post_action(
                 return Ok(VerificationResult {
                     passed: true,
                     method: method.to_string(),
-                    details: format!("Element '{}' correctly not present", not_exists_selector),
+                    details: format!("Element '{not_exists_selector}' correctly not present"),
                     elapsed_ms: start.elapsed().as_millis() as u64,
                 });
             }
         }
     }
-    
+
     // No verification requested
     Ok(VerificationResult {
         passed: true,

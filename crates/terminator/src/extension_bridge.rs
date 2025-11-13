@@ -8,7 +8,7 @@ use tokio::{
     sync::{mpsc, oneshot, Mutex, RwLock},
     task::JoinHandle,
 };
-use tokio_tungstenite::{accept_async, tungstenite::Message};
+use tokio_tungstenite::{accept_async, connect_async, tungstenite::Message};
 use uuid::Uuid;
 
 use crate::AutomationError;
@@ -60,6 +60,13 @@ enum BridgeIncoming {
         result: Option<serde_json::Value>,
         error: Option<String>,
     },
+    ProxyEval {
+        id: String,
+        action: String, // "eval" from subprocess
+        code: String,
+        #[serde(default)]
+        await_promise: bool,
+    },
     Typed(TypedIncoming),
 }
 
@@ -91,9 +98,15 @@ enum TypedIncoming {
     },
 }
 
+enum ClientType {
+    Browser,    // Chrome extension - can execute JavaScript
+    Subprocess, // Proxy client from run_command - forwards requests
+}
+
 struct Client {
     sender: mpsc::UnboundedSender<Message>,
     connected_at: std::time::Instant,
+    client_type: ClientType,
 }
 
 pub struct ExtensionBridge {
@@ -109,7 +122,7 @@ impl ExtensionBridge {
     pub async fn global() -> Arc<ExtensionBridge> {
         let supervisor = BRIDGE_SUPERVISOR.get_or_init(|| Arc::new(RwLock::new(None)));
 
-        // Check if bridge exists and is alive
+        // Normal server mode (parent process)
         let needs_create = {
             let guard = supervisor.read().await;
             match &*guard {
@@ -143,6 +156,30 @@ impl ExtensionBridge {
                         let new_bridge = Arc::new(bridge);
                         *guard = Some(new_bridge.clone());
                         return new_bridge;
+                    }
+                    Err(ExtensionBridgeError::PortInUse { port, .. }) => {
+                        // Port is in use by parent - connect as proxy client instead
+                        tracing::info!(
+                            "Port {} in use by parent, switching to proxy mode...",
+                            port
+                        );
+
+                        match ExtensionBridge::start_proxy_client(&port.to_string()).await {
+                            Ok(bridge) => {
+                                let new_bridge = Arc::new(bridge);
+                                *guard = Some(new_bridge.clone());
+                                return new_bridge;
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to connect as proxy client: {}", e);
+                                *guard = None;
+                                return Arc::new(ExtensionBridge {
+                                    _server_task: tokio::spawn(async {}),
+                                    clients: Arc::new(Mutex::new(Vec::new())),
+                                    pending: Arc::new(Mutex::new(HashMap::new())),
+                                });
+                            }
+                        }
                     }
                     Err(e) => {
                         tracing::error!("Failed to create extension bridge: {}", e);
@@ -180,35 +217,23 @@ impl ExtensionBridge {
             Err(e) => {
                 let kind = e.kind();
                 if kind == std::io::ErrorKind::AddrInUse {
-                    tracing::warn!(
-                        %addr,
-                        ?e,
-                        "Port in use, checking for existing terminator process..."
+                    // Port is in use - check if we can connect to it as a proxy client
+                    // This automatically enables subprocess mode when parent has the bridge
+                    tracing::info!(
+                        "Port {} in use, attempting to connect as proxy client...",
+                        port
                     );
 
-                    // Check if ANY terminator-mcp-agent process is in our parent chain
-                    // This handles the case where we're in a subprocess (e.g., run_command)
-                    eprintln!(
-                        "[SUBPROCESS DEBUG] Checking for terminator-mcp-agent in parent chain..."
-                    );
-                    tracing::info!("Checking for terminator-mcp-agent in parent chain...");
                     if let Some(ancestor_pid) = Self::find_terminator_ancestor().await {
-                        eprintln!("[SUBPROCESS DEBUG] Found ancestor PID: {ancestor_pid}");
                         tracing::info!(
-                            "Detected terminator-mcp-agent ancestor process (PID: {}). \
-                            Port {} is in use by parent process. \
-                            executeBrowserScript() cannot be used from run_command context - \
-                            use execute_browser_script MCP tool instead.",
-                            ancestor_pid,
-                            port
+                            "Detected terminator-mcp-agent ancestor (PID: {}). \
+                            Connecting to parent's Extension Bridge...",
+                            ancestor_pid
                         );
-                        // Don't try to kill parent - just return error immediately
-                        return Err(ExtensionBridgeError::PortBindError {
+                        // Return special error to signal proxy mode
+                        return Err(ExtensionBridgeError::PortInUse {
                             port,
-                            source: std::io::Error::new(
-                                std::io::ErrorKind::AddrInUse,
-                                format!("Port {port} is in use by parent MCP agent process {ancestor_pid}. executeBrowserScript() cannot be used from run_command context. Use execute_browser_script MCP tool instead.")
-                            )
+                            pid: ancestor_pid,
                         });
                     }
 
@@ -281,11 +306,12 @@ impl ExtensionBridge {
                         }
                     });
 
-                    // register client
+                    // register client (default to Browser, will update if we receive ProxyEval)
                     {
                         ws_clients.lock().await.push(Client {
                             sender: tx.clone(),
                             connected_at: std::time::Instant::now(),
+                            client_type: ClientType::Browser,
                         });
                     }
 
@@ -296,6 +322,40 @@ impl ExtensionBridge {
                         }
                         let txt = msg.into_text().unwrap_or_default();
                         match serde_json::from_str::<BridgeIncoming>(&txt) {
+                            Ok(BridgeIncoming::ProxyEval {
+                                id,
+                                action,
+                                code,
+                                await_promise,
+                            }) => {
+                                // Subprocess client is requesting eval - forward to browser
+                                tracing::info!(id = %id, "Received proxy eval request from subprocess");
+
+                                // Create eval request to send to browser
+                                let eval_req = EvalRequest {
+                                    id: id.clone(),
+                                    action,
+                                    code,
+                                    await_promise,
+                                };
+                                let payload = match serde_json::to_string(&eval_req) {
+                                    Ok(p) => p,
+                                    Err(e) => {
+                                        tracing::error!("Failed to serialize eval request: {}", e);
+                                        continue;
+                                    }
+                                };
+
+                                // Broadcast to all clients - browser will execute, subprocess will ignore
+                                let clients = ws_clients.lock().await;
+                                let mut sent_count = 0;
+                                for client in clients.iter() {
+                                    if client.sender.send(Message::Text(payload.clone())).is_ok() {
+                                        sent_count += 1;
+                                    }
+                                }
+                                tracing::debug!("Forwarded proxy eval to {} client(s)", sent_count);
+                            }
                             Ok(BridgeIncoming::EvalResult {
                                 id,
                                 ok,
@@ -330,12 +390,33 @@ impl ExtensionBridge {
                                         tracing::error!(id = %id, error = %head, "Bridge received EvalResult error (raw)");
                                     }
                                 }
+
+                                // Send result to pending requests (could be from parent or subprocess)
                                 if let Some(tx) = ws_pending.lock().await.remove(&id) {
                                     let _ = tx.send(if ok {
-                                        Ok(result.unwrap_or(serde_json::Value::Null))
+                                        Ok(result.clone().unwrap_or(serde_json::Value::Null))
                                     } else {
-                                        Err(error.unwrap_or_else(|| "unknown error".into()))
+                                        Err(error.clone().unwrap_or_else(|| "unknown error".into()))
                                     });
+                                }
+
+                                // Also forward result to subprocess clients (they might be waiting for it)
+                                let result_msg = serde_json::json!({
+                                    "id": id,
+                                    "ok": ok,
+                                    "result": result,
+                                    "error": error,
+                                });
+                                let result_payload = result_msg.to_string();
+                                {
+                                    let clients = ws_clients.lock().await;
+                                    for client in clients.iter() {
+                                        if matches!(client.client_type, ClientType::Subprocess) {
+                                            let _ = client
+                                                .sender
+                                                .send(Message::Text(result_payload.clone()));
+                                        }
+                                    }
                                 }
                             }
                             Ok(BridgeIncoming::Typed(TypedIncoming::ConsoleEvent {
@@ -363,7 +444,8 @@ impl ExtensionBridge {
                                         tracing::info!(id = %id, ts = ts_ms, args = %args_str, "Console info event")
                                     }
                                     _ => {
-                                        tracing::info!(id = %id, ts = ts_ms, args = %args_str, "Console log event")
+                                        tracing::info!(id = %id, ts = ts_ms, args = %args_str, "Console log event");
+                                        eprintln!("[CONSOLE LOG] {args_str}");
                                     }
                                 }
                             }
@@ -421,6 +503,102 @@ impl ExtensionBridge {
 
         Ok(ExtensionBridge {
             _server_task: server_task,
+            clients,
+            pending,
+        })
+    }
+
+    /// Start bridge in proxy client mode - connects to parent's WebSocket server
+    /// This is used when running from run_command subprocess context
+    async fn start_proxy_client(port: &str) -> Result<ExtensionBridge, ExtensionBridgeError> {
+        let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
+        let pending_clone = pending.clone();
+
+        let url = format!("ws://127.0.0.1:{port}");
+        tracing::info!("Subprocess connecting to parent bridge at {}", url);
+
+        // Connect to parent's WebSocket server
+        let (ws_stream, _) = connect_async(&url).await.map_err(|e| {
+            ExtensionBridgeError::IoError(std::io::Error::new(
+                std::io::ErrorKind::ConnectionRefused,
+                format!("Failed to connect to parent bridge: {e}"),
+            ))
+        })?;
+
+        tracing::info!("Subprocess successfully connected to parent bridge");
+
+        let (mut sink, mut stream) = ws_stream.split();
+        let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
+
+        // Writer task - sends eval requests to parent
+        let writer_task = tokio::spawn(async move {
+            while let Some(msg) = rx.recv().await {
+                if let Err(e) = sink.send(msg).await {
+                    tracing::error!("Proxy client send error: {}", e);
+                    break;
+                }
+            }
+            tracing::info!("Proxy client writer task ended");
+        });
+
+        // Reader task - receives eval results from parent
+        let reader_task = tokio::spawn(async move {
+            while let Some(Ok(msg)) = stream.next().await {
+                if !msg.is_text() {
+                    continue;
+                }
+                let txt = msg.into_text().unwrap_or_default();
+
+                // Parse eval results from parent
+                match serde_json::from_str::<BridgeIncoming>(&txt) {
+                    Ok(BridgeIncoming::EvalResult {
+                        id,
+                        ok,
+                        result,
+                        error,
+                    }) => {
+                        tracing::debug!("Proxy client received eval result for id: {}", id);
+                        if let Some(tx) = pending_clone.lock().await.remove(&id) {
+                            let _ = tx.send(if ok {
+                                Ok(result.unwrap_or(serde_json::Value::Null))
+                            } else {
+                                Err(error.unwrap_or_else(|| "unknown error".into()))
+                            });
+                        }
+                    }
+                    Ok(_) => {
+                        // Ignore other message types (Hello, Pong, etc.)
+                    }
+                    Err(e) => {
+                        tracing::warn!("Proxy client invalid JSON: {}", e);
+                    }
+                }
+            }
+            tracing::info!("Proxy client reader task ended - connection closed");
+        });
+
+        // Combine both tasks into one
+        let combined_task = tokio::spawn(async move {
+            tokio::select! {
+                _ = writer_task => {
+                    tracing::info!("Proxy client writer finished first");
+                }
+                _ = reader_task => {
+                    tracing::info!("Proxy client reader finished first");
+                }
+            }
+        });
+
+        // Create a fake clients list with our sender
+        // This allows eval_in_active_tab to work without modification
+        let clients: Clients = Arc::new(Mutex::new(vec![Client {
+            sender: tx,
+            connected_at: std::time::Instant::now(),
+            client_type: ClientType::Subprocess,
+        }]));
+
+        Ok(ExtensionBridge {
+            _server_task: combined_task,
             clients,
             pending,
         })

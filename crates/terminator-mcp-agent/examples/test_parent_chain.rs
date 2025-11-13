@@ -1,5 +1,5 @@
-use terminator::{Desktop, Selector};
 use std::time::Duration;
+use terminator::{Desktop, Selector};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -11,19 +11,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Analyzing Parent Chain ===\n");
 
     let desktop = Desktop::new_default()?;
-    
+
     // Find the Notepad document element
     let element = desktop
         .locator(Selector::from("role:Document|name:Text editor"))
         .first(Some(Duration::from_secs(3)))
         .await?;
-    
+
     println!("Starting element:");
     println!("  - Name: {:?}", element.name());
     println!("  - Role: {}", element.role());
     println!("  - ID: {:?}", element.id());
     println!();
-    
+
     // Manually traverse up the parent chain
     println!("Parent chain:");
     let mut current = element.clone();
@@ -33,12 +33,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let role = parent.role();
                 let name = parent.name().unwrap_or_else(|| "<no name>".to_string());
                 println!("  Level {}: Role={}, Name={}", i + 1, role, name);
-                
+
                 // Check if this is Window or Pane
                 if role == "Window" || role == "Pane" {
-                    println!("    ^^^ Found {} - this should be returned by element.window()", role);
+                    println!(
+                        "    ^^^ Found {role} - this should be returned by element.window()"
+                    );
                 }
-                
+
                 current = parent;
             }
             Ok(None) => {
@@ -51,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    
+
     println!();
     println!("Now testing element.window():");
     match element.window() {
@@ -64,10 +66,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("✗ FAILED - element.window() returned None");
         }
         Err(e) => {
-            println!("✗ ERROR - element.window() error: {}", e);
+            println!("✗ ERROR - element.window() error: {e}");
         }
     }
-    
+
     Ok(())
 }
-

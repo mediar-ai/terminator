@@ -3574,8 +3574,6 @@ impl AccessibilityEngine for WindowsEngine {
         }));
 
         // Build the UI tree with configurable performance optimizations
-        info!("Building UI tree with config: {:?}", config);
-
         // Get application name from process using sysinfo (efficient single lookup)
         let application_name = {
             use sysinfo::{ProcessesToUpdate, System};

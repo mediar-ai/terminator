@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 use uiautomation::controls::ControlType;
 use uiautomation::inputs::Mouse;
 use uiautomation::patterns;
@@ -625,7 +625,7 @@ impl UIElementImpl for WindowsUIElement {
 
         let children = match children_result {
             Ok(cached_children) => {
-                info!("Found {} cached children.", cached_children.len());
+                // Found cached children
                 cached_children
             }
             Err(_) => {
@@ -1026,7 +1026,6 @@ impl UIElementImpl for WindowsUIElement {
             if let Ok(value) = element.get_property_value(UIProperty::ValueValue) {
                 if let Ok(value_text) = value.get_string() {
                     if !value_text.is_empty() {
-                        debug!("found text in value property: {:?}", &value_text);
                         texts.push(value_text);
                     }
                 }
@@ -1037,10 +1036,7 @@ impl UIElementImpl for WindowsUIElement {
 
             let children_to_process = match children_result {
                 Ok(cached_children) => {
-                    info!(
-                        "Found {} cached children for text extraction.",
-                        cached_children.len()
-                    );
+                    // Found cached children for text extraction
                     cached_children
                 }
                 Err(_) => {
