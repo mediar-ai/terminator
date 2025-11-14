@@ -508,6 +508,9 @@ fn sync_all_versions() {
     // Sync MCP agent
     sync_mcp_agent(&workspace_version);
 
+    // Sync CLI package
+    sync_cli(&workspace_version);
+
     // Sync Browser Extension
     sync_browser_extension(&workspace_version);
 
@@ -657,6 +660,48 @@ fn sync_mcp_agent(version: &str) {
     println!("✅ MCP agent synced");
 }
 
+fn sync_cli(version: &str) {
+    println!("📦 Syncing CLI package...");
+
+    let cli_dir = Path::new("crates/terminator-cli");
+    if !cli_dir.exists() {
+        return;
+    }
+
+    // Update main package.json
+    if let Err(e) = update_package_json("crates/terminator-cli/package.json", version) {
+        eprintln!("⚠️  Warning: Failed to update CLI package.json: {e}");
+        return;
+    }
+
+    // Update platform packages
+    let npm_dir = cli_dir.join("npm");
+    if npm_dir.exists() {
+        if let Ok(entries) = fs::read_dir(npm_dir) {
+            for entry in entries.flatten() {
+                if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                    let package_json = entry.path().join("package.json");
+                    if package_json.exists() {
+                        if let Err(e) =
+                            update_package_json(&package_json.to_string_lossy(), version)
+                        {
+                            eprintln!(
+                                "⚠️  Warning: Failed to update {}: {}",
+                                entry.path().display(),
+                                e
+                            );
+                        } else {
+                            println!("📦 Updated {}", entry.file_name().to_string_lossy());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    println!("✅ CLI package synced");
+}
+
 fn sync_browser_extension(version: &str) {
     println!("📦 Syncing browser extension to version {version}...");
 
@@ -728,6 +773,7 @@ fn update_package_json(path: &str, version: &str) -> Result<(), Box<dyn std::err
             // Update @mediar-ai/terminator-* platform packages
             if key.starts_with("@mediar-ai/terminator-")
                 || key.starts_with("terminator-mcp-")
+                || key.starts_with("terminator-cli-")
                 || key.starts_with("terminator.js-")
             {
                 *value = serde_json::Value::String(version.to_string());
