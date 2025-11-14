@@ -228,7 +228,7 @@ jobs:
         run: |
           cd crates/terminator-cli
           VERSION=$(node -p "require('./package.json').version")
-          npm dist-tag add terminator-cli@$VERSION latest
+          npm dist-tag add @mediar-ai/cli@$VERSION latest
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -290,7 +290,7 @@ jobs:
             ```
 
             ### NPM Package
-            The CLI is also available as an NPM package: `npm install -g terminator-cli`
+            The CLI is also available as an NPM package: `npm install -g @mediar-ai/cli`
 
             ### What's Changed
             See the [full changelog](https://github.com/mediar-ai/terminator/compare/v${{ github.event.before }}...${{ github.ref_name }})

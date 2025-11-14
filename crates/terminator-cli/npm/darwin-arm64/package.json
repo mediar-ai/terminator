@@ -9,7 +9,7 @@
     "terminator"
   ],
   "main": "terminator",
-  "name": "terminator-cli-darwin-arm64",
+  "name": "@mediar-ai/cli-darwin-arm64",
   "os": [
     "darwin"
   ],

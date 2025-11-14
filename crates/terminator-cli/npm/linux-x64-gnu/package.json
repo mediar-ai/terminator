@@ -9,7 +9,7 @@
         "terminator"
     ],
     "main": "terminator",
-    "name": "terminator-cli-linux-x64-gnu",
+    "name": "@mediar-ai/cli-linux-x64-gnu",
     "os": [
         "linux"
     ],

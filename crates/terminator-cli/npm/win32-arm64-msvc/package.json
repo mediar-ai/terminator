@@ -9,7 +9,7 @@
         "terminator.exe"
     ],
     "main": "terminator.exe",
-    "name": "terminator-cli-win32-arm64-msvc",
+    "name": "@mediar-ai/cli-win32-arm64-msvc",
     "os": [
         "win32"
     ],

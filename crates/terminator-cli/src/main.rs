@@ -772,8 +772,8 @@ fn update_package_json(path: &str, version: &str) -> Result<(), Box<dyn std::err
         for (key, value) in deps.iter_mut() {
             // Update @mediar-ai/terminator-* platform packages
             if key.starts_with("@mediar-ai/terminator-")
+                || key.starts_with("@mediar-ai/cli-")
                 || key.starts_with("terminator-mcp-")
-                || key.starts_with("terminator-cli-")
                 || key.starts_with("terminator.js-")
             {
                 *value = serde_json::Value::String(version.to_string());

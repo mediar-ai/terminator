@@ -9,31 +9,31 @@ function getPlatformInfo() {
     const arch = process.arch;
     if (platform === "win32" && arch === "x64")
         return {
-            pkg: "terminator-cli-win32-x64-msvc",
+            pkg: "@mediar-ai/cli-win32-x64-msvc",
             bin: "terminator.exe",
             npmDir: "win32-x64-msvc",
         };
     if (platform === "win32" && arch === "arm64")
         return {
-            pkg: "terminator-cli-win32-arm64-msvc",
+            pkg: "@mediar-ai/cli-win32-arm64-msvc",
             bin: "terminator.exe",
             npmDir: "win32-arm64-msvc",
         };
     if (platform === "linux" && arch === "x64")
         return {
-            pkg: "terminator-cli-linux-x64-gnu",
+            pkg: "@mediar-ai/cli-linux-x64-gnu",
             bin: "terminator",
             npmDir: "linux-x64-gnu",
         };
     if (platform === "darwin" && arch === "x64")
         return {
-            pkg: "terminator-cli-darwin-x64",
+            pkg: "@mediar-ai/cli-darwin-x64",
             bin: "terminator",
             npmDir: "darwin-x64",
         };
     if (platform === "darwin" && arch === "arm64")
         return {
-            pkg: "terminator-cli-darwin-arm64",
+            pkg: "@mediar-ai/cli-darwin-arm64",
             bin: "terminator",
             npmDir: "darwin-arm64",
         };
