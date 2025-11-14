@@ -515,7 +515,10 @@ impl DesktopWrapper {
                         .process(sysinfo::Pid::from_u32(app_pid))
                         .and_then(|p| {
                             let process_name = p.name().to_string_lossy().to_string();
-                            if process_name.to_lowercase().contains(&args.process.to_lowercase()) {
+                            if process_name
+                                .to_lowercase()
+                                .contains(&args.process.to_lowercase())
+                            {
                                 Some(app_pid)
                             } else {
                                 None
@@ -528,7 +531,10 @@ impl DesktopWrapper {
             .next()
             .ok_or_else(|| {
                 McpError::resource_not_found(
-                    format!("Process '{}' not found. Use open_application to start it first.", args.process),
+                    format!(
+                        "Process '{}' not found. Use open_application to start it first.",
+                        args.process
+                    ),
                     Some(json!({"process": args.process})),
                 )
             })?;
@@ -1014,7 +1020,6 @@ impl DesktopWrapper {
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
-
 
         tracing::info!(
             "[type_into_element] Called with selector: '{}', process: {:?}, window_selector: {:?}",

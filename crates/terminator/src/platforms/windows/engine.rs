@@ -170,8 +170,11 @@ fn selector_has_process_scope(selector: &Selector) -> bool {
         Selector::Or(selectors) => selectors.iter().any(selector_has_process_scope),
         Selector::Not(inner) => selector_has_process_scope(inner),
         Selector::Has(inner) => selector_has_process_scope(inner),
-        Selector::RightOf(inner) | Selector::LeftOf(inner) | Selector::Above(inner)
-        | Selector::Below(inner) | Selector::Near(inner) => selector_has_process_scope(inner),
+        Selector::RightOf(inner)
+        | Selector::LeftOf(inner)
+        | Selector::Above(inner)
+        | Selector::Below(inner)
+        | Selector::Near(inner) => selector_has_process_scope(inner),
         _ => false,
     }
 }

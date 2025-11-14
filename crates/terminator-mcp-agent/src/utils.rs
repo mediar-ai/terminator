@@ -92,7 +92,10 @@ impl SelectorOptions {
     pub fn build_full_selector(&self) -> String {
         if let Some(window_sel) = &self.window_selector {
             // Chain: process -> window -> element
-            format!("process:{} >> {} >> {}", self.process, window_sel, self.selector)
+            format!(
+                "process:{} >> {} >> {}",
+                self.process, window_sel, self.selector
+            )
         } else {
             // Chain: process -> element
             format!("process:{} >> {}", self.process, self.selector)
@@ -282,7 +285,9 @@ impl DesktopWrapper {
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct GetWindowTreeArgs {
-    #[schemars(description = "Process name of the target application (e.g., 'chrome', 'msedge', 'notepad'). Returns tree for the first matching process found.")]
+    #[schemars(
+        description = "Process name of the target application (e.g., 'chrome', 'msedge', 'notepad'). Returns tree for the first matching process found."
+    )]
     pub process: String,
     #[schemars(description = "Optional window title filter")]
     pub title: Option<String>,
@@ -623,7 +628,9 @@ pub struct WaitForElementArgs {
 pub struct NavigateBrowserArgs {
     #[schemars(description = "URL to navigate to")]
     pub url: String,
-    #[schemars(description = "Browser process name (e.g., 'chrome', 'msedge', 'firefox'). Will start the browser if not running.")]
+    #[schemars(
+        description = "Browser process name (e.g., 'chrome', 'msedge', 'firefox'). Will start the browser if not running."
+    )]
     pub process: String,
     #[serde(flatten)]
     pub tree: TreeOptions,
