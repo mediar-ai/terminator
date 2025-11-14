@@ -62,7 +62,17 @@ pub struct TreeOptions {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 pub struct SelectorOptions {
     #[schemars(
-        description = "A string selector to locate the element. Can be chained with ` >> `."
+        description = "Process name to scope the search (e.g., 'chrome', 'notepad', 'explorer'). Use 'explorer' for desktop icons/taskbar. Required to prevent slow desktop-wide searches."
+    )]
+    pub process: String,
+
+    #[schemars(
+        description = "Optional window selector for additional filtering within the process (e.g., 'role:Window|name:Untitled'). When specified, searches only within matching windows of the process."
+    )]
+    pub window_selector: Option<String>,
+
+    #[schemars(
+        description = "A string selector to locate the element within the scoped process/window. Can be chained with ` >> `."
     )]
     pub selector: String,
 
@@ -75,6 +85,41 @@ pub struct SelectorOptions {
         description = "Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated."
     )]
     pub fallback_selectors: Option<String>,
+}
+
+impl SelectorOptions {
+    /// Build the full selector by combining process (and optionally window_selector) with the main selector
+    pub fn build_full_selector(&self) -> String {
+        if let Some(window_sel) = &self.window_selector {
+            // Chain: process -> window -> element
+            format!("process:{} >> {} >> {}", self.process, window_sel, self.selector)
+        } else {
+            // Chain: process -> element
+            format!("process:{} >> {}", self.process, self.selector)
+        }
+    }
+
+    /// Build alternative selectors with scoping applied
+    pub fn build_alternative_selectors(&self) -> Option<String> {
+        self.alternative_selectors.as_ref().map(|alt| {
+            if let Some(window_sel) = &self.window_selector {
+                format!("process:{} >> {} >> {}", self.process, window_sel, alt)
+            } else {
+                format!("process:{} >> {}", self.process, alt)
+            }
+        })
+    }
+
+    /// Build fallback selectors with scoping applied
+    pub fn build_fallback_selectors(&self) -> Option<String> {
+        self.fallback_selectors.as_ref().map(|fb| {
+            if let Some(window_sel) = &self.window_selector {
+                format!("process:{} >> {} >> {}", self.process, window_sel, fb)
+            } else {
+                format!("process:{} >> {}", self.process, fb)
+            }
+        })
+    }
 }
 
 /// Common fields for action timing and retries
@@ -237,8 +282,8 @@ impl DesktopWrapper {
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct GetWindowTreeArgs {
-    #[schemars(description = "Process ID of the target application")]
-    pub pid: u32,
+    #[schemars(description = "Process name of the target application (e.g., 'chrome', 'msedge', 'notepad'). Returns tree for the first matching process found.")]
+    pub process: String,
     #[schemars(description = "Optional window title filter")]
     pub title: Option<String>,
     #[serde(flatten)]
@@ -578,8 +623,8 @@ pub struct WaitForElementArgs {
 pub struct NavigateBrowserArgs {
     #[schemars(description = "URL to navigate to")]
     pub url: String,
-    #[schemars(description = "Optional browser name")]
-    pub browser: Option<String>,
+    #[schemars(description = "Browser process name (e.g., 'chrome', 'msedge', 'firefox'). Will start the browser if not running.")]
+    pub process: String,
     #[serde(flatten)]
     pub tree: TreeOptions,
     #[serde(flatten)]

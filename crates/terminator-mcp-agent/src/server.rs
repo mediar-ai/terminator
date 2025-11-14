@@ -474,7 +474,7 @@ impl DesktopWrapper {
     }
 
     #[tool(
-        description = "Get the complete UI tree for an application by process name (using process: selector) or PID, and optional window title. Returns detailed element information (role, name, id, enabled state, bounds, children). This is your primary tool for understanding the application's current state. PREFER using process name selector (e.g., tree_from_selector: 'process:chrome') over PID for better portability across machines. Supports tree optimization: tree_max_depth: 30` to limit tree depth when you only need shallow inspection, tree_from_selector to get subtrees starting from a specific element, include_detailed_attributes to control verbosity (defaults to true). This is a read-only operation."
+        description = "Get the complete UI tree for an application by process name (e.g., 'chrome', 'msedge', 'notepad'). Returns tree for the first matching process found. Returns detailed element information (role, name, id, enabled state, bounds, children). This is your primary tool for understanding the application's current state. Supports tree optimization: tree_max_depth (e.g., 30) to limit tree depth when you only need shallow inspection, tree_from_selector to get subtrees starting from a specific element, include_detailed_attributes to control verbosity (defaults to true). This is a read-only operation."
     )]
     pub async fn get_window_tree(
         &self,
@@ -482,7 +482,7 @@ impl DesktopWrapper {
     ) -> Result<CallToolResult, McpError> {
         // Start telemetry span
         let mut span = StepSpan::new("get_window_tree", None);
-        span.set_attribute("pid", args.pid.to_string());
+        span.set_attribute("process", args.process.clone());
         if let Some(title) = &args.title {
             span.set_attribute("window_title", title.clone());
         }
@@ -494,14 +494,56 @@ impl DesktopWrapper {
                 .to_string(),
         );
 
+        // Find PID for the process name
+        let apps = self.desktop.applications().map_err(|e| {
+            McpError::resource_not_found(
+                "Failed to get applications",
+                Some(json!({"reason": e.to_string()})),
+            )
+        })?;
+
+        let mut system = System::new();
+        system.refresh_processes(ProcessesToUpdate::All, true);
+
+        // Find first matching process
+        let pid = apps
+            .iter()
+            .filter_map(|app| {
+                let app_pid = app.process_id().unwrap_or(0);
+                if app_pid > 0 {
+                    system
+                        .process(sysinfo::Pid::from_u32(app_pid))
+                        .and_then(|p| {
+                            let process_name = p.name().to_string_lossy().to_string();
+                            if process_name.to_lowercase().contains(&args.process.to_lowercase()) {
+                                Some(app_pid)
+                            } else {
+                                None
+                            }
+                        })
+                } else {
+                    None
+                }
+            })
+            .next()
+            .ok_or_else(|| {
+                McpError::resource_not_found(
+                    format!("Process '{}' not found. Use open_application to start it first.", args.process),
+                    Some(json!({"process": args.process})),
+                )
+            })?;
+
+        span.set_attribute("pid", pid.to_string());
+
         // Detect if this is a browser window
-        let is_browser = Self::detect_browser_by_pid(args.pid);
+        let is_browser = Self::detect_browser_by_pid(pid);
 
         // Build the base result JSON first
         let mut result_json = json!({
             "action": "get_window_tree",
             "status": "success",
-            "pid": args.pid,
+            "process": args.process,
+            "pid": pid,
             "title": args.title,
             "detailed_attributes": args.tree.include_detailed_attributes.unwrap_or(true),
             "timestamp": chrono::Utc::now().to_rfc3339(),
@@ -511,7 +553,7 @@ impl DesktopWrapper {
         // Add browser detection metadata
         if is_browser {
             result_json["is_browser"] = json!(true);
-            info!("Browser window detected for PID {}", args.pid);
+            info!("Browser window detected for PID {}", pid);
 
             // Try to capture DOM elements from browser
             match self.capture_browser_dom_elements().await {
@@ -538,7 +580,7 @@ impl DesktopWrapper {
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
             args.tree.tree_output_format,
-            Some(args.pid),
+            Some(pid),
             &mut result_json,
             None, // No found element for window tree
         )
@@ -973,9 +1015,12 @@ impl DesktopWrapper {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
 
+
         tracing::info!(
-            "[type_into_element] Called with selector: '{}'",
-            args.selector.selector
+            "[type_into_element] Called with selector: '{}', process: {:?}, window_selector: {:?}",
+            args.selector.selector,
+            args.selector.process,
+            args.selector.window_selector
         );
 
         let text_to_type = args.text_to_type.clone();
@@ -1016,12 +1061,17 @@ impl DesktopWrapper {
             .tree_output_format
             .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
 
+        // Build scoped selectors
+        let full_selector = args.selector.build_full_selector();
+        let alternative_selectors = args.selector.build_alternative_selectors();
+        let fallback_selectors = args.selector.build_fallback_selectors();
+
         let ((result, element), successful_selector, ui_diff) =
             match crate::helpers::find_and_execute_with_ui_diff(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &full_selector,
+                alternative_selectors.as_deref(),
+                fallback_selectors.as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
@@ -1054,9 +1104,9 @@ impl DesktopWrapper {
                 Err(e) => {
                     // Note: Cannot use span here as it would be moved if we call span.end()
                     Err(build_element_not_found_error(
-                        &args.selector.selector,
-                        args.selector.alternative_selectors.as_deref(),
-                        args.selector.fallback_selectors.as_deref(),
+                        &args.selector.build_full_selector(),
+                        args.selector.build_alternative_selectors().as_deref(),
+                        args.selector.build_fallback_selectors().as_deref(),
                         e,
                     ))
                 }
@@ -1074,7 +1124,7 @@ impl DesktopWrapper {
             },
             "element": build_element_info(&element),
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
 
@@ -1331,9 +1381,9 @@ impl DesktopWrapper {
         // Use new wrapper that supports UI diff capture
         let result = crate::helpers::find_and_execute_with_ui_diff(
             &self.desktop,
-            &args.selector.selector,
-            args.selector.alternative_selectors.as_deref(),
-            args.selector.fallback_selectors.as_deref(),
+            &args.selector.build_full_selector(),
+            args.selector.build_alternative_selectors().as_deref(),
+            args.selector.build_fallback_selectors().as_deref(),
             args.action.timeout_ms,
             args.action.retries,
             action,
@@ -1361,9 +1411,9 @@ impl DesktopWrapper {
                 span.set_status(false, Some(&e.to_string()));
                 span.end();
                 return Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 ));
             }
@@ -1493,9 +1543,9 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
         let ((result, element), successful_selector, ui_diff) =
             match crate::helpers::find_and_execute_with_ui_diff(
                 &self.desktop,
-                &args.selector.selector,
+                &args.selector.build_full_selector(),
                 None, // PressKey doesn't have alternative selectors yet
-                args.selector.fallback_selectors.as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
@@ -1525,9 +1575,9 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
                 Err(e) => {
                     // Note: Cannot use span here as it would be moved if we call span.end()
                     Err(build_element_not_found_error(
-                        &args.selector.selector,
+                        &args.selector.build_full_selector(),
                         None,
-                        args.selector.fallback_selectors.as_deref(),
+                        args.selector.build_fallback_selectors().as_deref(),
                         e,
                     ))
                 }
@@ -1546,7 +1596,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
             },
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, None, args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), None, args.selector.build_fallback_selectors().as_deref()),
             "timestamp": chrono::Utc::now().to_rfc3339()
         });
 
@@ -2703,9 +2753,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((_result, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
-                &args.selector.selector,
+                &args.selector.build_full_selector(),
                 None, // ActivateElement doesn't have alternative selectors
-                args.selector.fallback_selectors.as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 |element| async move { element.activate_window() },
@@ -2714,9 +2764,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
+                    &args.selector.build_full_selector(),
                     None,
-                    args.selector.fallback_selectors.as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -2787,7 +2837,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": final_status,
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, None, args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), None, args.selector.build_fallback_selectors().as_deref()),
             "timestamp": chrono::Utc::now().to_rfc3339(),
             "verification": verification,
             "recommendation": recommendation
@@ -2882,9 +2932,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((_result, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
@@ -2893,9 +2943,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -2907,7 +2957,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": "success",
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "start": (args.start_x, args.start_y),
             "end": (args.end_x, args.end_y),
             "timestamp": chrono::Utc::now().to_rfc3339()
@@ -2963,9 +3013,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let operation_start = std::time::Instant::now();
         match find_and_execute_with_retry_with_fallback(
             &self.desktop,
-            &args.selector.selector,
-            args.selector.alternative_selectors.as_deref(),
-            args.selector.fallback_selectors.as_deref(),
+            &args.selector.build_full_selector(),
+            args.selector.build_alternative_selectors().as_deref(),
+            args.selector.build_fallback_selectors().as_deref(),
             args.action.timeout_ms,
             args.action.retries,
             action,
@@ -2992,7 +3042,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     "status": "success",
                     "element": element_info,
                     "selector_used": successful_selector,
-                    "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+                    "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
                     "timestamp": chrono::Utc::now().to_rfc3339()
                 });
                 maybe_attach_tree(
@@ -3022,9 +3072,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             }
             Err(e) => {
                 let selectors_tried = get_selectors_tried_all(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                 );
                 let reason_payload = json!({
                     "error_type": "ElementNotFound",
@@ -3118,9 +3168,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((handle, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 effective_timeout_ms,
                 args.action.retries,
                 action,
@@ -3129,9 +3179,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -3154,7 +3204,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "action": "highlight_element",
             "status": "success",
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "color": args.color.unwrap_or(0x0000FF),
             "duration_ms": args.duration_ms.unwrap_or(1000),
             "visibility": { "requested_ms": args.duration_ms.unwrap_or(1000) },
@@ -3439,11 +3489,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
         // Add comprehensive telemetry attributes
         span.set_attribute("url", args.url.clone());
-        let browser = args.browser.clone().map(Browser::Custom);
+        span.set_attribute("process", args.process.clone());
+
+        let browser = Some(Browser::Custom(args.process.clone()));
         let ui_element = self.desktop.open_url(&args.url, browser).map_err(|e| {
             McpError::internal_error(
                 "Failed to open URL",
-                Some(json!({"reason": e.to_string(), "url": args.url, "browser": args.browser})),
+                Some(json!({"reason": e.to_string(), "url": args.url, "process": args.process})),
             )
         })?;
 
@@ -3453,7 +3505,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "action": "navigate_browser",
             "status": "success",
             "url": args.url,
-            "browser": args.browser,
+            "process": args.process,
             "element": element_info,
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
@@ -3562,9 +3614,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((_result, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 |element| async move { element.close() },
@@ -3573,9 +3625,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -3590,7 +3642,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": "success",
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "timestamp": chrono::Utc::now().to_rfc3339()
         }))?], None).await))
     }
@@ -3647,9 +3699,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((result, element), successful_selector, ui_diff) =
             match crate::helpers::find_and_execute_with_ui_diff(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
@@ -3667,9 +3719,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     Ok(((result, element), selector, diff))
                 }
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -3686,7 +3738,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             },
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "direction": args.direction,
             "amount": args.amount,
             "timestamp": chrono::Utc::now().to_rfc3339()
@@ -3767,9 +3819,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((result, element), successful_selector, ui_diff) =
             match crate::helpers::find_and_execute_with_ui_diff(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
@@ -3787,9 +3839,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     Ok(((result, element), selector, diff))
                 }
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -3806,7 +3858,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             },
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "option_selected": args.option_name,
         });
 
@@ -3869,9 +3921,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((options, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 |element| async move { element.list_options() },
@@ -3880,9 +3932,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -3894,7 +3946,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": "success",
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "options": options,
             "count": options.len(),
         });
@@ -3958,9 +4010,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((result, element), successful_selector, ui_diff) =
             match crate::helpers::find_and_execute_with_ui_diff(
                 &self.desktop,
-                &args.selector.selector,
+                &args.selector.build_full_selector(),
                 None, // SetToggled doesn't have alternative selectors
-                args.selector.fallback_selectors.as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
@@ -3978,9 +4030,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     Ok(((result, element), selector, diff))
                 }
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
+                    &args.selector.build_full_selector(),
                     None,
-                    args.selector.fallback_selectors.as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -3997,7 +4049,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             },
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, None, args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), None, args.selector.build_fallback_selectors().as_deref()),
             "state_set_to": args.state,
         });
 
@@ -4179,9 +4231,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((_result, element), successful_selector, ui_diff) =
             match crate::helpers::find_and_execute_with_ui_diff(
                 &self.desktop,
-                &args.selector.selector,
+                &args.selector.build_full_selector(),
                 None, // SetRangeValue doesn't have alternative selectors
-                args.selector.fallback_selectors.as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
@@ -4199,9 +4251,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     Ok(((result, element), selector, diff))
                 }
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
+                    &args.selector.build_full_selector(),
                     None,
-                    args.selector.fallback_selectors.as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -4213,7 +4265,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": "success",
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, None, args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), None, args.selector.build_fallback_selectors().as_deref()),
             "value_set_to": args.value,
         });
 
@@ -4388,9 +4440,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((result, element), successful_selector, ui_diff) =
             match crate::helpers::find_and_execute_with_ui_diff(
                 &self.desktop,
-                &args.selector.selector,
+                &args.selector.build_full_selector(),
                 None, // SetSelected doesn't have alternative selectors
-                args.selector.fallback_selectors.as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
@@ -4408,9 +4460,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     Ok(((result, element), selector, diff))
                 }
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
+                    &args.selector.build_full_selector(),
                     None,
-                    args.selector.fallback_selectors.as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -4427,7 +4479,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             },
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, None, args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), None, args.selector.build_fallback_selectors().as_deref()),
             "state_set_to": args.state,
         });
 
@@ -4590,9 +4642,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((is_toggled, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 |element| async move { element.is_toggled() },
@@ -4601,9 +4653,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -4615,7 +4667,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": "success",
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "is_toggled": is_toggled,
         });
         maybe_attach_tree(
@@ -4662,9 +4714,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((value, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 |element| async move { element.get_range_value() },
@@ -4673,9 +4725,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -4687,7 +4739,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": "success",
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "value": value,
         });
         maybe_attach_tree(
@@ -4734,9 +4786,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((is_selected, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 |element| async move { element.is_selected() },
@@ -4745,9 +4797,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -4759,7 +4811,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": "success",
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "is_selected": is_selected,
         });
         maybe_attach_tree(
@@ -4994,9 +5046,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((result, element), successful_selector, ui_diff) =
             match crate::helpers::find_and_execute_with_ui_diff(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 |element| async move {
@@ -5020,9 +5072,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     Ok(((result, element), selector, diff))
                 }
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -5039,7 +5091,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             },
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "timestamp": chrono::Utc::now().to_rfc3339()
         });
 
@@ -5151,9 +5203,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((_result, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 |element| async move { element.maximize_window() },
@@ -5162,9 +5214,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -5176,7 +5228,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": "success",
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
         maybe_attach_tree(
@@ -5221,9 +5273,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((_result, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 |element| async move { element.minimize_window() },
@@ -5232,9 +5284,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -5246,7 +5298,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": "success",
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
         maybe_attach_tree(
@@ -5354,9 +5406,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((_result, element), successful_selector, ui_diff) =
             match crate::helpers::find_and_execute_with_ui_diff(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
@@ -5374,9 +5426,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     Ok(((result, element), selector, diff))
                 }
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -5388,7 +5440,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": "success",
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "value_set_to": args.value,
         });
 
@@ -6223,9 +6275,9 @@ console.info = function(...args) {
         let ((script_result, element), successful_selector) =
             match crate::utils::find_and_execute_with_retry_with_fallback(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 |el| {
@@ -6258,9 +6310,9 @@ console.info = function(...args) {
                                     "message": msg.clone(),
                                     "selector": args.selector.selector,
                                     "selectors_tried": get_selectors_tried_all(
-                                        &args.selector.selector,
-                                        args.selector.alternative_selectors.as_deref(),
-                                        args.selector.fallback_selectors.as_deref(),
+                                        &args.selector.build_full_selector(),
+                                        args.selector.build_alternative_selectors().as_deref(),
+                                        args.selector.build_fallback_selectors().as_deref(),
                                     ),
                                     "suggestion": "Check the browser console for JavaScript errors. The script may have timed out or encountered an error."
                                 })),
@@ -6270,9 +6322,9 @@ console.info = function(...args) {
 
                     // For other errors, treat as element not found
                     Err(build_element_not_found_error(
-                        &args.selector.selector,
-                        args.selector.alternative_selectors.as_deref(),
-                        args.selector.fallback_selectors.as_deref(),
+                        &args.selector.build_full_selector(),
+                        args.selector.build_alternative_selectors().as_deref(),
+                        args.selector.build_fallback_selectors().as_deref(),
                         e,
                     ))
                 }
@@ -6288,9 +6340,9 @@ console.info = function(...args) {
         );
 
         let selectors_tried = get_selectors_tried_all(
-            &args.selector.selector,
-            args.selector.alternative_selectors.as_deref(),
-            args.selector.fallback_selectors.as_deref(),
+            &args.selector.build_full_selector(),
+            args.selector.build_alternative_selectors().as_deref(),
+            args.selector.build_fallback_selectors().as_deref(),
         );
 
         // Parse script_result to extract result and logs if console capture was enabled
