@@ -1278,8 +1278,8 @@ impl DesktopWrapper {
             args.clear_before_typing.unwrap_or(true).to_string(),
         );
         // Log if explicit verification is requested
-        if args.action.verify_element_exists.is_some()
-            || args.action.verify_element_not_exists.is_some()
+        if !args.action.verify_element_exists.is_empty()
+            || !args.action.verify_element_not_exists.is_empty()
         {
             span.set_attribute("verification.explicit", "true".to_string());
         }
@@ -1423,15 +1423,15 @@ impl DesktopWrapper {
         // 2. Otherwise, auto-infer verification from tool arguments (magic)
         // 3. To disable auto-verification, set verify_element_exists to empty string ""
 
-        let should_auto_verify = args.action.verify_element_exists.is_none()
-            && args.action.verify_element_not_exists.is_none();
+        let should_auto_verify = args.action.verify_element_exists.is_empty()
+            && args.action.verify_element_not_exists.is_empty();
 
         let verify_exists = if should_auto_verify {
             // MAGIC AUTO-VERIFICATION: Infer from text_to_type
             // Auto-verify that typed text appears in the element
             tracing::debug!("[type_into_element] Auto-verification enabled for typed text");
             span.set_attribute("verification.auto_inferred", "true".to_string());
-            Some(format!("text:{}", args.text_to_type))
+            format!("text:{}", args.text_to_type)
         } else {
             // Use explicit verification selector (supports variable substitution)
             args.action.verify_element_exists.clone()
@@ -1439,17 +1439,14 @@ impl DesktopWrapper {
 
         let verify_not_exists = args.action.verify_element_not_exists.clone();
 
-        // Skip verification if verify_exists is empty string (explicit opt-out)
-        let skip_verification = verify_exists
-            .as_ref()
-            .map(|s| s.is_empty())
-            .unwrap_or(false);
+        // Skip verification if both are empty strings (explicit opt-out)
+        let skip_verification = verify_exists.is_empty() && verify_not_exists.is_empty();
 
         // Perform verification if any selector is specified (auto or explicit) and not explicitly disabled
-        if !skip_verification && (verify_exists.is_some() || verify_not_exists.is_some()) {
+        if !skip_verification {
             span.add_event("verification_started", vec![]);
 
-            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
+            let verify_timeout_ms = args.action.verify_timeout_ms;
             span.set_attribute("verification.timeout_ms", verify_timeout_ms.to_string());
 
             // Substitute variables in verification selectors
@@ -1461,28 +1458,31 @@ impl DesktopWrapper {
             let mut substituted_exists = verify_exists.clone();
             let mut substituted_not_exists = verify_not_exists.clone();
 
-            if let Some(ref mut sel) = substituted_exists {
-                let mut val = json!(sel);
+            if !substituted_exists.is_empty() {
+                let mut val = json!(&substituted_exists);
                 crate::helpers::substitute_variables(&mut val, &context);
                 if let Some(s) = val.as_str() {
-                    *sel = s.to_string();
+                    substituted_exists = s.to_string();
                 }
             }
 
-            if let Some(ref mut sel) = substituted_not_exists {
-                let mut val = json!(sel);
+            if !substituted_not_exists.is_empty() {
+                let mut val = json!(&substituted_not_exists);
                 crate::helpers::substitute_variables(&mut val, &context);
                 if let Some(s) = val.as_str() {
-                    *sel = s.to_string();
+                    substituted_not_exists = s.to_string();
                 }
             }
 
             // Call the new generic verification function (uses window-scoped search with .within())
+            let verify_exists_opt = if substituted_exists.is_empty() { None } else { Some(substituted_exists.as_str()) };
+            let verify_not_exists_opt = if substituted_not_exists.is_empty() { None } else { Some(substituted_not_exists.as_str()) };
+
             match crate::helpers::verify_post_action(
                 &self.desktop,
                 &element,
-                substituted_exists.as_deref(),
-                substituted_not_exists.as_deref(),
+                verify_exists_opt,
+                verify_not_exists_opt,
                 verify_timeout_ms,
                 &successful_selector,
             )
@@ -4620,8 +4620,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         });
 
         // POST-ACTION VERIFICATION: Magic auto-verification or explicit verification
-        let should_auto_verify = args.action.verify_element_exists.is_none()
-            && args.action.verify_element_not_exists.is_none();
+        let should_auto_verify = args.action.verify_element_exists.is_empty()
+            && args.action.verify_element_not_exists.is_empty();
 
         if should_auto_verify {
             // MAGIC AUTO-VERIFICATION: Verify toggle state was actually set
@@ -4676,17 +4676,20 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     }),
                 );
             }
-        } else if args.action.verify_element_exists.is_some()
-            || args.action.verify_element_not_exists.is_some()
+        } else if !args.action.verify_element_exists.is_empty()
+            || !args.action.verify_element_not_exists.is_empty()
         {
             // Explicit verification using selectors
-            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
+            let verify_timeout_ms = args.action.verify_timeout_ms;
+
+            let verify_exists_opt = if args.action.verify_element_exists.is_empty() { None } else { Some(args.action.verify_element_exists.as_str()) };
+            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() { None } else { Some(args.action.verify_element_not_exists.as_str()) };
 
             match crate::helpers::verify_post_action(
                 &self.desktop,
                 &element,
-                args.action.verify_element_exists.as_deref(),
-                args.action.verify_element_not_exists.as_deref(),
+                verify_exists_opt,
+                verify_not_exists_opt,
                 verify_timeout_ms,
                 &successful_selector,
             )
@@ -4852,8 +4855,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         });
 
         // POST-ACTION VERIFICATION: Magic auto-verification or explicit verification
-        let should_auto_verify = args.action.verify_element_exists.is_none()
-            && args.action.verify_element_not_exists.is_none();
+        let should_auto_verify = args.action.verify_element_exists.is_empty()
+            && args.action.verify_element_not_exists.is_empty();
 
         if should_auto_verify {
             // MAGIC AUTO-VERIFICATION: Verify range value was actually set
@@ -4906,17 +4909,20 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     }),
                 );
             }
-        } else if args.action.verify_element_exists.is_some()
-            || args.action.verify_element_not_exists.is_some()
+        } else if !args.action.verify_element_exists.is_empty()
+            || !args.action.verify_element_not_exists.is_empty()
         {
             // Explicit verification using selectors
-            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
+            let verify_timeout_ms = args.action.verify_timeout_ms;
+
+            let verify_exists_opt = if args.action.verify_element_exists.is_empty() { None } else { Some(args.action.verify_element_exists.as_str()) };
+            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() { None } else { Some(args.action.verify_element_not_exists.as_str()) };
 
             match crate::helpers::verify_post_action(
                 &self.desktop,
                 &element,
-                args.action.verify_element_exists.as_deref(),
-                args.action.verify_element_not_exists.as_deref(),
+                verify_exists_opt,
+                verify_not_exists_opt,
                 verify_timeout_ms,
                 &successful_selector,
             )
@@ -5082,8 +5088,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         });
 
         // POST-ACTION VERIFICATION: Magic auto-verification or explicit verification
-        let should_auto_verify = args.action.verify_element_exists.is_none()
-            && args.action.verify_element_not_exists.is_none();
+        let should_auto_verify = args.action.verify_element_exists.is_empty()
+            && args.action.verify_element_not_exists.is_empty();
 
         if should_auto_verify {
             // MAGIC AUTO-VERIFICATION: Verify selected state was actually set
@@ -5135,17 +5141,20 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     }),
                 );
             }
-        } else if args.action.verify_element_exists.is_some()
-            || args.action.verify_element_not_exists.is_some()
+        } else if !args.action.verify_element_exists.is_empty()
+            || !args.action.verify_element_not_exists.is_empty()
         {
             // Explicit verification using selectors
-            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
+            let verify_timeout_ms = args.action.verify_timeout_ms;
+
+            let verify_exists_opt = if args.action.verify_element_exists.is_empty() { None } else { Some(args.action.verify_element_exists.as_str()) };
+            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() { None } else { Some(args.action.verify_element_not_exists.as_str()) };
 
             match crate::helpers::verify_post_action(
                 &self.desktop,
                 &element,
-                args.action.verify_element_exists.as_deref(),
-                args.action.verify_element_not_exists.as_deref(),
+                verify_exists_opt,
+                verify_not_exists_opt,
                 verify_timeout_ms,
                 &successful_selector,
             )
@@ -6181,8 +6190,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         });
 
         // POST-ACTION VERIFICATION: Magic auto-verification or explicit verification
-        let should_auto_verify = args.action.verify_element_exists.is_none()
-            && args.action.verify_element_not_exists.is_none();
+        let should_auto_verify = args.action.verify_element_exists.is_empty()
+            && args.action.verify_element_not_exists.is_empty();
 
         let verify_exists = if should_auto_verify {
             // MAGIC AUTO-VERIFICATION: Verify the value was actually set
@@ -6191,26 +6200,27 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 args.value
             );
             span.set_attribute("verification.auto_inferred", "true".to_string());
-            Some(format!("value:{}", args.value))
+            format!("value:{}", args.value)
         } else {
             args.action.verify_element_exists.clone()
         };
 
-        let skip_verification = verify_exists
-            .as_ref()
-            .map(|s| s.is_empty())
-            .unwrap_or(false);
+        let verify_not_exists = args.action.verify_element_not_exists.clone();
+
+        let skip_verification = verify_exists.is_empty() && verify_not_exists.is_empty();
 
         if !skip_verification
-            && (verify_exists.is_some() || args.action.verify_element_not_exists.is_some())
         {
-            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
+            let verify_timeout_ms = args.action.verify_timeout_ms;
+
+            let verify_exists_opt = if verify_exists.is_empty() { None } else { Some(verify_exists.as_str()) };
+            let verify_not_exists_opt = if verify_not_exists.is_empty() { None } else { Some(verify_not_exists.as_str()) };
 
             match crate::helpers::verify_post_action(
                 &self.desktop,
                 &element,
-                verify_exists.as_deref(),
-                args.action.verify_element_not_exists.as_deref(),
+                verify_exists_opt,
+                verify_not_exists_opt,
                 verify_timeout_ms,
                 &successful_selector,
             )

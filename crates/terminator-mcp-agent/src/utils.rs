@@ -128,7 +128,7 @@ impl SelectorOptions {
 }
 
 /// Common fields for action timing and retries
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ActionOptions {
     #[schemars(description = "Optional timeout in milliseconds for the action")]
     pub timeout_ms: Option<u64>,
@@ -137,19 +137,19 @@ pub struct ActionOptions {
     pub retries: Option<u32>,
 
     #[schemars(
-        description = "Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails."
+        description = "REQUIRED: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. Use empty string \"\" to skip this check. If verification fails, the tool execution fails."
     )]
-    pub verify_element_exists: Option<String>,
+    pub verify_element_exists: String,
 
     #[schemars(
-        description = "Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails."
+        description = "REQUIRED: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). Use empty string \"\" to skip this check. If verification fails, the tool execution fails."
     )]
-    pub verify_element_not_exists: Option<String>,
+    pub verify_element_not_exists: String,
 
     #[schemars(
-        description = "Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached."
+        description = "REQUIRED: Timeout in milliseconds for post-action verification. The system will poll until verification passes or timeout is reached."
     )]
-    pub verify_timeout_ms: Option<u64>,
+    pub verify_timeout_ms: u64,
 }
 
 /// Common fields for visual highlighting before actions
@@ -162,7 +162,7 @@ pub struct HighlightOptions {
 }
 
 /// Arguments for tools that select elements
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ElementArgs {
     #[serde(flatten)]
     pub selector: SelectorOptions,
@@ -178,7 +178,7 @@ pub struct ElementArgs {
 }
 
 /// Arguments for tools that perform actions on elements with highlighting
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ActionElementArgs {
     #[serde(flatten)]
     pub selector: SelectorOptions,
@@ -347,7 +347,7 @@ pub struct GetApplicationsArgs {
     // Use capture_screen if you need screenshots
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct LocatorArgs {
     #[serde(flatten)]
     pub selector: SelectorOptions,
@@ -430,7 +430,7 @@ impl<'de> Deserialize<'de> for ClickPosition {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ClickElementArgs {
     pub click_position: Option<ClickPosition>,
     #[serde(flatten)]
@@ -449,7 +449,7 @@ pub struct ClickElementArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct TypeIntoElementArgs {
     #[schemars(description = "The text to type into the element")]
     pub text_to_type: String,
@@ -471,7 +471,7 @@ pub struct TypeIntoElementArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct PressKeyArgs {
     #[schemars(description = "The key or key combination to press (e.g., 'Enter', 'Ctrl+A')")]
     pub key: String,
@@ -539,7 +539,7 @@ pub struct RunCommandArgs {
     pub include_logs: Option<bool>,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct MouseDragArgs {
     #[schemars(description = "Start X coordinate")]
     pub start_x: f64,
@@ -562,7 +562,7 @@ pub struct MouseDragArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ValidateElementArgs {
     #[serde(flatten)]
     pub selector: SelectorOptions,
@@ -584,7 +584,7 @@ pub struct ValidateElementArgs {
     pub max_dimension: Option<u32>,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CaptureElementScreenshotArgs {
     #[serde(flatten)]
     pub selector: SelectorOptions,
@@ -606,7 +606,7 @@ pub struct CaptureElementScreenshotArgs {
     pub max_dimension: Option<u32>,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct HighlightElementArgs {
     #[schemars(description = "BGR color code (optional, default red)")]
     pub color: Option<u32>,
@@ -631,7 +631,7 @@ pub struct HighlightElementArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct WaitForElementArgs {
     #[schemars(description = "Condition to wait for: 'visible', 'enabled', 'focused', 'exists'")]
     pub condition: String,
@@ -662,7 +662,7 @@ pub struct NavigateBrowserArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ExecuteBrowserScriptArgs {
     pub script: Option<String>,
     pub script_file: Option<String>,
@@ -693,7 +693,7 @@ pub struct OpenApplicationArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SelectOptionArgs {
     #[schemars(description = "The visible text of the option to select.")]
     pub option_name: String,
@@ -710,7 +710,7 @@ pub struct SelectOptionArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SetToggledArgs {
     #[schemars(description = "The desired state: true for on, false for off.")]
     pub state: bool,
@@ -727,7 +727,7 @@ pub struct SetToggledArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, serde::Deserialize, JsonSchema, Default)]
+#[derive(Debug, serde::Deserialize, JsonSchema)]
 pub struct MaximizeWindowArgs {
     #[serde(flatten)]
     pub selector: SelectorOptions,
@@ -742,7 +742,7 @@ pub struct MaximizeWindowArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, serde::Deserialize, JsonSchema, Default)]
+#[derive(Debug, serde::Deserialize, JsonSchema)]
 pub struct MinimizeWindowArgs {
     #[serde(flatten)]
     pub selector: SelectorOptions,
@@ -757,7 +757,7 @@ pub struct MinimizeWindowArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SetRangeValueArgs {
     #[schemars(description = "The numerical value to set.")]
     pub value: f64,
@@ -774,7 +774,7 @@ pub struct SetRangeValueArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SetValueArgs {
     #[schemars(description = "The text value to set.")]
     pub value: String,
@@ -791,7 +791,7 @@ pub struct SetValueArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SetSelectedArgs {
     #[schemars(description = "The desired state: true for selected, false for deselected.")]
     pub state: bool,
@@ -808,7 +808,7 @@ pub struct SetSelectedArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, Default)]
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[schemars(description = "Arguments for scrolling an element")]
 pub struct ScrollElementArgs {
     #[serde(default)]
@@ -833,7 +833,7 @@ pub struct ScrollElementArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ActivateElementArgs {
     #[serde(flatten)]
     pub selector: SelectorOptions,
@@ -1064,7 +1064,7 @@ pub enum SequenceItem {
     Group { tool_group: ToolGroup },
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CloseElementArgs {
     #[serde(flatten)]
