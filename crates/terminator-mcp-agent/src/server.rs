@@ -1220,7 +1220,7 @@ impl DesktopWrapper {
     /// Ensures element is visible and optionally applies highlighting before action
     fn ensure_visible_and_apply_highlight(
         element: &UIElement,
-        highlight_config: Option<&ActionHighlightConfig>,
+        highlight_config: &ActionHighlightConfig,
         action_name: &str,
     ) {
         // Always ensure element is in view first (for all actions, not just when highlighting)
@@ -1228,41 +1228,39 @@ impl DesktopWrapper {
             tracing::warn!("Failed to ensure element is in view for {action_name} action: {e}");
         }
 
-        // Then apply highlighting if configured
-        if let Some(config) = highlight_config {
-            if config.enabled {
-                let duration = config.duration_ms.map(std::time::Duration::from_millis);
-                let color = config.color;
-                let text = config.text.as_deref();
+        // Then apply highlighting if enabled
+        if highlight_config.enabled {
+            let duration = highlight_config.duration_ms.map(std::time::Duration::from_millis);
+            let color = highlight_config.color;
+            let text = highlight_config.text.as_deref();
 
-                #[cfg(target_os = "windows")]
-                let text_position = config.text_position.clone().map(|pos| pos.into());
-                #[cfg(not(target_os = "windows"))]
-                let text_position = None;
+            #[cfg(target_os = "windows")]
+            let text_position = highlight_config.text_position.clone().map(|pos| pos.into());
+            #[cfg(not(target_os = "windows"))]
+            let text_position = None;
 
-                #[cfg(target_os = "windows")]
-                let font_style = config.font_style.clone().map(|style| style.into());
-                #[cfg(not(target_os = "windows"))]
-                let font_style = None;
+            #[cfg(target_os = "windows")]
+            let font_style = highlight_config.font_style.clone().map(|style| style.into());
+            #[cfg(not(target_os = "windows"))]
+            let font_style = None;
 
-                tracing::info!(
-                    "HIGHLIGHT_BEFORE_{} duration={:?}",
-                    action_name.to_uppercase(),
-                    duration
-                );
-                if let Ok(_highlight_handle) =
-                    element.highlight(color, duration, text, text_position, font_style)
-                {
-                    // Highlight applied successfully - runs concurrently with action
-                } else {
-                    tracing::warn!("Failed to apply highlighting before {action_name} action");
-                }
+            tracing::info!(
+                "HIGHLIGHT_BEFORE_{} duration={:?}",
+                action_name.to_uppercase(),
+                duration
+            );
+            if let Ok(_highlight_handle) =
+                element.highlight(color, duration, text, text_position, font_style)
+            {
+                // Highlight applied successfully - runs concurrently with action
+            } else {
+                tracing::warn!("Failed to apply highlighting before {action_name} action");
             }
         }
     }
 
     #[tool(
-        description = "Types text into a UI element with smart clipboard optimization and verification. Much faster than press key. This action requires the application to be focused and may change the UI."
+        description = "Types text into a UI element with smart clipboard optimization and verification. Much faster than press key. REQUIRED: clear_before_typing parameter - set to true to clear existing text, false to append. This action requires the application to be focused and may change the UI."
     )]
     async fn type_into_element(
         &self,
@@ -1275,7 +1273,7 @@ impl DesktopWrapper {
         span.set_attribute("text.length", args.text_to_type.len().to_string());
         span.set_attribute(
             "clear_before_typing",
-            args.clear_before_typing.unwrap_or(true).to_string(),
+            args.clear_before_typing.to_string(),
         );
         // Log if explicit verification is requested
         if !args.action.verify_element_exists.is_empty()
@@ -1314,7 +1312,7 @@ impl DesktopWrapper {
         }
 
         let text_to_type = args.text_to_type.clone();
-        let should_clear = args.clear_before_typing.unwrap_or(true);
+        let should_clear = args.clear_before_typing;
 
         let action = {
             let highlight_config = args.highlight.highlight_before_action.clone();
@@ -1325,7 +1323,7 @@ impl DesktopWrapper {
                     // Apply highlighting before action if configured
                     Self::ensure_visible_and_apply_highlight(
                         &element,
-                        highlight_config.as_ref(),
+                        &highlight_config,
                         "type",
                     );
 
@@ -1406,7 +1404,7 @@ impl DesktopWrapper {
             "action": "type_into_element",
             "status": "success",
             "text_typed": args.text_to_type,
-            "cleared_before_typing": args.clear_before_typing.unwrap_or(true),
+            "cleared_before_typing": args.clear_before_typing,
             "action_result": {
                 "action": result.action,
                 "details": result.details,
@@ -1576,7 +1574,7 @@ impl DesktopWrapper {
     }
 
     #[tool(
-        description = "Clicks a UI element using Playwright-style actionability validation. Performs comprehensive pre-action checks: element must be visible (non-zero bounds), enabled, in viewport, and have stable bounds (3 consecutive checks at 16ms intervals, max ~800ms wait). Returns success with 'validated=true' in click_result.details when all checks pass. Fails explicitly with specific errors: ElementNotVisible (zero-size bounds/offscreen/not in viewport), ElementNotEnabled (disabled/grayed out), ElementNotStable (bounds still animating after 800ms), ElementDetached (no longer in UI tree), ElementObscured (covered by another element), or ScrollFailed (could not scroll into view). For buttons, prefer invoke_element (uses UI Automation's native invoke pattern, doesn't require viewport visibility). Use click_element for links, hover-sensitive elements, or UI requiring actual mouse interaction. This action requires the application to be focused and may change the UI."
+        description = "Clicks a UI element using Playwright-style actionability validation. Performs comprehensive pre-action checks: element must be visible (non-zero bounds), enabled, in viewport, and have stable bounds (3 consecutive checks at 16ms intervals, max ~800ms wait). Returns success with 'validated=true' in click_result.details when all checks pass. Fails explicitly with specific errors: ElementNotVisible (zero-size bounds/offscreen/not in viewport), ElementNotEnabled (disabled/grayed out), ElementNotStable (bounds still animating after 800ms), ElementDetached (no longer in UI tree), ElementObscured (covered by another element), or ScrollFailed (could not scroll into view). For buttons, prefer invoke_element (uses UI Automation's native invoke pattern, doesn't require viewport visibility). Use click_element for links, hover-sensitive elements, or UI requiring actual mouse interaction. REQUIRED: click_position parameter - use x_percentage: 50, y_percentage: 50 for center click (most common). This action requires the application to be focused and may change the UI."
     )]
     pub async fn click_element(
         &self,
@@ -1596,15 +1594,13 @@ impl DesktopWrapper {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
 
-        if let Some(ref pos) = args.click_position {
-            span.set_attribute("click.position_x", pos.x_percentage.to_string());
-            span.set_attribute("click.position_y", pos.y_percentage.to_string());
-            tracing::info!(
-                "[click_element] Click position: {}%, {}%",
-                pos.x_percentage,
-                pos.y_percentage
-            );
-        }
+        span.set_attribute("click.position_x", args.click_position.x_percentage.to_string());
+        span.set_attribute("click.position_y", args.click_position.y_percentage.to_string());
+        tracing::info!(
+            "[click_element] Click position: {}%, {}%",
+            args.click_position.x_percentage,
+            args.click_position.y_percentage
+        );
 
         // Check if we need to perform window management (only for direct MCP calls, not sequences)
         let should_restore = {
@@ -1632,47 +1628,42 @@ impl DesktopWrapper {
                     // Ensure element is visible and apply highlighting if configured
                     Self::ensure_visible_and_apply_highlight(
                         &element,
-                        highlight_config.as_ref(),
+                        &highlight_config,
                         "click",
                     );
 
-                    // Click at specific position if provided
-                    if let Some(pos) = click_position {
-                        // Get element bounds to calculate absolute position
-                        match element.bounds() {
-                            Ok(bounds) => {
-                                // Calculate absolute coordinates from percentages
-                                let x = bounds.0 + (bounds.2 * pos.x_percentage as f64 / 100.0);
-                                let y = bounds.1 + (bounds.3 * pos.y_percentage as f64 / 100.0);
+                    // Click at specified position
+                    // Get element bounds to calculate absolute position
+                    match element.bounds() {
+                        Ok(bounds) => {
+                            // Calculate absolute coordinates from percentages
+                            let x = bounds.0 + (bounds.2 * click_position.x_percentage as f64 / 100.0);
+                            let y = bounds.1 + (bounds.3 * click_position.y_percentage as f64 / 100.0);
 
-                                tracing::debug!(
-                                    "[click_element] Clicking at absolute position ({}, {}) within bounds ({}, {}, {}, {})",
-                                    x, y, bounds.0, bounds.1, bounds.2, bounds.3
-                                );
+                            tracing::debug!(
+                                "[click_element] Clicking at absolute position ({}, {}) within bounds ({}, {}, {}, {})",
+                                x, y, bounds.0, bounds.1, bounds.2, bounds.3
+                            );
 
-                                // Perform click at specific position
-                                element.mouse_click_and_hold(x, y)?;
-                                element.mouse_release()?;
+                            // Perform click at specific position
+                            element.mouse_click_and_hold(x, y)?;
+                            element.mouse_release()?;
 
-                                // Return a ClickResult
-                                use terminator::ClickResult;
-                                Ok(ClickResult {
-                                    coordinates: Some((x, y)),
-                                    method: "Position Click".to_string(),
-                                    details: format!(
-                                        "Clicked at {}%, {}%",
-                                        pos.x_percentage, pos.y_percentage
-                                    ),
-                                })
-                            }
-                            Err(e) => {
-                                tracing::warn!("[click_element] Failed to get bounds for position click: {}. Falling back to center click.", e);
-                                element.click()
-                            }
+                            // Return a ClickResult
+                            use terminator::ClickResult;
+                            Ok(ClickResult {
+                                coordinates: Some((x, y)),
+                                method: "Position Click".to_string(),
+                                details: format!(
+                                    "Clicked at {}%, {}%",
+                                    click_position.x_percentage, click_position.y_percentage
+                                ),
+                            })
                         }
-                    } else {
-                        // Default center click
-                        element.click()
+                        Err(e) => {
+                            tracing::warn!("[click_element] Failed to get bounds for position click: {}. Falling back to center click.", e);
+                            element.click()
+                        }
                     }
                 }
             }
@@ -1850,7 +1841,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
                     // Ensure element is visible and apply highlighting if configured
                     Self::ensure_visible_and_apply_highlight(
                         &element,
-                        highlight_config.as_ref(),
+                        &highlight_config,
                         "key",
                     );
 
@@ -4182,7 +4173,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     // Ensure element is visible and apply highlighting if configured
                     Self::ensure_visible_and_apply_highlight(
                         &element,
-                        highlight_config.as_ref(),
+                        &highlight_config,
                         "scroll",
                     );
 

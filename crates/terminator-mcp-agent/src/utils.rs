@@ -153,12 +153,12 @@ pub struct ActionOptions {
 }
 
 /// Common fields for visual highlighting before actions
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct HighlightOptions {
     #[schemars(
-        description = "Optional highlighting configuration to visually indicate the target element before the action"
+        description = "REQUIRED: Highlighting configuration to visually indicate the target element before the action. Set enabled: false to disable highlighting."
     )]
-    pub highlight_before_action: Option<ActionHighlightConfig>,
+    pub highlight_before_action: ActionHighlightConfig,
 }
 
 /// Arguments for tools that select elements
@@ -432,7 +432,8 @@ impl<'de> Deserialize<'de> for ClickPosition {
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ClickElementArgs {
-    pub click_position: Option<ClickPosition>,
+    #[schemars(description = "REQUIRED: Click position as percentage within element bounds. Use x_percentage: 50, y_percentage: 50 for center click (most common).")]
+    pub click_position: ClickPosition,
     #[serde(flatten)]
     pub selector: SelectorOptions,
 
@@ -453,8 +454,8 @@ pub struct ClickElementArgs {
 pub struct TypeIntoElementArgs {
     #[schemars(description = "The text to type into the element")]
     pub text_to_type: String,
-    #[schemars(description = "Whether to clear the element before typing (default: true)")]
-    pub clear_before_typing: Option<bool>,
+    #[schemars(description = "REQUIRED: Whether to clear the element before typing. Set to true to clear existing text, false to append.")]
+    pub clear_before_typing: bool,
     #[serde(flatten)]
     pub selector: SelectorOptions,
 
