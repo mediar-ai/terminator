@@ -1,6 +1,7 @@
 use crate::cancellation::RequestManager;
 use crate::mcp_types::{FontStyle, TextPosition, TreeOutputFormat};
 use crate::tool_logging::{LogCapture, LogCaptureLayer};
+use crate::window_manager::WindowManager;
 use anyhow::Result;
 use rmcp::{schemars, schemars::JsonSchema};
 use serde::{Deserialize, Serialize};
@@ -218,6 +219,41 @@ pub struct DelayArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
+// Tool execution context for window management
+#[derive(Clone, Debug)]
+pub struct ToolExecutionContext {
+    pub in_sequence: bool,
+    pub sequence_id: Option<String>,
+    pub total_steps: usize,
+    pub current_step: usize,
+    pub is_last_step: bool,
+    pub previous_process: Option<String>,  // Track previous process for detecting switches
+}
+
+impl ToolExecutionContext {
+    pub fn single_tool() -> Self {
+        Self {
+            in_sequence: false,
+            sequence_id: None,
+            total_steps: 1,
+            current_step: 1,
+            is_last_step: true,
+            previous_process: None,
+        }
+    }
+
+    pub fn sequence_step(id: String, current: usize, total: usize, previous_process: Option<String>) -> Self {
+        Self {
+            in_sequence: true,
+            sequence_id: Some(id),
+            total_steps: total,
+            current_step: current,
+            is_last_step: current == total,
+            previous_process,
+        }
+    }
+}
+
 fn default_desktop() -> Arc<Desktop> {
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     let desktop = Desktop::new(false, false).expect("Failed to create default desktop");
@@ -252,6 +288,8 @@ pub struct DesktopWrapper {
     pub current_workflow_dir: Arc<Mutex<Option<std::path::PathBuf>>>,
     #[serde(skip)]
     pub current_scripts_base_path: Arc<Mutex<Option<String>>>,
+    #[serde(skip)]
+    pub window_manager: Arc<WindowManager>,
 }
 
 impl Default for DesktopWrapper {
@@ -543,27 +581,8 @@ pub struct ValidateElementArgs {
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
 pub struct CaptureElementScreenshotArgs {
-    /// Optional selector to locate the element. Required if pid is not provided.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(
-        description = "A string selector to locate the element. Can be chained with ` >> `. Required if pid is not provided."
-    )]
-    pub selector: Option<String>,
-
-    /// Optional alternative selectors to try in parallel
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub alternative_selectors: Option<String>,
-
-    /// Optional fallback selectors
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fallback_selectors: Option<String>,
-
-    /// Optional process ID to capture screenshot from. Required if selector is not provided.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(
-        description = "Process ID of the window to capture. Required if selector is not provided. This is faster and more reliable than selector-based search."
-    )]
-    pub pid: Option<u32>,
+    #[serde(flatten)]
+    pub selector: SelectorOptions,
 
     #[serde(flatten)]
     pub action: ActionOptions,
