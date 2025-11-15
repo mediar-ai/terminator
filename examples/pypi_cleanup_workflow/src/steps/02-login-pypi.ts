@@ -10,7 +10,10 @@ export const loginToPyPI = createStep({
     logger.info("🔐 Logging into PyPI...");
 
     try {
-      await desktop.navigateBrowser("https://pypi.org/account/login/");
+      await desktop.navigateBrowser(
+        "https://pypi.org/account/login/",
+        "Chrome"
+      );
       await desktop.delay(2000);
 
       // Fill username/password and submit via browser script

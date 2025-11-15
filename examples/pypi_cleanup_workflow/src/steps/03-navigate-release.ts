@@ -15,7 +15,7 @@ export const navigateToRelease = createStep({
 
     try {
       const releaseManageUrl = `https://pypi.org/manage/project/${packageName}/release/${version}/`;
-      await desktop.navigateBrowser(releaseManageUrl);
+      await desktop.navigateBrowser(releaseManageUrl, "Chrome");
       await desktop.delay(2000);
 
       const deleteElementsFound = (await desktop.executeBrowserScript(() => {
