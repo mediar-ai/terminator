@@ -29,26 +29,26 @@ export const deleteRelease = createStep({
           selector:
             'input[type="checkbox"][data-action="input->delete-confirm#check"][data-delete-confirm-target="input"]',
         });
-        await desktop.wait(500);
+        await desktop.delay(500);
       }
 
       await desktop.click({
         selector:
           'a.button.button--danger[data-delete-confirm-target="button"]',
       });
-      await desktop.wait(1000);
+      await desktop.delay(1000);
 
       await desktop.type(version, {
         selector:
           'input[type="text"][id="delete_version-modal-confirm_delete_version"]',
       });
-      await desktop.wait(500);
+      await desktop.delay(500);
 
       await desktop.click({
         selector: `#delete_version-modal button.js-confirm[data-expected="${version}"]`,
       });
 
-      await desktop.wait(3000);
+      await desktop.delay(3000);
 
       const currentUrl = await desktop.getCurrentUrl();
       if (
