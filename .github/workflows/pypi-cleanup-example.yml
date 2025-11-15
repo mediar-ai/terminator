@@ -1,0 +1,22 @@
+name: PyPI Cleanup Example
+on: workflow_dispatch
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: examples/pypi_cleanup_workflow
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run build
+      - run: npm run run
+        env:
+          PYPI_UI_USERNAME: ${{ secrets.PYPI_UI_USERNAME }}
+          PYPI_UI_PASSWORD: ${{ secrets.PYPI_UI_PASSWORD }}
+          PYPI_UI_TOTP_SECRET: ${{ secrets.PYPI_UI_TOTP_SECRET }}
+          PACKAGE_NAME: ${{ secrets.PACKAGE_NAME }}
