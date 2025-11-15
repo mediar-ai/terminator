@@ -15,7 +15,7 @@ export const navigateToRelease = createStep({
 
     try {
       const releaseManageUrl = `https://pypi.org/manage/project/${packageName}/release/${version}/`;
-      await desktop.goToUrl(releaseManageUrl);
+      await desktop.navigateBrowser(releaseManageUrl);
       await desktop.wait(2000);
 
       const deleteElements = await desktop.findElements({
