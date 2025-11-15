@@ -1,0 +1,456 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Instant;
+use tokio::sync::Mutex;
+use windows::Win32::Foundation::HWND;
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetWindow, GetWindowPlacement, GetWindowTextW, GetWindowThreadProcessId,
+    IsIconic, IsWindowVisible, IsZoomed, SetWindowPlacement, ShowWindow,
+    GetTopWindow, GetForegroundWindow, GetWindowLongPtrW, GWL_EXSTYLE,
+    WINDOWPLACEMENT, GW_HWNDNEXT, SW_MAXIMIZE, SW_MINIMIZE, WS_EX_TOPMOST,
+};
+use windows::Win32::System::Threading::{
+    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+    PROCESS_QUERY_LIMITED_INFORMATION,
+};
+
+#[derive(Clone, Debug)]
+pub struct WindowInfo {
+    pub hwnd: isize,
+    pub process_name: String,
+    pub process_id: u32,
+    pub z_order: u32,
+    pub is_minimized: bool,
+    pub is_maximized: bool,
+    pub is_always_on_top: bool,
+    pub placement: WindowPlacement,
+    pub title: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct WindowPlacement {
+    pub flags: u32,
+    pub show_cmd: u32,
+    pub min_x: i32,
+    pub min_y: i32,
+    pub max_x: i32,
+    pub max_y: i32,
+    pub normal_left: i32,
+    pub normal_top: i32,
+    pub normal_right: i32,
+    pub normal_bottom: i32,
+}
+
+impl From<WINDOWPLACEMENT> for WindowPlacement {
+    fn from(wp: WINDOWPLACEMENT) -> Self {
+        Self {
+            flags: wp.flags.0,
+            show_cmd: wp.showCmd,
+            min_x: wp.ptMinPosition.x,
+            min_y: wp.ptMinPosition.y,
+            max_x: wp.ptMaxPosition.x,
+            max_y: wp.ptMaxPosition.y,
+            normal_left: wp.rcNormalPosition.left,
+            normal_top: wp.rcNormalPosition.top,
+            normal_right: wp.rcNormalPosition.right,
+            normal_bottom: wp.rcNormalPosition.bottom,
+        }
+    }
+}
+
+impl Into<WINDOWPLACEMENT> for WindowPlacement {
+    fn into(self) -> WINDOWPLACEMENT {
+        let mut wp = WINDOWPLACEMENT::default();
+        wp.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
+        wp.flags = windows::Win32::UI::WindowsAndMessaging::WINDOWPLACEMENT_FLAGS(self.flags);
+        wp.showCmd = self.show_cmd;
+        wp.ptMinPosition.x = self.min_x;
+        wp.ptMinPosition.y = self.min_y;
+        wp.ptMaxPosition.x = self.max_x;
+        wp.ptMaxPosition.y = self.max_y;
+        wp.rcNormalPosition.left = self.normal_left;
+        wp.rcNormalPosition.top = self.normal_top;
+        wp.rcNormalPosition.right = self.normal_right;
+        wp.rcNormalPosition.bottom = self.normal_bottom;
+        wp
+    }
+}
+
+pub struct WindowCache {
+    // Map: process_name -> windows sorted by Z-order (first = topmost)
+    pub process_windows: HashMap<String, Vec<WindowInfo>>,
+    // All visible (non-minimized) windows
+    pub visible_windows: Vec<WindowInfo>,
+    // Original state for restoration
+    pub original_states: Vec<WindowInfo>,
+    // Windows that were actually minimized (only always-on-top ones)
+    pub minimized_windows: Vec<isize>,
+    // Target window that was maximized (needs restoration too)
+    pub target_window: Option<isize>,
+    pub last_updated: Instant,
+}
+
+pub struct WindowManager {
+    window_cache: Arc<Mutex<WindowCache>>,
+}
+
+impl Default for WindowManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl WindowManager {
+    pub fn new() -> Self {
+        Self {
+            window_cache: Arc::new(Mutex::new(WindowCache {
+                process_windows: HashMap::new(),
+                visible_windows: Vec::new(),
+                original_states: Vec::new(),
+                minimized_windows: Vec::new(),
+                target_window: None,
+                last_updated: Instant::now(),
+            })),
+        }
+    }
+
+    // Update window cache with current window information
+    // Called on-demand when needed, not by background service
+    pub async fn update_window_cache(&self) -> Result<(), String> {
+        let windows = Self::enumerate_windows_in_z_order()?;
+
+        // Build process -> windows map (already sorted by Z-order)
+        let mut process_windows: HashMap<String, Vec<WindowInfo>> = HashMap::new();
+        for window in &windows {
+            if !window.process_name.is_empty() {
+                process_windows
+                    .entry(window.process_name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(window.clone());
+            }
+        }
+
+        // Filter visible windows (not minimized)
+        let visible_windows: Vec<WindowInfo> = windows
+            .iter()
+            .filter(|w| !w.is_minimized)
+            .cloned()
+            .collect();
+
+        let mut cache = self.window_cache.lock().await;
+        cache.process_windows = process_windows;
+        cache.visible_windows = visible_windows;
+        cache.last_updated = Instant::now();
+
+        Ok(())
+    }
+
+    // Get topmost window for process (already sorted by Z-order)
+    pub async fn get_topmost_window_for_process(&self, process: &str) -> Option<WindowInfo> {
+        let cache = self.window_cache.lock().await;
+
+        // Normalize process name (remove .exe if present)
+        let normalized = process.to_lowercase().replace(".exe", "");
+
+        for (proc_name, windows) in &cache.process_windows {
+            let proc_normalized = proc_name.to_lowercase().replace(".exe", "");
+            if proc_normalized == normalized {
+                // First window is topmost (sorted by Z-order)
+                return windows.first().cloned();
+            }
+        }
+        None
+    }
+
+    // Get all visible always-on-top windows
+    pub async fn get_always_on_top_windows(&self) -> Vec<WindowInfo> {
+        let cache = self.window_cache.lock().await;
+        cache.visible_windows
+            .iter()
+            .filter(|w| w.is_always_on_top && !w.is_minimized)
+            .cloned()
+            .collect()
+    }
+
+    // Minimize only always-on-top windows (excluding target)
+    // Returns the number of windows minimized
+    pub async fn minimize_always_on_top_windows(&self, target_hwnd: isize) -> Result<u32, String> {
+        let mut cache = self.window_cache.lock().await;
+        let mut minimized_count = 0;
+        let mut minimized_hwnds = Vec::new();
+
+        for window in &cache.visible_windows {
+            if window.hwnd != target_hwnd && window.is_always_on_top && !window.is_minimized {
+                unsafe {
+                    let hwnd = HWND(window.hwnd as *mut _);
+                    let _ = ShowWindow(hwnd, SW_MINIMIZE);
+                    minimized_count += 1;
+                    minimized_hwnds.push(window.hwnd);
+                }
+            }
+        }
+
+        // Track which windows we minimized for restoration
+        cache.minimized_windows = minimized_hwnds;
+
+        Ok(minimized_count)
+    }
+
+    // Minimize all visible windows except the target
+    pub async fn minimize_all_except(&self, target_hwnd: isize) -> Result<u32, String> {
+        let cache = self.window_cache.lock().await;
+        let mut minimized_count = 0;
+
+        for window in &cache.visible_windows {
+            if window.hwnd != target_hwnd && !window.is_minimized {
+                unsafe {
+                    let hwnd = HWND(window.hwnd as *mut _);
+                    let _ = ShowWindow(hwnd, SW_MINIMIZE);
+                    minimized_count += 1;
+                }
+            }
+        }
+
+        Ok(minimized_count)
+    }
+
+    // Maximize window if not already maximized, and bring to foreground
+    pub async fn maximize_if_needed(&self, hwnd: isize) -> Result<bool, String> {
+        // Track this window as the target that needs restoration
+        let mut cache = self.window_cache.lock().await;
+        cache.target_window = Some(hwnd);
+        drop(cache);
+
+        unsafe {
+            let hwnd_win = HWND(hwnd as *mut _);
+            let was_maximized = IsZoomed(hwnd_win).as_bool();
+
+            // Check foreground window before our operation
+            let foreground_before = GetForegroundWindow();
+            let was_foreground = foreground_before.0 == hwnd_win.0;
+
+            tracing::debug!(
+                "maximize_if_needed: hwnd={:?}, was_maximized={}, was_foreground={}",
+                hwnd,
+                was_maximized,
+                was_foreground
+            );
+
+            if !was_maximized {
+                let _ = ShowWindow(hwnd_win, SW_MAXIMIZE);
+                tracing::debug!("maximize_if_needed: Called ShowWindow(SW_MAXIMIZE)");
+            }
+
+            // Check if window is foreground after maximize
+            // Note: We don't call SetForegroundWindow because:
+            // 1. UI Automation tools (click, invoke, etc.) work without foreground status
+            // 2. SetForegroundWindow often fails due to Windows security restrictions
+            // 3. Only keyboard input tools actually need focus
+            let foreground_after = GetForegroundWindow();
+            let is_now_foreground = foreground_after.0 == hwnd_win.0;
+
+            tracing::debug!(
+                "maximize_if_needed: hwnd={:?}, maximized={}, is_foreground={} (was: {})",
+                hwnd,
+                !was_maximized,
+                is_now_foreground,
+                was_foreground
+            );
+
+            Ok(!was_maximized)
+        }
+    }
+
+    // Minimize window if not already minimized
+    pub async fn minimize_if_needed(&self, hwnd: isize) -> Result<bool, String> {
+        unsafe {
+            let hwnd = HWND(hwnd as *mut _);
+            if !IsIconic(hwnd).as_bool() {
+                let _ = ShowWindow(hwnd, SW_MINIMIZE);
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
+    }
+
+    // Restore windows that were minimized (only always-on-top windows) and target window
+    pub async fn restore_all_windows(&self) -> Result<u32, String> {
+        let cache = self.window_cache.lock().await;
+        let mut restored_count = 0;
+
+        // Determine which windows need restoration
+        // If minimized_windows is empty AND no target window, restore all (backward compatibility)
+        let windows_to_restore: Vec<&WindowInfo> = if cache.minimized_windows.is_empty() && cache.target_window.is_none() {
+            // Legacy behavior: restore all original states
+            cache.original_states.iter().collect()
+        } else {
+            // New optimized behavior: restore windows we minimized + target window
+            cache.original_states
+                .iter()
+                .filter(|w| {
+                    // Restore if this window was minimized OR if it's the target window
+                    cache.minimized_windows.contains(&w.hwnd) ||
+                    cache.target_window.map_or(false, |target| target == w.hwnd)
+                })
+                .collect()
+        };
+
+        // Restore in reverse order (bottommost first) to preserve Z-order
+        // This ensures topmost windows end up on top after restoration
+        for window in windows_to_restore.iter().rev() {
+            unsafe {
+                let hwnd = HWND(window.hwnd as *mut _);
+                let placement: WINDOWPLACEMENT = window.placement.clone().into();
+                if SetWindowPlacement(hwnd, &placement).is_ok() {
+                    restored_count += 1;
+                }
+            }
+        }
+
+        Ok(restored_count)
+    }
+
+    // Capture current state before workflow
+    pub async fn capture_initial_state(&self) -> Result<(), String> {
+        let mut cache = self.window_cache.lock().await;
+        let windows = Self::enumerate_windows_in_z_order()?;
+
+        // Store all current window states
+        cache.original_states = windows
+            .iter()
+            .filter(|w| !w.is_minimized)
+            .cloned()
+            .collect();
+
+        // Also populate visible_windows and process_windows for direct MCP calls
+        cache.visible_windows = windows
+            .iter()
+            .filter(|w| !w.is_minimized)
+            .cloned()
+            .collect();
+
+        // Group windows by process
+        cache.process_windows.clear();
+        let visible_windows_clone = cache.visible_windows.clone();
+        for window in &visible_windows_clone {
+            cache.process_windows
+                .entry(window.process_name.clone())
+                .or_insert_with(Vec::new)
+                .push(window.clone());
+        }
+
+        Ok(())
+    }
+
+    // Clear captured state
+    pub async fn clear_captured_state(&self) {
+        let mut cache = self.window_cache.lock().await;
+        cache.original_states.clear();
+        cache.minimized_windows.clear();
+        cache.target_window = None;
+    }
+
+    // Enumerate all windows in Z-order (topmost first)
+    fn enumerate_windows_in_z_order() -> Result<Vec<WindowInfo>, String> {
+        let mut windows = Vec::new();
+        let mut z_order = 0u32;
+
+        unsafe {
+            let mut hwnd = match GetTopWindow(HWND::default()) {
+                Ok(h) => h,
+                Err(_) => return Ok(windows),
+            };
+
+            loop {
+                if hwnd.0.is_null() {
+                    break;
+                }
+
+                // Skip invisible windows
+                if !IsWindowVisible(hwnd).as_bool() {
+                    hwnd = match GetWindow(hwnd, GW_HWNDNEXT) {
+                        Ok(h) => h,
+                        Err(_) => break,
+                    };
+                    continue;
+                }
+
+                let mut pid = 0u32;
+                GetWindowThreadProcessId(hwnd, Some(&mut pid));
+
+                if pid > 0 {
+                    let process_name = Self::get_process_name(pid).unwrap_or_default();
+                    let title = Self::get_window_title(hwnd);
+                    let is_minimized = IsIconic(hwnd).as_bool();
+                    let is_maximized = IsZoomed(hwnd).as_bool();
+
+                    // Check if window is always on top
+                    let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+                    let is_always_on_top = (ex_style & WS_EX_TOPMOST.0 as isize) != 0;
+
+                    let mut placement = WINDOWPLACEMENT::default();
+                    placement.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
+                    let _ = GetWindowPlacement(hwnd, &mut placement);
+
+                    windows.push(WindowInfo {
+                        hwnd: hwnd.0 as isize,
+                        process_name: process_name.clone(),
+                        process_id: pid,
+                        z_order,
+                        is_minimized,
+                        is_maximized,
+                        is_always_on_top,
+                        placement: placement.into(),
+                        title,
+                    });
+                }
+
+                z_order += 1;
+                hwnd = match GetWindow(hwnd, GW_HWNDNEXT) {
+                    Ok(h) => h,
+                    Err(_) => break,
+                };
+            }
+        }
+
+        Ok(windows)
+    }
+
+    // Get process name from PID
+    fn get_process_name(pid: u32) -> Option<String> {
+        unsafe {
+            let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+
+            let mut name = vec![0u16; 512];
+            let mut size = name.len() as u32;
+
+            if QueryFullProcessImageNameW(
+                process,
+                PROCESS_NAME_WIN32,
+                windows::core::PWSTR(name.as_mut_ptr()),
+                &mut size
+            ).is_ok() {
+                let name_str = String::from_utf16_lossy(&name[..size as usize]);
+                // Extract just the executable name from full path
+                let exe_name = name_str.split('\\').last()?.to_string();
+                Some(exe_name)
+            } else {
+                None
+            }
+        }
+    }
+
+    // Get window title
+    fn get_window_title(hwnd: HWND) -> String {
+        unsafe {
+            let mut title = vec![0u16; 512];
+            let len = GetWindowTextW(hwnd, &mut title);
+            if len > 0 {
+                String::from_utf16_lossy(&title[..len as usize])
+            } else {
+                String::new()
+            }
+        }
+    }
+}
