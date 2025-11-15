@@ -207,30 +207,6 @@ jobs:
           cd terminator-wheels
           python ../terminator-repo/scripts/update_wheel_metadata.py
           cd ..
-      
-      - name: Setup Node for cleanup step
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: "npm"
-          cache-dependency-path: ".github/scripts/pypi-cleanup/package-lock.json"
-
-      - name: Install cleanup dependencies
-        working-directory: .github/scripts/pypi-cleanup
-        run: npm ci
-
-      - name: Install Playwright browsers
-        working-directory: .github/scripts/pypi-cleanup
-        run: npx playwright install chromium
-
-      - name: Delete oldest release on PyPI (terminator)
-        working-directory: .github/scripts/pypi-cleanup
-        env:
-          PYPI_UI_USERNAME: ${{ secrets.PYPI_UI_USERNAME }}
-          PYPI_UI_PASSWORD: ${{ secrets.PYPI_UI_PASSWORD }}
-          PYPI_UI_TOTP_SECRET: ${{ secrets.PYPI_UI_TOTP_SECRET }}
-          PACKAGE_NAME: terminator
-        run: npm run cleanup
 
       - name: Publish to PyPI (terminator)
         env:
