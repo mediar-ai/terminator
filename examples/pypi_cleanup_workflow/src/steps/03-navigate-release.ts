@@ -18,25 +18,26 @@ export const navigateToRelease = createStep({
       await desktop.navigateBrowser(releaseManageUrl);
       await desktop.delay(2000);
 
-      const deleteElements = await desktop.findElements({
-        selector:
-          'input[type="checkbox"][data-action="input->delete-confirm#check"][data-delete-confirm-target="input"]',
-      });
+      const deleteElementsFound = (await desktop.executeBrowserScript(() => {
+        return document.querySelectorAll(
+          'input[type="checkbox"][data-action="input->delete-confirm#check"][data-delete-confirm-target="input"]'
+        ).length;
+      })) as number;
 
-      if (deleteElements.length === 0) {
+      if (deleteElementsFound === 0) {
         throw new Error(
           "Delete checkboxes not found - may not be on correct release management page"
         );
       }
 
-      context.data.deleteElementsFound = deleteElements.length;
+      context.data.deleteElementsFound = deleteElementsFound;
 
       return {
         success: true,
         data: {
           navigated: true,
           releaseUrl: releaseManageUrl,
-          deleteElementsFound: deleteElements.length,
+          deleteElementsFound,
         },
       };
     } catch (error: any) {

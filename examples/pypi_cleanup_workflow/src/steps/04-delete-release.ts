@@ -12,45 +12,62 @@ export const deleteRelease = createStep({
     logger.info(`🗑️ Deleting release ${packageName} v${version}`);
 
     try {
-      const deleteCheckboxes = await desktop.findElements({
-        selector:
-          'input[type="checkbox"][data-action="input->delete-confirm#check"][data-delete-confirm-target="input"]',
-      });
+      const result = (await desktop.executeBrowserScript(
+        ({
+          version: versionToDelete,
+        }: {
+          version: string;
+        }) => {
+          const deleteCheckboxes = Array.from(
+            document.querySelectorAll<HTMLInputElement>(
+              'input[type="checkbox"][data-action="input->delete-confirm#check"][data-delete-confirm-target="input"]'
+            )
+          );
 
-      if (deleteCheckboxes.length === 0) {
-        throw new Error("No delete checkboxes found on the page");
-      }
+          if (deleteCheckboxes.length === 0) {
+            throw new Error("No delete checkboxes found on the page");
+          }
 
-      logger.info(`Checking ${deleteCheckboxes.length} delete checkbox(es)...`);
+          deleteCheckboxes.forEach((checkbox) => {
+            if (!checkbox.checked) {
+              checkbox.click();
+            }
+          });
 
-      for (let i = 0; i < deleteCheckboxes.length; i++) {
-        await desktop.click({
-          elementIndex: i,
-          selector:
-            'input[type="checkbox"][data-action="input->delete-confirm#check"][data-delete-confirm-target="input"]',
-        });
-        await desktop.delay(500);
-      }
+          const deleteButton = document.querySelector<HTMLAnchorElement>(
+            'a.button.button--danger[data-delete-confirm-target="button"]'
+          );
+          if (!deleteButton) {
+            throw new Error("Delete button not found");
+          }
+          deleteButton.click();
 
-      await desktop.click({
-        selector:
-          'a.button.button--danger[data-delete-confirm-target="button"]',
-      });
-      await desktop.delay(1000);
+          const confirmInput = document.querySelector<HTMLInputElement>(
+            "#delete_version-modal-confirm_delete_version"
+          );
+          const confirmButton = document.querySelector<HTMLButtonElement>(
+            `#delete_version-modal button.js-confirm[data-expected="${versionToDelete}"]`
+          );
 
-      await desktop.type(version, {
-        selector:
-          'input[type="text"][id="delete_version-modal-confirm_delete_version"]',
-      });
-      await desktop.delay(500);
+          if (!confirmInput || !confirmButton) {
+            throw new Error("Delete confirmation modal not found");
+          }
 
-      await desktop.click({
-        selector: `#delete_version-modal button.js-confirm[data-expected="${version}"]`,
-      });
+          confirmInput.focus();
+          confirmInput.value = versionToDelete;
+          confirmInput.dispatchEvent(new Event("input", { bubbles: true }));
+          confirmButton.click();
+
+          return { checkboxCount: deleteCheckboxes.length };
+        },
+        { version }
+      )) as { checkboxCount: number };
 
       await desktop.delay(3000);
 
-      const currentUrl = await desktop.getCurrentUrl();
+      const currentUrl = await desktop.executeBrowserScript(() => {
+        return window.location.href;
+      });
       if (
         currentUrl == `https://pypi.org/manage/project/${packageName}/releases/`
       ) {
@@ -61,6 +78,7 @@ export const deleteRelease = createStep({
           version,
           packageName,
           redirectUrl: currentUrl,
+          deletedCheckboxes: result.checkboxCount,
         };
       }
 
@@ -73,6 +91,7 @@ export const deleteRelease = createStep({
         packageName,
         redirectUrl: currentUrl,
         warning: "Unexpected redirect URL",
+        deletedCheckboxes: result.checkboxCount,
       };
     } catch (error: any) {
       logger.error(`❌ Delete operation failed: ${error.message}`);
