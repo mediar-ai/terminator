@@ -10,7 +10,8 @@ use std::env;
 use std::sync::Arc;
 use std::time::Duration;
 use terminator::{AutomationError, Desktop, UIElement};
-use tokio::sync::Mutex;
+use tokio::sync::Mutex as TokioMutex;
+use std::sync::Mutex;
 use tracing::{warn, Level};
 use tracing_subscriber::{util::SubscriberInitExt, EnvFilter, Layer};
 
@@ -281,15 +282,19 @@ pub struct DesktopWrapper {
     #[serde(skip)]
     pub request_manager: RequestManager,
     #[serde(skip)]
-    pub active_highlights: Arc<Mutex<Vec<terminator::HighlightHandle>>>,
+    pub active_highlights: Arc<TokioMutex<Vec<terminator::HighlightHandle>>>,
     #[serde(skip)]
     pub log_capture: Option<LogCapture>,
     #[serde(skip)]
-    pub current_workflow_dir: Arc<Mutex<Option<std::path::PathBuf>>>,
+    pub current_workflow_dir: Arc<TokioMutex<Option<std::path::PathBuf>>>,
     #[serde(skip)]
-    pub current_scripts_base_path: Arc<Mutex<Option<String>>>,
+    pub current_scripts_base_path: Arc<TokioMutex<Option<String>>>,
     #[serde(skip)]
     pub window_manager: Arc<WindowManager>,
+    /// Tracks whether we're currently executing a workflow sequence
+    /// Used to determine if individual tools should handle window management
+    #[serde(skip)]
+    pub in_sequence: Arc<Mutex<bool>>,
 }
 
 impl Default for DesktopWrapper {

@@ -224,7 +224,10 @@ impl DesktopWrapper {
         process: &str,
         execution_context: Option<&crate::utils::ToolExecutionContext>,
     ) -> Result<(), String> {
-        // Update window cache before management
+        let start = std::time::Instant::now();
+
+        // Update window cache on-demand before managing windows
+        // Initial state is captured once before sequence starts (in server_sequence.rs)
         if let Err(e) = self.window_manager.update_window_cache().await {
             tracing::warn!("Failed to update window cache: {}", e);
         }
@@ -264,12 +267,8 @@ impl DesktopWrapper {
                 }
             }
 
-            // On first UI step in sequence, capture initial state
-            if ctx.in_sequence && ctx.current_step == 1 {
-                if let Err(e) = self.window_manager.capture_initial_state().await {
-                    tracing::warn!("Failed to capture initial window state: {}", e);
-                }
-            }
+            // Initial state is now captured before sequence starts (in server_sequence.rs)
+            // No need to capture here anymore
 
             // Get topmost window for the target process
             if let Some(window) = self.window_manager.get_topmost_window_for_process(process).await {
@@ -278,15 +277,24 @@ impl DesktopWrapper {
                     process, window.hwnd, ctx.current_step, ctx.total_steps
                 );
 
-                // Minimize all other windows (only on first UI step or non-sequence)
-                if ctx.current_step == 1 || !ctx.in_sequence {
-                    match self.window_manager.minimize_all_except(window.hwnd).await {
-                        Ok(count) => {
-                            tracing::info!("Minimized {} other windows", count);
+                // Only minimize always-on-top windows (only on first UI step or non-sequence)
+                // Maximizing brings the target to front naturally, so we only need to handle
+                // always-on-top windows that would otherwise cover it
+                // First UI tool in sequence has no previous_process
+                if ctx.previous_process.is_none() || !ctx.in_sequence {
+                    let always_on_top_windows = self.window_manager.get_always_on_top_windows().await;
+                    if !always_on_top_windows.is_empty() {
+                        tracing::info!("Found {} always-on-top windows that may cover target", always_on_top_windows.len());
+                        match self.window_manager.minimize_always_on_top_windows(window.hwnd).await {
+                            Ok(count) => {
+                                tracing::info!("Minimized {} always-on-top windows", count);
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to minimize always-on-top windows: {}", e);
+                            }
                         }
-                        Err(e) => {
-                            tracing::warn!("Failed to minimize other windows: {}", e);
-                        }
+                    } else {
+                        tracing::debug!("No always-on-top windows found, skipping minimization (maximize will bring target to front)");
                     }
                 }
 
@@ -314,14 +322,20 @@ impl DesktopWrapper {
             }
 
             if let Some(window) = self.window_manager.get_topmost_window_for_process(process).await {
-                // Minimize all other windows
-                match self.window_manager.minimize_all_except(window.hwnd).await {
-                    Ok(count) => {
-                        tracing::info!("Minimized {} other windows for {}", count, process);
+                // Only minimize always-on-top windows
+                let always_on_top_windows = self.window_manager.get_always_on_top_windows().await;
+                if !always_on_top_windows.is_empty() {
+                    tracing::info!("Found {} always-on-top windows for {}", always_on_top_windows.len(), process);
+                    match self.window_manager.minimize_always_on_top_windows(window.hwnd).await {
+                        Ok(count) => {
+                            tracing::info!("Minimized {} always-on-top windows for {}", count, process);
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to minimize always-on-top windows: {}", e);
+                        }
                     }
-                    Err(e) => {
-                        tracing::warn!("Failed to minimize other windows: {}", e);
-                    }
+                } else {
+                    tracing::debug!("No always-on-top windows found for {} (maximize will bring to front)", process);
                 }
 
                 // Maximize target if not already maximized
@@ -341,6 +355,8 @@ impl DesktopWrapper {
             }
         }
 
+        let elapsed = start.elapsed();
+        tracing::info!("[TIMING] prepare_window_management took {:?}", elapsed);
         Ok(())
     }
 
@@ -502,6 +518,7 @@ impl DesktopWrapper {
             current_workflow_dir: Arc::new(Mutex::new(None)),
             current_scripts_base_path: Arc::new(Mutex::new(None)),
             window_manager: Arc::new(crate::window_manager::WindowManager::new()),
+            in_sequence: Arc::new(std::sync::Mutex::new(false)),
         })
     }
 
@@ -1459,6 +1476,57 @@ impl DesktopWrapper {
             );
         }
 
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            let flag_value = *in_sequence;
+            let should_restore_value = !flag_value;
+            tracing::info!("[click_element] Flag check: in_sequence={}, should_restore={}", flag_value, should_restore_value);
+            should_restore_value
+        };
+
+        if should_restore {
+            tracing::info!("[click_element] Direct MCP call detected - performing window management");
+
+            // Capture initial window state for restoration
+            if let Err(e) = self.window_manager.capture_initial_state().await {
+                tracing::warn!("Failed to capture initial window state: {}", e);
+            }
+
+            // Get topmost window for the target process and minimize always-on-top windows
+            if let Some(window) = self.window_manager.get_topmost_window_for_process(&args.selector.process).await {
+                let always_on_top_windows = self.window_manager.get_always_on_top_windows().await;
+                if !always_on_top_windows.is_empty() {
+                    tracing::info!("Found {} always-on-top windows for {}", always_on_top_windows.len(), &args.selector.process);
+                    match self.window_manager.minimize_always_on_top_windows(window.hwnd).await {
+                        Ok(count) => {
+                            tracing::info!("Minimized {} always-on-top windows for {}", count, &args.selector.process);
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to minimize always-on-top windows: {}", e);
+                        }
+                    }
+                }
+
+                // Maximize target window to bring it to front
+                match self.window_manager.maximize_if_needed(window.hwnd).await {
+                    Ok(true) => {
+                        tracing::info!("Maximized target window for {}", &args.selector.process);
+                    }
+                    Ok(false) => {
+                        tracing::debug!("Target window already maximized");
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to maximize window: {}", e);
+                    }
+                }
+            } else {
+                tracing::warn!("Could not find window for process '{}' for window management", &args.selector.process);
+            }
+        } else {
+            tracing::debug!("[click_element] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let action = {
             let highlight_config = args.highlight.highlight_before_action.clone();
             let click_position = args.click_position.clone();
@@ -1620,6 +1688,9 @@ impl DesktopWrapper {
             )
             .await;
         }
+
+        // Restore windows if this was a direct MCP call
+        self.restore_window_management(should_restore).await;
 
         Ok(CallToolResult::success(
             append_monitor_screenshots_if_enabled(
@@ -2733,6 +2804,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                                 resolution_attempts
                             );
                             // Return error immediately for missing file
+                            // Restore windows before returning error
+                            // Window restoration now handled by dispatch_tool
+                            // self.restore_window_management(true).await;
                             return Err(McpError::invalid_params(
                                 format!("Script file '{script_file}' not found"),
                                 Some(json!({
@@ -2898,7 +2972,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         }
 
         // Window management before activation
-        let _ = self.prepare_window_management(&args.selector.process, None).await;
+        // Window management handled by dispatch_tool
 
         let ((_result, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
@@ -2913,12 +2987,17 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             .await
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.build_full_selector(),
-                    None,
-                    args.selector.build_fallback_selectors().as_deref(),
-                    e,
-                )),
+                Err(e) => {
+                    // Restore windows before returning error
+                    // Window restoration now handled by dispatch_tool
+                    // self.restore_window_management(true).await;
+                    Err(build_element_not_found_error(
+                        &args.selector.build_full_selector(),
+                        None,
+                        args.selector.build_fallback_selectors().as_deref(),
+                        e,
+                    ))
+                }
             }?;
 
         let element_info = build_element_info(&element);
@@ -3008,7 +3087,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         .await;
 
         // Restore windows after activation
-        self.restore_window_management(true).await;
+        // Window restoration now handled by dispatch_tool
+        // self.restore_window_management(true).await;
 
         span.set_status(true, None);
         span.end();
@@ -3161,7 +3241,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         }
 
         // Window management before validation
-        let _ = self.prepare_window_management(&args.selector.process, None).await;
+        // Window management handled by dispatch_tool
 
         // For validation, the "action" is just succeeding.
         let action = |element: UIElement| async move { Ok(element) };
@@ -3215,7 +3295,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 .await;
 
                 // Restore windows after validation
-                self.restore_window_management(true).await;
+                // Window restoration now handled by dispatch_tool
+                // self.restore_window_management(true).await;
 
                 span.set_status(true, None);
                 span.end();
@@ -3251,7 +3332,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 // This is not a tool error, but a validation failure, so we return success with the failure info.
 
                 // Restore windows after validation
-                self.restore_window_management(true).await;
+                // Window restoration now handled by dispatch_tool
+                // self.restore_window_management(true).await;
 
                 span.set_attribute("element.found", "false".to_string());
                 span.set_status(true, None);
@@ -3293,7 +3375,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         }
 
         // Window management before highlighting
-        let _ = self.prepare_window_management(&args.selector.process, None).await;
+        // Window management handled by dispatch_tool
 
         let duration = args.duration_ms.map(std::time::Duration::from_millis);
         let color = args.color;
@@ -3345,12 +3427,17 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             .await
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.build_full_selector(),
-                    args.selector.build_alternative_selectors().as_deref(),
-                    args.selector.build_fallback_selectors().as_deref(),
-                    e,
-                )),
+                Err(e) => {
+                    // Restore windows before returning error
+                    // Window restoration now handled by dispatch_tool
+                    // self.restore_window_management(true).await;
+                    Err(build_element_not_found_error(
+                        &args.selector.build_full_selector(),
+                        args.selector.build_alternative_selectors().as_deref(),
+                        args.selector.build_fallback_selectors().as_deref(),
+                        e,
+                    ))
+                }
             }?;
 
         // Register handle and schedule cleanup
@@ -3396,7 +3483,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         .await;
 
         // Restore windows after highlighting
-        self.restore_window_management(true).await;
+        // Window restoration now handled by dispatch_tool
+        // self.restore_window_management(true).await;
 
         span.set_status(true, None);
         span.end();
@@ -3432,7 +3520,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         );
 
         // Window management before waiting
-        let _ = self.prepare_window_management(&args.selector.process, None).await;
+        // Window management handled by dispatch_tool
 
         let locator = self
             .desktop
@@ -3476,7 +3564,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     .await;
 
                     // Restore windows after wait
-                    self.restore_window_management(true).await;
+                    // Window restoration now handled by dispatch_tool
+                    // self.restore_window_management(true).await;
 
                     span.set_status(true, None);
                     span.end();
@@ -3498,7 +3587,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     );
 
                     // Restore windows before error return
-                    self.restore_window_management(true).await;
+                    // Window restoration now handled by dispatch_tool
+                    // self.restore_window_management(true).await;
 
                     return Err(McpError::internal_error(
                         error_msg,
@@ -3535,7 +3625,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 );
 
                 // Restore windows before timeout error return
-                self.restore_window_management(true).await;
+                // Window restoration now handled by dispatch_tool
+                // self.restore_window_management(true).await;
 
                 return Err(McpError::internal_error(
                     timeout_msg,
@@ -3591,7 +3682,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                             );
 
                             // Restore windows before error return
-                            self.restore_window_management(true).await;
+                            // Window restoration now handled by dispatch_tool
+                            // self.restore_window_management(true).await;
 
                             return Err(McpError::invalid_params(
                                 "Invalid condition. Valid: exists, visible, enabled, focused",
@@ -3633,7 +3725,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                         .await;
 
                         // Restore windows after wait success
-                        self.restore_window_management(true).await;
+                        // Window restoration now handled by dispatch_tool
+                        // self.restore_window_management(true).await;
 
                         span.set_status(true, None);
                         span.end();
@@ -3683,7 +3776,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         span.set_attribute("process", args.process.clone());
 
         // Window management for browser navigation
-        let _ = self.prepare_window_management(&args.process, None).await;
+        // Window management handled by dispatch_tool
 
         let browser = Some(Browser::Custom(args.process.clone()));
         let ui_element = self.desktop.open_url(&args.url, browser).map_err(|e| {
@@ -3718,7 +3811,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         .await;
 
         // Restore windows after navigation completes (always restore for direct tool calls)
-        self.restore_window_management(true).await;
+        // Window restoration now handled by dispatch_tool
+        // self.restore_window_management(true).await;
 
         span.set_status(true, None);
         span.end();
@@ -3755,6 +3849,58 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let process_id = ui_element.process_id().unwrap_or(0);
         let window_title = ui_element.window_title();
 
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            let flag_value = *in_sequence;
+            let should_restore_value = !flag_value;
+            tracing::info!("[open_application] Flag check: in_sequence={}, should_restore={}", flag_value, should_restore_value);
+            should_restore_value
+        };
+
+        if should_restore {
+            tracing::info!("[open_application] Direct MCP call detected - performing window management");
+
+            // Capture initial window state for restoration (includes the newly opened window)
+            if let Err(e) = self.window_manager.capture_initial_state().await {
+                tracing::warn!("Failed to capture initial window state: {}", e);
+            }
+
+            // Get topmost window for the app and minimize always-on-top windows
+            // Use app_name directly - normalization handles "notepad" vs "Notepad.exe"
+            if let Some(window) = self.window_manager.get_topmost_window_for_process(&args.app_name).await {
+                let always_on_top_windows = self.window_manager.get_always_on_top_windows().await;
+                if !always_on_top_windows.is_empty() {
+                    tracing::info!("Found {} always-on-top windows for {}", always_on_top_windows.len(), &args.app_name);
+                    match self.window_manager.minimize_always_on_top_windows(window.hwnd).await {
+                        Ok(count) => {
+                            tracing::info!("Minimized {} always-on-top windows for {}", count, &args.app_name);
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to minimize always-on-top windows: {}", e);
+                        }
+                    }
+                }
+
+                // Maximize target window to bring it to front
+                match self.window_manager.maximize_if_needed(window.hwnd).await {
+                    Ok(true) => {
+                        tracing::info!("Maximized target window for {}", &args.app_name);
+                    }
+                    Ok(false) => {
+                        tracing::debug!("Target window already maximized");
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to maximize window: {}", e);
+                    }
+                }
+            } else {
+                tracing::warn!("Could not find window for app '{}' for window management", &args.app_name);
+            }
+        } else {
+            tracing::debug!("[open_application] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let element_info = build_element_info(&ui_element);
 
         let mut result_json = json!({
@@ -3778,6 +3924,16 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     }
                 }
             }
+        }
+
+        // Restore windows if we did window management
+        if should_restore {
+            if let Err(e) = self.window_manager.restore_all_windows().await {
+                tracing::warn!("Failed to restore windows: {}", e);
+            } else {
+                tracing::info!("Restored all windows to original state");
+            }
+            self.window_manager.clear_captured_state().await;
         }
 
         span.set_status(true, None);
@@ -3810,7 +3966,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         }
 
         // Window management before closing
-        let _ = self.prepare_window_management(&args.selector.process, None).await;
+        // Window management handled by dispatch_tool
 
         let ((_result, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
@@ -3825,18 +3981,24 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             .await
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.build_full_selector(),
-                    args.selector.build_alternative_selectors().as_deref(),
-                    args.selector.build_fallback_selectors().as_deref(),
-                    e,
-                )),
+                Err(e) => {
+                    // Restore windows before returning error
+                    // Window restoration now handled by dispatch_tool
+                    // self.restore_window_management(true).await;
+                    Err(build_element_not_found_error(
+                        &args.selector.build_full_selector(),
+                        args.selector.build_alternative_selectors().as_deref(),
+                        args.selector.build_fallback_selectors().as_deref(),
+                        e,
+                    ))
+                }
             }?;
 
         let element_info = build_element_info(&element);
 
         // Restore windows after closing
-        self.restore_window_management(true).await;
+        // Window restoration now handled by dispatch_tool
+        // self.restore_window_management(true).await;
 
         span.set_status(true, None);
         span.end();
@@ -4124,7 +4286,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         }
 
         // Window management before listing options
-        let _ = self.prepare_window_management(&args.selector.process, None).await;
+        // Window management handled by dispatch_tool
 
         let ((options, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
@@ -4139,12 +4301,17 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             .await
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.build_full_selector(),
-                    args.selector.build_alternative_selectors().as_deref(),
-                    args.selector.build_fallback_selectors().as_deref(),
-                    e,
-                )),
+                Err(e) => {
+                    // Restore windows before returning error
+                    // Window restoration now handled by dispatch_tool
+                    // self.restore_window_management(true).await;
+                    Err(build_element_not_found_error(
+                        &args.selector.build_full_selector(),
+                        args.selector.build_alternative_selectors().as_deref(),
+                        args.selector.build_fallback_selectors().as_deref(),
+                        e,
+                    ))
+                }
             }?;
 
         let element_info = build_element_info(&element);
@@ -4172,7 +4339,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         .await;
 
         // Restore windows after listing options (always restore for direct tool calls)
-        self.restore_window_management(true).await;
+        // Window restoration now handled by dispatch_tool
+        // self.restore_window_management(true).await;
 
         span.set_status(true, None);
         span.end();
@@ -5067,10 +5235,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
 
-        // Window management before capturing
-        let _ = self
-            .prepare_window_management(&args.selector.process, None)
-            .await;
+        // Window management handled by dispatch_tool
 
         // Capture screenshot using process-scoped selector
         let ((screenshot_result, element), successful_selector) =
@@ -5991,7 +6156,7 @@ Requires Chrome extension to be installed."
         let start_instant = std::time::Instant::now();
 
         // Window management before executing browser script
-        let _ = self.prepare_window_management(&args.selector.process, None).await;
+        // Window management handled by dispatch_tool
 
         // Resolve the script content
         let script_content = if let Some(script_file) = &args.script_file {
@@ -6087,6 +6252,9 @@ Requires Chrome extension to be installed."
                                 resolution_attempts
                             );
                             // Return error immediately for missing file
+                            // Restore windows before returning error
+                            // Window restoration now handled by dispatch_tool
+                            // self.restore_window_management(true).await;
                             return Err(McpError::invalid_params(
                                 format!("Script file '{script_file}' not found"),
                                 Some(json!({
@@ -6139,10 +6307,16 @@ Requires Chrome extension to be installed."
                 })?
         } else if let Some(script) = &args.script {
             if script.is_empty() {
+                // Restore windows before returning error
+                // Window restoration now handled by dispatch_tool
+                // self.restore_window_management(true).await;
                 return Err(McpError::invalid_params("Script cannot be empty", None));
             }
             script.clone()
         } else {
+            // Restore windows before returning error
+            // Window restoration now handled by dispatch_tool
+            // self.restore_window_management(true).await;
             return Err(McpError::invalid_params(
                 "Either 'script' or 'script_file' must be provided",
                 None,
@@ -6361,6 +6535,9 @@ Requires Chrome extension to be installed."
 
         // Validate that browser scripts don't use top-level return statements
         if modified_script.trim_start().starts_with("return ") {
+            // Restore windows before returning error
+            // Window restoration now handled by dispatch_tool
+            // self.restore_window_management(true).await;
             return Err(McpError::invalid_params(
                 "Browser scripts cannot use top-level 'return' statements. \
                  Remove 'return' from the beginning of your script. \
@@ -6481,6 +6658,9 @@ console.info = function(...args) {
                     {
                         if msg.contains("JavaScript") || msg.contains("script") {
                             // Return JavaScript-specific error, not "Element not found"
+                            // Restore windows before returning error
+                            // Window restoration now handled by dispatch_tool
+                            // self.restore_window_management(true).await;
                             return Err(McpError::invalid_params(
                                 "Browser script execution failed",
                                 Some(json!({
@@ -6499,6 +6679,9 @@ console.info = function(...args) {
                     }
 
                     // For other errors, treat as element not found
+                    // Restore windows before returning error
+                    // Window restoration now handled by dispatch_tool
+                    // self.restore_window_management(true).await;
                     Err(build_element_not_found_error(
                         &args.selector.build_full_selector(),
                         args.selector.build_alternative_selectors().as_deref(),
@@ -6586,7 +6769,8 @@ console.info = function(...args) {
         .await;
 
         // Restore windows after executing browser script (always restore for direct tool calls)
-        self.restore_window_management(true).await;
+        // Window restoration now handled by dispatch_tool
+        // self.restore_window_management(true).await;
 
         span.set_status(true, None);
         span.end();
@@ -6647,24 +6831,11 @@ impl DesktopWrapper {
         }
 
         // Window management for UI interaction tools
-        let ui_interaction_tools = [
-            "click_element",
-            "type_into_element",
-            "press_key",
-            "scroll_element",
-            "drag_element",
-            "wait_for_element"
-        ];
-
-        let needs_window_management = ui_interaction_tools.contains(&tool_name);
-        let process_name = if needs_window_management {
-            // Extract process from arguments
-            arguments.get("process")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-        } else {
-            None
-        };
+        // Check if tool has a 'process' argument - if so, it needs window management
+        // No whitelist - any tool with a process argument gets window management
+        let process_name = arguments.get("process")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
         // Perform window management if needed
         if let Some(ref process) = process_name {
@@ -7051,15 +7222,29 @@ impl DesktopWrapper {
             )),
         };
 
-        // Restore windows on last step of sequence or single tool execution
-        if let Some(ref ctx) = execution_context {
-            if ctx.is_last_step && needs_window_management {
-                if let Err(e) = self.window_manager.restore_all_windows().await {
-                    tracing::warn!("Failed to restore windows: {}", e);
+        // Restore windows appropriately based on execution context
+        match execution_context {
+            None => {
+                // Single tool execution: always restore if window management was performed
+                if process_name.is_some() {
+                    if let Err(e) = self.window_manager.restore_all_windows().await {
+                        tracing::warn!("Failed to restore windows: {}", e);
+                    }
+                    // Clear captured state after restoration
+                    self.window_manager.clear_captured_state().await;
+                    tracing::info!("Restored all windows to original state (single tool)");
                 }
-                // Clear captured state after restoration
-                self.window_manager.clear_captured_state().await;
-                tracing::info!("Restored all windows to original state");
+            }
+            Some(ref ctx) => {
+                // Sequence execution: only restore on last step
+                if ctx.is_last_step && process_name.is_some() {
+                    if let Err(e) = self.window_manager.restore_all_windows().await {
+                        tracing::warn!("Failed to restore windows: {}", e);
+                    }
+                    // Clear captured state after restoration
+                    self.window_manager.clear_captured_state().await;
+                    tracing::info!("Restored all windows to original state (sequence last step)");
+                }
             }
         }
 
