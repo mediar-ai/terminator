@@ -11,24 +11,24 @@ jobs:
     defaults:
       run:
         working-directory: examples/pypi_cleanup_workflow
-      steps:
-        - uses: actions/checkout@v4
-        - uses: actions/setup-node@v4
-          with:
-            node-version: 22
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
-        - name: Install accessibility deps
-          run: |
-            sudo apt-get update
-            sudo apt-get install -y at-spi2-core dbus-x11
+      - name: Install accessibility deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y at-spi2-core dbus-x11
 
-        - run: npm ci
-        - run: npm run build
+      - run: npm ci
+      - run: npm run build
 
-        - name: Run cleanup workflow
-          run: dbus-run-session -- bash -c "npm run run"
-          env:
-            PYPI_UI_USERNAME: ${{ secrets.PYPI_UI_USERNAME }}
-            PYPI_UI_PASSWORD: ${{ secrets.PYPI_UI_PASSWORD }}
-            PYPI_UI_TOTP_SECRET: ${{ secrets.PYPI_UI_TOTP_SECRET }}
-            PACKAGE_NAME: ${{ secrets.PACKAGE_NAME }}
+      - name: Run cleanup workflow
+        run: dbus-run-session -- bash -c "npm run run"
+        env:
+          PYPI_UI_USERNAME: ${{ secrets.PYPI_UI_USERNAME }}
+          PYPI_UI_PASSWORD: ${{ secrets.PYPI_UI_PASSWORD }}
+          PYPI_UI_TOTP_SECRET: ${{ secrets.PYPI_UI_TOTP_SECRET }}
+          PACKAGE_NAME: ${{ secrets.PACKAGE_NAME }}
