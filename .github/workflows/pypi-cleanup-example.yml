@@ -20,6 +20,19 @@ jobs:
       - name: Install Google Chrome
         shell: pwsh
         run: choco install googlechrome --no-progress --yes
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          profile: minimal
+      - name: Install Terminator browser extension
+        shell: pwsh
+        working-directory: .
+        run: >
+          cargo run --bin terminator -- mcp run
+          crates/terminator/browser-extension/install_chrome_extension_ui.yml
+          --command "npx -y terminator-mcp-agent"
 
       - run: npm ci
       - run: npm run build
