@@ -17,23 +17,49 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Resolve latest Terminator release
+        id: release_meta
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $headers = @{
+            "User-Agent" = "terminator-ci"
+            "Authorization" = "Bearer $env:GH_TOKEN"
+            "Accept" = "application/vnd.github+json"
+          }
+          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/mediar-ai/terminator/releases/latest" -Headers $headers
+          $cliAsset = $release.assets | Where-Object { $_.name -eq "terminator-cli-windows-x86_64.zip" } | Select-Object -First 1
+          if (-not $cliAsset) { throw "Failed to locate CLI asset in latest release." }
+          "cli_url=$($cliAsset.browser_download_url)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
       - name: Install Google Chrome
         shell: pwsh
         run: choco install googlechrome --no-progress --yes
-      - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: stable
-          override: true
-          profile: minimal
+      - name: Download Terminator CLI binary
+        shell: pwsh
+        working-directory: ${{ runner.temp }}
+        run: |
+          $cliDir = Join-Path $PWD "terminator-cli"
+          if (Test-Path $cliDir) { Remove-Item -Recurse -Force $cliDir }
+          New-Item -ItemType Directory -Path $cliDir | Out-Null
+          $zipPath = Join-Path $cliDir "terminator-cli.zip"
+          $cliUrl = "${{ steps.release_meta.outputs.cli_url }}"
+          Invoke-WebRequest -Uri $cliUrl -OutFile $zipPath
+          Expand-Archive -Path $zipPath -DestinationPath $cliDir -Force
+      - name: Download Terminator browser extension workflow
+        shell: pwsh
+        working-directory: ${{ runner.temp }}
+        run: |
+          Invoke-WebRequest `
+            -Uri "https://raw.githubusercontent.com/mediar-ai/terminator/main/crates/terminator/browser-extension/install_chrome_extension_ui.yml" `
+            -OutFile "install_chrome_extension_ui.yml"
       - name: Install Terminator browser extension
         shell: pwsh
-        working-directory: .
+        working-directory: ${{ runner.temp }}
         run: >
-          cargo run --bin terminator -- mcp run
-          crates/terminator/browser-extension/install_chrome_extension_ui.yml
+          & "${{ runner.temp }}\terminator-cli\terminator-cli.exe"
+          mcp run install_chrome_extension_ui.yml
           --command "npx -y terminator-mcp-agent"
-
       - run: npm ci
       - run: npm run build
       - run: npm run run
