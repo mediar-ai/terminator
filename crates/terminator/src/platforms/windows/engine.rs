@@ -2631,7 +2631,7 @@ impl AccessibilityEngine for WindowsEngine {
                             Ok(false)
                         }
                     }))
-                    .depth(10)
+                    .depth(5)
                     .timeout(1000);
 
                 match matcher.find_first() {
@@ -2854,7 +2854,7 @@ impl AccessibilityEngine for WindowsEngine {
                                 Ok(false)
                             }
                         }))
-                        .depth(10)
+                        .depth(5)
                         .timeout(500); // Reduced to 500ms since API timeout doesn't work reliably
 
                     debug!(
