@@ -17,6 +17,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Install Google Chrome
+        shell: pwsh
+        run: choco install googlechrome --no-progress --yes
 
       - run: npm ci
       - run: npm run build
