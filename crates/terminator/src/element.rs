@@ -443,6 +443,15 @@ pub trait UIElementImpl: Send + Sync + Debug {
     // New method to maximize the window containing the element
     fn maximize_window(&self) -> Result<(), AutomationError>;
 
+    /// Maximize window using keyboard simulation (Win+Up) - for UWP apps
+    fn maximize_window_keyboard(&self) -> Result<(), AutomationError>;
+
+    /// Minimize window using keyboard simulation (Win+Down) - for UWP apps
+    fn minimize_window_keyboard(&self) -> Result<(), AutomationError>;
+
+    /// Get native window handle (HWND on Windows)
+    fn get_native_window_handle(&self) -> Result<isize, AutomationError>;
+
     // Add a method to clone the box
     fn clone_box(&self) -> Box<dyn UIElementImpl>;
 
@@ -902,6 +911,23 @@ impl UIElement {
 
     pub fn maximize_window(&self) -> Result<(), AutomationError> {
         self.inner.maximize_window()
+    }
+
+    /// Maximize window using keyboard simulation (Win+Up)
+    /// Use this for UWP apps where ShowWindow does not work
+    pub fn maximize_window_keyboard(&self) -> Result<(), AutomationError> {
+        self.inner.maximize_window_keyboard()
+    }
+
+    /// Minimize window using keyboard simulation (Win+Down)
+    /// Use this for UWP apps where ShowWindow does not work
+    pub fn minimize_window_keyboard(&self) -> Result<(), AutomationError> {
+        self.inner.minimize_window_keyboard()
+    }
+
+    /// Get native window handle (HWND on Windows)
+    pub fn get_native_window_handle(&self) -> Result<isize, AutomationError> {
+        self.inner.get_native_window_handle()
     }
 
     /// Get the element's name

@@ -3866,36 +3866,107 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 tracing::warn!("Failed to capture initial window state: {}", e);
             }
 
-            // Get topmost window for the app and minimize always-on-top windows
-            // Use app_name directly - normalization handles "notepad" vs "Notepad.exe"
-            if let Some(window) = self.window_manager.get_topmost_window_for_process(&args.app_name).await {
-                let always_on_top_windows = self.window_manager.get_always_on_top_windows().await;
-                if !always_on_top_windows.is_empty() {
-                    tracing::info!("Found {} always-on-top windows for {}", always_on_top_windows.len(), &args.app_name);
-                    match self.window_manager.minimize_always_on_top_windows(window.hwnd).await {
-                        Ok(count) => {
-                            tracing::info!("Minimized {} always-on-top windows for {}", count, &args.app_name);
-                        }
-                        Err(e) => {
-                            tracing::warn!("Failed to minimize always-on-top windows: {}", e);
-                        }
-                    }
-                }
+            // Check if this is a UWP app
+            let is_uwp = self.window_manager.is_uwp_app(process_id).await;
 
-                // Maximize target window to bring it to front
-                match self.window_manager.maximize_if_needed(window.hwnd).await {
-                    Ok(true) => {
-                        tracing::info!("Maximized target window for {}", &args.app_name);
-                    }
-                    Ok(false) => {
-                        tracing::debug!("Target window already maximized");
+            if is_uwp {
+                tracing::info!("[open_application] Detected UWP app - using keyboard (Win+Up) for window management");
+
+                // Get UWP window's HWND for tracking and restoration
+                // For UWP apps, we need the ApplicationFrameHost parent HWND, not the content window HWND
+                let uwp_hwnd = match ui_element.get_native_window_handle() {
+                    Ok(content_hwnd) => {
+                        tracing::info!("[open_application] Got UWP content window HWND: {}", content_hwnd);
+
+                        // Get the parent ApplicationFrameHost window
+                        use windows::Win32::UI::WindowsAndMessaging::GetAncestor;
+                        use windows::Win32::Foundation::HWND;
+                        use windows::Win32::UI::WindowsAndMessaging::GA_ROOT;
+
+                        unsafe {
+                            let hwnd = HWND(content_hwnd as *mut _);
+                            let root_hwnd = GetAncestor(hwnd, GA_ROOT);
+                            if !root_hwnd.0.is_null() {
+                                let root_hwnd_val = root_hwnd.0 as isize;
+                                tracing::info!("[open_application] Got UWP root window HWND: {}", root_hwnd_val);
+                                Some(root_hwnd_val)
+                            } else {
+                                tracing::warn!("[open_application] Failed to get root window for UWP content");
+                                Some(content_hwnd)
+                            }
+                        }
                     }
                     Err(e) => {
-                        tracing::warn!("Failed to maximize window: {}", e);
+                        tracing::warn!("[open_application] Failed to get UWP HWND: {}", e);
+                        None
+                    }
+                };
+
+                // 1. Track UWP window as target for restoration
+                if let Some(hwnd) = uwp_hwnd {
+                    self.window_manager.set_target_window(hwnd).await;
+                } else {
+                    tracing::warn!("[open_application] Cannot track UWP window for restoration (no HWND)");
+                }
+
+                // 2. Maximize UWP target window using keyboard (ShowWindow doesn't work for UWP)
+                if let Err(e) = ui_element.maximize_window_keyboard() {
+                    tracing::warn!("Failed to maximize UWP window via keyboard for {}: {}", &args.app_name, e);
+                } else {
+                    tracing::info!("Maximized UWP window for {} via keyboard (Win+Up)", &args.app_name);
+                }
+
+                // 3. Minimize Win32 always-on-top windows (if any)
+                // Note: UWP always-on-top windows are not visible via Win32 enumeration
+                let always_on_top_windows = self.window_manager.get_always_on_top_windows().await;
+                if !always_on_top_windows.is_empty() {
+                    tracing::info!("Found {} always-on-top Win32 windows to minimize", always_on_top_windows.len());
+
+                    if let Some(hwnd) = uwp_hwnd {
+                        match self.window_manager.minimize_always_on_top_windows(hwnd).await {
+                            Ok(count) => {
+                                tracing::info!("Minimized {} Win32 always-on-top windows (UWP target app)", count);
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to minimize always-on-top windows for UWP app: {}", e);
+                            }
+                        }
+                    } else {
+                        tracing::warn!("Could not get HWND from UWP element to minimize always-on-top windows");
                     }
                 }
             } else {
-                tracing::warn!("Could not find window for app '{}' for window management", &args.app_name);
+                // Win32 app: use traditional window management
+                if let Some(window) = self.window_manager.get_topmost_window_for_pid(process_id).await {
+                    // Minimize always-on-top Win32 windows
+                    let always_on_top_windows = self.window_manager.get_always_on_top_windows().await;
+                    if !always_on_top_windows.is_empty() {
+                        tracing::info!("Found {} always-on-top Win32 windows", always_on_top_windows.len());
+                        match self.window_manager.minimize_always_on_top_windows(window.hwnd).await {
+                            Ok(count) => {
+                                tracing::info!("Minimized {} always-on-top Win32 windows for {}", count, &args.app_name);
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to minimize always-on-top windows: {}", e);
+                            }
+                        }
+                    }
+
+                    // Maximize target Win32 window
+                    match self.window_manager.maximize_if_needed(window.hwnd).await {
+                        Ok(true) => {
+                            tracing::info!("Maximized Win32 window for {}", &args.app_name);
+                        }
+                        Ok(false) => {
+                            tracing::debug!("Win32 window already maximized");
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to maximize Win32 window: {}", e);
+                        }
+                    }
+                } else {
+                    tracing::warn!("Could not find Win32 window for app '{}' (PID: {}) for window management", &args.app_name, process_id);
+                }
             }
         } else {
             tracing::debug!("[open_application] In sequence - skipping window management (dispatch_tool handles it)");

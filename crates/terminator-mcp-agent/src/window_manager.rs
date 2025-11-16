@@ -279,6 +279,21 @@ impl WindowManager {
         let cache = self.window_cache.lock().await;
         let mut restored_count = 0;
 
+        tracing::info!("restore_all_windows: minimized_windows={}, target_window={:?}, original_states={}",
+            cache.minimized_windows.len(), cache.target_window, cache.original_states.len());
+
+        // Log HWNDs in original_states to debug target window matching
+        if let Some(target) = cache.target_window {
+            let found = cache.original_states.iter().find(|w| w.hwnd == target);
+            if found.is_some() {
+                tracing::info!("Target window FOUND in original_states (HWND={})", target);
+            } else {
+                tracing::warn!("Target window NOT FOUND in original_states (HWND={})", target);
+                tracing::warn!("Original states HWNDs: {:?}",
+                    cache.original_states.iter().take(10).map(|w| (w.hwnd, w.process_name.clone())).collect::<Vec<_>>());
+            }
+        }
+
         // Determine which windows need restoration
         // If minimized_windows is empty AND no target window, restore all (backward compatibility)
         let windows_to_restore: Vec<&WindowInfo> = if cache.minimized_windows.is_empty() && cache.target_window.is_none() {
@@ -298,17 +313,108 @@ impl WindowManager {
 
         // Restore in reverse order (bottommost first) to preserve Z-order
         // This ensures topmost windows end up on top after restoration
+        tracing::info!("Restoring {} windows", windows_to_restore.len());
         for window in windows_to_restore.iter().rev() {
             unsafe {
                 let hwnd = HWND(window.hwnd as *mut _);
-                let placement: WINDOWPLACEMENT = window.placement.clone().into();
-                if SetWindowPlacement(hwnd, &placement).is_ok() {
-                    restored_count += 1;
+
+                // Check if this is a UWP window (SetWindowPlacement doesn't work for UWP)
+                let is_uwp = Self::is_uwp_app_internal(window.process_id);
+                tracing::info!("Restoring window: PID={}, process={}, is_uwp={}, was_maximized={}",
+                    window.process_id, window.process_name, is_uwp, window.is_maximized);
+
+                if is_uwp {
+                    // For UWP windows, use keyboard shortcuts to restore
+                    // Check current state vs desired state
+                    let currently_maximized = IsZoomed(hwnd).as_bool();
+                    let should_be_maximized = window.is_maximized;
+
+                    if currently_maximized && !should_be_maximized {
+                        // Need to restore down from maximized
+                        tracing::info!("Restoring UWP window (PID {}) from maximized state using keyboard (Win+Down)", window.process_id);
+                        Self::restore_uwp_window_keyboard(hwnd);
+                        restored_count += 1;
+                    } else if !currently_maximized && should_be_maximized {
+                        // Edge case: need to maximize (shouldn't happen in normal flow)
+                        tracing::debug!("UWP window (PID {}) already in non-maximized state", window.process_id);
+                    } else {
+                        // States match, no restoration needed
+                        tracing::debug!("UWP window (PID {}) already in correct state", window.process_id);
+                    }
+                } else {
+                    // Win32 window: use SetWindowPlacement (works reliably)
+                    let placement: WINDOWPLACEMENT = window.placement.clone().into();
+                    if SetWindowPlacement(hwnd, &placement).is_ok() {
+                        restored_count += 1;
+                    }
                 }
             }
         }
 
         Ok(restored_count)
+    }
+
+    /// Restore UWP window from maximized state using keyboard (Win+Down)
+    fn restore_uwp_window_keyboard(hwnd: HWND) {
+        use windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
+            VK_DOWN, VK_LWIN,
+        };
+
+        unsafe {
+            // Activate the window first
+            let _ = SetForegroundWindow(hwnd);
+            std::thread::sleep(std::time::Duration::from_millis(100));
+
+            // Press Win + Down
+            let mut inputs = vec![
+                INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: VK_LWIN,
+                            ..Default::default()
+                        },
+                    },
+                },
+                INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: VK_DOWN,
+                            ..Default::default()
+                        },
+                    },
+                },
+            ];
+            SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+            std::thread::sleep(std::time::Duration::from_millis(50));
+
+            // Release Down + Win
+            inputs.clear();
+            inputs.push(INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VK_DOWN,
+                        dwFlags: KEYEVENTF_KEYUP,
+                        ..Default::default()
+                    },
+                },
+            });
+            inputs.push(INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VK_LWIN,
+                        dwFlags: KEYEVENTF_KEYUP,
+                        ..Default::default()
+                    },
+                },
+            });
+            SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+        }
     }
 
     // Capture current state before workflow
@@ -452,5 +558,107 @@ impl WindowManager {
                 String::new()
             }
         }
+    }
+
+    // ========== UWP Detection ==========
+
+    /// Check if a process is a UWP/Modern app
+    fn is_uwp_app_internal(pid: u32) -> bool {
+        let process_name = Self::get_process_name(pid).unwrap_or_default();
+        let lower_name = process_name.to_lowercase();
+
+        // Common UWP/Modern app patterns
+        let is_uwp =
+            // Core UWP infrastructure
+            lower_name.contains("applicationframehost") ||
+            lower_name.contains("wwahost") ||
+            lower_name.contains("windowsinternal") ||
+            lower_name.contains("textinputhost") ||
+
+            // Microsoft Store apps
+            lower_name.contains("calculatorapp") ||
+            lower_name.contains("systemsettings") ||
+            lower_name.contains("microsoft.windows.photos") ||
+            lower_name.contains("microsoft.windowsstore") ||
+            lower_name.contains("microsoft.windowscommunicationsapps") ||
+            lower_name.contains("microsoft.windowscamera") ||
+            lower_name.contains("microsoft.windowsmaps") ||
+            lower_name.contains("microsoft.windowsalarms") ||
+            lower_name.contains("microsoft.windowscalculator") ||
+            lower_name.contains("microsoft.windowssoundrecorder") ||
+            lower_name.contains("microsoft.microsoftedge") ||
+            lower_name.contains("microsoft.office") ||
+            lower_name.contains("microsoft.people") ||
+            lower_name.contains("microsoft.bingnews") ||
+            lower_name.contains("microsoft.bingweather") ||
+            lower_name.contains("microsoft.bingsports") ||
+            lower_name.contains("microsoft.bingfinance") ||
+            lower_name.contains("microsoft.zunemusic") ||
+            lower_name.contains("microsoft.zunevideo") ||
+            lower_name.contains("microsoft.windowsfeedbackhub") ||
+            lower_name.contains("microsoft.gethelp") ||
+            lower_name.contains("microsoft.messaging") ||
+            lower_name.contains("microsoft.oneconnect") ||
+            lower_name.contains("microsoft.skypeapp") ||
+            lower_name.contains("microsoft.xboxapp") ||
+            lower_name.contains("microsoft.xboxidentityprovider") ||
+            lower_name.contains("microsoft.xboxgamecallableui") ||
+            lower_name.contains("microsoft.yourphone") ||
+            lower_name.contains("microsoft.screensketch") ||
+            lower_name.contains("microsoft.mixedreality") ||
+
+            // Generic patterns
+            lower_name.starts_with("microsoft.") ||
+            lower_name.starts_with("windows.") ||
+            lower_name.ends_with(".exe_") ||
+            lower_name.contains("immersivecontrol");
+
+        if is_uwp {
+            tracing::info!("PID {} detected as UWP/Modern app ({})", pid, process_name);
+        }
+
+        is_uwp
+    }
+
+    /// Public method to check if a process is UWP
+    pub async fn is_uwp_app(&self, pid: u32) -> bool {
+        Self::is_uwp_app_internal(pid)
+    }
+
+    /// Track a window as the target for restoration (used for UWP apps that can't use maximize_if_needed)
+    pub async fn set_target_window(&self, hwnd: isize) {
+        let mut cache = self.window_cache.lock().await;
+        cache.target_window = Some(hwnd);
+        tracing::info!("Set target window for restoration: hwnd={}", hwnd);
+    }
+
+    /// Get topmost window for a specific PID (Win32 only - UWP windows not visible)
+    pub async fn get_topmost_window_for_pid(&self, pid: u32) -> Option<WindowInfo> {
+        const WIN32_RETRIES: usize = 2;
+        const RETRY_DELAY_MS: u64 = 200;
+
+        // Check if this is a UWP app FIRST - they're not visible to Win32 enumeration
+        if Self::is_uwp_app_internal(pid) {
+            tracing::debug!("PID {} is UWP - skipping Win32 window enumeration", pid);
+            return None;
+        }
+
+        // Retry logic for Win32 apps
+        for attempt in 0..WIN32_RETRIES {
+            if attempt > 0 {
+                tokio::time::sleep(tokio::time::Duration::from_millis(RETRY_DELAY_MS)).await;
+            }
+
+            self.update_window_cache().await.ok()?;
+            let cache = self.window_cache.lock().await;
+
+            if let Some(window) = cache.visible_windows.iter().find(|w| w.process_id == pid) {
+                tracing::debug!("Found Win32 window for PID {} on attempt {}", pid, attempt + 1);
+                return Some(window.clone());
+            }
+        }
+
+        tracing::warn!("Win32 window for PID {} not found after {} attempts", pid, WIN32_RETRIES);
+        None
     }
 }

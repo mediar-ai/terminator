@@ -894,7 +894,159 @@ impl UIElementImpl for WindowsUIElement {
         Ok(())
     }
 
-    fn type_text(&self, text: &str, use_clipboard: bool) -> Result<(), AutomationError> {
+    fn maximize_window_keyboard(&self) -> Result<(), AutomationError> {
+        debug!("Maximizing window using keyboard (Win+Up) for UWP app");
+
+        // Ensure window is activated/focused
+        if let Err(e) = self.activate_window() {
+            debug!("Warning: Could not activate window before maximize: {}", e);
+        }
+
+        // Wait briefly for activation
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // Use keyboard shortcut Win+Up to maximize
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
+            VK_UP, VK_LWIN,
+        };
+
+        unsafe {
+            // Press Win key + Up key
+            let mut inputs = vec![
+                INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: VK_LWIN,
+                            ..Default::default()
+                        },
+                    },
+                },
+                INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: VK_UP,
+                            ..Default::default()
+                        },
+                    },
+                },
+            ];
+
+            SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+            std::thread::sleep(std::time::Duration::from_millis(50));
+
+            // Release Up key + Win key
+            inputs.clear();
+            inputs.push(INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VK_UP,
+                        dwFlags: KEYEVENTF_KEYUP,
+                        ..Default::default()
+                    },
+                },
+            });
+            inputs.push(INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VK_LWIN,
+                        dwFlags: KEYEVENTF_KEYUP,
+                        ..Default::default()
+                    },
+                },
+            });
+
+            SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+        }
+
+        debug!("Window maximize completed via keyboard");
+        Ok(())
+    }
+
+    fn minimize_window_keyboard(&self) -> Result<(), AutomationError> {
+        debug!("Minimizing window using keyboard (Win+Down) for UWP app");
+
+        // Ensure window is activated/focused
+        if let Err(e) = self.activate_window() {
+            debug!("Warning: Could not activate window before minimize: {}", e);
+        }
+
+        // Wait briefly for activation
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // Use keyboard shortcut Win+Down to minimize
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
+            VK_DOWN, VK_LWIN,
+        };
+
+        unsafe {
+            // Press Win key + Down key
+            let mut inputs = vec![
+                INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: VK_LWIN,
+                            ..Default::default()
+                        },
+                    },
+                },
+                INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: VK_DOWN,
+                            ..Default::default()
+                        },
+                    },
+                },
+            ];
+
+            SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+            std::thread::sleep(std::time::Duration::from_millis(50));
+
+            // Release Down key + Win key
+            inputs.clear();
+            inputs.push(INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VK_DOWN,
+                        dwFlags: KEYEVENTF_KEYUP,
+                        ..Default::default()
+                    },
+                },
+            });
+            inputs.push(INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VK_LWIN,
+                        dwFlags: KEYEVENTF_KEYUP,
+                        ..Default::default()
+                    },
+                },
+            });
+
+            SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+        }
+
+        debug!("Window minimize completed via keyboard");
+        Ok(())
+    }
+
+    fn get_native_window_handle(&self) -> Result<isize, AutomationError> {
+        self.element.0.get_native_window_handle()
+            .map(|h| h.into())
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to get native window handle: {:?}", e)))
+    }
+
+        fn type_text(&self, text: &str, use_clipboard: bool) -> Result<(), AutomationError> {
         let control_type = self
             .element
             .0
