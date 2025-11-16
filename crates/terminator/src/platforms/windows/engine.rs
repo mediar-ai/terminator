@@ -29,6 +29,7 @@ use uiautomation::types::{TreeScope, UIProperty};
 use uiautomation::variants::Variant;
 use uiautomation::UIAutomation;
 use uni_ocr::{OcrEngine, OcrProvider};
+use tempfile::tempdir;
 
 // windows imports
 use windows::core::{HRESULT, HSTRING, PCWSTR};
@@ -2522,39 +2523,101 @@ impl AccessibilityEngine for WindowsEngine {
         let verb_hstring = HSTRING::from("open");
         let verb_pcwstr = PCWSTR(verb_hstring.as_ptr());
 
-        let hinstance = if let Some(exe_name) = browser_exe {
-            // Open with a specific browser
-            let exe_hstring = HSTRING::from(exe_name);
-            unsafe {
-                ShellExecuteW(
-                    None,
-                    verb_pcwstr,
-                    PCWSTR(exe_hstring.as_ptr()),
-                    PCWSTR(url_hstring.as_ptr()),
-                    PCWSTR::null(),
-                    SW_SHOWNORMAL,
-                )
+        // Check for environment variable to load extension, for CI environments
+        let extension_path = std::env::var("TERMINATOR_CHROME_EXTENSION_PATH").ok();
+
+        let mut use_command = false;
+        if let Some(ref browser) = inferred_browser {
+            if let crate::Browser::Chrome = browser {
+                if extension_path.is_some() {
+                    use_command = true;
+                }
+            }
+        }
+
+        if use_command {
+            let exe_name = browser_exe.unwrap_or_else(|| "chrome.exe".to_string());
+            let ext_path_relative = extension_path.unwrap();
+
+            // Convert to absolute path as --load-extension requires it
+            let ext_path_abs = match std::fs::canonicalize(&ext_path_relative) {
+                Ok(path) => path.to_string_lossy().to_string(),
+                Err(e) => {
+                    warn!(
+                        "Failed to get absolute path for extension '{}': {}. Using relative path.",
+                        ext_path_relative, e
+                    );
+                    ext_path_relative
+                }
+            };
+
+            // Create a temporary user data directory for isolation
+            let temp_dir = match tempfile::tempdir() {
+                Ok(dir) => dir,
+                Err(e) => {
+                    return Err(AutomationError::PlatformError(format!(
+                        "Failed to create temp dir for user data: {e}"
+                    )));
+                }
+            };
+            let user_data_dir = temp_dir.path().to_string_lossy().to_string();
+
+            info!(
+                "Launching Chrome with --load-extension='{}' and --user-data-dir='{}'",
+                ext_path_abs, user_data_dir
+            );
+
+            let mut command = std::process::Command::new(&exe_name);
+            command.arg(format!("--load-extension={}", ext_path_abs));
+            command.arg(format!("--user-data-dir={}", user_data_dir));
+            command.arg("--no-first-run");
+            command.arg("--no-default-browser-check");
+            command.arg(url);
+
+            // Keep the handle to the temp dir so it's not deleted immediately
+            let _temp_dir_handle = temp_dir;
+
+            if let Err(e) = command.spawn() {
+                return Err(AutomationError::PlatformError(format!(
+                    "Failed to launch browser with extension: {e}"
+                )));
             }
         } else {
-            // Open with default browser
-            unsafe {
-                ShellExecuteW(
-                    None,
-                    verb_pcwstr,
-                    PCWSTR(url_hstring.as_ptr()),
-                    PCWSTR::null(),
-                    PCWSTR::null(),
-                    SW_SHOWNORMAL,
-                )
-            }
-        };
+            // Original ShellExecuteW logic
+            let hinstance = if let Some(exe_name) = browser_exe {
+                // Open with a specific browser
+                let exe_hstring = HSTRING::from(exe_name);
+                unsafe {
+                    ShellExecuteW(
+                        None,
+                        verb_pcwstr,
+                        PCWSTR(exe_hstring.as_ptr()),
+                        PCWSTR(url_hstring.as_ptr()),
+                        PCWSTR::null(),
+                        SW_SHOWNORMAL,
+                    )
+                }
+            } else {
+                // Open with default browser
+                unsafe {
+                    ShellExecuteW(
+                        None,
+                        verb_pcwstr,
+                        PCWSTR(url_hstring.as_ptr()),
+                        PCWSTR::null(),
+                        PCWSTR::null(),
+                        SW_SHOWNORMAL,
+                    )
+                }
+            };
 
-        // HINSTANCE returned by ShellExecuteW is not a real HRESULT, but a value > 32 on success.
-        if hinstance.0 as i32 <= 32 {
-            return Err(AutomationError::PlatformError(format!(
-                "Failed to open URL. ShellExecuteW returned error code: {:?}",
-                hinstance.0 as i32
-            )));
+            // HINSTANCE returned by ShellExecuteW is not a real HRESULT, but a value > 32 on success.
+            if hinstance.0 as i32 <= 32 {
+                return Err(AutomationError::PlatformError(format!(
+                    "Failed to open URL. ShellExecuteW returned error code: {:?}",
+                    hinstance.0 as i32
+                )));
+            }
         }
 
         // Enhanced polling for browser window with better reliability

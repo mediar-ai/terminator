@@ -18,6 +18,7 @@ env:
   OTEL_SKIP_COLLECTOR_CHECK: true
   # Reduce retry time for telemetry in CI
   OTEL_RETRY_DURATION_MINS: 0
+  TERMINATOR_CHROME_EXTENSION_PATH: crates/terminator/browser-extension
 
 jobs:
   test:
@@ -117,6 +118,14 @@ jobs:
           cargo run --bin terminator -- mcp run crates/terminator/browser-extension/install_chrome_extension_ui.yml
         shell: pwsh
         timeout-minutes: 5
+        continue-on-error: true
+
+      - name: Run TypeScript browser script bridge workflow
+        run: |
+          Write-Host "Running comprehensive TypeScript workflow to test browser script bridge..."
+          cargo run --bin terminator -- mcp run examples/browser_script_bridge_workflow --skip-type-check
+        shell: pwsh
+        timeout-minutes: 15
         continue-on-error: true
 
       - name: Run Rust tests
