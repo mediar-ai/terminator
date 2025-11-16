@@ -1,6 +1,10 @@
 name: PyPI Cleanup Example
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - "**"
+  pull_request:
   release:
     types:
       - published
