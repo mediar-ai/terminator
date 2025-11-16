@@ -75,6 +75,13 @@ jobs:
           cargo run --bin terminator -- mcp run crates/terminator/browser-extension/install_chrome_extension_ui.yml
         shell: pwsh
         timeout-minutes: 15
+      - name: Keep Chrome session alive
+        shell: pwsh
+        run: |
+          $chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+          if (-not (Test-Path $chrome)) { $chrome = "chrome.exe" }
+          Start-Process $chrome "chrome://extensions --no-first-run --no-default-browser-check --disable-search-engine-choice-screen --disable-fre"
+          Start-Sleep -Seconds 10
       - name: Capture desktop screenshot on failure
         if: failure()
         shell: pwsh
