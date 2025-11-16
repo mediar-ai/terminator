@@ -45,7 +45,7 @@ jobs:
         run: |
           cargo run --bin terminator -- mcp run crates/terminator/browser-extension/install_chrome_extension_ui.yml
         shell: pwsh
-        timeout-minutes: 5
+        timeout-minutes: 15
         continue-on-error: true
 
       - run: npm ci
