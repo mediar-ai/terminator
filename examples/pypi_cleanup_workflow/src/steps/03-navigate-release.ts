@@ -18,14 +18,6 @@ export const navigateToRelease = createStep({
       await desktop.navigateBrowser(releaseManageUrl, "Chrome");
       await desktop.delay(4000);
 
-      const urlCheck = await desktop.executeBrowserScript(() => window.location.href);
-      if (!urlCheck.startsWith(releaseManageUrl)) {
-        throw new Error(
-          `Unexpected URL after navigation: ${urlCheck} (expected ${releaseManageUrl})`
-        );
-      }
-
-      // Scroll to bottom to ensure delete controls are in view
       for (let i = 0; i < 6; i++) {
         await desktop.pressKey("End");
         await desktop.delay(300);
