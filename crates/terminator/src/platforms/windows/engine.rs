@@ -29,6 +29,7 @@ use uiautomation::types::{TreeScope, UIProperty};
 use uiautomation::variants::Variant;
 use uiautomation::UIAutomation;
 use uni_ocr::{OcrEngine, OcrProvider};
+use tempfile::tempdir;
 
 // windows imports
 use windows::core::{HRESULT, HSTRING, PCWSTR};
@@ -2550,14 +2551,31 @@ impl AccessibilityEngine for WindowsEngine {
                 }
             };
 
+            // Create a temporary user data directory for isolation
+            let temp_dir = match tempfile::tempdir() {
+                Ok(dir) => dir,
+                Err(e) => {
+                    return Err(AutomationError::PlatformError(format!(
+                        "Failed to create temp dir for user data: {e}"
+                    )));
+                }
+            };
+            let user_data_dir = temp_dir.path().to_string_lossy().to_string();
+
             info!(
-                "Launching Chrome with --load-extension='{}'",
-                ext_path_abs
+                "Launching Chrome with --load-extension='{}' and --user-data-dir='{}'",
+                ext_path_abs, user_data_dir
             );
 
             let mut command = std::process::Command::new(&exe_name);
             command.arg(format!("--load-extension={}", ext_path_abs));
+            command.arg(format!("--user-data-dir={}", user_data_dir));
+            command.arg("--no-first-run");
+            command.arg("--no-default-browser-check");
             command.arg(url);
+
+            // Keep the handle to the temp dir so it's not deleted immediately
+            let _temp_dir_handle = temp_dir;
 
             if let Err(e) = command.spawn() {
                 return Err(AutomationError::PlatformError(format!(
