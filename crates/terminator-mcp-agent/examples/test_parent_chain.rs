@@ -36,9 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 // Check if this is Window or Pane
                 if role == "Window" || role == "Pane" {
-                    println!(
-                        "    ^^^ Found {role} - this should be returned by element.window()"
-                    );
+                    println!("    ^^^ Found {role} - this should be returned by element.window()");
                 }
 
                 current = parent;

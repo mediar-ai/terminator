@@ -229,9 +229,7 @@ fn kill_previous_mcp_instances(enforce_single: bool) {
     }
 
     if killed_count > 0 {
-        eprintln!(
-            "🧹 Cleaned up {killed_count} process(es), waiting for ports to be released..."
-        );
+        eprintln!("🧹 Cleaned up {killed_count} process(es), waiting for ports to be released...");
         // Increase wait time to 2 seconds for Windows to properly release ports
         std::thread::sleep(std::time::Duration::from_millis(2000));
 

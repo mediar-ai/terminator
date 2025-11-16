@@ -594,6 +594,30 @@ impl WindowsEngine {
                     Err(_) => Ok(false),
                 }
             }
+            Selector::Process(expected_process_name) => {
+                // Get process ID from element
+                match element.process_id() {
+                    Ok(pid) => {
+                        // Convert PID to process name
+                        match get_process_name_by_pid(pid as i32) {
+                            Ok(process_name) => {
+                                let process_name_lower = process_name.to_lowercase();
+                                let expected_lower = expected_process_name.to_lowercase();
+
+                                // Support both "chrome" and "chrome.exe" matching
+                                // Also support partial matches (e.g., "chrome" matches "chrome.exe")
+                                let matches = process_name_lower == expected_lower
+                                    || process_name_lower.starts_with(&expected_lower)
+                                    || expected_lower.starts_with(&process_name_lower);
+
+                                Ok(matches)
+                            }
+                            Err(_) => Ok(false),
+                        }
+                    }
+                    Err(_) => Ok(false),
+                }
+            }
             Selector::And(selectors) => {
                 // Recursively check all AND conditions
                 for sel in selectors {
@@ -1147,6 +1171,105 @@ impl AccessibilityEngine for WindowsEngine {
                     })
                     .collect())
             }
+            Selector::Process(process_name) => {
+                debug!("searching elements by process name: {}", process_name);
+
+                // Get root element
+                let root_ele = self.get_root_element_with_retry().map_err(|e| {
+                    AutomationError::PlatformError(format!(
+                        "Failed to get root element for process selector: {e:?}"
+                    ))
+                })?;
+
+                // Create condition to find Window or Pane elements
+                let condition_win = self
+                    .automation
+                    .0
+                    .create_property_condition(
+                        UIProperty::ControlType,
+                        Variant::from(ControlType::Window as i32),
+                        None,
+                    )
+                    .map_err(|e| {
+                        AutomationError::PlatformError(format!(
+                            "Failed to create Window condition for process selector: {e:?}"
+                        ))
+                    })?;
+
+                let condition_pane = self
+                    .automation
+                    .0
+                    .create_property_condition(
+                        UIProperty::ControlType,
+                        Variant::from(ControlType::Pane as i32),
+                        None,
+                    )
+                    .map_err(|e| {
+                        AutomationError::PlatformError(format!(
+                            "Failed to create Pane condition for process selector: {e:?}"
+                        ))
+                    })?;
+
+                let condition = self
+                    .automation
+                    .0
+                    .create_or_condition(condition_win, condition_pane)
+                    .map_err(|e| {
+                        AutomationError::PlatformError(format!(
+                            "Failed to create OR condition for process selector: {e:?}"
+                        ))
+                    })?;
+
+                // Find all windows/panes
+                let elements = root_ele
+                    .find_all(TreeScope::Children, &condition)
+                    .map_err(|e| {
+                        AutomationError::ElementNotFound(format!(
+                            "Failed to find windows for process selector: {e}"
+                        ))
+                    })?;
+
+                // Filter elements by process name
+                let expected_lower = process_name.to_lowercase();
+                let filtered_elements: Vec<UIElement> = elements
+                    .into_iter()
+                    .filter_map(|ele| {
+                        if let Ok(pid) = ele.get_process_id() {
+                            if let Ok(elem_process_name) = get_process_name_by_pid(pid as i32) {
+                                let elem_process_lower = elem_process_name.to_lowercase();
+                                // Support both "chrome" and "chrome.exe" matching
+                                // get_process_name_by_pid strips .exe, so "chrome" matches "chrome.exe"
+                                if elem_process_lower == expected_lower
+                                    || elem_process_lower.starts_with(&expected_lower)
+                                    || expected_lower.starts_with(&elem_process_lower)
+                                {
+                                    let arc_ele = ThreadSafeWinUIElement(Arc::new(ele));
+                                    return Some(UIElement::new(Box::new(WindowsUIElement {
+                                        element: arc_ele,
+                                        engine: None,
+                                    })));
+                                }
+                            }
+                        }
+                        None
+                    })
+                    .collect();
+
+                if filtered_elements.is_empty() {
+                    return Err(AutomationError::ElementNotFound(format!(
+                        "No elements found for process: '{}'",
+                        process_name
+                    )));
+                }
+
+                debug!(
+                    "found {} elements for process: {}",
+                    filtered_elements.len(),
+                    process_name
+                );
+
+                Ok(filtered_elements)
+            }
             Selector::Path(_) => Err(AutomationError::UnsupportedOperation(
                 "`Path` selector not supported".to_string(),
             )),
@@ -1634,6 +1757,13 @@ impl AccessibilityEngine for WindowsEngine {
                     .into_iter()
                     .next()
                     .ok_or_else(|| AutomationError::ElementNotFound("No element found".to_string()))
+            }
+            // Process selector - delegate to find_elements and take first result
+            Selector::Process(_) => {
+                let elements = self.find_elements(selector, root, timeout, None)?;
+                elements.into_iter().next().ok_or_else(|| {
+                    AutomationError::ElementNotFound("No element found for process".to_string())
+                })
             }
             Selector::Role { role, name } => {
                 let win_control_type = map_generic_role_to_win_roles(role);
@@ -2501,7 +2631,7 @@ impl AccessibilityEngine for WindowsEngine {
                             Ok(false)
                         }
                     }))
-                    .depth(10)
+                    .depth(5)
                     .timeout(1000);
 
                 match matcher.find_first() {
@@ -2724,7 +2854,7 @@ impl AccessibilityEngine for WindowsEngine {
                                 Ok(false)
                             }
                         }))
-                        .depth(10)
+                        .depth(5)
                         .timeout(500); // Reduced to 500ms since API timeout doesn't work reliably
 
                     debug!(

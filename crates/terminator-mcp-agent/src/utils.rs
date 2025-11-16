@@ -926,6 +926,10 @@ pub struct ExecuteSequenceArgs {
         description = "Optional base path for resolving script files. When script_file is used in run_command or execute_browser_script, relative paths will first be searched in this directory, then fallback to workflow directory or current directory. Useful for mounting external file sources like S3 via rclone."
     )]
     pub scripts_base_path: Option<String>,
+    #[schemars(
+        description = "Optional workflow identifier for env state persistence. If provided, will be used instead of URL hash for determining state file location. This allows passing workflow definitions inline without needing a file URL."
+    )]
+    pub workflow_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema, Clone)]

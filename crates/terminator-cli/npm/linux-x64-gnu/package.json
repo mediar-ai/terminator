@@ -1,0 +1,24 @@
+{
+    "cpu": [
+        "x64"
+    ],
+    "engines": {
+        "node": ">= 10"
+    },
+    "files": [
+        "terminator"
+    ],
+    "main": "terminator",
+    "name": "@mediar-ai/cli-linux-x64-gnu",
+    "os": [
+        "linux"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/mediar-ai/terminator"
+    },
+    "scripts": {
+        "prepare": "chmod +x terminator"
+    },
+    "version": "0.23.5"
+}

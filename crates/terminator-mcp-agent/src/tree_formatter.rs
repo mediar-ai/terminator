@@ -32,12 +32,16 @@ fn ui_node_to_serializable(node: &UINode) -> SerializableUIElement {
     }
 }
 
-/// Format a UI tree as compact YAML with - [ROLE] name #id format
+/// Format a UI tree as compact YAML with - [ROLE] name format
 ///
 /// Output format:
-/// - [ROLE] name #id (additional context)
-///   - [ROLE] name #id
+/// - [ROLE] name (additional context)
+///   - [ROLE] name
 ///     - ...
+///
+/// Note: Element IDs are intentionally hidden in compact view to discourage their use
+/// in selectors. IDs are non-deterministic across machines and break workflow portability.
+/// Use role:Type|name:Name patterns instead. IDs are still available in VerboseJson format.
 pub fn format_tree_as_compact_yaml(tree: &SerializableUIElement, indent: usize) -> String {
     let mut output = String::new();
     format_node(tree, indent, &mut output);
@@ -62,7 +66,7 @@ fn format_node(node: &SerializableUIElement, indent: usize, output: &mut String)
     output.push_str(&indent_str);
     output.push_str("- ");
 
-    // Format: [ROLE] name #id
+    // Format: [ROLE] name
     output.push_str(&format!("[{}]", node.role));
 
     // Add name if present
@@ -72,12 +76,7 @@ fn format_node(node: &SerializableUIElement, indent: usize, output: &mut String)
         }
     }
 
-    // Add ID if present
-    if let Some(ref id) = node.id {
-        if !id.is_empty() {
-            output.push_str(&format!(" #{id}"));
-        }
-    }
+    // Note: ID is intentionally omitted in compact view to discourage non-portable selectors
 
     // Add additional context in parentheses
     let mut context_parts = Vec::new();
@@ -179,7 +178,8 @@ mod tests {
         };
 
         let result = format_tree_as_compact_yaml(&node, 0);
-        assert!(result.contains("[Button] Submit #123"));
+        assert!(result.contains("[Button] Submit"));
+        assert!(!result.contains("#123")); // IDs should not appear in compact view
         assert!(result.contains("bounds: [10,20,100,50]"));
         assert!(result.contains("focusable"));
     }
@@ -235,7 +235,9 @@ mod tests {
         };
 
         let result = format_tree_as_compact_yaml(&parent, 0);
-        assert!(result.contains("- [Window] Main #123"));
-        assert!(result.contains("  - [Text] Label #456"));
+        assert!(result.contains("- [Window] Main"));
+        assert!(result.contains("  - [Text] Label"));
+        assert!(!result.contains("#123")); // IDs should not appear in compact view
+        assert!(!result.contains("#456")); // IDs should not appear in compact view
     }
 }

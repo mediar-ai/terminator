@@ -291,69 +291,6 @@ impl WindowsUIElement {
         })
     }
 
-    // Helper: Compare bounds with epsilon tolerance
-    fn bounds_approximately_equal(
-        &self,
-        bounds1: (f64, f64, f64, f64),
-        bounds2: (f64, f64, f64, f64),
-    ) -> bool {
-        const EPSILON: f64 = 1.0; // 1px tolerance for bounds stability
-
-        (bounds1.0 - bounds2.0).abs() < EPSILON
-            && (bounds1.1 - bounds2.1).abs() < EPSILON
-            && (bounds1.2 - bounds2.2).abs() < EPSILON
-            && (bounds1.3 - bounds2.3).abs() < EPSILON
-    }
-
-    // Helper: Wait for element bounds to stabilize (3 consecutive stable checks at 16ms RAF intervals)
-    fn wait_for_stable_bounds(&self) -> Result<(f64, f64, f64, f64), AutomationError> {
-        const REQUIRED_STABLE_CHECKS: u8 = 3;
-        const CHECK_INTERVAL_MS: u64 = 16; // ~60fps
-        const MAX_ATTEMPTS: u8 = 50; // ~800ms max wait
-
-        let mut prev_bounds = self.bounds().map_err(|e| {
-            AutomationError::ElementNotStable(format!("Cannot get initial bounds: {e}"))
-        })?;
-
-        let mut stable_count = 0;
-        let mut attempts = 0;
-
-        while attempts < MAX_ATTEMPTS {
-            std::thread::sleep(std::time::Duration::from_millis(CHECK_INTERVAL_MS));
-
-            let current_bounds = self.bounds().map_err(|e| {
-                AutomationError::ElementNotStable(format!("Bounds changed to invalid: {e}"))
-            })?;
-
-            if self.bounds_approximately_equal(prev_bounds, current_bounds) {
-                stable_count += 1;
-                if stable_count >= REQUIRED_STABLE_CHECKS {
-                    tracing::debug!(
-                        "Bounds stable after {} checks: {:?}",
-                        stable_count,
-                        current_bounds
-                    );
-                    return Ok(current_bounds);
-                }
-            } else {
-                tracing::debug!(
-                    "Bounds changed: {:?} -> {:?}, resetting stability counter",
-                    prev_bounds,
-                    current_bounds
-                );
-                stable_count = 0;
-            }
-
-            prev_bounds = current_bounds;
-            attempts += 1;
-        }
-
-        Err(AutomationError::ElementNotStable(format!(
-            "Bounds did not stabilize after {}ms (animations still running?)",
-            (MAX_ATTEMPTS as u64) * CHECK_INTERVAL_MS
-        )))
-    }
-
     // Helper: Ensure element is in viewport (simplified - no auto-scroll)
     fn ensure_in_viewport(&self) -> Result<(), AutomationError> {
         tracing::debug!("Checking element is in viewport");
@@ -397,8 +334,8 @@ impl WindowsUIElement {
         // 4. Ensure element is in viewport (scroll if needed)
         self.ensure_in_viewport()?;
 
-        // 5. Wait for stable bounds (no animations)
-        self.wait_for_stable_bounds()?;
+        // 5. Removed wait_for_stable_bounds - relying on tree capture delay instead
+        // This speeds up click actions by ~800ms
 
         tracing::info!("Element passed all actionability checks");
         Ok(())
@@ -735,7 +672,7 @@ impl UIElementImpl for WindowsUIElement {
         self.execute_mouse_click(click_x, click_y)?;
 
         // PHASE 5: POST-ACTION VERIFICATION
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        // Removed 200ms delay - relying on tree capture delay instead
         let post_window_title = self
             .window()
             .ok()

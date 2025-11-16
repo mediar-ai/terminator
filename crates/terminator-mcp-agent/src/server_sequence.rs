@@ -129,43 +129,62 @@ fn validate_variable_value(
 impl DesktopWrapper {
     // Get the state file path for a workflow
     // Uses OS-standard data directories:
-    //   Windows: %LOCALAPPDATA%\mediar\workflows\<workflow_hash>\state.json
-    //   macOS: ~/Library/Application Support/mediar/workflows/<workflow_hash>/state.json
-    //   Linux: ~/.local/share/mediar/workflows/<workflow_hash>/state.json
-    async fn get_state_file_path(workflow_url: &str) -> Option<PathBuf> {
-        if let Some(file_path) = workflow_url.strip_prefix("file://") {
-            // Get OS-standard data directory
-            let data_dir = dirs::data_local_dir()?;
+    //   Windows: %LOCALAPPDATA%\mediar\workflows\<workflow_id>\state.json
+    //   macOS: ~/Library/Application Support/mediar/workflows/<workflow_id>/state.json
+    //   Linux: ~/.local/share/mediar/workflows/<workflow_id>/state.json
+    // Priority: workflow_id > URL hash (for backward compatibility)
+    async fn get_state_file_path(
+        workflow_id: Option<&str>,
+        workflow_url: Option<&str>,
+    ) -> Option<PathBuf> {
+        let data_dir = dirs::data_local_dir()?;
 
-            // Create a stable hash of the workflow file path
-            let workflow_hash = {
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::{Hash, Hasher};
-                let mut hasher = DefaultHasher::new();
-                file_path.hash(&mut hasher);
-                format!("{:x}", hasher.finish())
-            };
-
+        // Priority 1: Use workflow_id if provided (cleaner, no hashing needed)
+        if let Some(id) = workflow_id {
+            debug!("Using workflow_id for state file: {}", id);
             let state_file = data_dir
                 .join("mediar")
                 .join("workflows")
-                .join(workflow_hash)
+                .join(id)
                 .join("state.json");
-
-            Some(state_file)
-        } else {
-            None
+            return Some(state_file);
         }
+
+        // Priority 2: Fallback to URL hash for backward compatibility
+        if let Some(url) = workflow_url {
+            if let Some(file_path) = url.strip_prefix("file://") {
+                debug!("Using URL hash for state file: {}", url);
+                // Create a stable hash of the workflow file path
+                let workflow_hash = {
+                    use std::collections::hash_map::DefaultHasher;
+                    use std::hash::{Hash, Hasher};
+                    let mut hasher = DefaultHasher::new();
+                    file_path.hash(&mut hasher);
+                    format!("{:x}", hasher.finish())
+                };
+
+                let state_file = data_dir
+                    .join("mediar")
+                    .join("workflows")
+                    .join(workflow_hash)
+                    .join("state.json");
+
+                return Some(state_file);
+            }
+        }
+
+        None
     }
 
     // Save env state after any step that modifies it
     async fn save_workflow_state(
-        workflow_url: &str,
+        workflow_id: Option<&str>,
+        workflow_url: Option<&str>,
         step_id: Option<&str>,
         step_index: usize,
         env: &serde_json::Value,
     ) -> Result<(), McpError> {
-        if let Some(state_file) = Self::get_state_file_path(workflow_url).await {
+        if let Some(state_file) = Self::get_state_file_path(workflow_id, workflow_url).await {
             if let Some(state_dir) = state_file.parent() {
                 tokio::fs::create_dir_all(state_dir).await.map_err(|e| {
                     McpError::internal_error(format!("Failed to create state directory: {e}"), None)
@@ -176,9 +195,13 @@ impl DesktopWrapper {
                 "last_updated": chrono::Utc::now().to_rfc3339(),
                 "last_step_id": step_id,
                 "last_step_index": step_index,
-                "workflow_file": Path::new(workflow_url.strip_prefix("file://").unwrap_or(workflow_url))
-                    .file_name()
-                    .and_then(|n| n.to_str()),
+                "workflow_id": workflow_id,
+                "workflow_file": workflow_url.and_then(|url| {
+                    Path::new(url.strip_prefix("file://").unwrap_or(url))
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|s| s.to_string())
+                }),
                 "env": env,
             });
 
@@ -200,9 +223,10 @@ impl DesktopWrapper {
 
     // Load env state when starting from a specific step
     async fn load_workflow_state(
-        workflow_url: &str,
+        workflow_id: Option<&str>,
+        workflow_url: Option<&str>,
     ) -> Result<Option<serde_json::Value>, McpError> {
-        if let Some(state_file) = Self::get_state_file_path(workflow_url).await {
+        if let Some(state_file) = Self::get_state_file_path(workflow_id, workflow_url).await {
             if state_file.exists() {
                 let content = tokio::fs::read_to_string(&state_file).await.map_err(|e| {
                     McpError::internal_error(format!("Failed to read state file: {e}"), None)
@@ -780,14 +804,14 @@ impl DesktopWrapper {
 
         // NEW: Load saved state if starting from a specific step
         if start_from_index > 0 {
-            if let Some(url) = &args.url {
-                if let Some(saved_env) = Self::load_workflow_state(url).await? {
-                    execution_context_map.insert("env".to_string(), saved_env);
-                    debug!(
-                        "Loaded saved env state for resuming from step {}",
-                        start_from_index
-                    );
-                }
+            if let Some(saved_env) =
+                Self::load_workflow_state(args.workflow_id.as_deref(), args.url.as_deref()).await?
+            {
+                execution_context_map.insert("env".to_string(), saved_env);
+                debug!(
+                    "Loaded saved env state for resuming from step {}",
+                    start_from_index
+                );
             }
         }
 
@@ -1067,6 +1091,7 @@ impl DesktopWrapper {
         let mut critical_error_occurred = false;
         let mut used_fallback = false; // Track if any fallback was used
         let mut actually_executed_count = 0usize; // Track only steps that actually executed (not skipped)
+        let mut cancelled_by_user = false; // Track if execution was cancelled by user
         let start_time = chrono::Utc::now();
 
         let mut current_index: usize = start_from_index;
@@ -1131,10 +1156,8 @@ impl DesktopWrapper {
             // Check if the request has been cancelled
             if request_context.ct.is_cancelled() {
                 warn!("Request cancelled by user, stopping sequence execution");
-                return Err(McpError::internal_error(
-                    "Request cancelled by user",
-                    Some(json!({"code": -32001, "reason": "user_cancelled"})),
-                ));
+                cancelled_by_user = true;
+                break; // Exit loop gracefully and return partial results
             }
 
             // Get the original step from either main steps or troubleshooting steps
@@ -1387,16 +1410,15 @@ impl DesktopWrapper {
                                     );
 
                                     // Save state after storing tool result
-                                    if let Some(url) = &args.url {
-                                        Self::save_workflow_state(
-                                            url,
-                                            Some(step_id),
-                                            current_index,
-                                            env_value,
-                                        )
-                                        .await
-                                        .ok(); // Don't fail the workflow if state save fails
-                                    }
+                                    Self::save_workflow_state(
+                                        args.workflow_id.as_deref(),
+                                        args.url.as_deref(),
+                                        Some(step_id),
+                                        current_index,
+                                        env_value,
+                                    )
+                                    .await
+                                    .ok(); // Don't fail the workflow if state save fails
                                 }
                             }
                         }
@@ -1654,17 +1676,16 @@ impl DesktopWrapper {
                             }
 
                             // NEW: Save state after env update
-                            if let Some(url) = &args.url {
-                                if let Some(env_value) = execution_context_map.get("env") {
-                                    Self::save_workflow_state(
-                                        url,
-                                        original_step.and_then(|s| s.id.as_deref()),
-                                        current_index,
-                                        env_value,
-                                    )
-                                    .await
-                                    .ok(); // Don't fail the workflow if state save fails
-                                }
+                            if let Some(env_value) = execution_context_map.get("env") {
+                                Self::save_workflow_state(
+                                    args.workflow_id.as_deref(),
+                                    args.url.as_deref(),
+                                    original_step.and_then(|s| s.id.as_deref()),
+                                    current_index,
+                                    env_value,
+                                )
+                                .await
+                                .ok(); // Don't fail the workflow if state save fails
                             }
                         }
                         // Check for success using both 'status' and 'success' fields
@@ -2016,18 +2037,21 @@ impl DesktopWrapper {
 
         let total_duration = (chrono::Utc::now() - start_time).num_milliseconds();
 
-        // Determine final status - simple success or failure
-        let final_status = if !sequence_had_errors {
+        // Determine final status - simple success or failure, or cancelled
+        let final_status = if cancelled_by_user {
+            "cancelled"
+        } else if !sequence_had_errors {
             "success"
         } else {
             "failed"
         };
         info!(
-            "execute_sequence completed: status={}, executed_tools={}, total_results={}, total_duration_ms={}",
+            "execute_sequence completed: status={}, executed_tools={}, total_results={}, total_duration_ms={}, cancelled={}",
             final_status,
             actually_executed_count,
             results.len(),
-            total_duration
+            total_duration,
+            cancelled_by_user
         );
 
         let mut summary = json!({
@@ -2319,7 +2343,7 @@ impl DesktopWrapper {
 
         // Load saved state if resuming
         let restored_state = if args.start_from_step.is_some() {
-            Self::load_workflow_state(url).await?
+            Self::load_workflow_state(args.workflow_id.as_deref(), Some(url)).await?
         } else {
             None
         };
@@ -2341,8 +2365,14 @@ impl DesktopWrapper {
         if let (Some(ref last_step_id), Some(last_step_index)) =
             (&result.result.last_step_id, result.result.last_step_index)
         {
-            Self::save_workflow_state(url, Some(last_step_id), last_step_index, &result.state)
-                .await?;
+            Self::save_workflow_state(
+                args.workflow_id.as_deref(),
+                Some(url),
+                Some(last_step_id),
+                last_step_index,
+                &result.state,
+            )
+            .await?;
         }
 
         // Return result

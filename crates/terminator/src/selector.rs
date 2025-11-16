@@ -27,6 +27,8 @@ pub enum Selector {
     Visible(bool),
     /// Select by localized role
     LocalizedRole(String),
+    /// Select by process name (e.g., "chrome", "notepad", "chrome.exe")
+    Process(String),
     /// Select elements to the right of an anchor element
     RightOf(Box<Selector>),
     /// Select elements to the left of an anchor element
@@ -384,6 +386,15 @@ fn parse_atomic_selector(s: &str) -> Selector {
             let value = s[8..].trim().to_lowercase();
             Selector::Visible(value == "true")
         }
+        _ if s.to_lowercase().starts_with("process:") || s.to_lowercase().starts_with("processname:") => {
+            let prefix_len = if s.to_lowercase().starts_with("process:") {
+                "process:".len()
+            } else {
+                "processname:".len()
+            };
+            let process_name = s[prefix_len..].trim().to_string();
+            Selector::Process(process_name)
+        }
         _ if s.to_lowercase().starts_with("attr:") => {
             let attr_part = &s["attr:".len()..];
             let mut attributes = BTreeMap::new();
@@ -449,7 +460,7 @@ fn parse_atomic_selector(s: &str) -> Selector {
         _ if s.starts_with('/') => Selector::Path(s.to_string()),
         ".." => Selector::Parent,
         _ => Selector::Invalid(format!(
-            "Unknown selector format: \"{s}\". Use prefixes like 'role:', 'name:', 'id:', 'text:', 'nativeid:', 'classname:', 'attr:', 'visible:', or 'has:' to specify the selector type."
+            "Unknown selector format: \"{s}\". Use prefixes like 'role:', 'name:', 'id:', 'text:', 'nativeid:', 'classname:', 'process:', 'attr:', 'visible:', or 'has:' to specify the selector type."
         )),
     }
 }
@@ -566,6 +577,89 @@ mod debug_selector_test {
 
         let selector = Selector::from(input);
         println!("Parsed result: {selector:?}");
+    }
+
+    #[test]
+    fn test_process_selector_simple() {
+        let input = "process:chrome";
+        println!("Testing selector: {input}");
+
+        let selector = Selector::from(input);
+        println!("Parsed result: {selector:?}");
+
+        match &selector {
+            Selector::Process(name) => {
+                println!("Got Process selector with name: {name}");
+                assert_eq!(name, "chrome");
+            }
+            other => {
+                panic!("Expected Process selector, got: {other:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_process_selector_with_extension() {
+        let input = "processname:notepad.exe";
+        println!("Testing selector: {input}");
+
+        let selector = Selector::from(input);
+        println!("Parsed result: {selector:?}");
+
+        match &selector {
+            Selector::Process(name) => {
+                println!("Got Process selector with name: {name}");
+                assert_eq!(name, "notepad.exe");
+            }
+            other => {
+                panic!("Expected Process selector, got: {other:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_process_selector_chain() {
+        let input = "process:chrome >> role:Button|name:Submit";
+        println!("Testing selector: {input}");
+
+        let selector = Selector::from(input);
+        println!("Parsed result: {selector:?}");
+
+        match &selector {
+            Selector::Chain(parts) => {
+                println!("Got Chain with {} parts:", parts.len());
+                assert_eq!(parts.len(), 2);
+
+                match &parts[0] {
+                    Selector::Process(name) => {
+                        assert_eq!(name, "chrome");
+                    }
+                    other => panic!("Expected first part to be Process, got: {other:?}"),
+                }
+            }
+            other => {
+                panic!("Expected Chain selector, got: {other:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_process_selector_with_and() {
+        let input = "process:chrome && role:Button";
+        println!("Testing selector: {input}");
+
+        let selector = Selector::from(input);
+        println!("Parsed result: {selector:?}");
+
+        match &selector {
+            Selector::And(parts) => {
+                println!("Got And with {} parts:", parts.len());
+                assert_eq!(parts.len(), 2);
+            }
+            other => {
+                panic!("Expected And selector, got: {other:?}");
+            }
+        }
     }
 } // Debug test to understand tokenization issue
 

@@ -474,7 +474,7 @@ impl DesktopWrapper {
     }
 
     #[tool(
-        description = "Get the complete UI tree for an application by PID and optional window title. Returns detailed element information (role, name, id, enabled state, bounds, children). This is your primary tool for understanding the application's current state. Supports tree optimization: tree_max_depth: 30` to limit tree depth when you only need shallow inspection, tree_from_selector to get subtrees starting from a specific element, include_detailed_attributes to control verbosity (defaults to true). This is a read-only operation."
+        description = "Get the complete UI tree for an application by process name (using process: selector) or PID, and optional window title. Returns detailed element information (role, name, id, enabled state, bounds, children). This is your primary tool for understanding the application's current state. PREFER using process name selector (e.g., tree_from_selector: 'process:chrome') over PID for better portability across machines. Supports tree optimization: tree_max_depth: 30` to limit tree depth when you only need shallow inspection, tree_from_selector to get subtrees starting from a specific element, include_detailed_attributes to control verbosity (defaults to true). This is a read-only operation."
     )]
     pub async fn get_window_tree(
         &self,
@@ -3514,7 +3514,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "app_name": args.app_name,
             "application": element_info,
             "timestamp": chrono::Utc::now().to_rfc3339(),
-            "recommendation": "Application opened successfully. Use get_window_tree with the PID to get the full UI structure for reliable element targeting."
+            "recommendation": "Application opened successfully. Use get_window_tree with tree_from_selector using the process name (e.g., 'process:chrome') to get the full UI structure for reliable element targeting."
         });
 
         // Always attach the full UI tree for newly opened applications
@@ -4810,9 +4810,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             }
         }
 
-        // Capture screenshot using either PID or selector
+        // Capture screenshot using either process name selector, PID, or other selector
         let ((screenshot_result, element), successful_selector) = if let Some(pid) = args.pid {
-            // PID-based capture
+            // PID-based capture (DEPRECATED: prefer using process: selector for portability)
             let apps = self.desktop.applications().map_err(|e| {
                 McpError::resource_not_found(
                     "Failed to get applications",
@@ -4825,7 +4825,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 .find(|a| a.process_id().unwrap_or(0) == pid)
                 .ok_or_else(|| {
                     McpError::resource_not_found(
-                        format!("No window found for PID {pid}"),
+                        format!("No window found for PID {pid}. Consider using 'process:name' selector instead for better portability."),
                         Some(json!({"pid": pid, "available_pids": apps.iter().map(|a| a.process_id().unwrap_or(0)).collect::<Vec<_>>()})),
                     )
                 })?;
@@ -4862,7 +4862,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         } else {
             // Neither PID nor selector provided
             return Err(McpError::invalid_params(
-                "Either 'pid' or 'selector' parameter must be provided",
+                "Either 'selector' (e.g., 'process:chrome') or 'pid' parameter must be provided. Prefer process name selector for portability.",
                 None,
             ));
         };
