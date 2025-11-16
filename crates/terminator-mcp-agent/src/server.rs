@@ -1313,6 +1313,8 @@ impl DesktopWrapper {
 
         let text_to_type = args.text_to_type.clone();
         let should_clear = args.clear_before_typing;
+        let try_focus_before = args.try_focus_before;
+        let try_click_before = args.try_click_before;
 
         let action = {
             let highlight_config = args.highlight.highlight_before_action.clone();
@@ -1336,7 +1338,7 @@ impl DesktopWrapper {
                             );
                         }
                     }
-                    element.type_text_with_state(&text_to_type, true)
+                    element.type_text_with_state_and_focus(&text_to_type, true, try_focus_before, try_click_before)
                 }
             }
         };
@@ -1832,6 +1834,8 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
         }
 
         let key_to_press = args.key.clone();
+        let try_focus_before = args.try_focus_before;
+        let try_click_before = args.try_click_before;
         let action = {
             let highlight_config = args.highlight.highlight_before_action.clone();
             move |element: UIElement| {
@@ -1846,7 +1850,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
                     );
 
                     // Execute the key press action with state tracking
-                    element.press_key_with_state(&key_to_press)
+                    element.press_key_with_state_and_focus(&key_to_press, try_focus_before, try_click_before)
                 }
             }
         };
@@ -3697,7 +3701,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                         "condition": args.condition,
                         "condition_met": true,
                         "selector": args.selector.selector,
-                        "timeout_ms": args.action.timeout_ms.unwrap_or(5000),
+                        "timeout_ms": timeout.unwrap_or(std::time::Duration::from_millis(5000)).as_millis(),
                         "timestamp": chrono::Utc::now().to_rfc3339()
                     });
 
@@ -3742,7 +3746,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                         Some(json!({
                             "selector": args.selector.selector,
                             "condition": args.condition,
-                            "timeout_ms": args.action.timeout_ms.unwrap_or(5000),
+                            "timeout_ms": timeout.unwrap_or(std::time::Duration::from_millis(5000)).as_millis(),
                             "error": e.to_string()
                         })),
                     ));
@@ -3778,7 +3782,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     Some(json!({
                         "selector": args.selector.selector,
                         "condition": args.condition,
-                        "timeout_ms": args.action.timeout_ms.unwrap_or(5000),
+                        "timeout_ms": timeout_duration.as_millis(),
                         "elapsed_ms": start_time.elapsed().as_millis()
                     })),
                 ));
@@ -3849,7 +3853,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                             "condition": args.condition,
                             "condition_met": true,
                             "selector": args.selector.selector,
-                            "timeout_ms": args.action.timeout_ms.unwrap_or(5000),
+                            "timeout_ms": timeout_duration.as_millis(),
                             "elapsed_ms": start_time.elapsed().as_millis(),
                             "timestamp": chrono::Utc::now().to_rfc3339()
                         });
