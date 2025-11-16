@@ -2522,39 +2522,71 @@ impl AccessibilityEngine for WindowsEngine {
         let verb_hstring = HSTRING::from("open");
         let verb_pcwstr = PCWSTR(verb_hstring.as_ptr());
 
-        let hinstance = if let Some(exe_name) = browser_exe {
-            // Open with a specific browser
-            let exe_hstring = HSTRING::from(exe_name);
-            unsafe {
-                ShellExecuteW(
-                    None,
-                    verb_pcwstr,
-                    PCWSTR(exe_hstring.as_ptr()),
-                    PCWSTR(url_hstring.as_ptr()),
-                    PCWSTR::null(),
-                    SW_SHOWNORMAL,
-                )
+        // Check for environment variable to load extension, for CI environments
+        let extension_path = std::env::var("TERMINATOR_CHROME_EXTENSION_PATH").ok();
+
+        let mut use_command = false;
+        if let Some(ref browser) = inferred_browser {
+            if let crate::Browser::Chrome = browser {
+                if extension_path.is_some() {
+                    use_command = true;
+                }
+            }
+        }
+
+        if use_command {
+            let exe_name = browser_exe.unwrap_or_else(|| "chrome.exe".to_string());
+            let ext_path = extension_path.unwrap();
+            info!(
+                "Launching Chrome with --load-extension='{}'",
+                ext_path
+            );
+
+            let mut command = std::process::Command::new(&exe_name);
+            command.arg(format!("--load-extension={}", ext_path));
+            command.arg(url);
+
+            if let Err(e) = command.spawn() {
+                return Err(AutomationError::PlatformError(format!(
+                    "Failed to launch browser with extension: {e}"
+                )));
             }
         } else {
-            // Open with default browser
-            unsafe {
-                ShellExecuteW(
-                    None,
-                    verb_pcwstr,
-                    PCWSTR(url_hstring.as_ptr()),
-                    PCWSTR::null(),
-                    PCWSTR::null(),
-                    SW_SHOWNORMAL,
-                )
-            }
-        };
+            // Original ShellExecuteW logic
+            let hinstance = if let Some(exe_name) = browser_exe {
+                // Open with a specific browser
+                let exe_hstring = HSTRING::from(exe_name);
+                unsafe {
+                    ShellExecuteW(
+                        None,
+                        verb_pcwstr,
+                        PCWSTR(exe_hstring.as_ptr()),
+                        PCWSTR(url_hstring.as_ptr()),
+                        PCWSTR::null(),
+                        SW_SHOWNORMAL,
+                    )
+                }
+            } else {
+                // Open with default browser
+                unsafe {
+                    ShellExecuteW(
+                        None,
+                        verb_pcwstr,
+                        PCWSTR(url_hstring.as_ptr()),
+                        PCWSTR::null(),
+                        PCWSTR::null(),
+                        SW_SHOWNORMAL,
+                    )
+                }
+            };
 
-        // HINSTANCE returned by ShellExecuteW is not a real HRESULT, but a value > 32 on success.
-        if hinstance.0 as i32 <= 32 {
-            return Err(AutomationError::PlatformError(format!(
-                "Failed to open URL. ShellExecuteW returned error code: {:?}",
-                hinstance.0 as i32
-            )));
+            // HINSTANCE returned by ShellExecuteW is not a real HRESULT, but a value > 32 on success.
+            if hinstance.0 as i32 <= 32 {
+                return Err(AutomationError::PlatformError(format!(
+                    "Failed to open URL. ShellExecuteW returned error code: {:?}",
+                    hinstance.0 as i32
+                )));
+            }
         }
 
         // Enhanced polling for browser window with better reliability

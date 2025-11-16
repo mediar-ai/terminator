@@ -18,6 +18,7 @@ env:
   OTEL_SKIP_COLLECTOR_CHECK: true
   # Reduce retry time for telemetry in CI
   OTEL_RETRY_DURATION_MINS: 0
+  TERMINATOR_CHROME_EXTENSION_PATH: crates/terminator/browser-extension
 
 jobs:
   test:
