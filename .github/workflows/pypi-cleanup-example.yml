@@ -70,6 +70,24 @@ jobs:
         shell: pwsh
         timeout-minutes: 15
         continue-on-error: true
+      - name: Capture desktop screenshot on failure
+        if: failure()
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type -AssemblyName System.Drawing
+          $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+          $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+          $gfx = [System.Drawing.Graphics]::FromImage($bmp)
+          $gfx.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+          $path = "$env:RUNNER_TEMP\desktop.png"
+          $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
+          Write-Host "Saved screenshot to $path"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: desktop-screenshot
+          path: ${{ runner.temp }}\desktop.png
 
       - run: npm ci
         working-directory: examples/pypi_cleanup_workflow
