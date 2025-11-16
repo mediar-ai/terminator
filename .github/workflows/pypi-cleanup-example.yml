@@ -9,7 +9,7 @@ env:
   CARGO_INCREMENTAL: 0
   CARGO_PROFILE_DEV_DEBUG: 1
   CARGO_NET_GIT_FETCH_WITH_CLI: true
-  TERMINATOR_SKIP_NPM_INSTALL: 1
+  TERMINATOR_SKIP_NPM_INSTALL: 0
   OTEL_SKIP_COLLECTOR_CHECK: true
   OTEL_RETRY_DURATION_MINS: 0
 
@@ -40,6 +40,17 @@ jobs:
         with:
           toolchain: stable
           override: true
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install Node bindings deps
+        shell: pwsh
+        working-directory: packages/terminator-nodejs
+        run: bun install --ignore-scripts || true
+      - name: Build Node.js bindings
+        shell: pwsh
+        working-directory: packages/terminator-nodejs
+        run: bun run build
 
       - name: Install extension via terminator workflow
         run: |
