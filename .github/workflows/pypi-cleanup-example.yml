@@ -69,7 +69,6 @@ jobs:
           cargo run --bin terminator -- mcp run crates/terminator/browser-extension/install_chrome_extension_ui.yml
         shell: pwsh
         timeout-minutes: 15
-        continue-on-error: true
       - name: Capture desktop screenshot on failure
         if: failure()
         shell: pwsh
