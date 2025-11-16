@@ -38,6 +38,14 @@ jobs:
           if (-not (Test-Path $chromePath)) {
             Write-Error "Chrome is not installed"
           }
+      - name: Prime Chrome profile (skip first-run UI)
+        shell: pwsh
+        run: |
+          $chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+          if (-not (Test-Path $chrome)) { $chrome = "chrome.exe" }
+          Start-Process $chrome "--no-first-run --no-default-browser-check --disable-search-engine-choice-screen --disable-fre" 
+          Start-Sleep -Seconds 10
+          Get-Process chrome -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
       - name: Set up Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
