@@ -27,8 +27,7 @@ const workflowOrBuilder = createWorkflow({
   version: "1.0.0",
   input: inputSchema,
 
-  // Temporarily stop after login for debugging
-  steps: [fetchOldestRelease, loginToPyPI],
+  steps: [fetchOldestRelease, loginToPyPI, navigateToRelease, deleteRelease],
 });
 
 const workflow =

@@ -52,6 +52,10 @@ export const loginToPyPI = createStep({
         await desktop.delay(4000);
       }
 
+      // Pause to allow manual device/email approval if required
+      logger.info("⏳ Waiting 2 minutes to allow manual login approval if needed...");
+      await desktop.delay(120000);
+
       // Basic success check (account menu or username on page)
       const successCheck =
         (await desktop
