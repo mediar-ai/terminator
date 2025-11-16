@@ -2536,14 +2536,27 @@ impl AccessibilityEngine for WindowsEngine {
 
         if use_command {
             let exe_name = browser_exe.unwrap_or_else(|| "chrome.exe".to_string());
-            let ext_path = extension_path.unwrap();
+            let ext_path_relative = extension_path.unwrap();
+
+            // Convert to absolute path as --load-extension requires it
+            let ext_path_abs = match std::fs::canonicalize(&ext_path_relative) {
+                Ok(path) => path.to_string_lossy().to_string(),
+                Err(e) => {
+                    warn!(
+                        "Failed to get absolute path for extension '{}': {}. Using relative path.",
+                        ext_path_relative, e
+                    );
+                    ext_path_relative
+                }
+            };
+
             info!(
                 "Launching Chrome with --load-extension='{}'",
-                ext_path
+                ext_path_abs
             );
 
             let mut command = std::process::Command::new(&exe_name);
-            command.arg(format!("--load-extension={}", ext_path));
+            command.arg(format!("--load-extension={}", ext_path_abs));
             command.arg(url);
 
             if let Err(e) = command.spawn() {
