@@ -16,7 +16,13 @@ export const deleteRelease = createStep({
         throw new Error("Missing release version from previous steps");
       }
 
-      const checkboxes = await desktop.locator("role:CheckBox").all(5000);
+      // Scroll to bottom to make sure controls exist
+      for (let i = 0; i < 8; i++) {
+        await desktop.pressKey("End");
+        await desktop.delay(200);
+      }
+
+      const checkboxes = await desktop.locator("role:CheckBox").all(8000);
       if (checkboxes.length === 0) {
         throw new Error("No delete checkboxes found on the page");
       }
@@ -27,22 +33,28 @@ export const deleteRelease = createStep({
       }
 
       const deleteButton = await desktop
-        .locator("role:Link|name:Delete||role:Button|name:Delete")
-        .first(5000);
+        .locator(
+          "role:Button|name:Delete release||role:Link|name:Delete release||role:Button|name:Delete||role:Link|name:Delete"
+        )
+        .first(10000);
       await deleteButton.click();
 
       const confirmInput = await desktop
-        .locator("role:Edit||name:Confirm version||name:Confirm delete")
-        .first(5000);
+        .locator(
+          "role:Edit|name:Confirm||role:Edit|name:Confirm delete||role:Edit|name:Confirm version"
+        )
+        .first(8000);
       await confirmInput.click();
-      await confirmInput.typeText(version, { clear: true });
+      await desktop.pressKey("Ctrl+A");
+      // PyPI typically requires the project name to confirm deletion
+      await confirmInput.typeText(packageName);
 
       const confirmButton = await desktop
-        .locator("role:Button|name:Delete||name:Confirm")
-        .first(5000);
+        .locator("role:Button|name:Delete release||role:Button|name:Delete")
+        .first(8000);
       await confirmButton.click();
 
-      await desktop.delay(4000);
+      await desktop.delay(5000);
 
       const currentUrl = await desktop.getCurrentUrl();
       if (

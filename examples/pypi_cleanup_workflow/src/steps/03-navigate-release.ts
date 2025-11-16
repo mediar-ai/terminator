@@ -16,12 +16,19 @@ export const navigateToRelease = createStep({
     try {
       const releaseManageUrl = `https://pypi.org/manage/project/${packageName}/release/${version}/`;
       await desktop.navigateBrowser(releaseManageUrl, "Chrome");
-      await desktop.delay(3000);
+      await desktop.delay(4000);
+
+      const urlCheck = await desktop.getCurrentUrl();
+      if (!urlCheck.startsWith(releaseManageUrl)) {
+        throw new Error(
+          `Unexpected URL after navigation: ${urlCheck} (expected ${releaseManageUrl})`
+        );
+      }
 
       // Scroll to bottom to ensure delete controls are in view
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < 6; i++) {
         await desktop.pressKey("End");
-        await desktop.delay(400);
+        await desktop.delay(300);
       }
 
       const deleteCheckboxes = await desktop.locator("role:CheckBox").all(5000);

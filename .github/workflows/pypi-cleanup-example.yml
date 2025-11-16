@@ -9,14 +9,6 @@ on:
     types:
       - published
 
-env:
-  CARGO_INCREMENTAL: 0
-  CARGO_PROFILE_DEV_DEBUG: 1
-  CARGO_NET_GIT_FETCH_WITH_CLI: true
-  TERMINATOR_SKIP_NPM_INSTALL: 0
-  OTEL_SKIP_COLLECTOR_CHECK: true
-  OTEL_RETRY_DURATION_MINS: 0
-
 jobs:
   cleanup:
     runs-on: windows-latest
@@ -38,39 +30,12 @@ jobs:
           if (-not (Test-Path $chromePath)) {
             Write-Error "Chrome is not installed"
           }
-      - name: Disable Chrome sign-in prompt
-        shell: pwsh
-        run: |
-          New-Item -Path "HKLM:\SOFTWARE\Policies\Google\Chrome" -Force | Out-Null
-          New-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Google\Chrome" -Name "BrowserSignin" -PropertyType DWord -Value 0 -Force | Out-Null
-          New-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Google\Chrome" -Name "SyncDisabled" -PropertyType DWord -Value 1 -Force | Out-Null
-      - name: Prime Chrome profile (skip first-run UI)
-        shell: pwsh
-        run: |
-          $chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-          if (-not (Test-Path $chrome)) { $chrome = "chrome.exe" }
-          Start-Process $chrome "--no-first-run --no-default-browser-check --disable-search-engine-choice-screen --disable-fre" 
-          Start-Sleep -Seconds 10
-          Get-Process chrome -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-
-      - name: Install ffmpeg
-        shell: pwsh
-        run: choco install ffmpeg -y --ignore-checksums
 
       - run: npm ci
         working-directory: examples/pypi_cleanup_workflow
 
       - run: npm run build
         working-directory: examples/pypi_cleanup_workflow
-
-      - name: Start screen recording
-        shell: pwsh
-        run: |
-          $out = Join-Path $env:RUNNER_TEMP "run-recording.mp4"
-          $ffmpegArgs = "-y -f gdigrab -framerate 5 -i desktop -vcodec libx264 -pix_fmt yuv420p `"$out`""
-          $proc = Start-Process ffmpeg -ArgumentList $ffmpegArgs -WindowStyle Hidden -PassThru
-          "FFMPEG_PID=$($proc.Id)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "FFMPEG_OUT=$out" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - run: npm run run
         working-directory: examples/pypi_cleanup_workflow
@@ -80,17 +45,21 @@ jobs:
           PYPI_UI_TOTP_SECRET: ${{ secrets.PYPI_UI_TOTP_SECRET }}
           PACKAGE_NAME: ${{ secrets.PACKAGE_NAME }}
 
-      - name: Stop screen recording and upload
+      - name: Capture final desktop screenshot
         if: always()
         shell: pwsh
         run: |
-          if ($env:FFMPEG_PID) {
-            Stop-Process -Id $env:FFMPEG_PID -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds 2
-          }
-        # upload video even if the run failed
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type -AssemblyName System.Drawing
+          $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+          $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+          $gfx = [System.Drawing.Graphics]::FromImage($bmp)
+          $gfx.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+          $path = "$env:RUNNER_TEMP\desktop.png"
+          $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
+          Write-Host "Saved screenshot to $path"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: run-recording
-          path: ${{ env.FFMPEG_OUT }}
+          name: desktop-screenshot
+          path: ${{ runner.temp }}\desktop.png
