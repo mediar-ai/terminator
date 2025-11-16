@@ -21,10 +21,6 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install ffmpeg (for screen recording)
-        shell: pwsh
-        run: choco install ffmpeg -y --ignore-checksums
-
       - name: Install Google Chrome
         shell: pwsh
         run: |
@@ -57,15 +53,6 @@ jobs:
       - run: npm run build
         working-directory: examples/pypi_cleanup_workflow
 
-      - name: Start screen recording
-        shell: pwsh
-        run: |
-          $out = Join-Path $env:RUNNER_TEMP "run-recording.mp4"
-          $args = "-y -f gdigrab -framerate 10 -i desktop -vcodec libx264 -pix_fmt yuv420p -preset ultrafast `"$out`""
-          $proc = Start-Process ffmpeg -ArgumentList $args -WindowStyle Hidden -PassThru
-          "FFMPEG_PID=$($proc.Id)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "FFMPEG_OUT=$out" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
       - run: npm run run
         working-directory: examples/pypi_cleanup_workflow
         env:
@@ -73,15 +60,6 @@ jobs:
           PYPI_UI_PASSWORD: ${{ secrets.PYPI_UI_PASSWORD }}
           PYPI_UI_TOTP_SECRET: ${{ secrets.PYPI_UI_TOTP_SECRET }}
           PACKAGE_NAME: ${{ secrets.PACKAGE_NAME }}
-
-      - name: Stop screen recording
-        if: always()
-        shell: pwsh
-        run: |
-          if ($env:FFMPEG_PID) {
-            Stop-Process -Id $env:FFMPEG_PID -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds 2
-          }
 
       - name: Capture final desktop screenshot
         if: always()
@@ -96,13 +74,9 @@ jobs:
           $path = "$env:RUNNER_TEMP\desktop.png"
           $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
           Write-Host "Saved screenshot to $path"
+          
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: desktop-screenshot
           path: ${{ runner.temp }}\desktop.png
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: run-recording
-          path: ${{ env.FFMPEG_OUT }}
