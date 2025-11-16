@@ -16,13 +16,16 @@ export const navigateToRelease = createStep({
     try {
       const releaseManageUrl = `https://pypi.org/manage/project/${packageName}/release/${version}/`;
       await desktop.navigateBrowser(releaseManageUrl, "Chrome");
-      await desktop.delay(2000);
+      await desktop.delay(3000);
 
-      const deleteElementsFound = (await desktop.executeBrowserScript(() => {
-        return document.querySelectorAll(
-          'input[type="checkbox"][data-action="input->delete-confirm#check"][data-delete-confirm-target="input"]'
-        ).length;
-      })) as number;
+      // Scroll to bottom to ensure delete controls are in view
+      for (let i = 0; i < 4; i++) {
+        await desktop.pressKey("End");
+        await desktop.delay(400);
+      }
+
+      const deleteCheckboxes = await desktop.locator("role:CheckBox").all(5000);
+      const deleteElementsFound = deleteCheckboxes.length;
 
       if (deleteElementsFound === 0) {
         throw new Error(
@@ -30,15 +33,13 @@ export const navigateToRelease = createStep({
         );
       }
 
-      context.data.deleteElementsFound = deleteElementsFound;
-
       return {
-        success: true,
         data: {
           navigated: true,
           releaseUrl: releaseManageUrl,
           deleteElementsFound,
         },
+        state: { deleteElementsFound },
       };
     } catch (error: any) {
       logger.error(`❌ Navigation failed: ${error.message}`);

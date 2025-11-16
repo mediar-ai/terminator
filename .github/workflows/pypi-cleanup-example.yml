@@ -53,54 +53,6 @@ jobs:
           Start-Sleep -Seconds 10
           Get-Process chrome -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
-      - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: stable
-          override: true
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - name: Install Node bindings deps
-        shell: pwsh
-        working-directory: packages/terminator-nodejs
-        run: bun install --ignore-scripts || true
-      - name: Build Node.js bindings
-        shell: pwsh
-        working-directory: packages/terminator-nodejs
-        run: bun run build
-
-      - name: Install extension via terminator workflow
-        run: |
-          cargo run --bin terminator -- mcp run crates/terminator/browser-extension/install_chrome_extension_ui.yml
-        shell: pwsh
-        timeout-minutes: 15
-      - name: Keep Chrome session alive
-        shell: pwsh
-        run: |
-          $chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-          if (-not (Test-Path $chrome)) { $chrome = "chrome.exe" }
-          Start-Process $chrome "chrome://extensions --no-first-run --no-default-browser-check --disable-search-engine-choice-screen --disable-fre"
-          Start-Sleep -Seconds 10
-      - name: Capture desktop screenshot on failure
-        if: failure()
-        shell: pwsh
-        run: |
-          Add-Type -AssemblyName System.Windows.Forms
-          Add-Type -AssemblyName System.Drawing
-          $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
-          $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
-          $gfx = [System.Drawing.Graphics]::FromImage($bmp)
-          $gfx.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
-          $path = "$env:RUNNER_TEMP\desktop.png"
-          $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
-          Write-Host "Saved screenshot to $path"
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: desktop-screenshot
-          path: ${{ runner.temp }}\desktop.png
-
       - run: npm ci
         working-directory: examples/pypi_cleanup_workflow
 

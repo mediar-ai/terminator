@@ -12,73 +12,50 @@ export const deleteRelease = createStep({
     logger.info(`🗑️ Deleting release ${packageName} v${version}`);
 
     try {
-      const result = (await desktop.executeBrowserScript(
-        ({
-          version: versionToDelete,
-        }: {
-          version: string;
-        }) => {
-          const deleteCheckboxes = Array.from(
-            document.querySelectorAll<HTMLInputElement>(
-              'input[type="checkbox"][data-action="input->delete-confirm#check"][data-delete-confirm-target="input"]'
-            )
-          );
+      if (!version) {
+        throw new Error("Missing release version from previous steps");
+      }
 
-          if (deleteCheckboxes.length === 0) {
-            throw new Error("No delete checkboxes found on the page");
-          }
+      const checkboxes = await desktop.locator("role:CheckBox").all(5000);
+      if (checkboxes.length === 0) {
+        throw new Error("No delete checkboxes found on the page");
+      }
 
-          deleteCheckboxes.forEach((checkbox) => {
-            if (!checkbox.checked) {
-              checkbox.click();
-            }
-          });
+      for (const cb of checkboxes) {
+        await cb.click();
+        await desktop.delay(200);
+      }
 
-          const deleteButton = document.querySelector<HTMLAnchorElement>(
-            'a.button.button--danger[data-delete-confirm-target="button"]'
-          );
-          if (!deleteButton) {
-            throw new Error("Delete button not found");
-          }
-          deleteButton.click();
+      const deleteButton = await desktop
+        .locator("role:Link|name:Delete||role:Button|name:Delete")
+        .first(5000);
+      await deleteButton.click();
 
-          const confirmInput = document.querySelector<HTMLInputElement>(
-            "#delete_version-modal-confirm_delete_version"
-          );
-          const confirmButton = document.querySelector<HTMLButtonElement>(
-            `#delete_version-modal button.js-confirm[data-expected="${versionToDelete}"]`
-          );
+      const confirmInput = await desktop
+        .locator("role:Edit||name:Confirm version||name:Confirm delete")
+        .first(5000);
+      await confirmInput.click();
+      await confirmInput.typeText(version, { clear: true });
 
-          if (!confirmInput || !confirmButton) {
-            throw new Error("Delete confirmation modal not found");
-          }
+      const confirmButton = await desktop
+        .locator("role:Button|name:Delete||name:Confirm")
+        .first(5000);
+      await confirmButton.click();
 
-          confirmInput.focus();
-          confirmInput.value = versionToDelete;
-          confirmInput.dispatchEvent(new Event("input", { bubbles: true }));
-          confirmButton.click();
+      await desktop.delay(4000);
 
-          return { checkboxCount: deleteCheckboxes.length };
-        },
-        { version }
-      )) as { checkboxCount: number };
-
-      await desktop.delay(3000);
-
-      const currentUrl = await desktop.executeBrowserScript(() => {
-        return window.location.href;
-      });
+      const currentUrl = await desktop.getCurrentUrl();
       if (
         currentUrl == `https://pypi.org/manage/project/${packageName}/releases/`
       ) {
         logger.success(`✅ Successfully deleted release ${version}`);
 
         return {
+          deletedCheckboxes: checkboxes.length,
           deleted: true,
           version,
           packageName,
           redirectUrl: currentUrl,
-          deletedCheckboxes: result.checkboxCount,
         };
       }
 
@@ -86,12 +63,12 @@ export const deleteRelease = createStep({
         `⚠️ Delete completion suspected - unexpected URL: ${currentUrl}`
       );
       return {
+        deletedCheckboxes: checkboxes.length,
         deleted: true,
         version,
         packageName,
         redirectUrl: currentUrl,
         warning: "Unexpected redirect URL",
-        deletedCheckboxes: result.checkboxCount,
       };
     } catch (error: any) {
       logger.error(`❌ Delete operation failed: ${error.message}`);
