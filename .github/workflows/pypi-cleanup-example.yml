@@ -31,6 +31,22 @@ jobs:
             Write-Error "Chrome is not installed"
           }
 
+      - name: Disable Chrome sign-in prompt
+        shell: pwsh
+        run: |
+          New-Item -Path "HKLM:\SOFTWARE\Policies\Google\Chrome" -Force | Out-Null
+          New-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Google\Chrome" -Name "BrowserSignin" -PropertyType DWord -Value 0 -Force | Out-Null
+          New-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Google\Chrome" -Name "SyncDisabled" -PropertyType DWord -Value 1 -Force | Out-Null
+
+      - name: Prime Chrome profile (skip first-run UI)
+        shell: pwsh
+        run: |
+          $chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+          if (-not (Test-Path $chrome)) { $chrome = "chrome.exe" }
+          Start-Process $chrome "--no-first-run --no-default-browser-check --disable-search-engine-choice-screen --disable-fre" 
+          Start-Sleep -Seconds 10
+          Get-Process chrome -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
       - run: npm ci
         working-directory: examples/pypi_cleanup_workflow
 
