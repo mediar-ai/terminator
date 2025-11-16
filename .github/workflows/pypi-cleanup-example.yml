@@ -53,11 +53,24 @@ jobs:
           Start-Sleep -Seconds 10
           Get-Process chrome -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
+      - name: Install ffmpeg
+        shell: pwsh
+        run: choco install ffmpeg -y --ignore-checksums
+
       - run: npm ci
         working-directory: examples/pypi_cleanup_workflow
 
       - run: npm run build
         working-directory: examples/pypi_cleanup_workflow
+
+      - name: Start screen recording
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP "run-recording.mp4"
+          $ffmpegArgs = "-y -f gdigrab -framerate 5 -i desktop -vcodec libx264 -pix_fmt yuv420p `"$out`""
+          $proc = Start-Process ffmpeg -ArgumentList $ffmpegArgs -WindowStyle Hidden -PassThru
+          "FFMPEG_PID=$($proc.Id)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "FFMPEG_OUT=$out" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - run: npm run run
         working-directory: examples/pypi_cleanup_workflow
@@ -66,3 +79,18 @@ jobs:
           PYPI_UI_PASSWORD: ${{ secrets.PYPI_UI_PASSWORD }}
           PYPI_UI_TOTP_SECRET: ${{ secrets.PYPI_UI_TOTP_SECRET }}
           PACKAGE_NAME: ${{ secrets.PACKAGE_NAME }}
+
+      - name: Stop screen recording and upload
+        if: always()
+        shell: pwsh
+        run: |
+          if ($env:FFMPEG_PID) {
+            Stop-Process -Id $env:FFMPEG_PID -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+          }
+        # upload video even if the run failed
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: run-recording
+          path: ${{ env.FFMPEG_OUT }}

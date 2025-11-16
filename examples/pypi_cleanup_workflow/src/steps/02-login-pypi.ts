@@ -21,11 +21,13 @@ export const loginToPyPI = createStep({
         .locator("role:Edit|name:Username||name:Email")
         .first(10000);
       await usernameField.click();
-      await usernameField.typeText(input.username, { clear: true });
+      await desktop.pressKey("Ctrl+A");
+      await usernameField.typeText(input.username);
 
       const passwordField = await desktop.locator("role:Edit|name:Password").first(10000);
       await passwordField.click();
-      await passwordField.typeText(input.password, { clear: true });
+      await desktop.pressKey("Ctrl+A");
+      await passwordField.typeText(input.password);
 
       const loginButton = await desktop.locator("role:Button|name:Log in").first(5000);
       await loginButton.click();
@@ -44,7 +46,8 @@ export const loginToPyPI = createStep({
         const code = authenticator.generate(input.totpSecret);
         const totpField = totpFieldResult.element!;
         await totpField.click();
-        await totpField.typeText(code, { clear: true });
+        await desktop.pressKey("Ctrl+A");
+        await totpField.typeText(code);
         const verifyButton = await desktop
           .locator("role:Button|name:Verify||name:Continue")
           .first(5000);
