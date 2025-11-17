@@ -494,49 +494,33 @@ impl From<&str> for Selector {
             }
         }
 
-        // Check if this is a prefixed selector (text:, name:, id:, role:, etc.)
-        // These should be parsed as atomic selectors even if they contain special characters
-        let known_prefixes = [
-            "text:",
-            "name:",
-            "id:",
-            "role:",
-            "nativeid:",
-            "classname:",
-            "process:",
-            "attr:",
-            "visible:",
-            "has:",
-            "nth:",
-        ];
-        let is_prefixed_selector = known_prefixes.iter().any(|prefix| s.starts_with(prefix));
+        // Check if this contains boolean operators (&&, ||, !, parentheses, or comma for OR)
+        let has_boolean_ops = s.contains("&&")
+            || s.contains("||")
+            || s.contains('(')
+            || s.contains(')')
+            || s.contains('!')
+            || (s.contains(',') && !s.starts_with("attr:")); // comma is OR unless in attr: context
 
-        // Also check for # (id) and \ (path) shortcuts
-        let is_atomic_shortcut = s.starts_with('#') || s.starts_with('\\');
+        if has_boolean_ops {
+            // Check if this is ONLY a text: selector with special characters (not a boolean expression)
+            // text: is special because the value after the colon can legitimately contain these characters
+            if s.starts_with("text:") && !s[5..].contains("text:") {
+                // This is a simple text: selector with special chars in the text, not a boolean expression
+                return parse_atomic_selector(s);
+            }
 
-        // Only treat as boolean expression if it's NOT a prefixed selector AND has boolean operators
-        if !is_prefixed_selector && !is_atomic_shortcut {
-            // Check if this contains boolean operators (&&, ||, !, parentheses, or comma for OR)
-            let has_boolean_ops = s.contains("&&")
-                || s.contains("||")
-                || s.contains('(')
-                || s.contains(')')
-                || s.contains('!')
-                || (s.contains(',') && !s.starts_with("attr:")); // comma is OR unless in attr: context
-
-            if has_boolean_ops {
-                // Use boolean expression parser
-                match tokenize(s) {
-                    Ok(tokens) => match parse_boolean_expression(tokens) {
-                        Ok(selector) => return selector,
-                        Err(e) => return Selector::Invalid(format!("Parse error: {e}")),
-                    },
-                    Err(e) => return Selector::Invalid(format!("Tokenization error: {e}")),
-                }
+            // Use boolean expression parser
+            match tokenize(s) {
+                Ok(tokens) => match parse_boolean_expression(tokens) {
+                    Ok(selector) => return selector,
+                    Err(e) => return Selector::Invalid(format!("Parse error: {e}")),
+                },
+                Err(e) => return Selector::Invalid(format!("Tokenization error: {e}")),
             }
         }
 
-        // No boolean operators or prefixed selector - parse as atomic selector
+        // No boolean operators - parse as atomic selector
         parse_atomic_selector(s)
     }
 }
