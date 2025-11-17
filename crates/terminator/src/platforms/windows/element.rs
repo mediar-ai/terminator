@@ -1144,6 +1144,18 @@ impl UIElementImpl for WindowsUIElement {
         })?;
         // check if element accepts input, similar :D
         debug!("pressing key with control_type: {:#?}", control_type);
+
+        // Dismiss inline autocomplete before pressing Enter/Return
+        // This prevents unwanted autocomplete suggestions (e.g., Chrome address bar) from being accepted
+        let key_upper = key.to_uppercase();
+        if key_upper.contains("ENTER") || key_upper.contains("RETURN") {
+            debug!("Dismissing inline autocomplete before pressing Enter/Return");
+            // Press left arrow to dismiss any inline autocomplete suggestion
+            let _ = self.element.0.send_keys("{LEFT}", 10);
+            // Press End to return cursor to end of text
+            let _ = self.element.0.send_keys("{END}", 10);
+        }
+
         self.element
             .0
             .send_keys(key, 10)
