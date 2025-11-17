@@ -2918,9 +2918,6 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                                 resolution_attempts
                             );
                             // Return error immediately for missing file
-                            // Restore windows before returning error
-                            // Window restoration now handled by dispatch_tool
-                            // self.restore_window_management(true).await;
                             return Err(McpError::invalid_params(
                                 format!("Script file '{script_file}' not found"),
                                 Some(json!({
@@ -3116,8 +3113,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
                 Err(e) => {
                     // Restore windows before returning error
-                    // Window restoration now handled by dispatch_tool
-                    // self.restore_window_management(true).await;
+                    self.restore_window_management(should_restore).await;
                     Err(build_element_not_found_error(
                         &args.selector.build_full_selector(),
                         None,
@@ -3584,8 +3580,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
                 Err(e) => {
                     // Restore windows before returning error
-                    // Window restoration now handled by dispatch_tool
-                    // self.restore_window_management(true).await;
+                    self.restore_window_management(should_restore).await;
                     Err(build_element_not_found_error(
                         &args.selector.build_full_selector(),
                         args.selector.build_alternative_selectors().as_deref(),
@@ -4114,8 +4109,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
                 Err(e) => {
                     // Restore windows before returning error
-                    // Window restoration now handled by dispatch_tool
-                    // self.restore_window_management(true).await;
+                    self.restore_window_management(should_restore).await;
                     Err(build_element_not_found_error(
                         &args.selector.build_full_selector(),
                         args.selector.build_alternative_selectors().as_deref(),
@@ -4476,8 +4470,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
                 Err(e) => {
                     // Restore windows before returning error
-                    // Window restoration now handled by dispatch_tool
-                    // self.restore_window_management(true).await;
+                    self.restore_window_management(should_restore).await;
                     Err(build_element_not_found_error(
                         &args.selector.build_full_selector(),
                         args.selector.build_alternative_selectors().as_deref(),
@@ -6654,9 +6647,6 @@ Requires Chrome extension to be installed."
                                 resolution_attempts
                             );
                             // Return error immediately for missing file
-                            // Restore windows before returning error
-                            // Window restoration now handled by dispatch_tool
-                            // self.restore_window_management(true).await;
                             return Err(McpError::invalid_params(
                                 format!("Script file '{script_file}' not found"),
                                 Some(json!({
@@ -6710,15 +6700,13 @@ Requires Chrome extension to be installed."
         } else if let Some(script) = &args.script {
             if script.is_empty() {
                 // Restore windows before returning error
-                // Window restoration now handled by dispatch_tool
-                // self.restore_window_management(true).await;
+                self.restore_window_management(should_restore).await;
                 return Err(McpError::invalid_params("Script cannot be empty", None));
             }
             script.clone()
         } else {
             // Restore windows before returning error
-            // Window restoration now handled by dispatch_tool
-            // self.restore_window_management(true).await;
+            self.restore_window_management(should_restore).await;
             return Err(McpError::invalid_params(
                 "Either 'script' or 'script_file' must be provided",
                 None,
@@ -6938,8 +6926,7 @@ Requires Chrome extension to be installed."
         // Validate that browser scripts don't use top-level return statements
         if modified_script.trim_start().starts_with("return ") {
             // Restore windows before returning error
-            // Window restoration now handled by dispatch_tool
-            // self.restore_window_management(true).await;
+            self.restore_window_management(should_restore).await;
             return Err(McpError::invalid_params(
                 "Browser scripts cannot use top-level 'return' statements. \
                  Remove 'return' from the beginning of your script. \
@@ -7061,8 +7048,7 @@ console.info = function(...args) {
                         if msg.contains("JavaScript") || msg.contains("script") {
                             // Return JavaScript-specific error, not "Element not found"
                             // Restore windows before returning error
-                            // Window restoration now handled by dispatch_tool
-                            // self.restore_window_management(true).await;
+                            self.restore_window_management(should_restore).await;
                             return Err(McpError::invalid_params(
                                 "Browser script execution failed",
                                 Some(json!({
@@ -7082,8 +7068,7 @@ console.info = function(...args) {
 
                     // For other errors, treat as element not found
                     // Restore windows before returning error
-                    // Window restoration now handled by dispatch_tool
-                    // self.restore_window_management(true).await;
+                    self.restore_window_management(should_restore).await;
                     Err(build_element_not_found_error(
                         &args.selector.build_full_selector(),
                         args.selector.build_alternative_selectors().as_deref(),
