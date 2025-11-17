@@ -28,6 +28,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use sysinfo::{ProcessesToUpdate, System};
+use terminator::element::UIElementImpl;
 use terminator::{AutomationError, Browser, Desktop, Selector, UIElement};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
@@ -744,6 +745,21 @@ impl DesktopWrapper {
                 .to_string(),
         );
 
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!("[get_window_tree] Direct MCP call detected - performing window management");
+            let _ = self
+                .prepare_window_management(&args.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!("[get_window_tree] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         // Find PID for the process name
         let apps = self.desktop.applications().map_err(|e| {
             McpError::resource_not_found(
@@ -851,6 +867,9 @@ impl DesktopWrapper {
             args.monitor.include_monitor_screenshots,
         )
         .await;
+
+        self.restore_window_management(should_restore).await;
+
         Ok(CallToolResult::success(contents))
     }
 
@@ -3066,8 +3085,21 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
 
-        // Window management before activation
-        // Window management handled by dispatch_tool
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            let flag_value = *in_sequence;
+            let should_restore_value = !flag_value;
+            tracing::info!("[activate_element] Flag check: in_sequence={}, should_restore={}", flag_value, should_restore_value);
+            should_restore_value
+        };
+
+        if should_restore {
+            tracing::info!("[activate_element] Direct MCP call detected - performing window management");
+            let _ = self.prepare_window_management(&args.selector.process, None, None, None).await;
+        } else {
+            tracing::debug!("[activate_element] In sequence - skipping window management (dispatch_tool handles it)");
+        }
 
         let ((_result, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
@@ -3182,8 +3214,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         .await;
 
         // Restore windows after activation
-        // Window restoration now handled by dispatch_tool
-        // self.restore_window_management(true).await;
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -3253,6 +3284,17 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            let _ = self.prepare_window_management(&args.selector.process, None, None, None).await;
+        }
+
         let action = |element: UIElement| async move {
             element.mouse_drag(args.start_x, args.start_y, args.end_x, args.end_y)
         };
@@ -3303,6 +3345,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         )
         .await;
 
+        self.restore_window_management(should_restore).await;
+
         span.set_status(true, None);
         span.end();
 
@@ -3335,8 +3379,18 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
 
-        // Window management before validation
-        // Window management handled by dispatch_tool
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!("[validate_element] Direct MCP call detected - performing window management");
+            let _ = self.prepare_window_management(&args.selector.process, None, None, None).await;
+        } else {
+            tracing::debug!("[validate_element] In sequence - skipping window management (dispatch_tool handles it)");
+        }
 
         // For validation, the "action" is just succeeding.
         let action = |element: UIElement| async move { Ok(element) };
@@ -3389,9 +3443,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 )
                 .await;
 
-                // Restore windows after validation
-                // Window restoration now handled by dispatch_tool
-                // self.restore_window_management(true).await;
+                self.restore_window_management(should_restore).await;
 
                 span.set_status(true, None);
                 span.end();
@@ -3426,9 +3478,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
                 // This is not a tool error, but a validation failure, so we return success with the failure info.
 
-                // Restore windows after validation
-                // Window restoration now handled by dispatch_tool
-                // self.restore_window_management(true).await;
+                self.restore_window_management(should_restore).await;
 
                 span.set_attribute("element.found", "false".to_string());
                 span.set_status(true, None);
@@ -3469,8 +3519,18 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
 
-        // Window management before highlighting
-        // Window management handled by dispatch_tool
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!("[highlight_element] Direct MCP call detected - performing window management");
+            let _ = self.prepare_window_management(&args.selector.process, None, None, None).await;
+        } else {
+            tracing::debug!("[highlight_element] In sequence - skipping window management (dispatch_tool handles it)");
+        }
 
         let duration = args.duration_ms.map(std::time::Duration::from_millis);
         let color = args.color;
@@ -3577,9 +3637,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         )
         .await;
 
-        // Restore windows after highlighting
-        // Window restoration now handled by dispatch_tool
-        // self.restore_window_management(true).await;
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -3614,8 +3672,20 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             args.selector.selector, args.condition, args.action.timeout_ms, args.tree.include_tree
         );
 
-        // Window management before waiting
-        // Window management handled by dispatch_tool
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!("[wait_for_element] Direct MCP call detected - performing window management");
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!("[wait_for_element] In sequence - skipping window management (dispatch_tool handles it)");
+        }
 
         let locator = self
             .desktop
@@ -3658,9 +3728,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     )
                     .await;
 
-                    // Restore windows after wait
-                    // Window restoration now handled by dispatch_tool
-                    // self.restore_window_management(true).await;
+                    self.restore_window_management(should_restore).await;
 
                     span.set_status(true, None);
                     span.end();
@@ -3681,9 +3749,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                         args.selector.selector, e
                     );
 
-                    // Restore windows before error return
-                    // Window restoration now handled by dispatch_tool
-                    // self.restore_window_management(true).await;
+                    self.restore_window_management(should_restore).await;
 
                     return Err(McpError::internal_error(
                         error_msg,
@@ -3719,9 +3785,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     args.selector.selector, args.condition, start_time.elapsed().as_millis()
                 );
 
-                // Restore windows before timeout error return
-                // Window restoration now handled by dispatch_tool
-                // self.restore_window_management(true).await;
+                self.restore_window_management(should_restore).await;
 
                 return Err(McpError::internal_error(
                     timeout_msg,
@@ -3776,9 +3840,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                                 args.condition
                             );
 
-                            // Restore windows before error return
-                            // Window restoration now handled by dispatch_tool
-                            // self.restore_window_management(true).await;
+                            self.restore_window_management(should_restore).await;
 
                             return Err(McpError::invalid_params(
                                 "Invalid condition. Valid: exists, visible, enabled, focused",
@@ -3819,9 +3881,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                         )
                         .await;
 
-                        // Restore windows after wait success
-                        // Window restoration now handled by dispatch_tool
-                        // self.restore_window_management(true).await;
+                        self.restore_window_management(should_restore).await;
 
                         span.set_status(true, None);
                         span.end();
@@ -3870,8 +3930,18 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         span.set_attribute("url", args.url.clone());
         span.set_attribute("process", args.process.clone());
 
-        // Window management for browser navigation
-        // Window management handled by dispatch_tool
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!("[navigate_browser] Direct MCP call detected - performing window management");
+            let _ = self.prepare_window_management(&args.process, None, None, None).await;
+        } else {
+            tracing::debug!("[navigate_browser] In sequence - skipping window management (dispatch_tool handles it)");
+        }
 
         let browser = Some(Browser::Custom(args.process.clone()));
         let ui_element = self.desktop.open_url(&args.url, browser).map_err(|e| {
@@ -3905,9 +3975,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         )
         .await;
 
-        // Restore windows after navigation completes (always restore for direct tool calls)
-        // Window restoration now handled by dispatch_tool
-        // self.restore_window_management(true).await;
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -3955,7 +4023,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
         if should_restore {
             tracing::info!("[open_application] Direct MCP call detected - performing window management");
-            let _ = self.prepare_window_management(&args.app_name, None, Some(process_id), Some(&ui_element)).await;
+            // Note: UIElement is a trait object, can't extract platform-specific type, so pass None
+            let _ = self.prepare_window_management(&args.app_name, None, Some(process_id), None).await;
         } else {
             tracing::debug!("[open_application] In sequence - skipping window management (dispatch_tool handles it)");
         }
@@ -4017,8 +4086,18 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
 
-        // Window management before closing
-        // Window management handled by dispatch_tool
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!("[close_element] Direct MCP call detected - performing window management");
+            let _ = self.prepare_window_management(&args.selector.process, None, None, None).await;
+        } else {
+            tracing::debug!("[close_element] In sequence - skipping window management (dispatch_tool handles it)");
+        }
 
         let ((_result, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
@@ -4048,9 +4127,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
         let element_info = build_element_info(&element);
 
-        // Restore windows after closing
-        // Window restoration now handled by dispatch_tool
-        // self.restore_window_management(true).await;
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -4086,6 +4163,19 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             args.direction,
             args.amount
         );
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!("[scroll_element] Direct MCP call detected - performing window management");
+            let _ = self.prepare_window_management(&args.selector.process, None, None, None).await;
+        } else {
+            tracing::debug!("[scroll_element] In sequence - skipping window management (dispatch_tool handles it)");
+        }
 
         let direction = args.direction.clone();
         let amount = args.amount;
@@ -4190,6 +4280,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             .await;
         }
 
+        self.restore_window_management(should_restore).await;
+
         span.set_status(true, None);
         span.end();
 
@@ -4216,6 +4308,20 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!("[select_option] Direct MCP call detected - performing window management");
+            let _ = self.prepare_window_management(&args.selector.process, None, None, None).await;
+        } else {
+            tracing::debug!("[select_option] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let option_name = args.option_name.clone();
         let action = move |element: UIElement| {
             let option_name = option_name.clone();
@@ -4307,6 +4413,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             )
             .await;
         }
+
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -4435,6 +4543,20 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!("[set_toggled] Direct MCP call detected - performing window management");
+            let _ = self.prepare_window_management(&args.selector.process, None, None, None).await;
+        } else {
+            tracing::debug!("[set_toggled] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let state = args.state;
         let action = move |element: UIElement| async move {
             // Ensure element is visible before interaction
@@ -4627,6 +4749,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             .await;
         }
 
+        self.restore_window_management(should_restore).await;
+
         span.set_status(true, None);
         span.end();
 
@@ -4656,6 +4780,20 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!("[set_range_value] Direct MCP call detected - performing window management");
+            let _ = self.prepare_window_management(&args.selector.process, None, None, None).await;
+        } else {
+            tracing::debug!("[set_range_value] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let value = args.value;
         let action = move |element: UIElement| async move {
             // Ensure element is visible before interaction
@@ -4841,6 +4979,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             .await;
         }
 
+        self.restore_window_management(should_restore).await;
+
         span.set_status(true, None);
         span.end();
 
@@ -4870,6 +5010,20 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!("[set_selected] Direct MCP call detected - performing window management");
+            let _ = self.prepare_window_management(&args.selector.process, None, None, None).await;
+        } else {
+            tracing::debug!("[set_selected] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let state = args.state;
         let action =
             move |element: UIElement| async move { element.set_selected_with_state(state) };
@@ -5053,6 +5207,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             )
             .await;
         }
+
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -5359,7 +5515,20 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
 
-        // Window management handled by dispatch_tool
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!("[capture_element_screenshot] Direct MCP call detected - performing window management");
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!("[capture_element_screenshot] In sequence - skipping window management (dispatch_tool handles it)");
+        }
 
         // Capture screenshot using process-scoped selector
         let ((screenshot_result, element), successful_selector) =
@@ -5472,6 +5641,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "resized": was_resized,
             "max_dimension_applied": max_dim,
         });
+
+        self.restore_window_management(should_restore).await;
 
         Ok(CallToolResult::success(
             append_monitor_screenshots_if_enabled(
@@ -5630,6 +5801,14 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         // Start telemetry span
         let mut span = StepSpan::new("stop_highlighting", None);
 
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        // Note: stop_highlighting doesn't interact with specific windows, so no prepare needed
+
         // Current minimal implementation ignores highlight_id and stops all tracked highlights
         let mut list = self.active_highlights.lock().await;
         let mut stopped = 0usize;
@@ -5643,6 +5822,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "highlights_stopped": stopped,
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
+
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -5684,6 +5865,20 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!("[maximize_window] Direct MCP call detected - performing window management");
+            let _ = self.prepare_window_management(&args.selector.process, None, None, None).await;
+        } else {
+            tracing::debug!("[maximize_window] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let ((_result, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
@@ -5728,6 +5923,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         )
         .await;
 
+        self.restore_window_management(should_restore).await;
+
         span.set_status(true, None);
         span.end();
 
@@ -5754,6 +5951,20 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!("[minimize_window] Direct MCP call detected - performing window management");
+            let _ = self.prepare_window_management(&args.selector.process, None, None, None).await;
+        } else {
+            tracing::debug!("[minimize_window] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let ((_result, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
@@ -5798,6 +6009,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         )
         .await;
 
+        self.restore_window_management(should_restore).await;
+
         span.set_status(true, None);
         span.end();
 
@@ -5824,6 +6037,20 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         // Add comprehensive telemetry attributes
         span.set_attribute("percentage", args.percentage.to_string());
 
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!("[set_zoom] Direct MCP call detected - performing window management");
+            // Note: set_zoom operates on browser context, using generic browser process
+            let _ = self.prepare_window_management("chrome", None, None, None).await;
+        } else {
+            tracing::debug!("[set_zoom] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         self.desktop.set_zoom(args.percentage).await.map_err(|e| {
             McpError::internal_error("Failed to set zoom", Some(json!({"reason": e.to_string()})))
         })?;
@@ -5845,6 +6072,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             None, // No element available for zoom
         )
         .await;
+
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -5875,6 +6104,20 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!("[set_value] Direct MCP call detected - performing window management");
+            let _ = self.prepare_window_management(&args.selector.process, None, None, None).await;
+        } else {
+            tracing::debug!("[set_value] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let value_to_set = args.value.clone();
         let action = move |element: UIElement| {
             let value_to_set = value_to_set.clone();
@@ -6027,6 +6270,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             )
             .await;
         }
+
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
