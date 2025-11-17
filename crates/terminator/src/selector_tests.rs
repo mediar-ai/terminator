@@ -260,7 +260,7 @@ fn test_text_selector_with_special_chars() {
     let selector = Selector::from("text:Test 1: DEFAULT (focus+click) SUCCESS!");
     match selector {
         Selector::Text(text) => assert_eq!(text, "Test 1: DEFAULT (focus+click) SUCCESS!"),
-        _ => panic!("Expected Text selector, got {:?}", selector),
+        _ => panic!("Expected Text selector, got {selector:?}"),
     }
 }
 
@@ -269,7 +269,7 @@ fn test_text_selector_with_comma() {
     let selector = Selector::from("text:Hello, world!");
     match selector {
         Selector::Text(text) => assert_eq!(text, "Hello, world!"),
-        _ => panic!("Expected Text selector, got {:?}", selector),
+        _ => panic!("Expected Text selector, got {selector:?}"),
     }
 }
 

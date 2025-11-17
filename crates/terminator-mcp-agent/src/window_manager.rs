@@ -3,15 +3,14 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Mutex;
 use windows::Win32::Foundation::HWND;
-use windows::Win32::UI::WindowsAndMessaging::{
-    GetWindow, GetWindowPlacement, GetWindowTextW, GetWindowThreadProcessId,
-    IsIconic, IsWindowVisible, IsZoomed, SetWindowPlacement, ShowWindow,
-    GetTopWindow, GetForegroundWindow, GetWindowLongPtrW, GWL_EXSTYLE,
-    WINDOWPLACEMENT, GW_HWNDNEXT, SW_MAXIMIZE, SW_MINIMIZE, WS_EX_TOPMOST,
-};
 use windows::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
-    PROCESS_QUERY_LIMITED_INFORMATION,
+    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetForegroundWindow, GetTopWindow, GetWindow, GetWindowLongPtrW, GetWindowPlacement,
+    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, IsZoomed,
+    SetWindowPlacement, ShowWindow, GWL_EXSTYLE, GW_HWNDNEXT, SW_MAXIMIZE, SW_MINIMIZE,
+    WINDOWPLACEMENT, WS_EX_TOPMOST,
 };
 
 #[derive(Clone, Debug)]
@@ -58,21 +57,27 @@ impl From<WINDOWPLACEMENT> for WindowPlacement {
     }
 }
 
-impl Into<WINDOWPLACEMENT> for WindowPlacement {
-    fn into(self) -> WINDOWPLACEMENT {
-        let mut wp = WINDOWPLACEMENT::default();
-        wp.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
-        wp.flags = windows::Win32::UI::WindowsAndMessaging::WINDOWPLACEMENT_FLAGS(self.flags);
-        wp.showCmd = self.show_cmd;
-        wp.ptMinPosition.x = self.min_x;
-        wp.ptMinPosition.y = self.min_y;
-        wp.ptMaxPosition.x = self.max_x;
-        wp.ptMaxPosition.y = self.max_y;
-        wp.rcNormalPosition.left = self.normal_left;
-        wp.rcNormalPosition.top = self.normal_top;
-        wp.rcNormalPosition.right = self.normal_right;
-        wp.rcNormalPosition.bottom = self.normal_bottom;
-        wp
+impl From<WindowPlacement> for WINDOWPLACEMENT {
+    fn from(val: WindowPlacement) -> Self {
+        WINDOWPLACEMENT {
+            length: std::mem::size_of::<WINDOWPLACEMENT>() as u32,
+            flags: windows::Win32::UI::WindowsAndMessaging::WINDOWPLACEMENT_FLAGS(val.flags),
+            showCmd: val.show_cmd,
+            ptMinPosition: windows::Win32::Foundation::POINT {
+                x: val.min_x,
+                y: val.min_y,
+            },
+            ptMaxPosition: windows::Win32::Foundation::POINT {
+                x: val.max_x,
+                y: val.max_y,
+            },
+            rcNormalPosition: windows::Win32::Foundation::RECT {
+                left: val.normal_left,
+                top: val.normal_top,
+                right: val.normal_right,
+                bottom: val.normal_bottom,
+            },
+        }
     }
 }
 
@@ -125,7 +130,7 @@ impl WindowManager {
             if !window.process_name.is_empty() {
                 process_windows
                     .entry(window.process_name.clone())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(window.clone());
             }
         }
@@ -165,7 +170,8 @@ impl WindowManager {
     // Get all visible always-on-top windows
     pub async fn get_always_on_top_windows(&self) -> Vec<WindowInfo> {
         let cache = self.window_cache.lock().await;
-        cache.visible_windows
+        cache
+            .visible_windows
             .iter()
             .filter(|w| w.is_always_on_top && !w.is_minimized)
             .cloned()
@@ -279,8 +285,12 @@ impl WindowManager {
         let cache = self.window_cache.lock().await;
         let mut restored_count = 0;
 
-        tracing::info!("restore_all_windows: minimized_windows={}, target_window={:?}, original_states={}",
-            cache.minimized_windows.len(), cache.target_window, cache.original_states.len());
+        tracing::info!(
+            "restore_all_windows: minimized_windows={}, target_window={:?}, original_states={}",
+            cache.minimized_windows.len(),
+            cache.target_window,
+            cache.original_states.len()
+        );
 
         // Log HWNDs in original_states to debug target window matching
         if let Some(target) = cache.target_window {
@@ -288,28 +298,40 @@ impl WindowManager {
             if found.is_some() {
                 tracing::info!("Target window FOUND in original_states (HWND={})", target);
             } else {
-                tracing::warn!("Target window NOT FOUND in original_states (HWND={})", target);
-                tracing::warn!("Original states HWNDs: {:?}",
-                    cache.original_states.iter().take(10).map(|w| (w.hwnd, w.process_name.clone())).collect::<Vec<_>>());
+                tracing::warn!(
+                    "Target window NOT FOUND in original_states (HWND={})",
+                    target
+                );
+                tracing::warn!(
+                    "Original states HWNDs: {:?}",
+                    cache
+                        .original_states
+                        .iter()
+                        .take(10)
+                        .map(|w| (w.hwnd, w.process_name.clone()))
+                        .collect::<Vec<_>>()
+                );
             }
         }
 
         // Determine which windows need restoration
         // If minimized_windows is empty AND no target window, restore all (backward compatibility)
-        let windows_to_restore: Vec<&WindowInfo> = if cache.minimized_windows.is_empty() && cache.target_window.is_none() {
-            // Legacy behavior: restore all original states
-            cache.original_states.iter().collect()
-        } else {
-            // New optimized behavior: restore windows we minimized + target window
-            cache.original_states
-                .iter()
-                .filter(|w| {
-                    // Restore if this window was minimized OR if it's the target window
-                    cache.minimized_windows.contains(&w.hwnd) ||
-                    cache.target_window.map_or(false, |target| target == w.hwnd)
-                })
-                .collect()
-        };
+        let windows_to_restore: Vec<&WindowInfo> =
+            if cache.minimized_windows.is_empty() && cache.target_window.is_none() {
+                // Legacy behavior: restore all original states
+                cache.original_states.iter().collect()
+            } else {
+                // New optimized behavior: restore windows we minimized + target window
+                cache
+                    .original_states
+                    .iter()
+                    .filter(|w| {
+                        // Restore if this window was minimized OR if it's the target window
+                        cache.minimized_windows.contains(&w.hwnd)
+                            || (cache.target_window == Some(w.hwnd))
+                    })
+                    .collect()
+            };
 
         // Restore in reverse order (bottommost first) to preserve Z-order
         // This ensures topmost windows end up on top after restoration
@@ -320,8 +342,13 @@ impl WindowManager {
 
                 // Check if this is a UWP window (SetWindowPlacement doesn't work for UWP)
                 let is_uwp = Self::is_uwp_app_internal(window.process_id);
-                tracing::info!("Restoring window: PID={}, process={}, is_uwp={}, was_maximized={}",
-                    window.process_id, window.process_name, is_uwp, window.is_maximized);
+                tracing::info!(
+                    "Restoring window: PID={}, process={}, is_uwp={}, was_maximized={}",
+                    window.process_id,
+                    window.process_name,
+                    is_uwp,
+                    window.is_maximized
+                );
 
                 if is_uwp {
                     // For UWP windows, use keyboard shortcuts to restore
@@ -336,10 +363,16 @@ impl WindowManager {
                         restored_count += 1;
                     } else if !currently_maximized && should_be_maximized {
                         // Edge case: need to maximize (shouldn't happen in normal flow)
-                        tracing::debug!("UWP window (PID {}) already in non-maximized state", window.process_id);
+                        tracing::debug!(
+                            "UWP window (PID {}) already in non-maximized state",
+                            window.process_id
+                        );
                     } else {
                         // States match, no restoration needed
-                        tracing::debug!("UWP window (PID {}) already in correct state", window.process_id);
+                        tracing::debug!(
+                            "UWP window (PID {}) already in correct state",
+                            window.process_id
+                        );
                     }
                 } else {
                     // Win32 window: use SetWindowPlacement (works reliably)
@@ -356,11 +389,11 @@ impl WindowManager {
 
     /// Restore UWP window from maximized state using keyboard (Win+Down)
     fn restore_uwp_window_keyboard(hwnd: HWND) {
-        use windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
         use windows::Win32::UI::Input::KeyboardAndMouse::{
-            SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
-            VK_DOWN, VK_LWIN,
+            SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_DOWN,
+            VK_LWIN,
         };
+        use windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
 
         unsafe {
             // Activate the window first
@@ -440,7 +473,8 @@ impl WindowManager {
         cache.process_windows.clear();
         let visible_windows_clone = cache.visible_windows.clone();
         for window in &visible_windows_clone {
-            cache.process_windows
+            cache
+                .process_windows
                 .entry(window.process_name.clone())
                 .or_insert_with(Vec::new)
                 .push(window.clone());
@@ -495,8 +529,10 @@ impl WindowManager {
                     let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
                     let is_always_on_top = (ex_style & WS_EX_TOPMOST.0 as isize) != 0;
 
-                    let mut placement = WINDOWPLACEMENT::default();
-                    placement.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
+                    let mut placement = WINDOWPLACEMENT {
+                        length: std::mem::size_of::<WINDOWPLACEMENT>() as u32,
+                        ..Default::default()
+                    };
                     let _ = GetWindowPlacement(hwnd, &mut placement);
 
                     windows.push(WindowInfo {
@@ -535,11 +571,13 @@ impl WindowManager {
                 process,
                 PROCESS_NAME_WIN32,
                 windows::core::PWSTR(name.as_mut_ptr()),
-                &mut size
-            ).is_ok() {
+                &mut size,
+            )
+            .is_ok()
+            {
                 let name_str = String::from_utf16_lossy(&name[..size as usize]);
                 // Extract just the executable name from full path
-                let exe_name = name_str.split('\\').last()?.to_string();
+                let exe_name = name_str.split('\\').next_back()?.to_string();
                 Some(exe_name)
             } else {
                 None
@@ -653,12 +691,20 @@ impl WindowManager {
             let cache = self.window_cache.lock().await;
 
             if let Some(window) = cache.visible_windows.iter().find(|w| w.process_id == pid) {
-                tracing::debug!("Found Win32 window for PID {} on attempt {}", pid, attempt + 1);
+                tracing::debug!(
+                    "Found Win32 window for PID {} on attempt {}",
+                    pid,
+                    attempt + 1
+                );
                 return Some(window.clone());
             }
         }
 
-        tracing::warn!("Win32 window for PID {} not found after {} attempts", pid, WIN32_RETRIES);
+        tracing::warn!(
+            "Win32 window for PID {} not found after {} attempts",
+            pid,
+            WIN32_RETRIES
+        );
         None
     }
 }

@@ -1985,7 +1985,12 @@ impl AccessibilityEngine for LinuxEngine {
         self
     }
 
-    fn press_key(&self, _key: &str, _try_focus_before: bool, _try_click_before: bool) -> Result<(), AutomationError> {
+    fn press_key(
+        &self,
+        _key: &str,
+        _try_focus_before: bool,
+        _try_click_before: bool,
+    ) -> Result<(), AutomationError> {
         Err(AutomationError::UnsupportedOperation(
             "press_key is not implemented for LinuxEngine yet".to_string(),
         ))
@@ -2341,7 +2346,13 @@ impl UIElementImpl for LinuxUIElement {
         resp_rx.recv().unwrap()
     }
 
-    fn type_text(&self, text: &str, _use_clipboard: bool, _try_focus_before: bool, _try_click_before: bool) -> Result<(), AutomationError> {
+    fn type_text(
+        &self,
+        text: &str,
+        _use_clipboard: bool,
+        _try_focus_before: bool,
+        _try_click_before: bool,
+    ) -> Result<(), AutomationError> {
         // Note: Linux implementation uses Focusable state check internally
         // The try_focus_before and try_click_before parameters are not currently used
         let (resp_tx, resp_rx): UnitChannel = std::sync::mpsc::channel();
@@ -2392,7 +2403,12 @@ impl UIElementImpl for LinuxUIElement {
         resp_rx.recv().unwrap()
     }
 
-    fn press_key(&self, key: &str, _try_focus_before: bool, _try_click_before: bool) -> Result<(), AutomationError> {
+    fn press_key(
+        &self,
+        key: &str,
+        _try_focus_before: bool,
+        _try_click_before: bool,
+    ) -> Result<(), AutomationError> {
         // Note: The try_focus_before and try_click_before parameters are not currently used in Linux implementation
         let (resp_tx, resp_rx): UnitChannel = std::sync::mpsc::channel();
         let this = self.clone();

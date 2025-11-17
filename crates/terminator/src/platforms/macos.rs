@@ -1261,7 +1261,13 @@ impl UIElementImpl for MacOSUIElement {
         })
     }
 
-    fn type_text(&self, text: &str, _use_clipboard: bool, try_focus_before: bool, try_click_before: bool) -> Result<(), AutomationError> {
+    fn type_text(
+        &self,
+        text: &str,
+        _use_clipboard: bool,
+        try_focus_before: bool,
+        try_click_before: bool,
+    ) -> Result<(), AutomationError> {
         // Attempt to focus/click before typing based on parameters
         if try_focus_before {
             match self.focus() {
@@ -1343,7 +1349,12 @@ impl UIElementImpl for MacOSUIElement {
         Ok(())
     }
 
-    fn press_key(&self, key_combo: &str, try_focus_before: bool, try_click_before: bool) -> Result<(), AutomationError> {
+    fn press_key(
+        &self,
+        key_combo: &str,
+        try_focus_before: bool,
+        try_click_before: bool,
+    ) -> Result<(), AutomationError> {
         debug!("Pressing key combination: {}", key_combo);
 
         // Attempt to focus/click before pressing key based on parameters
@@ -4272,7 +4283,12 @@ impl AccessibilityEngine for MacOSEngine {
         self
     }
 
-    fn press_key(&self, _key: &str, _try_focus_before: bool, _try_click_before: bool) -> Result<(), AutomationError> {
+    fn press_key(
+        &self,
+        _key: &str,
+        _try_focus_before: bool,
+        _try_click_before: bool,
+    ) -> Result<(), AutomationError> {
         Err(AutomationError::UnsupportedOperation(
             "press_key is not implemented for MacOSEngine yet".to_string(),
         ))

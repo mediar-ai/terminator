@@ -874,7 +874,7 @@ impl AccessibilityEngine for WindowsEngine {
                  - process:notepad|role:Document\n\
                  - process:explorer|role:Icon|name:Recycle Bin (for desktop icons/taskbar)\n\
                  Or use element.locator() to search within a specific element's tree.\n\
-                 Current selector: {:?}", selector
+                 Current selector: {selector:?}"
             )));
         }
 
@@ -1288,8 +1288,7 @@ impl AccessibilityEngine for WindowsEngine {
 
                 if filtered_elements.is_empty() {
                     return Err(AutomationError::ElementNotFound(format!(
-                        "No elements found for process: '{}'",
-                        process_name
+                        "No elements found for process: '{process_name}'"
                     )));
                 }
 

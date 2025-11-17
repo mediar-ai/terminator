@@ -63,10 +63,21 @@ mod text_input_tracker_tests {
         fn focus(&self) -> Result<(), AutomationError> {
             unimplemented!()
         }
-        fn type_text(&self, _text: &str, _use_clipboard: bool) -> Result<(), AutomationError> {
+        fn type_text(
+            &self,
+            _text: &str,
+            _use_clipboard: bool,
+            _try_focus_before: bool,
+            _try_click_before: bool,
+        ) -> Result<(), AutomationError> {
             unimplemented!()
         }
-        fn press_key(&self, _key: &str) -> Result<(), AutomationError> {
+        fn press_key(
+            &self,
+            _key: &str,
+            _try_focus_before: bool,
+            _try_click_before: bool,
+        ) -> Result<(), AutomationError> {
             unimplemented!()
         }
         fn set_value(&self, _value: &str) -> Result<(), AutomationError> {
@@ -103,6 +114,15 @@ mod text_input_tracker_tests {
             unimplemented!()
         }
         fn maximize_window(&self) -> Result<(), AutomationError> {
+            unimplemented!()
+        }
+        fn maximize_window_keyboard(&self) -> Result<(), AutomationError> {
+            unimplemented!()
+        }
+        fn minimize_window_keyboard(&self) -> Result<(), AutomationError> {
+            unimplemented!()
+        }
+        fn get_native_window_handle(&self) -> Result<isize, AutomationError> {
             unimplemented!()
         }
         fn clone_box(&self) -> Box<dyn UIElementImpl> {

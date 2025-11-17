@@ -1182,7 +1182,10 @@ impl DesktopWrapper {
         // Capture initial window state before executing any steps
         // This captures state before step 0 (which might open new windows)
         if let Err(e) = self.window_manager.capture_initial_state().await {
-            tracing::warn!("Failed to capture initial window state before sequence: {}", e);
+            tracing::warn!(
+                "Failed to capture initial window state before sequence: {}",
+                e
+            );
         } else {
             tracing::info!("Captured initial window state before sequence execution");
         }
@@ -1382,17 +1385,19 @@ impl DesktopWrapper {
                         );
 
                         // Extract current process from arguments
-                        let current_process = substituted_args.get("process")
+                        let current_process = substituted_args
+                            .get("process")
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string());
 
                         // Create execution context for window management
-                        let execution_context = Some(crate::utils::ToolExecutionContext::sequence_step(
-                            args.url.clone().unwrap_or_default(),
-                            current_index + 1,  // 1-based for user display
-                            total_steps,
-                            last_executed_process.clone(),
-                        ));
+                        let execution_context =
+                            Some(crate::utils::ToolExecutionContext::sequence_step(
+                                args.url.clone().unwrap_or_default(),
+                                current_index + 1, // 1-based for user display
+                                total_steps,
+                                last_executed_process.clone(),
+                            ));
 
                         let (result, error_occurred) = self
                             .execute_single_tool(
@@ -1824,17 +1829,19 @@ impl DesktopWrapper {
                             substitute_variables(&mut substituted_args, &execution_context);
 
                             // Extract current process from arguments
-                            let current_process = substituted_args.get("process")
+                            let current_process = substituted_args
+                                .get("process")
                                 .and_then(|v| v.as_str())
                                 .map(|s| s.to_string());
 
                             // Create execution context for window management
-                            let tool_execution_context = Some(crate::utils::ToolExecutionContext::sequence_step(
-                                args.url.clone().unwrap_or_default(),
-                                current_index + 1,  // 1-based for user display
-                                total_steps,
-                                last_executed_process.clone(),
-                            ));
+                            let tool_execution_context =
+                                Some(crate::utils::ToolExecutionContext::sequence_step(
+                                    args.url.clone().unwrap_or_default(),
+                                    current_index + 1, // 1-based for user display
+                                    total_steps,
+                                    last_executed_process.clone(),
+                                ));
 
                             let (result, error_occurred) = self
                                 .execute_single_tool(
@@ -2279,7 +2286,13 @@ impl DesktopWrapper {
 
         // The substitution is handled in `execute_sequence_impl`.
         let tool_result = self
-            .dispatch_tool(peer, request_context, tool_name_short, arguments, execution_context)
+            .dispatch_tool(
+                peer,
+                request_context,
+                tool_name_short,
+                arguments,
+                execution_context,
+            )
             .await;
 
         let (processed_result, error_occurred) = match tool_result {

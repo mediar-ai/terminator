@@ -496,8 +496,19 @@ impl From<&str> for Selector {
 
         // Check if this is a prefixed selector (text:, name:, id:, role:, etc.)
         // These should be parsed as atomic selectors even if they contain special characters
-        let known_prefixes = ["text:", "name:", "id:", "role:", "nativeid:", "classname:",
-                               "process:", "attr:", "visible:", "has:", "nth:"];
+        let known_prefixes = [
+            "text:",
+            "name:",
+            "id:",
+            "role:",
+            "nativeid:",
+            "classname:",
+            "process:",
+            "attr:",
+            "visible:",
+            "has:",
+            "nth:",
+        ];
         let is_prefixed_selector = known_prefixes.iter().any(|prefix| s.starts_with(prefix));
 
         // Also check for # (id) and \ (path) shortcuts

@@ -907,8 +907,7 @@ impl UIElementImpl for WindowsUIElement {
 
         // Use keyboard shortcut Win+Up to maximize
         use windows::Win32::UI::Input::KeyboardAndMouse::{
-            SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
-            VK_UP, VK_LWIN,
+            SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_LWIN, VK_UP,
         };
 
         unsafe {
@@ -980,8 +979,8 @@ impl UIElementImpl for WindowsUIElement {
 
         // Use keyboard shortcut Win+Down to minimize
         use windows::Win32::UI::Input::KeyboardAndMouse::{
-            SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
-            VK_DOWN, VK_LWIN,
+            SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_DOWN,
+            VK_LWIN,
         };
 
         unsafe {
@@ -1041,12 +1040,22 @@ impl UIElementImpl for WindowsUIElement {
     }
 
     fn get_native_window_handle(&self) -> Result<isize, AutomationError> {
-        self.element.0.get_native_window_handle()
+        self.element
+            .0
+            .get_native_window_handle()
             .map(|h| h.into())
-            .map_err(|e| AutomationError::PlatformError(format!("Failed to get native window handle: {:?}", e)))
+            .map_err(|e| {
+                AutomationError::PlatformError(format!("Failed to get native window handle: {e:?}"))
+            })
     }
 
-    fn type_text(&self, text: &str, use_clipboard: bool, try_focus_before: bool, try_click_before: bool) -> Result<(), AutomationError> {
+    fn type_text(
+        &self,
+        text: &str,
+        use_clipboard: bool,
+        try_focus_before: bool,
+        try_click_before: bool,
+    ) -> Result<(), AutomationError> {
         // Attempt to focus/click before typing based on parameters
         // try_focus_before: Try to focus the element first (default: true)
         // try_click_before: If focus fails, try clicking as fallback (default: true)
@@ -1073,7 +1082,6 @@ impl UIElementImpl for WindowsUIElement {
                 debug!("Clicked element before typing (focus skipped)");
             }
         }
-
 
         let control_type = self
             .element
@@ -1111,7 +1119,12 @@ impl UIElementImpl for WindowsUIElement {
         }
     }
 
-    fn press_key(&self, key: &str, try_focus_before: bool, try_click_before: bool) -> Result<(), AutomationError> {
+    fn press_key(
+        &self,
+        key: &str,
+        try_focus_before: bool,
+        try_click_before: bool,
+    ) -> Result<(), AutomationError> {
         // Attempt to focus/click before pressing key based on parameters
         // try_focus_before: Try to focus the element first (default: true)
         // try_click_before: If focus fails, try clicking as fallback (default: true)
@@ -2628,7 +2641,12 @@ impl UIElementImpl for WindowsUIElement {
         self.execute_with_state_tracking("invoke", |elem| elem.invoke(), None)
     }
 
-    fn press_key_with_state(&self, key: &str, try_focus_before: bool, try_click_before: bool) -> Result<crate::ActionResult, AutomationError> {
+    fn press_key_with_state(
+        &self,
+        key: &str,
+        try_focus_before: bool,
+        try_click_before: bool,
+    ) -> Result<crate::ActionResult, AutomationError> {
         let key_str = key.to_string();
         self.execute_with_state_tracking(
             "press_key",

@@ -373,8 +373,19 @@ pub trait UIElementImpl: Send + Sync + Debug {
     fn hover(&self) -> Result<(), AutomationError>;
     fn focus(&self) -> Result<(), AutomationError>;
     fn invoke(&self) -> Result<(), AutomationError>;
-    fn type_text(&self, text: &str, use_clipboard: bool, try_focus_before: bool, try_click_before: bool) -> Result<(), AutomationError>;
-    fn press_key(&self, key: &str, try_focus_before: bool, try_click_before: bool) -> Result<(), AutomationError>;
+    fn type_text(
+        &self,
+        text: &str,
+        use_clipboard: bool,
+        try_focus_before: bool,
+        try_click_before: bool,
+    ) -> Result<(), AutomationError>;
+    fn press_key(
+        &self,
+        key: &str,
+        try_focus_before: bool,
+        try_click_before: bool,
+    ) -> Result<(), AutomationError>;
 
     fn type_text_with_state(
         &self,
@@ -388,7 +399,9 @@ pub trait UIElementImpl: Send + Sync + Debug {
         Ok(crate::ActionResult {
             action: "type_text".to_string(),
             details: "No state tracking available".to_string(),
-            data: Some(serde_json::json!({"text": text, "use_clipboard": use_clipboard, "try_focus_before": try_focus_before, "try_click_before": try_click_before})),
+            data: Some(
+                serde_json::json!({"text": text, "use_clipboard": use_clipboard, "try_focus_before": try_focus_before, "try_click_before": try_click_before}),
+            ),
         })
     }
 
@@ -403,13 +416,20 @@ pub trait UIElementImpl: Send + Sync + Debug {
         })
     }
 
-    fn press_key_with_state(&self, key: &str, try_focus_before: bool, try_click_before: bool) -> Result<crate::ActionResult, AutomationError> {
+    fn press_key_with_state(
+        &self,
+        key: &str,
+        try_focus_before: bool,
+        try_click_before: bool,
+    ) -> Result<crate::ActionResult, AutomationError> {
         // Default implementation - platforms can override for state tracking
         self.press_key(key, try_focus_before, try_click_before)?;
         Ok(crate::ActionResult {
             action: "press_key".to_string(),
             details: "No state tracking available".to_string(),
-            data: Some(serde_json::json!({"key": key, "try_focus_before": try_focus_before, "try_click_before": try_click_before})),
+            data: Some(
+                serde_json::json!({"key": key, "try_focus_before": try_focus_before, "try_click_before": try_click_before}),
+            ),
         })
     }
     fn get_text(&self, max_depth: usize) -> Result<String, AutomationError>;
@@ -828,7 +848,8 @@ impl UIElement {
         use_clipboard: bool,
     ) -> Result<crate::ActionResult, AutomationError> {
         // Default: try both focus and click
-        self.inner.type_text_with_state(text, use_clipboard, true, true)
+        self.inner
+            .type_text_with_state(text, use_clipboard, true, true)
     }
 
     /// Type text with state tracking and custom focus/click behavior
@@ -840,7 +861,8 @@ impl UIElement {
         try_focus_before: bool,
         try_click_before: bool,
     ) -> Result<crate::ActionResult, AutomationError> {
-        self.inner.type_text_with_state(text, use_clipboard, try_focus_before, try_click_before)
+        self.inner
+            .type_text_with_state(text, use_clipboard, try_focus_before, try_click_before)
     }
 
     /// Press a key while this element is focused
@@ -858,8 +880,14 @@ impl UIElement {
 
     /// Press a key with state tracking and custom focus/click behavior
     #[instrument(level = "debug", skip(self))]
-    pub fn press_key_with_state_and_focus(&self, key: &str, try_focus_before: bool, try_click_before: bool) -> Result<crate::ActionResult, AutomationError> {
-        self.inner.press_key_with_state(key, try_focus_before, try_click_before)
+    pub fn press_key_with_state_and_focus(
+        &self,
+        key: &str,
+        try_focus_before: bool,
+        try_click_before: bool,
+    ) -> Result<crate::ActionResult, AutomationError> {
+        self.inner
+            .press_key_with_state(key, try_focus_before, try_click_before)
     }
 
     /// Get text content of this element

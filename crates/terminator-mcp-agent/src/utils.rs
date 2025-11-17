@@ -8,10 +8,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 use terminator::{AutomationError, Desktop, UIElement};
 use tokio::sync::Mutex as TokioMutex;
-use std::sync::Mutex;
 use tracing::{warn, Level};
 use tracing_subscriber::{util::SubscriberInitExt, EnvFilter, Layer};
 
@@ -228,7 +228,7 @@ pub struct ToolExecutionContext {
     pub total_steps: usize,
     pub current_step: usize,
     pub is_last_step: bool,
-    pub previous_process: Option<String>,  // Track previous process for detecting switches
+    pub previous_process: Option<String>, // Track previous process for detecting switches
 }
 
 impl ToolExecutionContext {
@@ -243,7 +243,12 @@ impl ToolExecutionContext {
         }
     }
 
-    pub fn sequence_step(id: String, current: usize, total: usize, previous_process: Option<String>) -> Self {
+    pub fn sequence_step(
+        id: String,
+        current: usize,
+        total: usize,
+        previous_process: Option<String>,
+    ) -> Self {
         Self {
             in_sequence: true,
             sequence_id: Some(id),
@@ -432,7 +437,9 @@ impl<'de> Deserialize<'de> for ClickPosition {
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ClickElementArgs {
-    #[schemars(description = "REQUIRED: Click position as percentage within element bounds. Use x_percentage: 50, y_percentage: 50 for center click (most common).")]
+    #[schemars(
+        description = "REQUIRED: Click position as percentage within element bounds. Use x_percentage: 50, y_percentage: 50 for center click (most common)."
+    )]
     pub click_position: ClickPosition,
     #[serde(flatten)]
     pub selector: SelectorOptions,
@@ -454,12 +461,18 @@ pub struct ClickElementArgs {
 pub struct TypeIntoElementArgs {
     #[schemars(description = "The text to type into the element")]
     pub text_to_type: String,
-    #[schemars(description = "REQUIRED: Whether to clear the element before typing. Set to true to clear existing text, false to append.")]
+    #[schemars(
+        description = "REQUIRED: Whether to clear the element before typing. Set to true to clear existing text, false to append."
+    )]
     pub clear_before_typing: bool,
-    #[schemars(description = "Whether to try focusing the element before typing (default: true). Set to false to skip focus attempt.")]
+    #[schemars(
+        description = "Whether to try focusing the element before typing (default: true). Set to false to skip focus attempt."
+    )]
     #[serde(default = "default_true")]
     pub try_focus_before: bool,
-    #[schemars(description = "Whether to try clicking the element if focus fails (default: true). Set to false to disable click fallback. Useful to avoid unwanted clicks on checkboxes or buttons.")]
+    #[schemars(
+        description = "Whether to try clicking the element if focus fails (default: true). Set to false to disable click fallback. Useful to avoid unwanted clicks on checkboxes or buttons."
+    )]
     #[serde(default = "default_true")]
     pub try_click_before: bool,
     #[serde(flatten)]
@@ -482,10 +495,14 @@ pub struct TypeIntoElementArgs {
 pub struct PressKeyArgs {
     #[schemars(description = "The key or key combination to press (e.g., 'Enter', 'Ctrl+A')")]
     pub key: String,
-    #[schemars(description = "Whether to try focusing the element before pressing the key (default: true). Set to false to skip focus attempt.")]
+    #[schemars(
+        description = "Whether to try focusing the element before pressing the key (default: true). Set to false to skip focus attempt."
+    )]
     #[serde(default = "default_true")]
     pub try_focus_before: bool,
-    #[schemars(description = "Whether to try clicking the element if focus fails (default: true). Set to false to disable click fallback. Useful to avoid unwanted clicks on checkboxes or buttons.")]
+    #[schemars(
+        description = "Whether to try clicking the element if focus fails (default: true). Set to false to disable click fallback. Useful to avoid unwanted clicks on checkboxes or buttons."
+    )]
     #[serde(default = "default_true")]
     pub try_click_before: bool,
     #[serde(flatten)]
