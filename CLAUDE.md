@@ -34,7 +34,7 @@ cargo fmt && cargo clippy
 **Security:**
 - ❌ **NEVER use `#id` selectors** (non-deterministic across machines)
 - ❌ Don't commit credentials
-- ✅ Use `role:Type|name:Name` or `nativeid` selectors
+- ✅ Use `role:Type && name:Name` or `nativeid` selectors
 
 ## MCP Debugging
 
