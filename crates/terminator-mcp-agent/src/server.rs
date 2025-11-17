@@ -4220,12 +4220,16 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     }
                     Ok(((result, element), selector, diff))
                 }
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.build_full_selector(),
-                    args.selector.build_alternative_selectors().as_deref(),
-                    args.selector.build_fallback_selectors().as_deref(),
-                    e,
-                )),
+                Err(e) => {
+                    // Restore windows before returning error
+                    self.restore_window_management(should_restore).await;
+                    Err(build_element_not_found_error(
+                        &args.selector.build_full_selector(),
+                        args.selector.build_alternative_selectors().as_deref(),
+                        args.selector.build_fallback_selectors().as_deref(),
+                        e,
+                    ))
+                }
             }?;
 
         let element_info = build_element_info(&element);
@@ -4356,12 +4360,16 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     }
                     Ok(((result, element), selector, diff))
                 }
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.build_full_selector(),
-                    args.selector.build_alternative_selectors().as_deref(),
-                    args.selector.build_fallback_selectors().as_deref(),
-                    e,
-                )),
+                Err(e) => {
+                    // Restore windows before returning error
+                    self.restore_window_management(should_restore).await;
+                    Err(build_element_not_found_error(
+                        &args.selector.build_full_selector(),
+                        args.selector.build_alternative_selectors().as_deref(),
+                        args.selector.build_fallback_selectors().as_deref(),
+                        e,
+                    ))
+                }
             }?;
 
         let element_info = build_element_info(&element);
@@ -5716,12 +5724,16 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     }
                     Ok(((result, element), selector, diff))
                 }
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.build_full_selector(),
-                    args.selector.build_alternative_selectors().as_deref(),
-                    args.selector.build_fallback_selectors().as_deref(),
-                    e,
-                )),
+                Err(e) => {
+                    // Restore windows before returning error
+                    self.restore_window_management(should_restore).await;
+                    Err(build_element_not_found_error(
+                        &args.selector.build_full_selector(),
+                        args.selector.build_alternative_selectors().as_deref(),
+                        args.selector.build_fallback_selectors().as_deref(),
+                        e,
+                    ))
+                }
             }?;
 
         let element_info = build_element_info(&element);
@@ -6145,12 +6157,16 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     }
                     Ok(((result, element), selector, diff))
                 }
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.build_full_selector(),
-                    args.selector.build_alternative_selectors().as_deref(),
-                    args.selector.build_fallback_selectors().as_deref(),
-                    e,
-                )),
+                Err(e) => {
+                    // Restore windows before returning error
+                    self.restore_window_management(should_restore).await;
+                    Err(build_element_not_found_error(
+                        &args.selector.build_full_selector(),
+                        args.selector.build_alternative_selectors().as_deref(),
+                        args.selector.build_fallback_selectors().as_deref(),
+                        e,
+                    ))
+                }
             }?;
 
         let element_info = build_element_info(&element);
