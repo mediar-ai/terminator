@@ -223,6 +223,8 @@ impl DesktopWrapper {
         &self,
         process: &str,
         execution_context: Option<&crate::utils::ToolExecutionContext>,
+        process_id: Option<u32>,
+        ui_element: Option<&terminator::platforms::windows::WindowsUIElement>,
     ) -> Result<(), String> {
         let start = std::time::Instant::now();
 
@@ -321,37 +323,127 @@ impl DesktopWrapper {
                 tracing::warn!("Failed to capture initial window state: {}", e);
             }
 
-            if let Some(window) = self.window_manager.get_topmost_window_for_process(process).await {
-                // Only minimize always-on-top windows
-                let always_on_top_windows = self.window_manager.get_always_on_top_windows().await;
-                if !always_on_top_windows.is_empty() {
-                    tracing::info!("Found {} always-on-top windows for {}", always_on_top_windows.len(), process);
-                    match self.window_manager.minimize_always_on_top_windows(window.hwnd).await {
-                        Ok(count) => {
-                            tracing::info!("Minimized {} always-on-top windows for {}", count, process);
+            // Check if this is a UWP app (requires process_id)
+            let is_uwp = if let Some(pid) = process_id {
+                self.window_manager.is_uwp_app(pid).await
+            } else {
+                false
+            };
+
+            if is_uwp {
+                tracing::info!("[prepare_window_management] Detected UWP app - using keyboard (Win+Up) for window management");
+
+                // Get UWP window's HWND for tracking and restoration
+                // For UWP apps, we need the ApplicationFrameHost parent HWND, not the content window HWND
+                let uwp_hwnd = if let Some(element) = ui_element {
+                    match element.get_native_window_handle() {
+                        Ok(content_hwnd) => {
+                            tracing::info!("[prepare_window_management] Got UWP content window HWND: {}", content_hwnd);
+
+                            // Get the parent ApplicationFrameHost window
+                            use windows::Win32::UI::WindowsAndMessaging::GetAncestor;
+                            use windows::Win32::Foundation::HWND;
+                            use windows::Win32::UI::WindowsAndMessaging::GA_ROOT;
+
+                            unsafe {
+                                let hwnd = HWND(content_hwnd as *mut _);
+                                let root_hwnd = GetAncestor(hwnd, GA_ROOT);
+                                if !root_hwnd.0.is_null() {
+                                    let root_hwnd_val = root_hwnd.0 as isize;
+                                    tracing::info!("[prepare_window_management] Got UWP root window HWND: {}", root_hwnd_val);
+                                    Some(root_hwnd_val)
+                                } else {
+                                    tracing::warn!("[prepare_window_management] Failed to get root window for UWP content");
+                                    Some(content_hwnd)
+                                }
+                            }
                         }
                         Err(e) => {
-                            tracing::warn!("Failed to minimize always-on-top windows: {}", e);
+                            tracing::warn!("[prepare_window_management] Failed to get UWP HWND: {}", e);
+                            None
                         }
                     }
                 } else {
-                    tracing::debug!("No always-on-top windows found for {} (maximize will bring to front)", process);
+                    tracing::warn!("[prepare_window_management] No ui_element provided for UWP app");
+                    None
+                };
+
+                // 1. Track UWP window as target for restoration
+                if let Some(hwnd) = uwp_hwnd {
+                    self.window_manager.set_target_window(hwnd).await;
+                } else {
+                    tracing::warn!("[prepare_window_management] Cannot track UWP window for restoration (no HWND)");
                 }
 
-                // Maximize target if not already maximized
-                match self.window_manager.maximize_if_needed(window.hwnd).await {
-                    Ok(true) => {
-                        tracing::info!("Maximized window for {}", process);
+                // 2. Maximize UWP target window using keyboard (ShowWindow doesn't work for UWP)
+                if let Some(element) = ui_element {
+                    if let Err(e) = element.maximize_window_keyboard() {
+                        tracing::warn!("Failed to maximize UWP window via keyboard for {}: {}", process, e);
+                    } else {
+                        tracing::info!("Maximized UWP window for {} via keyboard (Win+Up)", process);
                     }
-                    Ok(false) => {
-                        tracing::debug!("Window for {} already maximized", process);
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to maximize window: {}", e);
+                } else {
+                    tracing::warn!("Cannot maximize UWP window - no ui_element provided");
+                }
+
+                // 3. Minimize Win32 always-on-top windows (if any)
+                // Note: UWP always-on-top windows are not visible via Win32 enumeration
+                let always_on_top_windows = self.window_manager.get_always_on_top_windows().await;
+                if !always_on_top_windows.is_empty() {
+                    tracing::info!("Found {} always-on-top Win32 windows to minimize", always_on_top_windows.len());
+
+                    if let Some(hwnd) = uwp_hwnd {
+                        match self.window_manager.minimize_always_on_top_windows(hwnd).await {
+                            Ok(count) => {
+                                tracing::info!("Minimized {} Win32 always-on-top windows (UWP target app)", count);
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to minimize always-on-top windows for UWP app: {}", e);
+                            }
+                        }
+                    } else {
+                        tracing::warn!("Could not get HWND from UWP element to minimize always-on-top windows");
                     }
                 }
             } else {
-                tracing::warn!("Could not find window for process '{}' for window management", process);
+                // Win32 app: use traditional window management
+                // Try PID-based lookup first if available, fallback to process name
+                let window = if let Some(pid) = process_id {
+                    self.window_manager.get_topmost_window_for_pid(pid).await
+                } else {
+                    self.window_manager.get_topmost_window_for_process(process).await
+                };
+
+                if let Some(window) = window {
+                    // Minimize always-on-top Win32 windows
+                    let always_on_top_windows = self.window_manager.get_always_on_top_windows().await;
+                    if !always_on_top_windows.is_empty() {
+                        tracing::info!("Found {} always-on-top Win32 windows", always_on_top_windows.len());
+                        match self.window_manager.minimize_always_on_top_windows(window.hwnd).await {
+                            Ok(count) => {
+                                tracing::info!("Minimized {} always-on-top Win32 windows for {}", count, process);
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to minimize always-on-top windows: {}", e);
+                            }
+                        }
+                    }
+
+                    // Maximize target Win32 window
+                    match self.window_manager.maximize_if_needed(window.hwnd).await {
+                        Ok(true) => {
+                            tracing::info!("Maximized Win32 window for {}", process);
+                        }
+                        Ok(false) => {
+                            tracing::debug!("Win32 window already maximized");
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to maximize Win32 window: {}", e);
+                        }
+                    }
+                } else {
+                    tracing::warn!("Could not find Win32 window for '{}' for window management", process);
+                }
             }
         }
 
@@ -1186,6 +1278,22 @@ impl DesktopWrapper {
             args.selector.window_selector
         );
 
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            let flag_value = *in_sequence;
+            let should_restore_value = !flag_value;
+            tracing::info!("[type_into_element] Flag check: in_sequence={}, should_restore={}", flag_value, should_restore_value);
+            should_restore_value
+        };
+
+        if should_restore {
+            tracing::info!("[type_into_element] Direct MCP call detected - performing window management");
+            let _ = self.prepare_window_management(&args.selector.process, None, None, None).await;
+        } else {
+            tracing::debug!("[type_into_element] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let text_to_type = args.text_to_type.clone();
         let should_clear = args.clear_before_typing.unwrap_or(true);
 
@@ -1433,6 +1541,9 @@ impl DesktopWrapper {
             .await;
         }
 
+        // Restore windows after typing into element
+        self.restore_window_management(should_restore).await;
+
         span.set_status(true, None);
         span.end();
         Ok(CallToolResult::success(
@@ -1487,42 +1598,7 @@ impl DesktopWrapper {
 
         if should_restore {
             tracing::info!("[click_element] Direct MCP call detected - performing window management");
-
-            // Capture initial window state for restoration
-            if let Err(e) = self.window_manager.capture_initial_state().await {
-                tracing::warn!("Failed to capture initial window state: {}", e);
-            }
-
-            // Get topmost window for the target process and minimize always-on-top windows
-            if let Some(window) = self.window_manager.get_topmost_window_for_process(&args.selector.process).await {
-                let always_on_top_windows = self.window_manager.get_always_on_top_windows().await;
-                if !always_on_top_windows.is_empty() {
-                    tracing::info!("Found {} always-on-top windows for {}", always_on_top_windows.len(), &args.selector.process);
-                    match self.window_manager.minimize_always_on_top_windows(window.hwnd).await {
-                        Ok(count) => {
-                            tracing::info!("Minimized {} always-on-top windows for {}", count, &args.selector.process);
-                        }
-                        Err(e) => {
-                            tracing::warn!("Failed to minimize always-on-top windows: {}", e);
-                        }
-                    }
-                }
-
-                // Maximize target window to bring it to front
-                match self.window_manager.maximize_if_needed(window.hwnd).await {
-                    Ok(true) => {
-                        tracing::info!("Maximized target window for {}", &args.selector.process);
-                    }
-                    Ok(false) => {
-                        tracing::debug!("Target window already maximized");
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to maximize window: {}", e);
-                    }
-                }
-            } else {
-                tracing::warn!("Could not find window for process '{}' for window management", &args.selector.process);
-            }
+            let _ = self.prepare_window_management(&args.selector.process, None, None, None).await;
         } else {
             tracing::debug!("[click_element] In sequence - skipping window management (dispatch_tool handles it)");
         }
@@ -1729,6 +1805,22 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
             args.key
         );
 
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            let flag_value = *in_sequence;
+            let should_restore_value = !flag_value;
+            tracing::info!("[press_key] Flag check: in_sequence={}, should_restore={}", flag_value, should_restore_value);
+            should_restore_value
+        };
+
+        if should_restore {
+            tracing::info!("[press_key] Direct MCP call detected - performing window management");
+            let _ = self.prepare_window_management(&args.selector.process, None, None, None).await;
+        } else {
+            tracing::debug!("[press_key] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let key_to_press = args.key.clone();
         let action = {
             let highlight_config = args.highlight.highlight_before_action.clone();
@@ -1844,6 +1936,9 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
             )
             .await;
         }
+
+        // Restore windows after pressing key
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -3860,114 +3955,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
         if should_restore {
             tracing::info!("[open_application] Direct MCP call detected - performing window management");
-
-            // Capture initial window state for restoration (includes the newly opened window)
-            if let Err(e) = self.window_manager.capture_initial_state().await {
-                tracing::warn!("Failed to capture initial window state: {}", e);
-            }
-
-            // Check if this is a UWP app
-            let is_uwp = self.window_manager.is_uwp_app(process_id).await;
-
-            if is_uwp {
-                tracing::info!("[open_application] Detected UWP app - using keyboard (Win+Up) for window management");
-
-                // Get UWP window's HWND for tracking and restoration
-                // For UWP apps, we need the ApplicationFrameHost parent HWND, not the content window HWND
-                let uwp_hwnd = match ui_element.get_native_window_handle() {
-                    Ok(content_hwnd) => {
-                        tracing::info!("[open_application] Got UWP content window HWND: {}", content_hwnd);
-
-                        // Get the parent ApplicationFrameHost window
-                        use windows::Win32::UI::WindowsAndMessaging::GetAncestor;
-                        use windows::Win32::Foundation::HWND;
-                        use windows::Win32::UI::WindowsAndMessaging::GA_ROOT;
-
-                        unsafe {
-                            let hwnd = HWND(content_hwnd as *mut _);
-                            let root_hwnd = GetAncestor(hwnd, GA_ROOT);
-                            if !root_hwnd.0.is_null() {
-                                let root_hwnd_val = root_hwnd.0 as isize;
-                                tracing::info!("[open_application] Got UWP root window HWND: {}", root_hwnd_val);
-                                Some(root_hwnd_val)
-                            } else {
-                                tracing::warn!("[open_application] Failed to get root window for UWP content");
-                                Some(content_hwnd)
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("[open_application] Failed to get UWP HWND: {}", e);
-                        None
-                    }
-                };
-
-                // 1. Track UWP window as target for restoration
-                if let Some(hwnd) = uwp_hwnd {
-                    self.window_manager.set_target_window(hwnd).await;
-                } else {
-                    tracing::warn!("[open_application] Cannot track UWP window for restoration (no HWND)");
-                }
-
-                // 2. Maximize UWP target window using keyboard (ShowWindow doesn't work for UWP)
-                if let Err(e) = ui_element.maximize_window_keyboard() {
-                    tracing::warn!("Failed to maximize UWP window via keyboard for {}: {}", &args.app_name, e);
-                } else {
-                    tracing::info!("Maximized UWP window for {} via keyboard (Win+Up)", &args.app_name);
-                }
-
-                // 3. Minimize Win32 always-on-top windows (if any)
-                // Note: UWP always-on-top windows are not visible via Win32 enumeration
-                let always_on_top_windows = self.window_manager.get_always_on_top_windows().await;
-                if !always_on_top_windows.is_empty() {
-                    tracing::info!("Found {} always-on-top Win32 windows to minimize", always_on_top_windows.len());
-
-                    if let Some(hwnd) = uwp_hwnd {
-                        match self.window_manager.minimize_always_on_top_windows(hwnd).await {
-                            Ok(count) => {
-                                tracing::info!("Minimized {} Win32 always-on-top windows (UWP target app)", count);
-                            }
-                            Err(e) => {
-                                tracing::warn!("Failed to minimize always-on-top windows for UWP app: {}", e);
-                            }
-                        }
-                    } else {
-                        tracing::warn!("Could not get HWND from UWP element to minimize always-on-top windows");
-                    }
-                }
-            } else {
-                // Win32 app: use traditional window management
-                if let Some(window) = self.window_manager.get_topmost_window_for_pid(process_id).await {
-                    // Minimize always-on-top Win32 windows
-                    let always_on_top_windows = self.window_manager.get_always_on_top_windows().await;
-                    if !always_on_top_windows.is_empty() {
-                        tracing::info!("Found {} always-on-top Win32 windows", always_on_top_windows.len());
-                        match self.window_manager.minimize_always_on_top_windows(window.hwnd).await {
-                            Ok(count) => {
-                                tracing::info!("Minimized {} always-on-top Win32 windows for {}", count, &args.app_name);
-                            }
-                            Err(e) => {
-                                tracing::warn!("Failed to minimize always-on-top windows: {}", e);
-                            }
-                        }
-                    }
-
-                    // Maximize target Win32 window
-                    match self.window_manager.maximize_if_needed(window.hwnd).await {
-                        Ok(true) => {
-                            tracing::info!("Maximized Win32 window for {}", &args.app_name);
-                        }
-                        Ok(false) => {
-                            tracing::debug!("Win32 window already maximized");
-                        }
-                        Err(e) => {
-                            tracing::warn!("Failed to maximize Win32 window: {}", e);
-                        }
-                    }
-                } else {
-                    tracing::warn!("Could not find Win32 window for app '{}' (PID: {}) for window management", &args.app_name, process_id);
-                }
-            }
+            let _ = self.prepare_window_management(&args.app_name, None, Some(process_id), Some(&ui_element)).await;
         } else {
             tracing::debug!("[open_application] In sequence - skipping window management (dispatch_tool handles it)");
         }
@@ -3998,14 +3986,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         }
 
         // Restore windows if we did window management
-        if should_restore {
-            if let Err(e) = self.window_manager.restore_all_windows().await {
-                tracing::warn!("Failed to restore windows: {}", e);
-            } else {
-                tracing::info!("Restored all windows to original state");
-            }
-            self.window_manager.clear_captured_state().await;
-        }
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -4356,8 +4337,21 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
 
-        // Window management before listing options
-        // Window management handled by dispatch_tool
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            let flag_value = *in_sequence;
+            let should_restore_value = !flag_value;
+            tracing::info!("[list_options] Flag check: in_sequence={}, should_restore={}", flag_value, should_restore_value);
+            should_restore_value
+        };
+
+        if should_restore {
+            tracing::info!("[list_options] Direct MCP call detected - performing window management");
+            let _ = self.prepare_window_management(&args.selector.process, None, None, None).await;
+        } else {
+            tracing::debug!("[list_options] In sequence - skipping window management (dispatch_tool handles it)");
+        }
 
         let ((options, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
@@ -4409,9 +4403,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         )
         .await;
 
-        // Restore windows after listing options (always restore for direct tool calls)
-        // Window restoration now handled by dispatch_tool
-        // self.restore_window_management(true).await;
+        // Restore windows after listing options
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -5089,6 +5082,23 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            let flag_value = *in_sequence;
+            let should_restore_value = !flag_value;
+            tracing::info!("[is_toggled] Flag check: in_sequence={}, should_restore={}", flag_value, should_restore_value);
+            should_restore_value
+        };
+
+        if should_restore {
+            tracing::info!("[is_toggled] Direct MCP call detected - performing window management");
+            let _ = self.prepare_window_management(&args.selector.process, None, None, None).await;
+        } else {
+            tracing::debug!("[is_toggled] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let ((is_toggled, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
@@ -5133,6 +5143,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         )
         .await;
 
+        // Restore windows after checking if element is toggled
+        self.restore_window_management(should_restore).await;
+
         span.set_status(true, None);
         span.end();
 
@@ -5161,6 +5174,23 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            let flag_value = *in_sequence;
+            let should_restore_value = !flag_value;
+            tracing::info!("[get_range_value] Flag check: in_sequence={}, should_restore={}", flag_value, should_restore_value);
+            should_restore_value
+        };
+
+        if should_restore {
+            tracing::info!("[get_range_value] Direct MCP call detected - performing window management");
+            let _ = self.prepare_window_management(&args.selector.process, None, None, None).await;
+        } else {
+            tracing::debug!("[get_range_value] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let ((value, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
@@ -5205,6 +5235,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         )
         .await;
 
+        // Restore windows after getting range value
+        self.restore_window_management(should_restore).await;
+
         span.set_status(true, None);
         span.end();
 
@@ -5233,6 +5266,23 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            let flag_value = *in_sequence;
+            let should_restore_value = !flag_value;
+            tracing::info!("[is_selected] Flag check: in_sequence={}, should_restore={}", flag_value, should_restore_value);
+            should_restore_value
+        };
+
+        if should_restore {
+            tracing::info!("[is_selected] Direct MCP call detected - performing window management");
+            let _ = self.prepare_window_management(&args.selector.process, None, None, None).await;
+        } else {
+            tracing::debug!("[is_selected] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let ((is_selected, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
@@ -5276,6 +5326,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             Some(&element),
         )
         .await;
+
+        // Restore windows after checking if element is selected
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -5448,6 +5501,23 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            let flag_value = *in_sequence;
+            let should_restore_value = !flag_value;
+            tracing::info!("[invoke_element] Flag check: in_sequence={}, should_restore={}", flag_value, should_restore_value);
+            should_restore_value
+        };
+
+        if should_restore {
+            tracing::info!("[invoke_element] Direct MCP call detected - performing window management");
+            let _ = self.prepare_window_management(&args.selector.process, None, None, None).await;
+        } else {
+            tracing::debug!("[invoke_element] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         // Store tree config to avoid move issues
         let tree_output_format = args
             .tree
@@ -5533,6 +5603,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             )
             .await;
         }
+
+        // Restore windows after invoking element
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -6226,8 +6299,21 @@ Requires Chrome extension to be installed."
         use serde_json::json;
         let start_instant = std::time::Instant::now();
 
-        // Window management before executing browser script
-        // Window management handled by dispatch_tool
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            let flag_value = *in_sequence;
+            let should_restore_value = !flag_value;
+            tracing::info!("[execute_browser_script] Flag check: in_sequence={}, should_restore={}", flag_value, should_restore_value);
+            should_restore_value
+        };
+
+        if should_restore {
+            tracing::info!("[execute_browser_script] Direct MCP call detected - performing window management");
+            let _ = self.prepare_window_management(&args.selector.process, None, None, None).await;
+        } else {
+            tracing::debug!("[execute_browser_script] In sequence - skipping window management (dispatch_tool handles it)");
+        }
 
         // Resolve the script content
         let script_content = if let Some(script_file) = &args.script_file {
@@ -6839,9 +6925,8 @@ console.info = function(...args) {
         )
         .await;
 
-        // Restore windows after executing browser script (always restore for direct tool calls)
-        // Window restoration now handled by dispatch_tool
-        // self.restore_window_management(true).await;
+        // Restore windows after executing browser script
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -6910,7 +6995,7 @@ impl DesktopWrapper {
 
         // Perform window management if needed
         if let Some(ref process) = process_name {
-            let _ = self.prepare_window_management(process, execution_context.as_ref()).await;
+            let _ = self.prepare_window_management(process, execution_context.as_ref(), None, None).await;
 
             // Small delay to let window operations settle
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
