@@ -48,7 +48,7 @@ impl ScrollFallback for WindowsUIElement {
                     let times = (amount * 6.0).round().max(3.0) as usize; // ~3-5 arrow key presses
                     let key = if direction == "up" { "{up}" } else { "{down}" };
                     for _ in 0..times {
-                        self.press_key(key)?;
+                        self.press_key(key, true, true)?;
                         std::thread::sleep(std::time::Duration::from_millis(10));
                     }
                 } else {
@@ -60,7 +60,7 @@ impl ScrollFallback for WindowsUIElement {
                         "{page_down}"
                     };
                     for _ in 0..times {
-                        self.press_key(key)?;
+                        self.press_key(key, true, true)?;
                     }
                 }
             }
@@ -76,7 +76,7 @@ impl ScrollFallback for WindowsUIElement {
                     "{right}"
                 };
                 for _ in 0..times {
-                    self.press_key(key)?;
+                    self.press_key(key, true, true)?;
                     if use_arrow_keys {
                         std::thread::sleep(std::time::Duration::from_millis(10));
                     }
@@ -1046,7 +1046,35 @@ impl UIElementImpl for WindowsUIElement {
             .map_err(|e| AutomationError::PlatformError(format!("Failed to get native window handle: {:?}", e)))
     }
 
-        fn type_text(&self, text: &str, use_clipboard: bool) -> Result<(), AutomationError> {
+    fn type_text(&self, text: &str, use_clipboard: bool, try_focus_before: bool, try_click_before: bool) -> Result<(), AutomationError> {
+        // Attempt to focus/click before typing based on parameters
+        // try_focus_before: Try to focus the element first (default: true)
+        // try_click_before: If focus fails, try clicking as fallback (default: true)
+        if try_focus_before {
+            match self.focus() {
+                Ok(_) => debug!("Successfully focused element for typing"),
+                Err(e) => {
+                    debug!("Focus failed: {:?}", e);
+                    if try_click_before {
+                        // Click the element as fallback, which is often needed for certain inputs
+                        if let Err(click_err) = self.click() {
+                            debug!("Click also failed: {:?}", click_err);
+                        } else {
+                            debug!("Clicked element as fallback after focus failed");
+                        }
+                    }
+                }
+            }
+        } else if try_click_before {
+            // Skip focus, just click
+            if let Err(click_err) = self.click() {
+                debug!("Click failed: {:?}", click_err);
+            } else {
+                debug!("Clicked element before typing (focus skipped)");
+            }
+        }
+
+
         let control_type = self
             .element
             .0
@@ -1083,7 +1111,34 @@ impl UIElementImpl for WindowsUIElement {
         }
     }
 
-    fn press_key(&self, key: &str) -> Result<(), AutomationError> {
+    fn press_key(&self, key: &str, try_focus_before: bool, try_click_before: bool) -> Result<(), AutomationError> {
+        // Attempt to focus/click before pressing key based on parameters
+        // try_focus_before: Try to focus the element first (default: true)
+        // try_click_before: If focus fails, try clicking as fallback (default: true)
+        if try_focus_before {
+            match self.focus() {
+                Ok(_) => debug!("Successfully focused element for key press"),
+                Err(e) => {
+                    debug!("Focus failed: {:?}", e);
+                    if try_click_before {
+                        // Click the element as fallback
+                        if let Err(click_err) = self.click() {
+                            debug!("Click also failed: {:?}", click_err);
+                        } else {
+                            debug!("Clicked element as fallback after focus failed");
+                        }
+                    }
+                }
+            }
+        } else if try_click_before {
+            // Skip focus, just click
+            if let Err(click_err) = self.click() {
+                debug!("Click failed: {:?}", click_err);
+            } else {
+                debug!("Clicked element before pressing key (focus skipped)");
+            }
+        }
+
         let control_type = self.element.0.get_control_type().map_err(|e| {
             AutomationError::PlatformError(format!("Failed to get control type: {e:?}"))
         })?;
@@ -2418,7 +2473,7 @@ impl UIElementImpl for WindowsUIElement {
         if from_min_dist <= from_max_dist {
             // Go to min and step up.
             debug!("Moving from min. Resetting to HOME.");
-            self.press_key("{home}")?;
+            self.press_key("{home}", true, true)?;
             std::thread::sleep(std::time::Duration::from_millis(50));
             let num_steps = (from_min_dist / small_change).round() as u32;
             debug!(
@@ -2426,14 +2481,14 @@ impl UIElementImpl for WindowsUIElement {
                 num_steps, target_value
             );
             for i in 0..num_steps {
-                self.press_key("{right}")?;
+                self.press_key("{right}", true, true)?;
                 std::thread::sleep(std::time::Duration::from_millis(10));
                 debug!("Step {}/{}: Pressed RIGHT", i + 1, num_steps);
             }
         } else {
             // Go to max and step down.
             debug!("Moving from max. Resetting to END.");
-            self.press_key("{end}")?;
+            self.press_key("{end}", true, true)?;
             std::thread::sleep(std::time::Duration::from_millis(50));
             let num_steps = (from_max_dist / small_change).round() as u32;
             debug!(
@@ -2441,7 +2496,7 @@ impl UIElementImpl for WindowsUIElement {
                 num_steps, target_value
             );
             for i in 0..num_steps {
-                self.press_key("{left}")?;
+                self.press_key("{left}", true, true)?;
                 std::thread::sleep(std::time::Duration::from_millis(10));
                 debug!("Step {}/{}: Pressed LEFT", i + 1, num_steps);
             }
@@ -2561,12 +2616,12 @@ impl UIElementImpl for WindowsUIElement {
         self.execute_with_state_tracking("invoke", |elem| elem.invoke(), None)
     }
 
-    fn press_key_with_state(&self, key: &str) -> Result<crate::ActionResult, AutomationError> {
+    fn press_key_with_state(&self, key: &str, try_focus_before: bool, try_click_before: bool) -> Result<crate::ActionResult, AutomationError> {
         let key_str = key.to_string();
         self.execute_with_state_tracking(
             "press_key",
-            |elem| elem.press_key(&key_str),
-            Some(serde_json::json!({"key": key_str})),
+            |elem| elem.press_key(&key_str, try_focus_before, try_click_before),
+            Some(serde_json::json!({"key": key_str, "try_focus_before": try_focus_before, "try_click_before": try_click_before})),
         )
     }
 
@@ -2586,13 +2641,15 @@ impl UIElementImpl for WindowsUIElement {
         &self,
         text: &str,
         use_clipboard: bool,
+        try_focus_before: bool,
+        try_click_before: bool,
     ) -> Result<crate::ActionResult, AutomationError> {
         let text_str = text.to_string();
         let clipboard = use_clipboard;
         self.execute_with_state_tracking(
             "type_text",
-            |elem| elem.type_text(&text_str, clipboard),
-            Some(serde_json::json!({"text": text_str, "use_clipboard": clipboard})),
+            |elem| elem.type_text(&text_str, clipboard, try_focus_before, try_click_before),
+            Some(serde_json::json!({"text": text_str, "use_clipboard": clipboard, "try_focus_before": try_focus_before, "try_click_before": try_click_before})),
         )
     }
 

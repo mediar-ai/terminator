@@ -456,6 +456,12 @@ pub struct TypeIntoElementArgs {
     pub text_to_type: String,
     #[schemars(description = "REQUIRED: Whether to clear the element before typing. Set to true to clear existing text, false to append.")]
     pub clear_before_typing: bool,
+    #[schemars(description = "Whether to try focusing the element before typing (default: true). Set to false to skip focus attempt.")]
+    #[serde(default = "default_true")]
+    pub try_focus_before: bool,
+    #[schemars(description = "Whether to try clicking the element if focus fails (default: true). Set to false to disable click fallback. Useful to avoid unwanted clicks on checkboxes or buttons.")]
+    #[serde(default = "default_true")]
+    pub try_click_before: bool,
     #[serde(flatten)]
     pub selector: SelectorOptions,
 
@@ -476,6 +482,12 @@ pub struct TypeIntoElementArgs {
 pub struct PressKeyArgs {
     #[schemars(description = "The key or key combination to press (e.g., 'Enter', 'Ctrl+A')")]
     pub key: String,
+    #[schemars(description = "Whether to try focusing the element before pressing the key (default: true). Set to false to skip focus attempt.")]
+    #[serde(default = "default_true")]
+    pub try_focus_before: bool,
+    #[schemars(description = "Whether to try clicking the element if focus fails (default: true). Set to false to disable click fallback. Useful to avoid unwanted clicks on checkboxes or buttons.")]
+    #[serde(default = "default_true")]
+    pub try_click_before: bool,
     #[serde(flatten)]
     pub selector: SelectorOptions,
 
