@@ -847,7 +847,7 @@ impl DesktopWrapper {
         // Use maybe_attach_tree to handle tree extraction with from_selector support
         crate::helpers::maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree.or(Some(true)), // Default to true for get_window_tree
+            args.tree.include_tree_after_action.or(Some(true)), // Default to true for get_window_tree
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -1548,7 +1548,7 @@ impl DesktopWrapper {
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -1765,7 +1765,7 @@ impl DesktopWrapper {
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -1939,7 +1939,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -2024,7 +2024,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
         });
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -3193,7 +3193,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         // Always attach UI tree for activated elements to help with next actions
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -3325,7 +3325,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         });
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -3423,7 +3423,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 });
                 maybe_attach_tree(
                     &self.desktop,
-                    args.tree.include_tree,
+                    args.tree.include_tree_after_action,
                     args.tree.tree_max_depth,
                     args.tree.tree_from_selector.as_deref(),
                     args.tree.include_detailed_attributes,
@@ -3616,7 +3616,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         }
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -3659,7 +3659,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         }
         info!(
             "[wait_for_element] Called with selector: '{}', condition: '{}', timeout_ms: {:?}, include_tree: {:?}",
-            args.selector.selector, args.condition, args.action.timeout_ms, args.tree.include_tree
+            args.selector.selector, args.condition, args.action.timeout_ms, args.tree.include_tree_after_action
         );
 
         // Check if we need to perform window management (only for direct MCP calls, not sequences)
@@ -3707,7 +3707,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
                     maybe_attach_tree(
                         &self.desktop,
-                        args.tree.include_tree,
+                        args.tree.include_tree_after_action,
                         args.tree.tree_max_depth,
                         args.tree.tree_from_selector.as_deref(),
                         None, // include_detailed_attributes - use default
@@ -3860,7 +3860,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
                         maybe_attach_tree(
                             &self.desktop,
-                            args.tree.include_tree,
+                            args.tree.include_tree_after_action,
                             args.tree.tree_max_depth,
                             args.tree.tree_from_selector.as_deref(),
                             None, // include_detailed_attributes - use default
@@ -3954,7 +3954,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -4261,7 +4261,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -4399,7 +4399,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -4496,7 +4496,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         });
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -4736,7 +4736,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -4969,7 +4969,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -5201,7 +5201,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -5293,7 +5293,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         });
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -5385,7 +5385,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         });
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -5477,7 +5477,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         });
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -5772,7 +5772,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -5921,7 +5921,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         });
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -6007,7 +6007,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         });
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -6071,7 +6071,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         });
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -6273,7 +6273,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -7165,7 +7165,7 @@ console.info = function(...args) {
         // Always attach tree for better context
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,

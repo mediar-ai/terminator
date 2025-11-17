@@ -15,21 +15,21 @@ arguments:
     - tool_name: click_element
       arguments:
         selector: "role:ListItem|name:Accessibility"
-        include_tree: false
+        include_tree_after_action: false
       delay: "1500ms"  # Wait for page to load
 
     # Step 3: Navigate to Mouse pointer and touch settings
     - tool_name: click_element
       arguments:
         selector: "role:ListItem|name:Mouse pointer and touch"
-        include_tree: false
+        include_tree_after_action: false
       delay: "1500ms"  # Wait for settings page to load
 
     # Step 4: Check current toggle state of Mouse pointer trails
     - tool_name: is_toggled
       arguments:
         selector: "role:Button|name:Mouse pointer trails"
-        include_tree: false
+        include_tree_after_action: false
       continue_on_error: true
       id: check_trails_state
 
@@ -39,7 +39,7 @@ arguments:
       arguments:
         selector: "role:Button|name:Mouse pointer trails"
         state: true  # Set to enabled (true = ON)
-        include_tree: false
+        include_tree_after_action: false
       delay: "500ms"
 
     # Step 6: Optional - Adjust trail length using the slider

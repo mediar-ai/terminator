@@ -58,7 +58,7 @@ async function main() {
   try {
     await callTool(client, 'navigate_browser', {
       url: 'https://www.amazon.com/',
-      include_tree: false
+      include_tree_after_action: false
     });
 
     // Candidate selectors for the country/region button (icp-button)
@@ -79,7 +79,7 @@ async function main() {
           duration_ms: 2500,
           text: 'Country/Region',
           text_position: 'TopRight',
-          include_tree: false,
+          include_tree_after_action: false,
           include_element_info: false,
           timeout_ms: 20000
         });

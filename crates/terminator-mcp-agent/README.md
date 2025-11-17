@@ -453,7 +453,7 @@ The virtual display manager creates a memory-based display context that satisfie
 
 - Use specific selectors instead of broad element searches
 - Implement delays between rapid operations
-- Consider using `include_tree: false` for intermediate steps
+- Consider using `include_tree_after_action: false` for intermediate steps
 - For tree extraction tools, optimize with:
   - `tree_max_depth: 30` - Limit depth for large trees
   - `tree_from_selector: "role:List"` - Get subtree from specific element
@@ -639,7 +639,7 @@ steps:
   - id: check_apps
     tool_name: get_applications
     arguments:
-      include_tree: false
+      include_tree_after_action: false
 
   # Access the result in JavaScript
   - tool_name: run_command
@@ -662,7 +662,7 @@ steps:
 - tool_name: get_window_tree
   arguments:
     pid: 1234
-    include_tree: true  # Simple boolean form
+    include_tree_after_action: true  # Simple boolean form
       run: |
         // Direct variable access - auto-injected!
         const apps = check_apps_result || [];

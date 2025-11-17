@@ -384,7 +384,7 @@ pub fn infer_expected_outcomes(tool_calls: &[ToolCall]) -> Vec<String> {
 #[allow(clippy::too_many_arguments)]
 pub async fn maybe_attach_tree(
     desktop: &Desktop,
-    include_tree: Option<bool>,
+    include_tree_after_action: Option<bool>,
     tree_max_depth: Option<usize>,
     tree_from_selector: Option<&str>,
     include_detailed_attributes: Option<bool>,
@@ -397,7 +397,7 @@ pub async fn maybe_attach_tree(
     use terminator::Selector;
 
     // Check if tree should be included
-    let should_include = include_tree.unwrap_or(true);
+    let should_include = include_tree_after_action.unwrap_or(true);
     if !should_include {
         return;
     }

@@ -32,20 +32,20 @@ pub struct TreeOptions {
     #[schemars(
         description = "Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results."
     )]
-    pub include_tree: Option<bool>,
+    pub include_tree_after_action: Option<bool>,
 
     #[schemars(
-        description = "Maximum depth to traverse when building tree (only used if include_tree is true)"
+        description = "Maximum depth to traverse when building tree (only used if include_tree_after_action is true)"
     )]
     pub tree_max_depth: Option<usize>,
 
     #[schemars(
-        description = "Selector to start tree from instead of window root (only used if include_tree is true)"
+        description = "Selector to start tree from instead of window root (only used if include_tree_after_action is true)"
     )]
     pub tree_from_selector: Option<String>,
 
     #[schemars(
-        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree_after_action is true. Defaults to true for comprehensive LLM context."
     )]
     pub include_detailed_attributes: Option<bool>,
 
@@ -55,7 +55,7 @@ pub struct TreeOptions {
     pub tree_output_format: Option<TreeOutputFormat>,
 
     #[schemars(
-        description = "Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false."
+        description = "Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree_after_action behavior. Defaults to false."
     )]
     pub ui_diff_before_after: Option<bool>,
 }

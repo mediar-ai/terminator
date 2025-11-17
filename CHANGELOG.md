@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING**: Renamed `include_tree` parameter to `include_tree_after_action` across all MCP tools and YAML workflows for clearer semantics. This makes it explicit that the tree is captured after the action completes, not before. Update all workflows and tool calls to use the new parameter name.
+
 ## [0.23.5] - 2025-11-13
 
 ### Changed

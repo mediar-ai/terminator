@@ -51,7 +51,7 @@ arguments:
     - tool_name: navigate_browser
       arguments:
         url: "https://i94.cbp.dhs.gov/search/recent-search"
-        include_tree: false
+        include_tree_after_action: false
 
     - tool_name: wait_for_element
       arguments:
