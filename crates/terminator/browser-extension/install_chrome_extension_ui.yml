@@ -7,22 +7,22 @@ arguments:
       default: "https://github.com/mediar-ai/terminator/releases/latest/download/terminator-browser-extension.zip"
 
   selectors:
-    # --- Selectores de UI (Inglés) ---
+    # --- UI Selectors (English) ---
     address_bar: "role:Edit|name:Address and search bar"
     dev_mode_toggle: "role:Button|name:Developer mode"
     load_unpacked: "role:Button|name:Load unpacked"
     reload_button: "role:Button|name:Reload"
     extensions_doc: "role:Document|name:Extensions"
 
-    # --- Selector de Perfil Genérico (Inglés) ---
+    # --- Generic Profile Selector (English) ---
     guest_mode_button: "role:Button|name:Guest mode"
 
-    # --- Selectores de Diálogo (Inglés) ---
+    # --- Dialog Selectors (English) ---
     folder_field: "role:Edit|name:Folder:"
     select_folder_btn: "role:Button|name:Select Folder"
 
   steps:
-    # --- PASOS 1-3: PREPARACIÓN DE ARCHIVOS ---
+    # --- STEPS 1-3: FILE PREPARATION ---
     - tool_name: run_command
       arguments:
         engine: javascript
@@ -96,7 +96,7 @@ arguments:
           })();
       continue_on_error: false
 
-    # --- PASOS 4-9: NAVEGACIÓN ROBUSTA ---
+    # --- STEPS 4-9: ROBUST NAVIGATION ---
 
     - tool_name: navigate_browser
       arguments:
@@ -151,7 +151,7 @@ arguments:
         key: "{Enter}"
       continue_on_error: true
 
-    # --- PASOS 10-17: CONFIGURACIÓN E INSTALACIÓN ---
+    # --- STEPS 10-17: CONFIGURATION AND INSTALLATION ---
 
     - tool_name: click_element
       arguments:
