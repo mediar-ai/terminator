@@ -126,10 +126,10 @@ impl From<&UIElement> for SerializableUIElement {
 
         // Get process_id and derive process_name
         let process_id = element.process_id().ok();
-        let process_name = process_id.and_then(|pid| {
+        let process_name = process_id.and_then(|_pid| {
             #[cfg(target_os = "windows")]
             {
-                crate::platforms::windows::get_process_name_by_pid(pid as i32).ok()
+                crate::platforms::windows::get_process_name_by_pid(_pid as i32).ok()
             }
             #[cfg(not(target_os = "windows"))]
             {

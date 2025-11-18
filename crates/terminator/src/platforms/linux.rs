@@ -933,6 +933,11 @@ fn find_elements_inner<'a>(
                     ));
                 }
             }
+            Selector::Process(_) => {
+                return Err(AutomationError::UnsupportedPlatform(
+                    "Selector::Process is not implemented for Linux yet".to_string(),
+                ));
+            }
         }
         // Only Role and Name selectors are supported below
         let root_binding = linux_engine.get_root_element();
@@ -1985,12 +1990,7 @@ impl AccessibilityEngine for LinuxEngine {
         self
     }
 
-    fn press_key(
-        &self,
-        _key: &str,
-        _try_focus_before: bool,
-        _try_click_before: bool,
-    ) -> Result<(), AutomationError> {
+    fn press_key(&self, _key: &str) -> Result<(), AutomationError> {
         Err(AutomationError::UnsupportedOperation(
             "press_key is not implemented for LinuxEngine yet".to_string(),
         ))
@@ -2910,6 +2910,24 @@ impl UIElementImpl for LinuxUIElement {
 
     fn invoke(&self) -> Result<(), AutomationError> {
         self.click().map(|_| ())
+    }
+
+    fn maximize_window_keyboard(&self) -> Result<(), AutomationError> {
+        Err(AutomationError::UnsupportedOperation(
+            "maximize_window_keyboard is not implemented for Linux yet".to_string(),
+        ))
+    }
+
+    fn minimize_window_keyboard(&self) -> Result<(), AutomationError> {
+        Err(AutomationError::UnsupportedOperation(
+            "minimize_window_keyboard is not implemented for Linux yet".to_string(),
+        ))
+    }
+
+    fn get_native_window_handle(&self) -> Result<isize, AutomationError> {
+        Err(AutomationError::UnsupportedOperation(
+            "get_native_window_handle is not implemented for Linux yet".to_string(),
+        ))
     }
 }
 
