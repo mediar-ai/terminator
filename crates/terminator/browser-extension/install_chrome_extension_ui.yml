@@ -7,17 +7,22 @@ arguments:
       default: "https://github.com/mediar-ai/terminator/releases/latest/download/terminator-browser-extension.zip"
 
   selectors:
+    # --- Selectores de UI (Inglés) ---
     address_bar: "role:Edit|name:Address and search bar"
     dev_mode_toggle: "role:Button|name:Developer mode"
     load_unpacked: "role:Button|name:Load unpacked"
     reload_button: "role:Button|name:Reload"
     extensions_doc: "role:Document|name:Extensions"
+
+    # --- Selector de Perfil Genérico (Inglés) ---
     guest_mode_button: "role:Button|name:Guest mode"
+
+    # --- Selectores de Diálogo (Inglés) ---
     folder_field: "role:Edit|name:Folder:"
     select_folder_btn: "role:Button|name:Select Folder"
 
   steps:
-    # Step 1: Download ZIP with retry mechanism
+    # --- PASOS 1-3: PREPARACIÓN DE ARCHIVOS ---
     - tool_name: run_command
       arguments:
         engine: javascript
@@ -28,35 +33,28 @@ arguments:
           (async () => {
             const url = "${{release_url}}";
             if (!url || !url.trim()) throw new Error('release_url is empty');
-            
             const tmp = (process.env.TEMP || os.tmpdir());
             const zipPath = path.join(tmp, 'terminator-browser-extension.zip');
-            
+            const destDir = path.join(tmp, 'terminator-bridge');
+            try { fs.rmSync(destDir, { recursive: true, force: true }); } catch (_) {}
+            try { fs.mkdirSync(destDir, { recursive: true }); } catch (e) { throw new Error('Failed to create dest dir: ' + e.message); }
             let res;
             let lastErr;
             for (let i = 0; i < 3; i++) {
               try {
-                res = await fetch(url, { signal: AbortSignal.timeout(30000) }); 
+                res = await fetch(url, { signal: AbortSignal.timeout(30000) });
                 if (res.ok) break;
                 lastErr = `Download failed: ${res.status}`;
-              } catch (e) { 
-                lastErr = e.message; 
-              }
+              } catch (e) { lastErr = e.message; }
               await sleep(2000);
             }
-            
-            if (!res || !res.ok) {
-              throw new Error(`Download failed after 3 attempts: ${lastErr}`);
-            }
-            
+            if (!res || !res.ok) { throw new Error(`Download failed after 3 attempts: ${lastErr}`); }
             const arrayBuf = await res.arrayBuffer();
             fs.writeFileSync(zipPath, Buffer.from(arrayBuf));
-            
             console.log(`::set-env name=zip_path::${zipPath}`);
             return { set_env: { zip_path: zipPath } };
           })();
 
-    # Step 2: Extract ZIP using PowerShell
     - tool_name: run_command
       arguments:
         run: |
@@ -68,7 +66,6 @@ arguments:
           Expand-Archive -Path $zip -DestinationPath $dest -Force
         shell: powershell
 
-    # Step 3: Find manifest.json folder (handles nested zips)
     - tool_name: run_command
       arguments:
         engine: javascript
@@ -83,14 +80,9 @@ arguments:
             while (stack.length) {
               const dir = stack.pop();
               let entries;
-              try { 
-                entries = fs.readdirSync(dir, { withFileTypes: true }); 
-              } catch (_) { 
-                continue; 
-              }
+              try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { continue; }
               if (entries.some(e => e.isFile && e.name.toLowerCase() === 'manifest.json')) {
-                picked = dir; 
-                break;
+                picked = dir; break;
               }
               for (const e of entries) {
                 if (e.isDirectory()) {
@@ -104,52 +96,41 @@ arguments:
           })();
       continue_on_error: false
 
-    # Step 4: Navigate to chrome://extensions
+    # --- PASOS 4-9: NAVEGACIÓN ROBUSTA ---
+
     - tool_name: navigate_browser
       arguments:
         url: "chrome://extensions"
         browser: "chrome"
-      delay_ms: 1000
 
-    # Step 5: Handle profile selector if present
     - tool_name: run_command
       arguments:
         engine: javascript
         run: |
-          (async () => {
-            let profileWindow;
-            try {
-              profileWindow = await desktop.locator('role:Window|name:Who\'s using Chrome?').first(250).catch(()=>null);
-            } catch(e) { 
-              return { profile_handled: false };
+          let profileWindow;
+          try {
+            profileWindow = await desktop.locator('role:Button|name:Guest mode').first(2500).catch(()=>null);
+          } catch(e) { /* ignore */ }
+          if (!profileWindow) {
+            return { profile_handled: false };
+          }
+          try {
+            const guestButton = await desktop.locator("${{ selectors.guest_mode_button }}").first(1000).catch(()=>null);
+            if (guestButton) {
+              await guestButton.click();
+              return { profile_handled: true };
             }
-
-            if (!profileWindow) {
-              return { profile_handled: false };
-            }
-
-            let guestButton;
-            try {
-              guestButton = await desktop.locator("${{ selectors.guest_mode_button }}").first(1000).catch(()=>null);
-              
-              if (guestButton) {
-                await guestButton.click();
-                await sleep(1500);
-                return { profile_handled: true };
-              }
-              return { profile_handled: false };
-            } catch (e) {
-              return { profile_handled: false };
-            }
-          })();
+            return { profile_handled: false };
+          } catch (e) {
+            return { profile_handled: false };
+          }
       continue_on_error: true
 
-    # Steps 6-9: Navigation fallback
     - tool_name: wait_for_element
       arguments:
         selector: "${{ selectors.address_bar }}"
         condition: "visible"
-        timeout_ms: 10000
+        timeout_ms: 5000
       continue_on_error: true
 
     - tool_name: click_element
@@ -168,62 +149,49 @@ arguments:
     - tool_name: press_key_global
       arguments:
         key: "{Enter}"
-      delay_ms: 800
       continue_on_error: true
 
-    # Step 10: Bring Chrome to front
+    # --- PASOS 10-17: CONFIGURACIÓN E INSTALACIÓN ---
+
     - tool_name: click_element
       arguments:
         selector: "${{ selectors.extensions_doc }}"
-        timeout_ms: 15000
+        timeout_ms: 10000
       continue_on_error: false
 
-    # Step 11: Enable Developer mode
     - tool_name: run_command
       arguments:
         engine: javascript
         run: |
           const toggleSel = "${{ selectors.dev_mode_toggle }}";
           const loadSel = "${{ selectors.load_unpacked }}";
-
           (async () => {
             let loadVisible = false;
             try {
               await desktop.locator(loadSel).first(500);
               loadVisible = true;
-            } catch (_) {
-              // Developer mode not enabled
-            }
-            
+            } catch (_) { }
             if (!loadVisible) {
-              const devToggle = await desktop.locator(toggleSel).first(5000);
+              const devToggle = await desktop.locator(toggleSel).first(3000);
               await devToggle.click();
-              await sleep(1000);
-              await desktop.locator(loadSel).first(5000);
+              await desktop.locator(loadSel).first(3000);
             }
           })();
       continue_on_error: false
-      delay_ms: 200
 
-    # Step 12: Remove old Terminator Bridge extension if present
     - tool_name: run_command
       arguments:
         engine: javascript
         run: |
           const extensionName = "Terminator Bridge";
-
           (async () => {
             try {
               const allElements = await desktop.locator("role:Group").all();
-              let terminatorFound = false;
-              
               for (let element of allElements) {
                 try {
                   const name = await element.name();
                   const text = await element.value();
-                  
                   if ((name && name.includes(extensionName)) || (text && text.includes(extensionName))) {
-                    terminatorFound = true;
                     const removeButton = await element.locator("role:Button|name:Remove").first();
                     await removeButton.click();
                     await sleep(250);
@@ -231,25 +199,17 @@ arguments:
                     await sleep(500);
                     break;
                   }
-                } catch (e) { 
-                  continue; 
-                }
+                } catch (e) { continue; }
               }
-            } catch (error) {
-              // Continue with installation anyway
-            }
+            } catch (error) { }
           })();
       continue_on_error: true
-      delay_ms: 500
 
-    # Step 13: Click Load unpacked
     - tool_name: click_element
       arguments:
         selector: "${{ selectors.load_unpacked }}"
       continue_on_error: false
-      delay_ms: 300
 
-    # Step 14: Wait for folder dialog
     - tool_name: wait_for_element
       arguments:
         selector: "${{ selectors.folder_field }}"
@@ -257,7 +217,6 @@ arguments:
         timeout_ms: 10000
       continue_on_error: false
 
-    # Step 15: Type folder path
     - tool_name: type_into_element
       arguments:
         selector: "${{ selectors.folder_field }}"
@@ -266,14 +225,11 @@ arguments:
         verify_action: false
       continue_on_error: false
 
-    # Step 16: Click Select Folder
     - tool_name: click_element
       arguments:
         selector: "${{ selectors.select_folder_btn }}"
-      delay_ms: 1200
       continue_on_error: false
 
-    # Step 17: Verify installation
     - tool_name: wait_for_element
       arguments:
         selector: "${{ selectors.reload_button }}"
