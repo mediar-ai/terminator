@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.7] - 2025-11-18
+
+### Fixed
+- Linux: Add missing trait method implementations (maximize_window_keyboard, minimize_window_keyboard, get_native_window_handle)
+- Linux: Fix press_key signature to match trait definition
+- Linux: Add Process selector case handling in selector matching
+- Element: Fix unused variable warning
+
+### Changed
+- CI: Remove Linux builds from MCP and NPM publish workflows (Windows-only for now)
+
 ## [0.23.6] - 2025-11-18
 
 ### Added
