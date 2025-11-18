@@ -19,7 +19,7 @@ import { createWorkflowRunner } from './runner';
  * @template TInput - Type of workflow input
  * @template TState - Accumulated state type from all previous steps
  */
-class WorkflowBuilder<TInput = any, TState extends Record<string, any> = {}> {
+export class WorkflowBuilder<TInput = any, TState extends Record<string, any> = {}> {
   private config: WorkflowConfig<TInput>;
   private steps: Step[] = [];
   private successHandler?: (context: WorkflowSuccessContext<TInput, TState>) => Promise<void>;
@@ -372,6 +372,18 @@ function createWorkflowInstance<TInput = any>(
  * });
  * ```
  */
+
+// Single signature that always returns WorkflowBuilder for builder pattern
+export function createWorkflow<TInput = any>(
+  config: Omit<WorkflowConfig<TInput>, "steps" | "onError">
+): WorkflowBuilder<TInput, {}>;
+
+// Overload for direct pattern with steps array
+export function createWorkflow<TInput = any>(
+  config: WorkflowConfig<TInput> & Required<Pick<WorkflowConfig<TInput>, "steps">>
+): Workflow<TInput>;
+
+// Implementation
 export function createWorkflow<TInput = any>(
   config: WorkflowConfig<TInput>
 ): WorkflowBuilder<TInput, {}> | Workflow<TInput> {
