@@ -26,23 +26,12 @@ jobs:
               cd packages/terminator-nodejs
               npm run build
               cp terminator.win32-arm64-msvc.node npm/win32-arm64-msvc/
-          - host: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            arch: x64
-            platform: linux
-            build: |
-              cd packages/terminator-nodejs
-              npm run build
-              cp terminator.linux-x64-gnu.node npm/linux-x64-gnu/
 
     name: stable - ${{ matrix.settings.target }}
     runs-on: ${{ matrix.settings.host }}
 
     steps:
       - uses: actions/checkout@v4
-      - name: Install Linux dependencies
-        if: matrix.settings.host == 'ubuntu-22.04'
-        run: bash scripts/install_linux_deps.sh
 
       - name: Setup node (Windows ARM64)
         if: matrix.settings.host == 'windows-11-arm'
@@ -102,8 +91,6 @@ jobs:
           # Construct platform package directory name correctly
           if [ "${{ matrix.settings.platform }}" = "win32" ]; then
             platform_package="npm/${{ matrix.settings.platform }}-${{ matrix.settings.arch }}-msvc"
-          elif [ "${{ matrix.settings.platform }}" = "linux" ]; then
-            platform_package="npm/${{ matrix.settings.platform }}-${{ matrix.settings.arch }}-gnu"
           else
             # For darwin and other platforms, no suffix
             platform_package="npm/${{ matrix.settings.platform }}-${{ matrix.settings.arch }}"
