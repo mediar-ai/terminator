@@ -1005,7 +1005,15 @@ impl DesktopWrapper {
             })
             .unwrap_or(false);
 
-        if has_browser_script_steps {
+        // Check if we should run the pre-flight check
+        // Skip if: 1) no browser script steps, OR 2) skip_preflight_check flag is set
+        let should_run_preflight = has_browser_script_steps && !args.skip_preflight_check.unwrap_or(false);
+
+        if has_browser_script_steps && args.skip_preflight_check.unwrap_or(false) {
+            info!("Skipping browser extension pre-flight check (skip_preflight_check=true)");
+        }
+
+        if should_run_preflight {
             info!(
                 "Workflow contains execute_browser_script steps - checking Chrome extension health"
             );
@@ -1181,13 +1189,19 @@ impl DesktopWrapper {
 
         // Capture initial window state before executing any steps
         // This captures state before step 0 (which might open new windows)
-        if let Err(e) = self.window_manager.capture_initial_state().await {
-            tracing::warn!(
-                "Failed to capture initial window state before sequence: {}",
-                e
-            );
+        // Check if window management is enabled (defaults to true for backward compatibility)
+        let window_mgmt_enabled = args.window_mgmt.enable_window_management.unwrap_or(true);
+        if window_mgmt_enabled {
+            if let Err(e) = self.window_manager.capture_initial_state().await {
+                tracing::warn!(
+                    "Failed to capture initial window state before sequence: {}",
+                    e
+                );
+            } else {
+                tracing::info!("Captured initial window state before sequence execution");
+            }
         } else {
-            tracing::info!("Captured initial window state before sequence execution");
+            tracing::debug!("Window management disabled for sequence, skipping capture");
         }
 
         while current_index < sequence_items.len()
@@ -2249,12 +2263,16 @@ impl DesktopWrapper {
 
         // Restore windows after sequence completion (success or failure)
         // This ensures windows are restored even if sequence fails mid-execution
-        if let Err(e) = self.window_manager.restore_all_windows().await {
-            tracing::warn!("Failed to restore windows after sequence: {}", e);
+        if window_mgmt_enabled {
+            if let Err(e) = self.window_manager.restore_all_windows().await {
+                tracing::warn!("Failed to restore windows after sequence: {}", e);
+            } else {
+                tracing::info!("Restored all windows to original state after sequence");
+            }
+            self.window_manager.clear_captured_state().await;
         } else {
-            tracing::info!("Restored all windows to original state after sequence");
+            tracing::debug!("Window management disabled for sequence, skipping restore");
         }
-        self.window_manager.clear_captured_state().await;
 
         Ok(CallToolResult::success(contents))
     }
@@ -2502,12 +2520,17 @@ impl DesktopWrapper {
         }
 
         // Restore windows after TypeScript workflow completion (success or failure)
-        if let Err(e) = self.window_manager.restore_all_windows().await {
-            tracing::warn!("Failed to restore windows after TypeScript workflow: {}", e);
+        let window_mgmt_enabled = args.window_mgmt.enable_window_management.unwrap_or(true);
+        if window_mgmt_enabled {
+            if let Err(e) = self.window_manager.restore_all_windows().await {
+                tracing::warn!("Failed to restore windows after TypeScript workflow: {}", e);
+            } else {
+                tracing::info!("Restored all windows to original state after TypeScript workflow");
+            }
+            self.window_manager.clear_captured_state().await;
         } else {
-            tracing::info!("Restored all windows to original state after TypeScript workflow");
+            tracing::debug!("Window management disabled for TypeScript workflow, skipping restore");
         }
-        self.window_manager.clear_captured_state().await;
 
         Ok(CallToolResult {
             content: vec![Content::text(

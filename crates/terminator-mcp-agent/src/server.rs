@@ -226,8 +226,16 @@ impl DesktopWrapper {
         execution_context: Option<&crate::utils::ToolExecutionContext>,
         process_id: Option<u32>,
         ui_element: Option<&terminator::platforms::windows::WindowsUIElement>,
+        window_mgmt_opts: &crate::utils::WindowManagementOptions,
     ) -> Result<(), String> {
         let start = std::time::Instant::now();
+
+        // Check if window management is enabled (defaults to true for backward compatibility)
+        let enabled = window_mgmt_opts.enable_window_management.unwrap_or(true);
+        if !enabled {
+            tracing::debug!("Window management disabled by user, skipping");
+            return Ok(());
+        }
 
         // Update window cache on-demand before managing windows
         // Initial state is captured once before sequence starts (in server_sequence.rs)
@@ -297,7 +305,8 @@ impl DesktopWrapper {
                 // Maximizing brings the target to front naturally, so we only need to handle
                 // always-on-top windows that would otherwise cover it
                 // First UI tool in sequence has no previous_process
-                if ctx.previous_process.is_none() || !ctx.in_sequence {
+                let should_minimize_always_on_top = window_mgmt_opts.minimize_always_on_top.unwrap_or(true);
+                if should_minimize_always_on_top && (ctx.previous_process.is_none() || !ctx.in_sequence) {
                     let always_on_top_windows =
                         self.window_manager.get_always_on_top_windows().await;
                     if !always_on_top_windows.is_empty() {
@@ -323,15 +332,18 @@ impl DesktopWrapper {
                 }
 
                 // Maximize target if not already maximized
-                match self.window_manager.maximize_if_needed(window.hwnd).await {
-                    Ok(true) => {
-                        tracing::info!("Maximized target window");
-                    }
-                    Ok(false) => {
-                        tracing::debug!("Target window already maximized");
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to maximize window: {}", e);
+                let should_maximize_target = window_mgmt_opts.maximize_target.unwrap_or(true);
+                if should_maximize_target {
+                    match self.window_manager.maximize_if_needed(window.hwnd).await {
+                        Ok(true) => {
+                            tracing::info!("Maximized target window");
+                        }
+                        Ok(false) => {
+                            tracing::debug!("Target window already maximized");
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to maximize window: {}", e);
+                        }
                     }
                 }
             } else {
@@ -412,55 +424,61 @@ impl DesktopWrapper {
                 }
 
                 // 2. Maximize UWP target window using keyboard (ShowWindow doesn't work for UWP)
-                if let Some(element) = ui_element {
-                    if let Err(e) = element.maximize_window_keyboard() {
-                        tracing::warn!(
-                            "Failed to maximize UWP window via keyboard for {}: {}",
-                            process,
-                            e
-                        );
+                let should_maximize_target = window_mgmt_opts.maximize_target.unwrap_or(true);
+                if should_maximize_target {
+                    if let Some(element) = ui_element {
+                        if let Err(e) = element.maximize_window_keyboard() {
+                            tracing::warn!(
+                                "Failed to maximize UWP window via keyboard for {}: {}",
+                                process,
+                                e
+                            );
+                        } else {
+                            tracing::info!(
+                                "Maximized UWP window for {} via keyboard (Win+Up)",
+                                process
+                            );
+                        }
                     } else {
-                        tracing::info!(
-                            "Maximized UWP window for {} via keyboard (Win+Up)",
-                            process
-                        );
+                        tracing::warn!("Cannot maximize UWP window - no ui_element provided");
                     }
-                } else {
-                    tracing::warn!("Cannot maximize UWP window - no ui_element provided");
                 }
 
                 // 3. Minimize Win32 always-on-top windows (if any)
                 // Note: UWP always-on-top windows are not visible via Win32 enumeration
-                let always_on_top_windows = self.window_manager.get_always_on_top_windows().await;
-                if !always_on_top_windows.is_empty() {
-                    tracing::info!(
-                        "Found {} always-on-top Win32 windows to minimize",
-                        always_on_top_windows.len()
-                    );
-
-                    if let Some(hwnd) = uwp_hwnd {
-                        match self
-                            .window_manager
-                            .minimize_always_on_top_windows(hwnd)
-                            .await
-                        {
-                            Ok(count) => {
-                                tracing::info!(
-                                    "Minimized {} Win32 always-on-top windows (UWP target app)",
-                                    count
-                                );
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    "Failed to minimize always-on-top windows for UWP app: {}",
-                                    e
-                                );
-                            }
-                        }
-                    } else {
-                        tracing::warn!(
-                            "Could not get HWND from UWP element to minimize always-on-top windows"
+                let should_minimize_always_on_top = window_mgmt_opts.minimize_always_on_top.unwrap_or(true);
+                if should_minimize_always_on_top {
+                    let always_on_top_windows = self.window_manager.get_always_on_top_windows().await;
+                    if !always_on_top_windows.is_empty() {
+                        tracing::info!(
+                            "Found {} always-on-top Win32 windows to minimize",
+                            always_on_top_windows.len()
                         );
+
+                        if let Some(hwnd) = uwp_hwnd {
+                            match self
+                                .window_manager
+                                .minimize_always_on_top_windows(hwnd)
+                                .await
+                            {
+                                Ok(count) => {
+                                    tracing::info!(
+                                        "Minimized {} Win32 always-on-top windows (UWP target app)",
+                                        count
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "Failed to minimize always-on-top windows for UWP app: {}",
+                                        e
+                                    );
+                                }
+                            }
+                        } else {
+                            tracing::warn!(
+                                "Could not get HWND from UWP element to minimize always-on-top windows"
+                            );
+                        }
                     }
                 }
             } else {
@@ -476,41 +494,47 @@ impl DesktopWrapper {
 
                 if let Some(window) = window {
                     // Minimize always-on-top Win32 windows
-                    let always_on_top_windows =
-                        self.window_manager.get_always_on_top_windows().await;
-                    if !always_on_top_windows.is_empty() {
-                        tracing::info!(
-                            "Found {} always-on-top Win32 windows",
-                            always_on_top_windows.len()
-                        );
-                        match self
-                            .window_manager
-                            .minimize_always_on_top_windows(window.hwnd)
-                            .await
-                        {
-                            Ok(count) => {
-                                tracing::info!(
-                                    "Minimized {} always-on-top Win32 windows for {}",
-                                    count,
-                                    process
-                                );
-                            }
-                            Err(e) => {
-                                tracing::warn!("Failed to minimize always-on-top windows: {}", e);
+                    let should_minimize_always_on_top = window_mgmt_opts.minimize_always_on_top.unwrap_or(true);
+                    if should_minimize_always_on_top {
+                        let always_on_top_windows =
+                            self.window_manager.get_always_on_top_windows().await;
+                        if !always_on_top_windows.is_empty() {
+                            tracing::info!(
+                                "Found {} always-on-top Win32 windows",
+                                always_on_top_windows.len()
+                            );
+                            match self
+                                .window_manager
+                                .minimize_always_on_top_windows(window.hwnd)
+                                .await
+                            {
+                                Ok(count) => {
+                                    tracing::info!(
+                                        "Minimized {} always-on-top Win32 windows for {}",
+                                        count,
+                                        process
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::warn!("Failed to minimize always-on-top windows: {}", e);
+                                }
                             }
                         }
                     }
 
                     // Maximize target Win32 window
-                    match self.window_manager.maximize_if_needed(window.hwnd).await {
-                        Ok(true) => {
-                            tracing::info!("Maximized Win32 window for {}", process);
-                        }
-                        Ok(false) => {
-                            tracing::debug!("Win32 window already maximized");
-                        }
-                        Err(e) => {
-                            tracing::warn!("Failed to maximize Win32 window: {}", e);
+                    let should_maximize_target = window_mgmt_opts.maximize_target.unwrap_or(true);
+                    if should_maximize_target {
+                        match self.window_manager.maximize_if_needed(window.hwnd).await {
+                            Ok(true) => {
+                                tracing::info!("Maximized Win32 window for {}", process);
+                            }
+                            Ok(false) => {
+                                tracing::debug!("Win32 window already maximized");
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to maximize Win32 window: {}", e);
+                            }
                         }
                     }
                 } else {
@@ -830,7 +854,7 @@ impl DesktopWrapper {
                 "[get_window_tree] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.process, None, None, None)
+                .prepare_window_management(&args.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!("[get_window_tree] In sequence - skipping window management (dispatch_tool handles it)");
@@ -1391,7 +1415,7 @@ impl DesktopWrapper {
                 "[type_into_element] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!("[type_into_element] In sequence - skipping window management (dispatch_tool handles it)");
@@ -1723,7 +1747,7 @@ impl DesktopWrapper {
                 "[click_element] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!("[click_element] In sequence - skipping window management (dispatch_tool handles it)");
@@ -1940,7 +1964,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
         if should_restore {
             tracing::info!("[press_key] Direct MCP call detected - performing window management");
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!(
@@ -3210,7 +3234,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[activate_element] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!("[activate_element] In sequence - skipping window management (dispatch_tool handles it)");
@@ -3407,7 +3431,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
         if should_restore {
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         }
 
@@ -3506,7 +3530,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[validate_element] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!("[validate_element] In sequence - skipping window management (dispatch_tool handles it)");
@@ -3650,7 +3674,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[highlight_element] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!("[highlight_element] In sequence - skipping window management (dispatch_tool handles it)");
@@ -3806,7 +3830,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[wait_for_element] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!("[wait_for_element] In sequence - skipping window management (dispatch_tool handles it)");
@@ -4066,7 +4090,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[navigate_browser] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.process, None, None, None)
+                .prepare_window_management(&args.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!("[navigate_browser] In sequence - skipping window management (dispatch_tool handles it)");
@@ -4160,7 +4184,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             );
             // Note: UIElement is a trait object, can't extract platform-specific type, so pass None
             let _ = self
-                .prepare_window_management(&args.app_name, None, Some(process_id), None)
+                .prepare_window_management(&args.app_name, None, Some(process_id), None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!("[open_application] In sequence - skipping window management (dispatch_tool handles it)");
@@ -4234,7 +4258,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[close_element] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!("[close_element] In sequence - skipping window management (dispatch_tool handles it)");
@@ -4315,7 +4339,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[scroll_element] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!("[scroll_element] In sequence - skipping window management (dispatch_tool handles it)");
@@ -4464,7 +4488,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[select_option] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!("[select_option] In sequence - skipping window management (dispatch_tool handles it)");
@@ -4615,7 +4639,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[list_options] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!("[list_options] In sequence - skipping window management (dispatch_tool handles it)");
@@ -4712,7 +4736,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if should_restore {
             tracing::info!("[set_toggled] Direct MCP call detected - performing window management");
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!(
@@ -4966,7 +4990,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[set_range_value] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!("[set_range_value] In sequence - skipping window management (dispatch_tool handles it)");
@@ -5211,7 +5235,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[set_selected] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!("[set_selected] In sequence - skipping window management (dispatch_tool handles it)");
@@ -5459,7 +5483,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if should_restore {
             tracing::info!("[is_toggled] Direct MCP call detected - performing window management");
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!(
@@ -5561,7 +5585,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[get_range_value] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!("[get_range_value] In sequence - skipping window management (dispatch_tool handles it)");
@@ -5659,7 +5683,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if should_restore {
             tracing::info!("[is_selected] Direct MCP call detected - performing window management");
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!(
@@ -5752,7 +5776,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if should_restore {
             tracing::info!("[capture_element_screenshot] Direct MCP call detected - performing window management");
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!("[capture_element_screenshot] In sequence - skipping window management (dispatch_tool handles it)");
@@ -5919,7 +5943,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[invoke_element] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!("[invoke_element] In sequence - skipping window management (dispatch_tool handles it)");
@@ -6117,7 +6141,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[maximize_window] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!("[maximize_window] In sequence - skipping window management (dispatch_tool handles it)");
@@ -6207,7 +6231,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[minimize_window] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!("[minimize_window] In sequence - skipping window management (dispatch_tool handles it)");
@@ -6295,7 +6319,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             tracing::info!("[set_zoom] Direct MCP call detected - performing window management");
             // Note: set_zoom operates on browser context, using generic browser process
             let _ = self
-                .prepare_window_management("chrome", None, None, None)
+                .prepare_window_management("chrome", None, None, None, &Default::default())
                 .await;
         } else {
             tracing::debug!(
@@ -6366,7 +6390,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if should_restore {
             tracing::info!("[set_value] Direct MCP call detected - performing window management");
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!(
@@ -6830,7 +6854,7 @@ Requires Chrome extension to be installed."
                 "[execute_browser_script] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(&args.selector.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!("[execute_browser_script] In sequence - skipping window management (dispatch_tool handles it)");
@@ -7507,10 +7531,14 @@ impl DesktopWrapper {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
+        // Extract window management options from arguments (defaults to enabled)
+        let window_mgmt_opts: crate::utils::WindowManagementOptions =
+            serde_json::from_value(arguments.clone()).unwrap_or_default();
+
         // Perform window management if needed
         if let Some(ref process) = process_name {
             let _ = self
-                .prepare_window_management(process, execution_context.as_ref(), None, None)
+                .prepare_window_management(process, execution_context.as_ref(), None, None, &window_mgmt_opts)
                 .await;
 
             // Small delay to let window operations settle
