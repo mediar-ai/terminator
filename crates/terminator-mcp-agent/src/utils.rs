@@ -1,15 +1,17 @@
 use crate::cancellation::RequestManager;
 use crate::mcp_types::{FontStyle, TextPosition, TreeOutputFormat};
 use crate::tool_logging::{LogCapture, LogCaptureLayer};
+use crate::window_manager::WindowManager;
 use anyhow::Result;
 use rmcp::{schemars, schemars::JsonSchema};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 use terminator::{AutomationError, Desktop, UIElement};
-use tokio::sync::Mutex;
+use tokio::sync::Mutex as TokioMutex;
 use tracing::{warn, Level};
 use tracing_subscriber::{util::SubscriberInitExt, EnvFilter, Layer};
 
@@ -30,20 +32,20 @@ pub struct TreeOptions {
     #[schemars(
         description = "Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results."
     )]
-    pub include_tree: Option<bool>,
+    pub include_tree_after_action: Option<bool>,
 
     #[schemars(
-        description = "Maximum depth to traverse when building tree (only used if include_tree is true)"
+        description = "Maximum depth to traverse when building tree (only used if include_tree_after_action is true)"
     )]
     pub tree_max_depth: Option<usize>,
 
     #[schemars(
-        description = "Selector to start tree from instead of window root (only used if include_tree is true)"
+        description = "Selector to start tree from instead of window root (only used if include_tree_after_action is true)"
     )]
     pub tree_from_selector: Option<String>,
 
     #[schemars(
-        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context."
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree_after_action is true. Defaults to true for comprehensive LLM context."
     )]
     pub include_detailed_attributes: Option<bool>,
 
@@ -53,7 +55,7 @@ pub struct TreeOptions {
     pub tree_output_format: Option<TreeOutputFormat>,
 
     #[schemars(
-        description = "Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false."
+        description = "Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree_after_action behavior. Defaults to false."
     )]
     pub ui_diff_before_after: Option<bool>,
 }
@@ -62,7 +64,17 @@ pub struct TreeOptions {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 pub struct SelectorOptions {
     #[schemars(
-        description = "A string selector to locate the element. Can be chained with ` >> `."
+        description = "Process name to scope the search (e.g., 'chrome', 'notepad', 'explorer'). Use 'explorer' for desktop icons/taskbar. Required to prevent slow desktop-wide searches."
+    )]
+    pub process: String,
+
+    #[schemars(
+        description = "Optional window selector for additional filtering within the process (e.g., 'role:Window|name:Untitled'). When specified, searches only within matching windows of the process."
+    )]
+    pub window_selector: Option<String>,
+
+    #[schemars(
+        description = "A string selector to locate the element within the scoped process/window. Can be chained with ` >> `."
     )]
     pub selector: String,
 
@@ -77,8 +89,46 @@ pub struct SelectorOptions {
     pub fallback_selectors: Option<String>,
 }
 
+impl SelectorOptions {
+    /// Build the full selector by combining process (and optionally window_selector) with the main selector
+    pub fn build_full_selector(&self) -> String {
+        if let Some(window_sel) = &self.window_selector {
+            // Chain: process -> window -> element
+            format!(
+                "process:{} >> {} >> {}",
+                self.process, window_sel, self.selector
+            )
+        } else {
+            // Chain: process -> element
+            format!("process:{} >> {}", self.process, self.selector)
+        }
+    }
+
+    /// Build alternative selectors with scoping applied
+    pub fn build_alternative_selectors(&self) -> Option<String> {
+        self.alternative_selectors.as_ref().map(|alt| {
+            if let Some(window_sel) = &self.window_selector {
+                format!("process:{} >> {} >> {}", self.process, window_sel, alt)
+            } else {
+                format!("process:{} >> {}", self.process, alt)
+            }
+        })
+    }
+
+    /// Build fallback selectors with scoping applied
+    pub fn build_fallback_selectors(&self) -> Option<String> {
+        self.fallback_selectors.as_ref().map(|fb| {
+            if let Some(window_sel) = &self.window_selector {
+                format!("process:{} >> {} >> {}", self.process, window_sel, fb)
+            } else {
+                format!("process:{} >> {}", self.process, fb)
+            }
+        })
+    }
+}
+
 /// Common fields for action timing and retries
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ActionOptions {
     #[schemars(description = "Optional timeout in milliseconds for the action")]
     pub timeout_ms: Option<u64>,
@@ -87,32 +137,32 @@ pub struct ActionOptions {
     pub retries: Option<u32>,
 
     #[schemars(
-        description = "Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails."
+        description = "REQUIRED: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. Use empty string \"\" to skip this check. If verification fails, the tool execution fails."
     )]
-    pub verify_element_exists: Option<String>,
+    pub verify_element_exists: String,
 
     #[schemars(
-        description = "Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails."
+        description = "REQUIRED: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). Use empty string \"\" to skip this check. If verification fails, the tool execution fails."
     )]
-    pub verify_element_not_exists: Option<String>,
+    pub verify_element_not_exists: String,
 
     #[schemars(
-        description = "Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached."
+        description = "REQUIRED: Timeout in milliseconds for post-action verification. The system will poll until verification passes or timeout is reached."
     )]
-    pub verify_timeout_ms: Option<u64>,
+    pub verify_timeout_ms: u64,
 }
 
 /// Common fields for visual highlighting before actions
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct HighlightOptions {
     #[schemars(
-        description = "Optional highlighting configuration to visually indicate the target element before the action"
+        description = "REQUIRED: Highlighting configuration to visually indicate the target element before the action. Set enabled: false to disable highlighting."
     )]
-    pub highlight_before_action: Option<ActionHighlightConfig>,
+    pub highlight_before_action: ActionHighlightConfig,
 }
 
 /// Arguments for tools that select elements
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ElementArgs {
     #[serde(flatten)]
     pub selector: SelectorOptions,
@@ -128,7 +178,7 @@ pub struct ElementArgs {
 }
 
 /// Arguments for tools that perform actions on elements with highlighting
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ActionElementArgs {
     #[serde(flatten)]
     pub selector: SelectorOptions,
@@ -170,6 +220,46 @@ pub struct DelayArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
+// Tool execution context for window management
+#[derive(Clone, Debug)]
+pub struct ToolExecutionContext {
+    pub in_sequence: bool,
+    pub sequence_id: Option<String>,
+    pub total_steps: usize,
+    pub current_step: usize,
+    pub is_last_step: bool,
+    pub previous_process: Option<String>, // Track previous process for detecting switches
+}
+
+impl ToolExecutionContext {
+    pub fn single_tool() -> Self {
+        Self {
+            in_sequence: false,
+            sequence_id: None,
+            total_steps: 1,
+            current_step: 1,
+            is_last_step: true,
+            previous_process: None,
+        }
+    }
+
+    pub fn sequence_step(
+        id: String,
+        current: usize,
+        total: usize,
+        previous_process: Option<String>,
+    ) -> Self {
+        Self {
+            in_sequence: true,
+            sequence_id: Some(id),
+            total_steps: total,
+            current_step: current,
+            is_last_step: current == total,
+            previous_process,
+        }
+    }
+}
+
 fn default_desktop() -> Arc<Desktop> {
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     let desktop = Desktop::new(false, false).expect("Failed to create default desktop");
@@ -197,13 +287,19 @@ pub struct DesktopWrapper {
     #[serde(skip)]
     pub request_manager: RequestManager,
     #[serde(skip)]
-    pub active_highlights: Arc<Mutex<Vec<terminator::HighlightHandle>>>,
+    pub active_highlights: Arc<TokioMutex<Vec<terminator::HighlightHandle>>>,
     #[serde(skip)]
     pub log_capture: Option<LogCapture>,
     #[serde(skip)]
-    pub current_workflow_dir: Arc<Mutex<Option<std::path::PathBuf>>>,
+    pub current_workflow_dir: Arc<TokioMutex<Option<std::path::PathBuf>>>,
     #[serde(skip)]
-    pub current_scripts_base_path: Arc<Mutex<Option<String>>>,
+    pub current_scripts_base_path: Arc<TokioMutex<Option<String>>>,
+    #[serde(skip)]
+    pub window_manager: Arc<WindowManager>,
+    /// Tracks whether we're currently executing a workflow sequence
+    /// Used to determine if individual tools should handle window management
+    #[serde(skip)]
+    pub in_sequence: Arc<Mutex<bool>>,
 }
 
 impl Default for DesktopWrapper {
@@ -237,8 +333,10 @@ impl DesktopWrapper {
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct GetWindowTreeArgs {
-    #[schemars(description = "Process ID of the target application")]
-    pub pid: u32,
+    #[schemars(
+        description = "Process name of the target application (e.g., 'chrome', 'msedge', 'notepad'). Returns tree for the first matching process found."
+    )]
+    pub process: String,
     #[schemars(description = "Optional window title filter")]
     pub title: Option<String>,
     #[serde(flatten)]
@@ -254,7 +352,7 @@ pub struct GetApplicationsArgs {
     // Use capture_screen if you need screenshots
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct LocatorArgs {
     #[serde(flatten)]
     pub selector: SelectorOptions,
@@ -337,9 +435,12 @@ impl<'de> Deserialize<'de> for ClickPosition {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ClickElementArgs {
-    pub click_position: Option<ClickPosition>,
+    #[schemars(
+        description = "REQUIRED: Click position as percentage within element bounds. Use x_percentage: 50, y_percentage: 50 for center click (most common)."
+    )]
+    pub click_position: ClickPosition,
     #[serde(flatten)]
     pub selector: SelectorOptions,
 
@@ -356,12 +457,24 @@ pub struct ClickElementArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct TypeIntoElementArgs {
     #[schemars(description = "The text to type into the element")]
     pub text_to_type: String,
-    #[schemars(description = "Whether to clear the element before typing (default: true)")]
-    pub clear_before_typing: Option<bool>,
+    #[schemars(
+        description = "REQUIRED: Whether to clear the element before typing. Set to true to clear existing text, false to append."
+    )]
+    pub clear_before_typing: bool,
+    #[schemars(
+        description = "Whether to try focusing the element before typing (default: true). Set to false to skip focus attempt."
+    )]
+    #[serde(default = "default_true")]
+    pub try_focus_before: bool,
+    #[schemars(
+        description = "Whether to try clicking the element if focus fails (default: true). Set to false to disable click fallback. Useful to avoid unwanted clicks on checkboxes or buttons."
+    )]
+    #[serde(default = "default_true")]
+    pub try_click_before: bool,
     #[serde(flatten)]
     pub selector: SelectorOptions,
 
@@ -378,10 +491,20 @@ pub struct TypeIntoElementArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct PressKeyArgs {
     #[schemars(description = "The key or key combination to press (e.g., 'Enter', 'Ctrl+A')")]
     pub key: String,
+    #[schemars(
+        description = "Whether to try focusing the element before pressing the key (default: true). Set to false to skip focus attempt."
+    )]
+    #[serde(default = "default_true")]
+    pub try_focus_before: bool,
+    #[schemars(
+        description = "Whether to try clicking the element if focus fails (default: true). Set to false to disable click fallback. Useful to avoid unwanted clicks on checkboxes or buttons."
+    )]
+    #[serde(default = "default_true")]
+    pub try_click_before: bool,
     #[serde(flatten)]
     pub selector: SelectorOptions,
 
@@ -446,7 +569,7 @@ pub struct RunCommandArgs {
     pub include_logs: Option<bool>,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct MouseDragArgs {
     #[schemars(description = "Start X coordinate")]
     pub start_x: f64,
@@ -469,7 +592,7 @@ pub struct MouseDragArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ValidateElementArgs {
     #[serde(flatten)]
     pub selector: SelectorOptions,
@@ -491,29 +614,10 @@ pub struct ValidateElementArgs {
     pub max_dimension: Option<u32>,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CaptureElementScreenshotArgs {
-    /// Optional selector to locate the element. Required if pid is not provided.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(
-        description = "A string selector to locate the element. Can be chained with ` >> `. Required if pid is not provided."
-    )]
-    pub selector: Option<String>,
-
-    /// Optional alternative selectors to try in parallel
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub alternative_selectors: Option<String>,
-
-    /// Optional fallback selectors
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fallback_selectors: Option<String>,
-
-    /// Optional process ID to capture screenshot from. Required if selector is not provided.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(
-        description = "Process ID of the window to capture. Required if selector is not provided. This is faster and more reliable than selector-based search."
-    )]
-    pub pid: Option<u32>,
+    #[serde(flatten)]
+    pub selector: SelectorOptions,
 
     #[serde(flatten)]
     pub action: ActionOptions,
@@ -532,7 +636,7 @@ pub struct CaptureElementScreenshotArgs {
     pub max_dimension: Option<u32>,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct HighlightElementArgs {
     #[schemars(description = "BGR color code (optional, default red)")]
     pub color: Option<u32>,
@@ -557,7 +661,7 @@ pub struct HighlightElementArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct WaitForElementArgs {
     #[schemars(description = "Condition to wait for: 'visible', 'enabled', 'focused', 'exists'")]
     pub condition: String,
@@ -578,15 +682,17 @@ pub struct WaitForElementArgs {
 pub struct NavigateBrowserArgs {
     #[schemars(description = "URL to navigate to")]
     pub url: String,
-    #[schemars(description = "Optional browser name")]
-    pub browser: Option<String>,
+    #[schemars(
+        description = "Browser process name (e.g., 'chrome', 'msedge', 'firefox'). Will start the browser if not running."
+    )]
+    pub process: String,
     #[serde(flatten)]
     pub tree: TreeOptions,
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ExecuteBrowserScriptArgs {
     pub script: Option<String>,
     pub script_file: Option<String>,
@@ -617,7 +723,7 @@ pub struct OpenApplicationArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SelectOptionArgs {
     #[schemars(description = "The visible text of the option to select.")]
     pub option_name: String,
@@ -634,7 +740,7 @@ pub struct SelectOptionArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SetToggledArgs {
     #[schemars(description = "The desired state: true for on, false for off.")]
     pub state: bool,
@@ -651,7 +757,7 @@ pub struct SetToggledArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, serde::Deserialize, JsonSchema, Default)]
+#[derive(Debug, serde::Deserialize, JsonSchema)]
 pub struct MaximizeWindowArgs {
     #[serde(flatten)]
     pub selector: SelectorOptions,
@@ -666,7 +772,7 @@ pub struct MaximizeWindowArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, serde::Deserialize, JsonSchema, Default)]
+#[derive(Debug, serde::Deserialize, JsonSchema)]
 pub struct MinimizeWindowArgs {
     #[serde(flatten)]
     pub selector: SelectorOptions,
@@ -681,7 +787,7 @@ pub struct MinimizeWindowArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SetRangeValueArgs {
     #[schemars(description = "The numerical value to set.")]
     pub value: f64,
@@ -698,7 +804,7 @@ pub struct SetRangeValueArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SetValueArgs {
     #[schemars(description = "The text value to set.")]
     pub value: String,
@@ -715,7 +821,7 @@ pub struct SetValueArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SetSelectedArgs {
     #[schemars(description = "The desired state: true for selected, false for deselected.")]
     pub state: bool,
@@ -732,7 +838,7 @@ pub struct SetSelectedArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, Default)]
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[schemars(description = "Arguments for scrolling an element")]
 pub struct ScrollElementArgs {
     #[serde(default)]
@@ -757,7 +863,7 @@ pub struct ScrollElementArgs {
     pub monitor: MonitorScreenshotOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ActivateElementArgs {
     #[serde(flatten)]
     pub selector: SelectorOptions,
@@ -988,7 +1094,7 @@ pub enum SequenceItem {
     Group { tool_group: ToolGroup },
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CloseElementArgs {
     #[serde(flatten)]

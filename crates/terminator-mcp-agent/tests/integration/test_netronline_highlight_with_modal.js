@@ -144,7 +144,7 @@ class NetronlineHighlightTest {
           const clickOk = await this.callTool('click_element', {
             selector: okSelector,
             timeout_ms: 800,
-            include_tree: false,
+            include_tree_after_action: false,
           });
           NetronlineHighlightTest.printContentAsJson(clickOk, `click_element[try ${i}]`);
         } catch {}
@@ -155,7 +155,7 @@ class NetronlineHighlightTest {
           const validate = await this.callTool('validate_element', {
             selector: alertSelector,
             timeout_ms: 500,
-            include_tree: false,
+            include_tree_after_action: false,
           });
           const present = NetronlineHighlightTest.printContentAsJson(validate, `validate_element[try ${i}]`);
           if (!present) {
@@ -194,7 +194,7 @@ class NetronlineHighlightTest {
         selector: floridaSelector,
         alternative_selectors: 'role:hyperlink|name:contains:Florida,role:listitem|name:Florida >> role:hyperlink',
         timeout_ms: 8000,
-        include_tree: false,
+        include_tree_after_action: false,
       });
       NetronlineHighlightTest.printContentAsJson(validate, 'validate_element');
     } catch (e) {
@@ -209,7 +209,7 @@ class NetronlineHighlightTest {
       duration_ms: 3000,      // 3 seconds
       text: 'Target',         // Overlay text
       text_position: 'TopRight',
-      include_tree: false,
+      include_tree_after_action: false,
       timeout_ms: 20000
     });
     NetronlineHighlightTest.printContentAsJson(highlightContent, 'highlight_element');

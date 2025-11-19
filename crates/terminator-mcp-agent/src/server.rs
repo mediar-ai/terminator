@@ -28,6 +28,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use sysinfo::{ProcessesToUpdate, System};
+use terminator::element::UIElementImpl;
 use terminator::{AutomationError, Browser, Desktop, Selector, UIElement};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
@@ -217,6 +218,328 @@ impl DesktopWrapper {
         chars.all(|c| c.is_alphanumeric() || c == '_' || c == '$')
     }
 
+    /// Prepare window management before tool execution
+    /// Handles window cache update, state capture, minimize all, and maximize target
+    async fn prepare_window_management(
+        &self,
+        process: &str,
+        execution_context: Option<&crate::utils::ToolExecutionContext>,
+        process_id: Option<u32>,
+        ui_element: Option<&terminator::platforms::windows::WindowsUIElement>,
+    ) -> Result<(), String> {
+        let start = std::time::Instant::now();
+
+        // Update window cache on-demand before managing windows
+        // Initial state is captured once before sequence starts (in server_sequence.rs)
+        if let Err(e) = self.window_manager.update_window_cache().await {
+            tracing::warn!("Failed to update window cache: {}", e);
+        }
+
+        // Handle execution context-aware window management
+        if let Some(ctx) = execution_context {
+            // Detect process switch
+            let process_switched = if let Some(ref prev_process) = ctx.previous_process {
+                prev_process != process
+            } else {
+                false
+            };
+
+            if process_switched {
+                tracing::info!(
+                    "Process switched from '{}' to '{}' at step {}",
+                    ctx.previous_process.as_ref().unwrap(),
+                    process,
+                    ctx.current_step
+                );
+
+                // Minimize the previous process window
+                if let Some(prev_window) = self
+                    .window_manager
+                    .get_topmost_window_for_process(ctx.previous_process.as_ref().unwrap())
+                    .await
+                {
+                    match self
+                        .window_manager
+                        .minimize_if_needed(prev_window.hwnd)
+                        .await
+                    {
+                        Ok(true) => {
+                            tracing::info!("Minimized previous process window");
+                        }
+                        Ok(false) => {
+                            tracing::debug!("Previous process window already minimized");
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to minimize previous process window: {}", e);
+                        }
+                    }
+                }
+            }
+
+            // Initial state is now captured before sequence starts (in server_sequence.rs)
+            // No need to capture here anymore
+
+            // Get topmost window for the target process
+            if let Some(window) = self
+                .window_manager
+                .get_topmost_window_for_process(process)
+                .await
+            {
+                tracing::info!(
+                    "Managing windows for process '{}' (hwnd: {}, step {}/{})",
+                    process,
+                    window.hwnd,
+                    ctx.current_step,
+                    ctx.total_steps
+                );
+
+                // Only minimize always-on-top windows (only on first UI step or non-sequence)
+                // Maximizing brings the target to front naturally, so we only need to handle
+                // always-on-top windows that would otherwise cover it
+                // First UI tool in sequence has no previous_process
+                if ctx.previous_process.is_none() || !ctx.in_sequence {
+                    let always_on_top_windows =
+                        self.window_manager.get_always_on_top_windows().await;
+                    if !always_on_top_windows.is_empty() {
+                        tracing::info!(
+                            "Found {} always-on-top windows that may cover target",
+                            always_on_top_windows.len()
+                        );
+                        match self
+                            .window_manager
+                            .minimize_always_on_top_windows(window.hwnd)
+                            .await
+                        {
+                            Ok(count) => {
+                                tracing::info!("Minimized {} always-on-top windows", count);
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to minimize always-on-top windows: {}", e);
+                            }
+                        }
+                    } else {
+                        tracing::debug!("No always-on-top windows found, skipping minimization (maximize will bring target to front)");
+                    }
+                }
+
+                // Maximize target if not already maximized
+                match self.window_manager.maximize_if_needed(window.hwnd).await {
+                    Ok(true) => {
+                        tracing::info!("Maximized target window");
+                    }
+                    Ok(false) => {
+                        tracing::debug!("Target window already maximized");
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to maximize window: {}", e);
+                    }
+                }
+            } else {
+                tracing::warn!(
+                    "Could not find window for process '{}' for window management",
+                    process
+                );
+            }
+        } else {
+            // Simple mode: no execution context (direct MCP tool calls)
+            // Always capture initial state, minimize all, maximize target
+
+            if let Err(e) = self.window_manager.capture_initial_state().await {
+                tracing::warn!("Failed to capture initial window state: {}", e);
+            }
+
+            // Check if this is a UWP app (requires process_id)
+            let is_uwp = if let Some(pid) = process_id {
+                self.window_manager.is_uwp_app(pid).await
+            } else {
+                false
+            };
+
+            if is_uwp {
+                tracing::info!("[prepare_window_management] Detected UWP app - using keyboard (Win+Up) for window management");
+
+                // Get UWP window's HWND for tracking and restoration
+                // For UWP apps, we need the ApplicationFrameHost parent HWND, not the content window HWND
+                let uwp_hwnd = if let Some(element) = ui_element {
+                    match element.get_native_window_handle() {
+                        Ok(content_hwnd) => {
+                            tracing::info!(
+                                "[prepare_window_management] Got UWP content window HWND: {}",
+                                content_hwnd
+                            );
+
+                            // Get the parent ApplicationFrameHost window
+                            use windows::Win32::Foundation::HWND;
+                            use windows::Win32::UI::WindowsAndMessaging::GetAncestor;
+                            use windows::Win32::UI::WindowsAndMessaging::GA_ROOT;
+
+                            unsafe {
+                                let hwnd = HWND(content_hwnd as *mut _);
+                                let root_hwnd = GetAncestor(hwnd, GA_ROOT);
+                                if !root_hwnd.0.is_null() {
+                                    let root_hwnd_val = root_hwnd.0 as isize;
+                                    tracing::info!(
+                                        "[prepare_window_management] Got UWP root window HWND: {}",
+                                        root_hwnd_val
+                                    );
+                                    Some(root_hwnd_val)
+                                } else {
+                                    tracing::warn!("[prepare_window_management] Failed to get root window for UWP content");
+                                    Some(content_hwnd)
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "[prepare_window_management] Failed to get UWP HWND: {}",
+                                e
+                            );
+                            None
+                        }
+                    }
+                } else {
+                    tracing::warn!(
+                        "[prepare_window_management] No ui_element provided for UWP app"
+                    );
+                    None
+                };
+
+                // 1. Track UWP window as target for restoration
+                if let Some(hwnd) = uwp_hwnd {
+                    self.window_manager.set_target_window(hwnd).await;
+                } else {
+                    tracing::warn!("[prepare_window_management] Cannot track UWP window for restoration (no HWND)");
+                }
+
+                // 2. Maximize UWP target window using keyboard (ShowWindow doesn't work for UWP)
+                if let Some(element) = ui_element {
+                    if let Err(e) = element.maximize_window_keyboard() {
+                        tracing::warn!(
+                            "Failed to maximize UWP window via keyboard for {}: {}",
+                            process,
+                            e
+                        );
+                    } else {
+                        tracing::info!(
+                            "Maximized UWP window for {} via keyboard (Win+Up)",
+                            process
+                        );
+                    }
+                } else {
+                    tracing::warn!("Cannot maximize UWP window - no ui_element provided");
+                }
+
+                // 3. Minimize Win32 always-on-top windows (if any)
+                // Note: UWP always-on-top windows are not visible via Win32 enumeration
+                let always_on_top_windows = self.window_manager.get_always_on_top_windows().await;
+                if !always_on_top_windows.is_empty() {
+                    tracing::info!(
+                        "Found {} always-on-top Win32 windows to minimize",
+                        always_on_top_windows.len()
+                    );
+
+                    if let Some(hwnd) = uwp_hwnd {
+                        match self
+                            .window_manager
+                            .minimize_always_on_top_windows(hwnd)
+                            .await
+                        {
+                            Ok(count) => {
+                                tracing::info!(
+                                    "Minimized {} Win32 always-on-top windows (UWP target app)",
+                                    count
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Failed to minimize always-on-top windows for UWP app: {}",
+                                    e
+                                );
+                            }
+                        }
+                    } else {
+                        tracing::warn!(
+                            "Could not get HWND from UWP element to minimize always-on-top windows"
+                        );
+                    }
+                }
+            } else {
+                // Win32 app: use traditional window management
+                // Try PID-based lookup first if available, fallback to process name
+                let window = if let Some(pid) = process_id {
+                    self.window_manager.get_topmost_window_for_pid(pid).await
+                } else {
+                    self.window_manager
+                        .get_topmost_window_for_process(process)
+                        .await
+                };
+
+                if let Some(window) = window {
+                    // Minimize always-on-top Win32 windows
+                    let always_on_top_windows =
+                        self.window_manager.get_always_on_top_windows().await;
+                    if !always_on_top_windows.is_empty() {
+                        tracing::info!(
+                            "Found {} always-on-top Win32 windows",
+                            always_on_top_windows.len()
+                        );
+                        match self
+                            .window_manager
+                            .minimize_always_on_top_windows(window.hwnd)
+                            .await
+                        {
+                            Ok(count) => {
+                                tracing::info!(
+                                    "Minimized {} always-on-top Win32 windows for {}",
+                                    count,
+                                    process
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to minimize always-on-top windows: {}", e);
+                            }
+                        }
+                    }
+
+                    // Maximize target Win32 window
+                    match self.window_manager.maximize_if_needed(window.hwnd).await {
+                        Ok(true) => {
+                            tracing::info!("Maximized Win32 window for {}", process);
+                        }
+                        Ok(false) => {
+                            tracing::debug!("Win32 window already maximized");
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to maximize Win32 window: {}", e);
+                        }
+                    }
+                } else {
+                    tracing::warn!(
+                        "Could not find Win32 window for '{}' for window management",
+                        process
+                    );
+                }
+            }
+        }
+
+        let elapsed = start.elapsed();
+        tracing::info!("[TIMING] prepare_window_management took {:?}", elapsed);
+        Ok(())
+    }
+
+    /// Restore windows after tool execution
+    /// Only restores for non-sequence calls or when explicitly needed
+    async fn restore_window_management(&self, should_restore: bool) {
+        if should_restore {
+            if let Err(e) = self.window_manager.restore_all_windows().await {
+                tracing::warn!("Failed to restore windows: {}", e);
+            } else {
+                tracing::info!("Restored all windows to original state");
+            }
+            self.window_manager.clear_captured_state().await;
+        }
+    }
+
     // Minimal, conservative parser to extract `{ set_env: {...} }` from simple scripts
     // like `return { set_env: { a: 1, b: 'x' } };`. This is only used as a fallback
     // when Node/Bun execution is unavailable, to support env propagation tests.
@@ -361,6 +684,8 @@ impl DesktopWrapper {
             log_capture,
             current_workflow_dir: Arc::new(Mutex::new(None)),
             current_scripts_base_path: Arc::new(Mutex::new(None)),
+            window_manager: Arc::new(crate::window_manager::WindowManager::new()),
+            in_sequence: Arc::new(std::sync::Mutex::new(false)),
         })
     }
 
@@ -474,7 +799,7 @@ impl DesktopWrapper {
     }
 
     #[tool(
-        description = "Get the complete UI tree for an application by process name (using process: selector) or PID, and optional window title. Returns detailed element information (role, name, id, enabled state, bounds, children). This is your primary tool for understanding the application's current state. PREFER using process name selector (e.g., tree_from_selector: 'process:chrome') over PID for better portability across machines. Supports tree optimization: tree_max_depth: 30` to limit tree depth when you only need shallow inspection, tree_from_selector to get subtrees starting from a specific element, include_detailed_attributes to control verbosity (defaults to true). This is a read-only operation."
+        description = "Get the complete UI tree for an application by process name (e.g., 'chrome', 'msedge', 'notepad'). Returns tree for the first matching process found. Returns detailed element information (role, name, id, enabled state, bounds, children). This is your primary tool for understanding the application's current state. Supports tree optimization: tree_max_depth (e.g., 30) to limit tree depth when you only need shallow inspection, tree_from_selector to get subtrees starting from a specific element, include_detailed_attributes to control verbosity (defaults to true). This is a read-only operation."
     )]
     pub async fn get_window_tree(
         &self,
@@ -482,7 +807,7 @@ impl DesktopWrapper {
     ) -> Result<CallToolResult, McpError> {
         // Start telemetry span
         let mut span = StepSpan::new("get_window_tree", None);
-        span.set_attribute("pid", args.pid.to_string());
+        span.set_attribute("process", args.process.clone());
         if let Some(title) = &args.title {
             span.set_attribute("window_title", title.clone());
         }
@@ -494,14 +819,79 @@ impl DesktopWrapper {
                 .to_string(),
         );
 
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!(
+                "[get_window_tree] Direct MCP call detected - performing window management"
+            );
+            let _ = self
+                .prepare_window_management(&args.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!("[get_window_tree] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
+        // Find PID for the process name
+        let apps = self.desktop.applications().map_err(|e| {
+            McpError::resource_not_found(
+                "Failed to get applications",
+                Some(json!({"reason": e.to_string()})),
+            )
+        })?;
+
+        let mut system = System::new();
+        system.refresh_processes(ProcessesToUpdate::All, true);
+
+        // Find first matching process
+        let pid = apps
+            .iter()
+            .filter_map(|app| {
+                let app_pid = app.process_id().unwrap_or(0);
+                if app_pid > 0 {
+                    system
+                        .process(sysinfo::Pid::from_u32(app_pid))
+                        .and_then(|p| {
+                            let process_name = p.name().to_string_lossy().to_string();
+                            if process_name
+                                .to_lowercase()
+                                .contains(&args.process.to_lowercase())
+                            {
+                                Some(app_pid)
+                            } else {
+                                None
+                            }
+                        })
+                } else {
+                    None
+                }
+            })
+            .next()
+            .ok_or_else(|| {
+                McpError::resource_not_found(
+                    format!(
+                        "Process '{}' not found. Use open_application to start it first.",
+                        args.process
+                    ),
+                    Some(json!({"process": args.process})),
+                )
+            })?;
+
+        span.set_attribute("pid", pid.to_string());
+
         // Detect if this is a browser window
-        let is_browser = Self::detect_browser_by_pid(args.pid);
+        let is_browser = Self::detect_browser_by_pid(pid);
 
         // Build the base result JSON first
         let mut result_json = json!({
             "action": "get_window_tree",
             "status": "success",
-            "pid": args.pid,
+            "process": args.process,
+            "pid": pid,
             "title": args.title,
             "detailed_attributes": args.tree.include_detailed_attributes.unwrap_or(true),
             "timestamp": chrono::Utc::now().to_rfc3339(),
@@ -511,7 +901,7 @@ impl DesktopWrapper {
         // Add browser detection metadata
         if is_browser {
             result_json["is_browser"] = json!(true);
-            info!("Browser window detected for PID {}", args.pid);
+            info!("Browser window detected for PID {}", pid);
 
             // Try to capture DOM elements from browser
             match self.capture_browser_dom_elements().await {
@@ -533,12 +923,12 @@ impl DesktopWrapper {
         // Use maybe_attach_tree to handle tree extraction with from_selector support
         crate::helpers::maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree.or(Some(true)), // Default to true for get_window_tree
+            args.tree.include_tree_after_action.or(Some(true)), // Default to true for get_window_tree
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
             args.tree.tree_output_format,
-            Some(args.pid),
+            Some(pid),
             &mut result_json,
             None, // No found element for window tree
         )
@@ -553,6 +943,9 @@ impl DesktopWrapper {
             args.monitor.include_monitor_screenshots,
         )
         .await;
+
+        self.restore_window_management(should_restore).await;
+
         Ok(CallToolResult::success(contents))
     }
 
@@ -903,7 +1296,7 @@ impl DesktopWrapper {
     /// Ensures element is visible and optionally applies highlighting before action
     fn ensure_visible_and_apply_highlight(
         element: &UIElement,
-        highlight_config: Option<&ActionHighlightConfig>,
+        highlight_config: &ActionHighlightConfig,
         action_name: &str,
     ) {
         // Always ensure element is in view first (for all actions, not just when highlighting)
@@ -911,41 +1304,44 @@ impl DesktopWrapper {
             tracing::warn!("Failed to ensure element is in view for {action_name} action: {e}");
         }
 
-        // Then apply highlighting if configured
-        if let Some(config) = highlight_config {
-            if config.enabled {
-                let duration = config.duration_ms.map(std::time::Duration::from_millis);
-                let color = config.color;
-                let text = config.text.as_deref();
+        // Then apply highlighting if enabled
+        if highlight_config.enabled {
+            let duration = highlight_config
+                .duration_ms
+                .map(std::time::Duration::from_millis);
+            let color = highlight_config.color;
+            let text = highlight_config.text.as_deref();
 
-                #[cfg(target_os = "windows")]
-                let text_position = config.text_position.clone().map(|pos| pos.into());
-                #[cfg(not(target_os = "windows"))]
-                let text_position = None;
+            #[cfg(target_os = "windows")]
+            let text_position = highlight_config.text_position.clone().map(|pos| pos.into());
+            #[cfg(not(target_os = "windows"))]
+            let text_position = None;
 
-                #[cfg(target_os = "windows")]
-                let font_style = config.font_style.clone().map(|style| style.into());
-                #[cfg(not(target_os = "windows"))]
-                let font_style = None;
+            #[cfg(target_os = "windows")]
+            let font_style = highlight_config
+                .font_style
+                .clone()
+                .map(|style| style.into());
+            #[cfg(not(target_os = "windows"))]
+            let font_style = None;
 
-                tracing::info!(
-                    "HIGHLIGHT_BEFORE_{} duration={:?}",
-                    action_name.to_uppercase(),
-                    duration
-                );
-                if let Ok(_highlight_handle) =
-                    element.highlight(color, duration, text, text_position, font_style)
-                {
-                    // Highlight applied successfully - runs concurrently with action
-                } else {
-                    tracing::warn!("Failed to apply highlighting before {action_name} action");
-                }
+            tracing::info!(
+                "HIGHLIGHT_BEFORE_{} duration={:?}",
+                action_name.to_uppercase(),
+                duration
+            );
+            if let Ok(_highlight_handle) =
+                element.highlight(color, duration, text, text_position, font_style)
+            {
+                // Highlight applied successfully - runs concurrently with action
+            } else {
+                tracing::warn!("Failed to apply highlighting before {action_name} action");
             }
         }
     }
 
     #[tool(
-        description = "Types text into a UI element with smart clipboard optimization and verification. Much faster than press key. This action requires the application to be focused and may change the UI."
+        description = "Types text into a UI element with smart clipboard optimization and verification. Much faster than press key. REQUIRED: clear_before_typing parameter - set to true to clear existing text, false to append. This action requires the application to be focused and may change the UI."
     )]
     async fn type_into_element(
         &self,
@@ -956,13 +1352,10 @@ impl DesktopWrapper {
         // Add comprehensive telemetry attributes
         span.set_attribute("selector", args.selector.selector.clone());
         span.set_attribute("text.length", args.text_to_type.len().to_string());
-        span.set_attribute(
-            "clear_before_typing",
-            args.clear_before_typing.unwrap_or(true).to_string(),
-        );
+        span.set_attribute("clear_before_typing", args.clear_before_typing.to_string());
         // Log if explicit verification is requested
-        if args.action.verify_element_exists.is_some()
-            || args.action.verify_element_not_exists.is_some()
+        if !args.action.verify_element_exists.is_empty()
+            || !args.action.verify_element_not_exists.is_empty()
         {
             span.set_attribute("verification.explicit", "true".to_string());
         }
@@ -974,12 +1367,40 @@ impl DesktopWrapper {
         }
 
         tracing::info!(
-            "[type_into_element] Called with selector: '{}'",
-            args.selector.selector
+            "[type_into_element] Called with selector: '{}', process: {:?}, window_selector: {:?}",
+            args.selector.selector,
+            args.selector.process,
+            args.selector.window_selector
         );
 
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            let flag_value = *in_sequence;
+            let should_restore_value = !flag_value;
+            tracing::info!(
+                "[type_into_element] Flag check: in_sequence={}, should_restore={}",
+                flag_value,
+                should_restore_value
+            );
+            should_restore_value
+        };
+
+        if should_restore {
+            tracing::info!(
+                "[type_into_element] Direct MCP call detected - performing window management"
+            );
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!("[type_into_element] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let text_to_type = args.text_to_type.clone();
-        let should_clear = args.clear_before_typing.unwrap_or(true);
+        let should_clear = args.clear_before_typing;
+        let try_focus_before = args.try_focus_before;
+        let try_click_before = args.try_click_before;
 
         let action = {
             let highlight_config = args.highlight.highlight_before_action.clone();
@@ -988,11 +1409,7 @@ impl DesktopWrapper {
                 let highlight_config = highlight_config.clone();
                 async move {
                     // Apply highlighting before action if configured
-                    Self::ensure_visible_and_apply_highlight(
-                        &element,
-                        highlight_config.as_ref(),
-                        "type",
-                    );
+                    Self::ensure_visible_and_apply_highlight(&element, &highlight_config, "type");
 
                     // Execute the typing action with state tracking
                     if should_clear {
@@ -1003,7 +1420,12 @@ impl DesktopWrapper {
                             );
                         }
                     }
-                    element.type_text_with_state(&text_to_type, true)
+                    element.type_text_with_state_and_focus(
+                        &text_to_type,
+                        true,
+                        try_focus_before,
+                        try_click_before,
+                    )
                 }
             }
         };
@@ -1016,12 +1438,17 @@ impl DesktopWrapper {
             .tree_output_format
             .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
 
+        // Build scoped selectors
+        let full_selector = args.selector.build_full_selector();
+        let alternative_selectors = args.selector.build_alternative_selectors();
+        let fallback_selectors = args.selector.build_fallback_selectors();
+
         let ((result, element), successful_selector, ui_diff) =
             match crate::helpers::find_and_execute_with_ui_diff(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &full_selector,
+                alternative_selectors.as_deref(),
+                fallback_selectors.as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
@@ -1054,9 +1481,9 @@ impl DesktopWrapper {
                 Err(e) => {
                     // Note: Cannot use span here as it would be moved if we call span.end()
                     Err(build_element_not_found_error(
-                        &args.selector.selector,
-                        args.selector.alternative_selectors.as_deref(),
-                        args.selector.fallback_selectors.as_deref(),
+                        &args.selector.build_full_selector(),
+                        args.selector.build_alternative_selectors().as_deref(),
+                        args.selector.build_fallback_selectors().as_deref(),
                         e,
                     ))
                 }
@@ -1066,7 +1493,7 @@ impl DesktopWrapper {
             "action": "type_into_element",
             "status": "success",
             "text_typed": args.text_to_type,
-            "cleared_before_typing": args.clear_before_typing.unwrap_or(true),
+            "cleared_before_typing": args.clear_before_typing,
             "action_result": {
                 "action": result.action,
                 "details": result.details,
@@ -1074,7 +1501,7 @@ impl DesktopWrapper {
             },
             "element": build_element_info(&element),
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
 
@@ -1083,15 +1510,15 @@ impl DesktopWrapper {
         // 2. Otherwise, auto-infer verification from tool arguments (magic)
         // 3. To disable auto-verification, set verify_element_exists to empty string ""
 
-        let should_auto_verify = args.action.verify_element_exists.is_none()
-            && args.action.verify_element_not_exists.is_none();
+        let should_auto_verify = args.action.verify_element_exists.is_empty()
+            && args.action.verify_element_not_exists.is_empty();
 
         let verify_exists = if should_auto_verify {
             // MAGIC AUTO-VERIFICATION: Infer from text_to_type
             // Auto-verify that typed text appears in the element
             tracing::debug!("[type_into_element] Auto-verification enabled for typed text");
             span.set_attribute("verification.auto_inferred", "true".to_string());
-            Some(format!("text:{}", args.text_to_type))
+            format!("text:{}", args.text_to_type)
         } else {
             // Use explicit verification selector (supports variable substitution)
             args.action.verify_element_exists.clone()
@@ -1099,17 +1526,14 @@ impl DesktopWrapper {
 
         let verify_not_exists = args.action.verify_element_not_exists.clone();
 
-        // Skip verification if verify_exists is empty string (explicit opt-out)
-        let skip_verification = verify_exists
-            .as_ref()
-            .map(|s| s.is_empty())
-            .unwrap_or(false);
+        // Skip verification if both are empty strings (explicit opt-out)
+        let skip_verification = verify_exists.is_empty() && verify_not_exists.is_empty();
 
         // Perform verification if any selector is specified (auto or explicit) and not explicitly disabled
-        if !skip_verification && (verify_exists.is_some() || verify_not_exists.is_some()) {
+        if !skip_verification {
             span.add_event("verification_started", vec![]);
 
-            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
+            let verify_timeout_ms = args.action.verify_timeout_ms;
             span.set_attribute("verification.timeout_ms", verify_timeout_ms.to_string());
 
             // Substitute variables in verification selectors
@@ -1121,28 +1545,39 @@ impl DesktopWrapper {
             let mut substituted_exists = verify_exists.clone();
             let mut substituted_not_exists = verify_not_exists.clone();
 
-            if let Some(ref mut sel) = substituted_exists {
-                let mut val = json!(sel);
+            if !substituted_exists.is_empty() {
+                let mut val = json!(&substituted_exists);
                 crate::helpers::substitute_variables(&mut val, &context);
                 if let Some(s) = val.as_str() {
-                    *sel = s.to_string();
+                    substituted_exists = s.to_string();
                 }
             }
 
-            if let Some(ref mut sel) = substituted_not_exists {
-                let mut val = json!(sel);
+            if !substituted_not_exists.is_empty() {
+                let mut val = json!(&substituted_not_exists);
                 crate::helpers::substitute_variables(&mut val, &context);
                 if let Some(s) = val.as_str() {
-                    *sel = s.to_string();
+                    substituted_not_exists = s.to_string();
                 }
             }
 
             // Call the new generic verification function (uses window-scoped search with .within())
+            let verify_exists_opt = if substituted_exists.is_empty() {
+                None
+            } else {
+                Some(substituted_exists.as_str())
+            };
+            let verify_not_exists_opt = if substituted_not_exists.is_empty() {
+                None
+            } else {
+                Some(substituted_not_exists.as_str())
+            };
+
             match crate::helpers::verify_post_action(
                 &self.desktop,
                 &element,
-                substituted_exists.as_deref(),
-                substituted_not_exists.as_deref(),
+                verify_exists_opt,
+                verify_not_exists_opt,
                 verify_timeout_ms,
                 &successful_selector,
             )
@@ -1208,7 +1643,7 @@ impl DesktopWrapper {
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -1219,6 +1654,9 @@ impl DesktopWrapper {
             )
             .await;
         }
+
+        // Restore windows after typing into element
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -1233,7 +1671,7 @@ impl DesktopWrapper {
     }
 
     #[tool(
-        description = "Clicks a UI element using Playwright-style actionability validation. Performs comprehensive pre-action checks: element must be visible (non-zero bounds), enabled, in viewport, and have stable bounds (3 consecutive checks at 16ms intervals, max ~800ms wait). Returns success with 'validated=true' in click_result.details when all checks pass. Fails explicitly with specific errors: ElementNotVisible (zero-size bounds/offscreen/not in viewport), ElementNotEnabled (disabled/grayed out), ElementNotStable (bounds still animating after 800ms), ElementDetached (no longer in UI tree), ElementObscured (covered by another element), or ScrollFailed (could not scroll into view). For buttons, prefer invoke_element (uses UI Automation's native invoke pattern, doesn't require viewport visibility). Use click_element for links, hover-sensitive elements, or UI requiring actual mouse interaction. This action requires the application to be focused and may change the UI."
+        description = "Clicks a UI element using Playwright-style actionability validation. Performs comprehensive pre-action checks: element must be visible (non-zero bounds), enabled, in viewport, and have stable bounds (3 consecutive checks at 16ms intervals, max ~800ms wait). Returns success with 'validated=true' in click_result.details when all checks pass. Fails explicitly with specific errors: ElementNotVisible (zero-size bounds/offscreen/not in viewport), ElementNotEnabled (disabled/grayed out), ElementNotStable (bounds still animating after 800ms), ElementDetached (no longer in UI tree), ElementObscured (covered by another element), or ScrollFailed (could not scroll into view). For buttons, prefer invoke_element (uses UI Automation's native invoke pattern, doesn't require viewport visibility). Use click_element for links, hover-sensitive elements, or UI requiring actual mouse interaction. REQUIRED: click_position parameter - use x_percentage: 50, y_percentage: 50 for center click (most common). This action requires the application to be focused and may change the UI."
     )]
     pub async fn click_element(
         &self,
@@ -1253,14 +1691,42 @@ impl DesktopWrapper {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
 
-        if let Some(ref pos) = args.click_position {
-            span.set_attribute("click.position_x", pos.x_percentage.to_string());
-            span.set_attribute("click.position_y", pos.y_percentage.to_string());
+        span.set_attribute(
+            "click.position_x",
+            args.click_position.x_percentage.to_string(),
+        );
+        span.set_attribute(
+            "click.position_y",
+            args.click_position.y_percentage.to_string(),
+        );
+        tracing::info!(
+            "[click_element] Click position: {}%, {}%",
+            args.click_position.x_percentage,
+            args.click_position.y_percentage
+        );
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            let flag_value = *in_sequence;
+            let should_restore_value = !flag_value;
             tracing::info!(
-                "[click_element] Click position: {}%, {}%",
-                pos.x_percentage,
-                pos.y_percentage
+                "[click_element] Flag check: in_sequence={}, should_restore={}",
+                flag_value,
+                should_restore_value
             );
+            should_restore_value
+        };
+
+        if should_restore {
+            tracing::info!(
+                "[click_element] Direct MCP call detected - performing window management"
+            );
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!("[click_element] In sequence - skipping window management (dispatch_tool handles it)");
         }
 
         let action = {
@@ -1271,49 +1737,42 @@ impl DesktopWrapper {
                 let click_position = click_position.clone();
                 async move {
                     // Ensure element is visible and apply highlighting if configured
-                    Self::ensure_visible_and_apply_highlight(
-                        &element,
-                        highlight_config.as_ref(),
-                        "click",
-                    );
+                    Self::ensure_visible_and_apply_highlight(&element, &highlight_config, "click");
 
-                    // Click at specific position if provided
-                    if let Some(pos) = click_position {
-                        // Get element bounds to calculate absolute position
-                        match element.bounds() {
-                            Ok(bounds) => {
-                                // Calculate absolute coordinates from percentages
-                                let x = bounds.0 + (bounds.2 * pos.x_percentage as f64 / 100.0);
-                                let y = bounds.1 + (bounds.3 * pos.y_percentage as f64 / 100.0);
+                    // Click at specified position
+                    // Get element bounds to calculate absolute position
+                    match element.bounds() {
+                        Ok(bounds) => {
+                            // Calculate absolute coordinates from percentages
+                            let x =
+                                bounds.0 + (bounds.2 * click_position.x_percentage as f64 / 100.0);
+                            let y =
+                                bounds.1 + (bounds.3 * click_position.y_percentage as f64 / 100.0);
 
-                                tracing::debug!(
-                                    "[click_element] Clicking at absolute position ({}, {}) within bounds ({}, {}, {}, {})",
-                                    x, y, bounds.0, bounds.1, bounds.2, bounds.3
-                                );
+                            tracing::debug!(
+                                "[click_element] Clicking at absolute position ({}, {}) within bounds ({}, {}, {}, {})",
+                                x, y, bounds.0, bounds.1, bounds.2, bounds.3
+                            );
 
-                                // Perform click at specific position
-                                element.mouse_click_and_hold(x, y)?;
-                                element.mouse_release()?;
+                            // Perform click at specific position
+                            element.mouse_click_and_hold(x, y)?;
+                            element.mouse_release()?;
 
-                                // Return a ClickResult
-                                use terminator::ClickResult;
-                                Ok(ClickResult {
-                                    coordinates: Some((x, y)),
-                                    method: "Position Click".to_string(),
-                                    details: format!(
-                                        "Clicked at {}%, {}%",
-                                        pos.x_percentage, pos.y_percentage
-                                    ),
-                                })
-                            }
-                            Err(e) => {
-                                tracing::warn!("[click_element] Failed to get bounds for position click: {}. Falling back to center click.", e);
-                                element.click()
-                            }
+                            // Return a ClickResult
+                            use terminator::ClickResult;
+                            Ok(ClickResult {
+                                coordinates: Some((x, y)),
+                                method: "Position Click".to_string(),
+                                details: format!(
+                                    "Clicked at {}%, {}%",
+                                    click_position.x_percentage, click_position.y_percentage
+                                ),
+                            })
                         }
-                    } else {
-                        // Default center click
-                        element.click()
+                        Err(e) => {
+                            tracing::warn!("[click_element] Failed to get bounds for position click: {}. Falling back to center click.", e);
+                            element.click()
+                        }
                     }
                 }
             }
@@ -1331,9 +1790,9 @@ impl DesktopWrapper {
         // Use new wrapper that supports UI diff capture
         let result = crate::helpers::find_and_execute_with_ui_diff(
             &self.desktop,
-            &args.selector.selector,
-            args.selector.alternative_selectors.as_deref(),
-            args.selector.fallback_selectors.as_deref(),
+            &args.selector.build_full_selector(),
+            args.selector.build_alternative_selectors().as_deref(),
+            args.selector.build_fallback_selectors().as_deref(),
             args.action.timeout_ms,
             args.action.retries,
             action,
@@ -1361,9 +1820,9 @@ impl DesktopWrapper {
                 span.set_status(false, Some(&e.to_string()));
                 span.end();
                 return Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 ));
             }
@@ -1413,7 +1872,7 @@ impl DesktopWrapper {
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -1424,6 +1883,9 @@ impl DesktopWrapper {
             )
             .await;
         }
+
+        // Restore windows if this was a direct MCP call
+        self.restore_window_management(should_restore).await;
 
         Ok(CallToolResult::success(
             append_monitor_screenshots_if_enabled(
@@ -1462,7 +1924,33 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
             args.key
         );
 
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            let flag_value = *in_sequence;
+            let should_restore_value = !flag_value;
+            tracing::info!(
+                "[press_key] Flag check: in_sequence={}, should_restore={}",
+                flag_value,
+                should_restore_value
+            );
+            should_restore_value
+        };
+
+        if should_restore {
+            tracing::info!("[press_key] Direct MCP call detected - performing window management");
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!(
+                "[press_key] In sequence - skipping window management (dispatch_tool handles it)"
+            );
+        }
+
         let key_to_press = args.key.clone();
+        let try_focus_before = args.try_focus_before;
+        let try_click_before = args.try_click_before;
         let action = {
             let highlight_config = args.highlight.highlight_before_action.clone();
             move |element: UIElement| {
@@ -1470,14 +1958,14 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
                 let highlight_config = highlight_config.clone();
                 async move {
                     // Ensure element is visible and apply highlighting if configured
-                    Self::ensure_visible_and_apply_highlight(
-                        &element,
-                        highlight_config.as_ref(),
-                        "key",
-                    );
+                    Self::ensure_visible_and_apply_highlight(&element, &highlight_config, "key");
 
                     // Execute the key press action with state tracking
-                    element.press_key_with_state(&key_to_press)
+                    element.press_key_with_state_and_focus(
+                        &key_to_press,
+                        try_focus_before,
+                        try_click_before,
+                    )
                 }
             }
         };
@@ -1493,9 +1981,9 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
         let ((result, element), successful_selector, ui_diff) =
             match crate::helpers::find_and_execute_with_ui_diff(
                 &self.desktop,
-                &args.selector.selector,
+                &args.selector.build_full_selector(),
                 None, // PressKey doesn't have alternative selectors yet
-                args.selector.fallback_selectors.as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
@@ -1525,9 +2013,9 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
                 Err(e) => {
                     // Note: Cannot use span here as it would be moved if we call span.end()
                     Err(build_element_not_found_error(
-                        &args.selector.selector,
+                        &args.selector.build_full_selector(),
                         None,
-                        args.selector.fallback_selectors.as_deref(),
+                        args.selector.build_fallback_selectors().as_deref(),
                         e,
                     ))
                 }
@@ -1546,7 +2034,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
             },
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, None, args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), None, args.selector.build_fallback_selectors().as_deref()),
             "timestamp": chrono::Utc::now().to_rfc3339()
         });
 
@@ -1566,7 +2054,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -1577,6 +2065,9 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
             )
             .await;
         }
+
+        // Restore windows after pressing key
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -1648,7 +2139,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
         });
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -2700,12 +3191,37 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            let flag_value = *in_sequence;
+            let should_restore_value = !flag_value;
+            tracing::info!(
+                "[activate_element] Flag check: in_sequence={}, should_restore={}",
+                flag_value,
+                should_restore_value
+            );
+            should_restore_value
+        };
+
+        if should_restore {
+            tracing::info!(
+                "[activate_element] Direct MCP call detected - performing window management"
+            );
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!("[activate_element] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let ((_result, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
-                &args.selector.selector,
+                &args.selector.build_full_selector(),
                 None, // ActivateElement doesn't have alternative selectors
-                args.selector.fallback_selectors.as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 |element| async move { element.activate_window() },
@@ -2713,12 +3229,16 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             .await
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    None,
-                    args.selector.fallback_selectors.as_deref(),
-                    e,
-                )),
+                Err(e) => {
+                    // Restore windows before returning error
+                    self.restore_window_management(should_restore).await;
+                    Err(build_element_not_found_error(
+                        &args.selector.build_full_selector(),
+                        None,
+                        args.selector.build_fallback_selectors().as_deref(),
+                        e,
+                    ))
+                }
             }?;
 
         let element_info = build_element_info(&element);
@@ -2787,7 +3307,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": final_status,
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, None, args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), None, args.selector.build_fallback_selectors().as_deref()),
             "timestamp": chrono::Utc::now().to_rfc3339(),
             "verification": verification,
             "recommendation": recommendation
@@ -2796,7 +3316,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         // Always attach UI tree for activated elements to help with next actions
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -2806,6 +3326,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             Some(&element),
         )
         .await;
+
+        // Restore windows after activation
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -2875,6 +3398,19 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        }
+
         let action = |element: UIElement| async move {
             element.mouse_drag(args.start_x, args.start_y, args.end_x, args.end_y)
         };
@@ -2882,9 +3418,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((_result, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
@@ -2893,9 +3429,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -2907,14 +3443,14 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": "success",
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "start": (args.start_x, args.start_y),
             "end": (args.end_x, args.end_y),
             "timestamp": chrono::Utc::now().to_rfc3339()
         });
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -2924,6 +3460,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             Some(&element),
         )
         .await;
+
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -2957,15 +3495,32 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
 
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!(
+                "[validate_element] Direct MCP call detected - performing window management"
+            );
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!("[validate_element] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         // For validation, the "action" is just succeeding.
         let action = |element: UIElement| async move { Ok(element) };
 
         let operation_start = std::time::Instant::now();
         match find_and_execute_with_retry_with_fallback(
             &self.desktop,
-            &args.selector.selector,
-            args.selector.alternative_selectors.as_deref(),
-            args.selector.fallback_selectors.as_deref(),
+            &args.selector.build_full_selector(),
+            args.selector.build_alternative_selectors().as_deref(),
+            args.selector.build_fallback_selectors().as_deref(),
             args.action.timeout_ms,
             args.action.retries,
             action,
@@ -2992,12 +3547,12 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     "status": "success",
                     "element": element_info,
                     "selector_used": successful_selector,
-                    "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+                    "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
                     "timestamp": chrono::Utc::now().to_rfc3339()
                 });
                 maybe_attach_tree(
                     &self.desktop,
-                    args.tree.include_tree,
+                    args.tree.include_tree_after_action,
                     args.tree.tree_max_depth,
                     args.tree.tree_from_selector.as_deref(),
                     args.tree.include_detailed_attributes,
@@ -3007,6 +3562,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     Some(&element),
                 )
                 .await;
+
+                self.restore_window_management(should_restore).await;
 
                 span.set_status(true, None);
                 span.end();
@@ -3022,9 +3579,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             }
             Err(e) => {
                 let selectors_tried = get_selectors_tried_all(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                 );
                 let reason_payload = json!({
                     "error_type": "ElementNotFound",
@@ -3041,6 +3598,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
                 // This is not a tool error, but a validation failure, so we return success with the failure info.
 
+                self.restore_window_management(should_restore).await;
+
+                span.set_attribute("element.found", "false".to_string());
                 span.set_status(true, None);
                 span.end();
 
@@ -3078,6 +3638,24 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!(
+                "[highlight_element] Direct MCP call detected - performing window management"
+            );
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!("[highlight_element] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let duration = args.duration_ms.map(std::time::Duration::from_millis);
         let color = args.color;
 
@@ -3118,9 +3696,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((handle, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 effective_timeout_ms,
                 args.action.retries,
                 action,
@@ -3128,12 +3706,16 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             .await
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
-                    e,
-                )),
+                Err(e) => {
+                    // Restore windows before returning error
+                    self.restore_window_management(should_restore).await;
+                    Err(build_element_not_found_error(
+                        &args.selector.build_full_selector(),
+                        args.selector.build_alternative_selectors().as_deref(),
+                        args.selector.build_fallback_selectors().as_deref(),
+                        e,
+                    ))
+                }
             }?;
 
         // Register handle and schedule cleanup
@@ -3154,7 +3736,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "action": "highlight_element",
             "status": "success",
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "color": args.color.unwrap_or(0x0000FF),
             "duration_ms": args.duration_ms.unwrap_or(1000),
             "visibility": { "requested_ms": args.duration_ms.unwrap_or(1000) },
@@ -3167,7 +3749,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         }
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -3177,6 +3759,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             Some(&element),
         )
         .await;
+
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -3208,8 +3792,25 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         }
         info!(
             "[wait_for_element] Called with selector: '{}', condition: '{}', timeout_ms: {:?}, include_tree: {:?}",
-            args.selector.selector, args.condition, args.action.timeout_ms, args.tree.include_tree
+            args.selector.selector, args.condition, args.action.timeout_ms, args.tree.include_tree_after_action
         );
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!(
+                "[wait_for_element] Direct MCP call detected - performing window management"
+            );
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!("[wait_for_element] In sequence - skipping window management (dispatch_tool handles it)");
+        }
 
         let locator = self
             .desktop
@@ -3235,13 +3836,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                         "condition": args.condition,
                         "condition_met": true,
                         "selector": args.selector.selector,
-                        "timeout_ms": args.action.timeout_ms.unwrap_or(5000),
+                        "timeout_ms": timeout.unwrap_or(std::time::Duration::from_millis(5000)).as_millis(),
                         "timestamp": chrono::Utc::now().to_rfc3339()
                     });
 
                     maybe_attach_tree(
                         &self.desktop,
-                        args.tree.include_tree,
+                        args.tree.include_tree_after_action,
                         args.tree.tree_max_depth,
                         args.tree.tree_from_selector.as_deref(),
                         None, // include_detailed_attributes - use default
@@ -3251,6 +3852,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                         Some(&element),
                     )
                     .await;
+
+                    self.restore_window_management(should_restore).await;
 
                     span.set_status(true, None);
                     span.end();
@@ -3270,12 +3873,15 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                         "[wait_for_element] Element NOT found for selector='{}' within timeout. Error: {}",
                         args.selector.selector, e
                     );
+
+                    self.restore_window_management(should_restore).await;
+
                     return Err(McpError::internal_error(
                         error_msg,
                         Some(json!({
                             "selector": args.selector.selector,
                             "condition": args.condition,
-                            "timeout_ms": args.action.timeout_ms.unwrap_or(5000),
+                            "timeout_ms": timeout.unwrap_or(std::time::Duration::from_millis(5000)).as_millis(),
                             "error": e.to_string()
                         })),
                     ));
@@ -3303,12 +3909,15 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     "[wait_for_element] Timeout exceeded for selector='{}', condition='{}', waited {}ms",
                     args.selector.selector, args.condition, start_time.elapsed().as_millis()
                 );
+
+                self.restore_window_management(should_restore).await;
+
                 return Err(McpError::internal_error(
                     timeout_msg,
                     Some(json!({
                         "selector": args.selector.selector,
                         "condition": args.condition,
-                        "timeout_ms": args.action.timeout_ms.unwrap_or(5000),
+                        "timeout_ms": timeout_duration.as_millis(),
                         "elapsed_ms": start_time.elapsed().as_millis()
                     })),
                 ));
@@ -3355,6 +3964,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                                 "[wait_for_element] Invalid condition provided: '{}'",
                                 args.condition
                             );
+
+                            self.restore_window_management(should_restore).await;
+
                             return Err(McpError::invalid_params(
                                 "Invalid condition. Valid: exists, visible, enabled, focused",
                                 Some(json!({"provided_condition": args.condition})),
@@ -3376,14 +3988,14 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                             "condition": args.condition,
                             "condition_met": true,
                             "selector": args.selector.selector,
-                            "timeout_ms": args.action.timeout_ms.unwrap_or(5000),
+                            "timeout_ms": timeout_duration.as_millis(),
                             "elapsed_ms": start_time.elapsed().as_millis(),
                             "timestamp": chrono::Utc::now().to_rfc3339()
                         });
 
                         maybe_attach_tree(
                             &self.desktop,
-                            args.tree.include_tree,
+                            args.tree.include_tree_after_action,
                             args.tree.tree_max_depth,
                             args.tree.tree_from_selector.as_deref(),
                             None, // include_detailed_attributes - use default
@@ -3393,6 +4005,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                             Some(&element),
                         )
                         .await;
+
+                        self.restore_window_management(should_restore).await;
 
                         span.set_status(true, None);
                         span.end();
@@ -3439,11 +4053,30 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
         // Add comprehensive telemetry attributes
         span.set_attribute("url", args.url.clone());
-        let browser = args.browser.clone().map(Browser::Custom);
+        span.set_attribute("process", args.process.clone());
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!(
+                "[navigate_browser] Direct MCP call detected - performing window management"
+            );
+            let _ = self
+                .prepare_window_management(&args.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!("[navigate_browser] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
+        let browser = Some(Browser::Custom(args.process.clone()));
         let ui_element = self.desktop.open_url(&args.url, browser).map_err(|e| {
             McpError::internal_error(
                 "Failed to open URL",
-                Some(json!({"reason": e.to_string(), "url": args.url, "browser": args.browser})),
+                Some(json!({"reason": e.to_string(), "url": args.url, "process": args.process})),
             )
         })?;
 
@@ -3453,14 +4086,14 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "action": "navigate_browser",
             "status": "success",
             "url": args.url,
-            "browser": args.browser,
+            "process": args.process,
             "element": element_info,
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
 
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -3470,6 +4103,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             Some(&ui_element),
         )
         .await;
+
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -3506,6 +4141,31 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let process_id = ui_element.process_id().unwrap_or(0);
         let window_title = ui_element.window_title();
 
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            let flag_value = *in_sequence;
+            let should_restore_value = !flag_value;
+            tracing::info!(
+                "[open_application] Flag check: in_sequence={}, should_restore={}",
+                flag_value,
+                should_restore_value
+            );
+            should_restore_value
+        };
+
+        if should_restore {
+            tracing::info!(
+                "[open_application] Direct MCP call detected - performing window management"
+            );
+            // Note: UIElement is a trait object, can't extract platform-specific type, so pass None
+            let _ = self
+                .prepare_window_management(&args.app_name, None, Some(process_id), None)
+                .await;
+        } else {
+            tracing::debug!("[open_application] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let element_info = build_element_info(&ui_element);
 
         let mut result_json = json!({
@@ -3530,6 +4190,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 }
             }
         }
+
+        // Restore windows if we did window management
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -3559,12 +4222,30 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!(
+                "[close_element] Direct MCP call detected - performing window management"
+            );
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!("[close_element] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let ((_result, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 |element| async move { element.close() },
@@ -3572,15 +4253,21 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             .await
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
-                    e,
-                )),
+                Err(e) => {
+                    // Restore windows before returning error
+                    self.restore_window_management(should_restore).await;
+                    Err(build_element_not_found_error(
+                        &args.selector.build_full_selector(),
+                        args.selector.build_alternative_selectors().as_deref(),
+                        args.selector.build_fallback_selectors().as_deref(),
+                        e,
+                    ))
+                }
             }?;
 
         let element_info = build_element_info(&element);
+
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -3590,7 +4277,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": "success",
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "timestamp": chrono::Utc::now().to_rfc3339()
         }))?], None).await))
     }
@@ -3617,6 +4304,23 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             args.amount
         );
 
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!(
+                "[scroll_element] Direct MCP call detected - performing window management"
+            );
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!("[scroll_element] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let direction = args.direction.clone();
         let amount = args.amount;
         let action = {
@@ -3626,11 +4330,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 let highlight_config = highlight_config.clone();
                 async move {
                     // Ensure element is visible and apply highlighting if configured
-                    Self::ensure_visible_and_apply_highlight(
-                        &element,
-                        highlight_config.as_ref(),
-                        "scroll",
-                    );
+                    Self::ensure_visible_and_apply_highlight(&element, &highlight_config, "scroll");
 
                     // Execute the scroll action with state tracking
                     element.scroll_with_state(&direction, amount)
@@ -3647,9 +4347,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((result, element), successful_selector, ui_diff) =
             match crate::helpers::find_and_execute_with_ui_diff(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
@@ -3666,12 +4366,16 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     }
                     Ok(((result, element), selector, diff))
                 }
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
-                    e,
-                )),
+                Err(e) => {
+                    // Restore windows before returning error
+                    self.restore_window_management(should_restore).await;
+                    Err(build_element_not_found_error(
+                        &args.selector.build_full_selector(),
+                        args.selector.build_alternative_selectors().as_deref(),
+                        args.selector.build_fallback_selectors().as_deref(),
+                        e,
+                    ))
+                }
             }?;
 
         let element_info = build_element_info(&element);
@@ -3686,7 +4390,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             },
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "direction": args.direction,
             "amount": args.amount,
             "timestamp": chrono::Utc::now().to_rfc3339()
@@ -3708,7 +4412,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -3719,6 +4423,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             )
             .await;
         }
+
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -3746,6 +4452,24 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!(
+                "[select_option] Direct MCP call detected - performing window management"
+            );
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!("[select_option] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let option_name = args.option_name.clone();
         let action = move |element: UIElement| {
             let option_name = option_name.clone();
@@ -3767,9 +4491,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((result, element), successful_selector, ui_diff) =
             match crate::helpers::find_and_execute_with_ui_diff(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
@@ -3786,12 +4510,16 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     }
                     Ok(((result, element), selector, diff))
                 }
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
-                    e,
-                )),
+                Err(e) => {
+                    // Restore windows before returning error
+                    self.restore_window_management(should_restore).await;
+                    Err(build_element_not_found_error(
+                        &args.selector.build_full_selector(),
+                        args.selector.build_alternative_selectors().as_deref(),
+                        args.selector.build_fallback_selectors().as_deref(),
+                        e,
+                    ))
+                }
             }?;
 
         let element_info = build_element_info(&element);
@@ -3806,7 +4534,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             },
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "option_selected": args.option_name,
         });
 
@@ -3826,7 +4554,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -3837,6 +4565,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             )
             .await;
         }
+
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -3866,12 +4596,37 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            let flag_value = *in_sequence;
+            let should_restore_value = !flag_value;
+            tracing::info!(
+                "[list_options] Flag check: in_sequence={}, should_restore={}",
+                flag_value,
+                should_restore_value
+            );
+            should_restore_value
+        };
+
+        if should_restore {
+            tracing::info!(
+                "[list_options] Direct MCP call detected - performing window management"
+            );
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!("[list_options] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let ((options, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 |element| async move { element.list_options() },
@@ -3879,12 +4634,16 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             .await
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
-                    e,
-                )),
+                Err(e) => {
+                    // Restore windows before returning error
+                    self.restore_window_management(should_restore).await;
+                    Err(build_element_not_found_error(
+                        &args.selector.build_full_selector(),
+                        args.selector.build_alternative_selectors().as_deref(),
+                        args.selector.build_fallback_selectors().as_deref(),
+                        e,
+                    ))
+                }
             }?;
 
         let element_info = build_element_info(&element);
@@ -3894,13 +4653,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": "success",
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "options": options,
             "count": options.len(),
         });
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -3910,6 +4669,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             Some(&element),
         )
         .await;
+
+        // Restore windows after listing options
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -3940,6 +4702,24 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!("[set_toggled] Direct MCP call detected - performing window management");
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!(
+                "[set_toggled] In sequence - skipping window management (dispatch_tool handles it)"
+            );
+        }
+
         let state = args.state;
         let action = move |element: UIElement| async move {
             // Ensure element is visible before interaction
@@ -3958,9 +4738,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((result, element), successful_selector, ui_diff) =
             match crate::helpers::find_and_execute_with_ui_diff(
                 &self.desktop,
-                &args.selector.selector,
+                &args.selector.build_full_selector(),
                 None, // SetToggled doesn't have alternative selectors
-                args.selector.fallback_selectors.as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
@@ -3978,9 +4758,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     Ok(((result, element), selector, diff))
                 }
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
+                    &args.selector.build_full_selector(),
                     None,
-                    args.selector.fallback_selectors.as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -3997,13 +4777,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             },
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, None, args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), None, args.selector.build_fallback_selectors().as_deref()),
             "state_set_to": args.state,
         });
 
         // POST-ACTION VERIFICATION: Magic auto-verification or explicit verification
-        let should_auto_verify = args.action.verify_element_exists.is_none()
-            && args.action.verify_element_not_exists.is_none();
+        let should_auto_verify = args.action.verify_element_exists.is_empty()
+            && args.action.verify_element_not_exists.is_empty();
 
         if should_auto_verify {
             // MAGIC AUTO-VERIFICATION: Verify toggle state was actually set
@@ -4058,17 +4838,28 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     }),
                 );
             }
-        } else if args.action.verify_element_exists.is_some()
-            || args.action.verify_element_not_exists.is_some()
+        } else if !args.action.verify_element_exists.is_empty()
+            || !args.action.verify_element_not_exists.is_empty()
         {
             // Explicit verification using selectors
-            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
+            let verify_timeout_ms = args.action.verify_timeout_ms;
+
+            let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_exists.as_str())
+            };
+            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_not_exists.as_str())
+            };
 
             match crate::helpers::verify_post_action(
                 &self.desktop,
                 &element,
-                args.action.verify_element_exists.as_deref(),
-                args.action.verify_element_not_exists.as_deref(),
+                verify_exists_opt,
+                verify_not_exists_opt,
                 verify_timeout_ms,
                 &successful_selector,
             )
@@ -4120,7 +4911,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -4131,6 +4922,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             )
             .await;
         }
+
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -4161,6 +4954,24 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!(
+                "[set_range_value] Direct MCP call detected - performing window management"
+            );
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!("[set_range_value] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let value = args.value;
         let action = move |element: UIElement| async move {
             // Ensure element is visible before interaction
@@ -4179,9 +4990,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((_result, element), successful_selector, ui_diff) =
             match crate::helpers::find_and_execute_with_ui_diff(
                 &self.desktop,
-                &args.selector.selector,
+                &args.selector.build_full_selector(),
                 None, // SetRangeValue doesn't have alternative selectors
-                args.selector.fallback_selectors.as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
@@ -4199,9 +5010,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     Ok(((result, element), selector, diff))
                 }
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
+                    &args.selector.build_full_selector(),
                     None,
-                    args.selector.fallback_selectors.as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -4213,13 +5024,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": "success",
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, None, args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), None, args.selector.build_fallback_selectors().as_deref()),
             "value_set_to": args.value,
         });
 
         // POST-ACTION VERIFICATION: Magic auto-verification or explicit verification
-        let should_auto_verify = args.action.verify_element_exists.is_none()
-            && args.action.verify_element_not_exists.is_none();
+        let should_auto_verify = args.action.verify_element_exists.is_empty()
+            && args.action.verify_element_not_exists.is_empty();
 
         if should_auto_verify {
             // MAGIC AUTO-VERIFICATION: Verify range value was actually set
@@ -4272,17 +5083,28 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     }),
                 );
             }
-        } else if args.action.verify_element_exists.is_some()
-            || args.action.verify_element_not_exists.is_some()
+        } else if !args.action.verify_element_exists.is_empty()
+            || !args.action.verify_element_not_exists.is_empty()
         {
             // Explicit verification using selectors
-            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
+            let verify_timeout_ms = args.action.verify_timeout_ms;
+
+            let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_exists.as_str())
+            };
+            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_not_exists.as_str())
+            };
 
             match crate::helpers::verify_post_action(
                 &self.desktop,
                 &element,
-                args.action.verify_element_exists.as_deref(),
-                args.action.verify_element_not_exists.as_deref(),
+                verify_exists_opt,
+                verify_not_exists_opt,
                 verify_timeout_ms,
                 &successful_selector,
             )
@@ -4334,7 +5156,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -4345,6 +5167,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             )
             .await;
         }
+
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -4375,6 +5199,24 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!(
+                "[set_selected] Direct MCP call detected - performing window management"
+            );
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!("[set_selected] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let state = args.state;
         let action =
             move |element: UIElement| async move { element.set_selected_with_state(state) };
@@ -4388,9 +5230,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((result, element), successful_selector, ui_diff) =
             match crate::helpers::find_and_execute_with_ui_diff(
                 &self.desktop,
-                &args.selector.selector,
+                &args.selector.build_full_selector(),
                 None, // SetSelected doesn't have alternative selectors
-                args.selector.fallback_selectors.as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
@@ -4408,9 +5250,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     Ok(((result, element), selector, diff))
                 }
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
+                    &args.selector.build_full_selector(),
                     None,
-                    args.selector.fallback_selectors.as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -4427,13 +5269,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             },
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, None, args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), None, args.selector.build_fallback_selectors().as_deref()),
             "state_set_to": args.state,
         });
 
         // POST-ACTION VERIFICATION: Magic auto-verification or explicit verification
-        let should_auto_verify = args.action.verify_element_exists.is_none()
-            && args.action.verify_element_not_exists.is_none();
+        let should_auto_verify = args.action.verify_element_exists.is_empty()
+            && args.action.verify_element_not_exists.is_empty();
 
         if should_auto_verify {
             // MAGIC AUTO-VERIFICATION: Verify selected state was actually set
@@ -4485,17 +5327,28 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     }),
                 );
             }
-        } else if args.action.verify_element_exists.is_some()
-            || args.action.verify_element_not_exists.is_some()
+        } else if !args.action.verify_element_exists.is_empty()
+            || !args.action.verify_element_not_exists.is_empty()
         {
             // Explicit verification using selectors
-            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
+            let verify_timeout_ms = args.action.verify_timeout_ms;
+
+            let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_exists.as_str())
+            };
+            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_not_exists.as_str())
+            };
 
             match crate::helpers::verify_post_action(
                 &self.desktop,
                 &element,
-                args.action.verify_element_exists.as_deref(),
-                args.action.verify_element_not_exists.as_deref(),
+                verify_exists_opt,
+                verify_not_exists_opt,
                 verify_timeout_ms,
                 &successful_selector,
             )
@@ -4547,7 +5400,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -4558,6 +5411,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             )
             .await;
         }
+
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -4587,12 +5442,37 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            let flag_value = *in_sequence;
+            let should_restore_value = !flag_value;
+            tracing::info!(
+                "[is_toggled] Flag check: in_sequence={}, should_restore={}",
+                flag_value,
+                should_restore_value
+            );
+            should_restore_value
+        };
+
+        if should_restore {
+            tracing::info!("[is_toggled] Direct MCP call detected - performing window management");
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!(
+                "[is_toggled] In sequence - skipping window management (dispatch_tool handles it)"
+            );
+        }
+
         let ((is_toggled, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 |element| async move { element.is_toggled() },
@@ -4601,9 +5481,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -4615,12 +5495,12 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": "success",
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "is_toggled": is_toggled,
         });
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -4630,6 +5510,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             Some(&element),
         )
         .await;
+
+        // Restore windows after checking if element is toggled
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -4659,12 +5542,37 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            let flag_value = *in_sequence;
+            let should_restore_value = !flag_value;
+            tracing::info!(
+                "[get_range_value] Flag check: in_sequence={}, should_restore={}",
+                flag_value,
+                should_restore_value
+            );
+            should_restore_value
+        };
+
+        if should_restore {
+            tracing::info!(
+                "[get_range_value] Direct MCP call detected - performing window management"
+            );
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!("[get_range_value] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let ((value, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 |element| async move { element.get_range_value() },
@@ -4673,9 +5581,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -4687,12 +5595,12 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": "success",
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "value": value,
         });
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -4702,6 +5610,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             Some(&element),
         )
         .await;
+
+        // Restore windows after getting range value
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -4731,12 +5642,37 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            let flag_value = *in_sequence;
+            let should_restore_value = !flag_value;
+            tracing::info!(
+                "[is_selected] Flag check: in_sequence={}, should_restore={}",
+                flag_value,
+                should_restore_value
+            );
+            should_restore_value
+        };
+
+        if should_restore {
+            tracing::info!("[is_selected] Direct MCP call detected - performing window management");
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!(
+                "[is_selected] In sequence - skipping window management (dispatch_tool handles it)"
+            );
+        }
+
         let ((is_selected, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 |element| async move { element.is_selected() },
@@ -4745,9 +5681,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -4759,12 +5695,12 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": "success",
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "is_selected": is_selected,
         });
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -4774,6 +5710,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             Some(&element),
         )
         .await;
+
+        // Restore windows after checking if element is selected
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -4789,7 +5728,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
     }
 
     #[tool(
-        description = "Captures a screenshot of a specific UI element. Automatically resizes to max 1920px (customizable via max_dimension parameter) while maintaining aspect ratio. Supports both selector-based and PID-based capture."
+        description = "Captures a screenshot of a specific UI element. Automatically resizes to max 1920px (customizable via max_dimension parameter) while maintaining aspect ratio. Uses process-scoped selector for reliable element capture."
     )]
     async fn capture_element_screenshot(
         &self,
@@ -4798,53 +5737,34 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         // Start telemetry span
         let mut span = StepSpan::new("capture_element_screenshot", None);
 
-        // Add comprehensive telemetry attributes based on capture method
-        if let Some(pid) = args.pid {
-            span.set_attribute("capture_method", "pid".to_string());
-            span.set_attribute("pid", pid.to_string());
-        } else if let Some(ref selector) = args.selector {
-            span.set_attribute("capture_method", "selector".to_string());
-            span.set_attribute("selector", selector.clone());
-            if let Some(retries) = args.action.retries {
-                span.set_attribute("retry.max_attempts", retries.to_string());
-            }
+        // Add telemetry attributes
+        span.set_attribute("selector", args.selector.selector.clone());
+        if let Some(retries) = args.action.retries {
+            span.set_attribute("retry.max_attempts", retries.to_string());
         }
 
-        // Capture screenshot using either process name selector, PID, or other selector
-        let ((screenshot_result, element), successful_selector) = if let Some(pid) = args.pid {
-            // PID-based capture (DEPRECATED: prefer using process: selector for portability)
-            let apps = self.desktop.applications().map_err(|e| {
-                McpError::resource_not_found(
-                    "Failed to get applications",
-                    Some(json!({"reason": e.to_string()})),
-                )
-            })?;
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
 
-            let app = apps
-                .iter()
-                .find(|a| a.process_id().unwrap_or(0) == pid)
-                .ok_or_else(|| {
-                    McpError::resource_not_found(
-                        format!("No window found for PID {pid}. Consider using 'process:name' selector instead for better portability."),
-                        Some(json!({"pid": pid, "available_pids": apps.iter().map(|a| a.process_id().unwrap_or(0)).collect::<Vec<_>>()})),
-                    )
-                })?;
+        if should_restore {
+            tracing::info!("[capture_element_screenshot] Direct MCP call detected - performing window management");
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!("[capture_element_screenshot] In sequence - skipping window management (dispatch_tool handles it)");
+        }
 
-            let screenshot = app.capture().map_err(|e| {
-                McpError::internal_error(
-                    "Failed to capture screenshot",
-                    Some(json!({"reason": e.to_string(), "pid": pid})),
-                )
-            })?;
-
-            ((screenshot, app.clone()), format!("pid:{pid}"))
-        } else if let Some(ref selector) = args.selector {
-            // Selector-based capture (existing logic)
+        // Capture screenshot using process-scoped selector
+        let ((screenshot_result, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
-                selector,
-                args.alternative_selectors.as_deref(),
-                args.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 |element| async move { element.capture() },
@@ -4853,19 +5773,12 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
                 Err(e) => Err(build_element_not_found_error(
-                    selector,
-                    args.alternative_selectors.as_deref(),
-                    args.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
-            }?
-        } else {
-            // Neither PID nor selector provided
-            return Err(McpError::invalid_params(
-                "Either 'selector' (e.g., 'process:chrome') or 'pid' parameter must be provided. Prefer process name selector for portability.",
-                None,
-            ));
-        };
+            }?;
 
         // Store original dimensions for metadata
         let original_width = screenshot_result.width;
@@ -4939,7 +5852,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": "success",
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": args.selector.as_ref().map(|s| get_selectors_tried_all(s, args.alternative_selectors.as_deref(), args.fallback_selectors.as_deref())),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "image_format": "png",
             "original_size": {
                 "width": original_width,
@@ -4956,6 +5869,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "resized": was_resized,
             "max_dimension_applied": max_dim,
         });
+
+        self.restore_window_management(should_restore).await;
 
         Ok(CallToolResult::success(
             append_monitor_screenshots_if_enabled(
@@ -4985,6 +5900,31 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            let flag_value = *in_sequence;
+            let should_restore_value = !flag_value;
+            tracing::info!(
+                "[invoke_element] Flag check: in_sequence={}, should_restore={}",
+                flag_value,
+                should_restore_value
+            );
+            should_restore_value
+        };
+
+        if should_restore {
+            tracing::info!(
+                "[invoke_element] Direct MCP call detected - performing window management"
+            );
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!("[invoke_element] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         // Store tree config to avoid move issues
         let tree_output_format = args
             .tree
@@ -4994,9 +5934,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((result, element), successful_selector, ui_diff) =
             match crate::helpers::find_and_execute_with_ui_diff(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 |element| async move {
@@ -5019,12 +5959,16 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     }
                     Ok(((result, element), selector, diff))
                 }
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
-                    e,
-                )),
+                Err(e) => {
+                    // Restore windows before returning error
+                    self.restore_window_management(should_restore).await;
+                    Err(build_element_not_found_error(
+                        &args.selector.build_full_selector(),
+                        args.selector.build_alternative_selectors().as_deref(),
+                        args.selector.build_fallback_selectors().as_deref(),
+                        e,
+                    ))
+                }
             }?;
 
         let element_info = build_element_info(&element);
@@ -5039,7 +5983,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             },
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "timestamp": chrono::Utc::now().to_rfc3339()
         });
 
@@ -5059,7 +6003,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -5070,6 +6014,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             )
             .await;
         }
+
+        // Restore windows after invoking element
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -5094,6 +6041,14 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         // Start telemetry span
         let mut span = StepSpan::new("stop_highlighting", None);
 
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        // Note: stop_highlighting doesn't interact with specific windows, so no prepare needed
+
         // Current minimal implementation ignores highlight_id and stops all tracked highlights
         let mut list = self.active_highlights.lock().await;
         let mut stopped = 0usize;
@@ -5107,6 +6062,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "highlights_stopped": stopped,
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
+
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -5148,12 +6105,30 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!(
+                "[maximize_window] Direct MCP call detected - performing window management"
+            );
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!("[maximize_window] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let ((_result, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 |element| async move { element.maximize_window() },
@@ -5162,9 +6137,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -5176,12 +6151,12 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": "success",
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -5191,6 +6166,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             Some(&element),
         )
         .await;
+
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -5218,12 +6195,30 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!(
+                "[minimize_window] Direct MCP call detected - performing window management"
+            );
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!("[minimize_window] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         let ((_result, element), successful_selector) =
             match find_and_execute_with_retry_with_fallback(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 |element| async move { element.minimize_window() },
@@ -5232,9 +6227,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
                 Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
                     e,
                 )),
             }?;
@@ -5246,12 +6241,12 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": "success",
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -5261,6 +6256,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             Some(&element),
         )
         .await;
+
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -5288,6 +6285,24 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         // Add comprehensive telemetry attributes
         span.set_attribute("percentage", args.percentage.to_string());
 
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!("[set_zoom] Direct MCP call detected - performing window management");
+            // Note: set_zoom operates on browser context, using generic browser process
+            let _ = self
+                .prepare_window_management("chrome", None, None, None)
+                .await;
+        } else {
+            tracing::debug!(
+                "[set_zoom] In sequence - skipping window management (dispatch_tool handles it)"
+            );
+        }
+
         self.desktop.set_zoom(args.percentage).await.map_err(|e| {
             McpError::internal_error("Failed to set zoom", Some(json!({"reason": e.to_string()})))
         })?;
@@ -5299,7 +6314,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         });
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -5309,6 +6324,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             None, // No element available for zoom
         )
         .await;
+
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -5339,6 +6356,24 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            !*in_sequence
+        };
+
+        if should_restore {
+            tracing::info!("[set_value] Direct MCP call detected - performing window management");
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!(
+                "[set_value] In sequence - skipping window management (dispatch_tool handles it)"
+            );
+        }
+
         let value_to_set = args.value.clone();
         let action = move |element: UIElement| {
             let value_to_set = value_to_set.clone();
@@ -5354,9 +6389,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let ((_result, element), successful_selector, ui_diff) =
             match crate::helpers::find_and_execute_with_ui_diff(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
@@ -5373,12 +6408,16 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     }
                     Ok(((result, element), selector, diff))
                 }
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.selector,
-                    args.selector.alternative_selectors.as_deref(),
-                    args.selector.fallback_selectors.as_deref(),
-                    e,
-                )),
+                Err(e) => {
+                    // Restore windows before returning error
+                    self.restore_window_management(should_restore).await;
+                    Err(build_element_not_found_error(
+                        &args.selector.build_full_selector(),
+                        args.selector.build_alternative_selectors().as_deref(),
+                        args.selector.build_fallback_selectors().as_deref(),
+                        e,
+                    ))
+                }
             }?;
 
         let element_info = build_element_info(&element);
@@ -5388,13 +6427,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": "success",
             "element": element_info,
             "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.selector, args.selector.alternative_selectors.as_deref(), args.selector.fallback_selectors.as_deref()),
+            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "value_set_to": args.value,
         });
 
         // POST-ACTION VERIFICATION: Magic auto-verification or explicit verification
-        let should_auto_verify = args.action.verify_element_exists.is_none()
-            && args.action.verify_element_not_exists.is_none();
+        let should_auto_verify = args.action.verify_element_exists.is_empty()
+            && args.action.verify_element_not_exists.is_empty();
 
         let verify_exists = if should_auto_verify {
             // MAGIC AUTO-VERIFICATION: Verify the value was actually set
@@ -5403,26 +6442,34 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 args.value
             );
             span.set_attribute("verification.auto_inferred", "true".to_string());
-            Some(format!("value:{}", args.value))
+            format!("value:{}", args.value)
         } else {
             args.action.verify_element_exists.clone()
         };
 
-        let skip_verification = verify_exists
-            .as_ref()
-            .map(|s| s.is_empty())
-            .unwrap_or(false);
+        let verify_not_exists = args.action.verify_element_not_exists.clone();
 
-        if !skip_verification
-            && (verify_exists.is_some() || args.action.verify_element_not_exists.is_some())
-        {
-            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
+        let skip_verification = verify_exists.is_empty() && verify_not_exists.is_empty();
+
+        if !skip_verification {
+            let verify_timeout_ms = args.action.verify_timeout_ms;
+
+            let verify_exists_opt = if verify_exists.is_empty() {
+                None
+            } else {
+                Some(verify_exists.as_str())
+            };
+            let verify_not_exists_opt = if verify_not_exists.is_empty() {
+                None
+            } else {
+                Some(verify_not_exists.as_str())
+            };
 
             match crate::helpers::verify_post_action(
                 &self.desktop,
                 &element,
-                verify_exists.as_deref(),
-                args.action.verify_element_not_exists.as_deref(),
+                verify_exists_opt,
+                verify_not_exists_opt,
                 verify_timeout_ms,
                 &successful_selector,
             )
@@ -5480,7 +6527,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -5491,6 +6538,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             )
             .await;
         }
+
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -5763,6 +6812,30 @@ Requires Chrome extension to be installed."
         use serde_json::json;
         let start_instant = std::time::Instant::now();
 
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            let flag_value = *in_sequence;
+            let should_restore_value = !flag_value;
+            tracing::info!(
+                "[execute_browser_script] Flag check: in_sequence={}, should_restore={}",
+                flag_value,
+                should_restore_value
+            );
+            should_restore_value
+        };
+
+        if should_restore {
+            tracing::info!(
+                "[execute_browser_script] Direct MCP call detected - performing window management"
+            );
+            let _ = self
+                .prepare_window_management(&args.selector.process, None, None, None)
+                .await;
+        } else {
+            tracing::debug!("[execute_browser_script] In sequence - skipping window management (dispatch_tool handles it)");
+        }
+
         // Resolve the script content
         let script_content = if let Some(script_file) = &args.script_file {
             // Resolve script file with priority order (same logic as run_command)
@@ -5909,10 +6982,14 @@ Requires Chrome extension to be installed."
                 })?
         } else if let Some(script) = &args.script {
             if script.is_empty() {
+                // Restore windows before returning error
+                self.restore_window_management(should_restore).await;
                 return Err(McpError::invalid_params("Script cannot be empty", None));
             }
             script.clone()
         } else {
+            // Restore windows before returning error
+            self.restore_window_management(should_restore).await;
             return Err(McpError::invalid_params(
                 "Either 'script' or 'script_file' must be provided",
                 None,
@@ -6131,6 +7208,8 @@ Requires Chrome extension to be installed."
 
         // Validate that browser scripts don't use top-level return statements
         if modified_script.trim_start().starts_with("return ") {
+            // Restore windows before returning error
+            self.restore_window_management(should_restore).await;
             return Err(McpError::invalid_params(
                 "Browser scripts cannot use top-level 'return' statements. \
                  Remove 'return' from the beginning of your script. \
@@ -6223,9 +7302,9 @@ console.info = function(...args) {
         let ((script_result, element), successful_selector) =
             match crate::utils::find_and_execute_with_retry_with_fallback(
                 &self.desktop,
-                &args.selector.selector,
-                args.selector.alternative_selectors.as_deref(),
-                args.selector.fallback_selectors.as_deref(),
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
                 args.action.timeout_ms,
                 args.action.retries,
                 |el| {
@@ -6251,6 +7330,8 @@ console.info = function(...args) {
                     {
                         if msg.contains("JavaScript") || msg.contains("script") {
                             // Return JavaScript-specific error, not "Element not found"
+                            // Restore windows before returning error
+                            self.restore_window_management(should_restore).await;
                             return Err(McpError::invalid_params(
                                 "Browser script execution failed",
                                 Some(json!({
@@ -6258,9 +7339,9 @@ console.info = function(...args) {
                                     "message": msg.clone(),
                                     "selector": args.selector.selector,
                                     "selectors_tried": get_selectors_tried_all(
-                                        &args.selector.selector,
-                                        args.selector.alternative_selectors.as_deref(),
-                                        args.selector.fallback_selectors.as_deref(),
+                                        &args.selector.build_full_selector(),
+                                        args.selector.build_alternative_selectors().as_deref(),
+                                        args.selector.build_fallback_selectors().as_deref(),
                                     ),
                                     "suggestion": "Check the browser console for JavaScript errors. The script may have timed out or encountered an error."
                                 })),
@@ -6269,10 +7350,12 @@ console.info = function(...args) {
                     }
 
                     // For other errors, treat as element not found
+                    // Restore windows before returning error
+                    self.restore_window_management(should_restore).await;
                     Err(build_element_not_found_error(
-                        &args.selector.selector,
-                        args.selector.alternative_selectors.as_deref(),
-                        args.selector.fallback_selectors.as_deref(),
+                        &args.selector.build_full_selector(),
+                        args.selector.build_alternative_selectors().as_deref(),
+                        args.selector.build_fallback_selectors().as_deref(),
                         e,
                     ))
                 }
@@ -6288,9 +7371,9 @@ console.info = function(...args) {
         );
 
         let selectors_tried = get_selectors_tried_all(
-            &args.selector.selector,
-            args.selector.alternative_selectors.as_deref(),
-            args.selector.fallback_selectors.as_deref(),
+            &args.selector.build_full_selector(),
+            args.selector.build_alternative_selectors().as_deref(),
+            args.selector.build_fallback_selectors().as_deref(),
         );
 
         // Parse script_result to extract result and logs if console capture was enabled
@@ -6344,7 +7427,7 @@ console.info = function(...args) {
         // Always attach tree for better context
         maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree,
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -6354,6 +7437,9 @@ console.info = function(...args) {
             None, // No specific element
         )
         .await;
+
+        // Restore windows after executing browser script
+        self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
         span.end();
@@ -6401,6 +7487,7 @@ impl DesktopWrapper {
         request_context: RequestContext<RoleServer>,
         tool_name: &str,
         arguments: &serde_json::Value,
+        execution_context: Option<crate::utils::ToolExecutionContext>,
     ) -> Result<CallToolResult, McpError> {
         use rmcp::handler::server::wrapper::Parameters;
 
@@ -6412,8 +7499,26 @@ impl DesktopWrapper {
             ));
         }
 
+        // Window management for UI interaction tools
+        // Check if tool has a 'process' argument - if so, it needs window management
+        // No whitelist - any tool with a process argument gets window management
+        let process_name = arguments
+            .get("process")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        // Perform window management if needed
+        if let Some(ref process) = process_name {
+            let _ = self
+                .prepare_window_management(process, execution_context.as_ref(), None, None)
+                .await;
+
+            // Small delay to let window operations settle
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+
         // Wrap each tool call with cancellation support
-        match tool_name {
+        let result = match tool_name {
             "get_window_tree" => {
                 match serde_json::from_value::<GetWindowTreeArgs>(arguments.clone()) {
                     Ok(args) => {
@@ -6787,7 +7892,35 @@ impl DesktopWrapper {
                 "Unknown tool called",
                 Some(json!({"tool_name": tool_name})),
             )),
+        };
+
+        // Restore windows appropriately based on execution context
+        match execution_context {
+            None => {
+                // Single tool execution: always restore if window management was performed
+                if process_name.is_some() {
+                    if let Err(e) = self.window_manager.restore_all_windows().await {
+                        tracing::warn!("Failed to restore windows: {}", e);
+                    }
+                    // Clear captured state after restoration
+                    self.window_manager.clear_captured_state().await;
+                    tracing::info!("Restored all windows to original state (single tool)");
+                }
+            }
+            Some(ref ctx) => {
+                // Sequence execution: only restore on last step
+                if ctx.is_last_step && process_name.is_some() {
+                    if let Err(e) = self.window_manager.restore_all_windows().await {
+                        tracing::warn!("Failed to restore windows: {}", e);
+                    }
+                    // Clear captured state after restoration
+                    self.window_manager.clear_captured_state().await;
+                    tracing::info!("Restored all windows to original state (sequence last step)");
+                }
+            }
         }
+
+        result
     }
 }
 

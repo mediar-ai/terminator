@@ -24,19 +24,11 @@ jobs:
             bin_name: terminator-mcp-agent.exe
             npm_dir: win32-arm64-msvc
 
-          - host: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            bin_name: terminator-mcp-agent
-            npm_dir: linux-x64-gnu
-
     name: stable - ${{ matrix.settings.target }}
     runs-on: ${{ matrix.settings.host }}
 
     steps:
       - uses: actions/checkout@v4
-      - name: Install Linux dependencies
-        if: matrix.settings.host == 'ubuntu-22.04'
-        run: bash scripts/install_linux_deps.sh
 
       - name: Setup node (Windows ARM64)
         if: matrix.settings.host == 'windows-11-arm'
@@ -265,10 +257,9 @@ jobs:
 
             ## Terminator MCP Agent Binaries
 
-            This release contains the Terminator MCP Agent standalone binaries for various platforms.
+            This release contains the Terminator MCP Agent standalone binaries for Windows platforms.
 
             ### Available Downloads:
-            - **Linux x64**: `terminator-mcp-agent-linux-x64-gnu.tar.gz`
             - **Windows x64**: `terminator-mcp-agent-win32-x64-msvc.zip`
             - **Windows ARM64**: `terminator-mcp-agent-win32-arm64-msvc.zip`
 

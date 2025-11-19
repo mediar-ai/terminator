@@ -503,6 +503,13 @@ impl From<&str> for Selector {
             || (s.contains(',') && !s.starts_with("attr:")); // comma is OR unless in attr: context
 
         if has_boolean_ops {
+            // Check if this is ONLY a text: selector with special characters (not a boolean expression)
+            // text: is special because the value after the colon can legitimately contain these characters
+            if s.starts_with("text:") && !s[5..].contains("text:") {
+                // This is a simple text: selector with special chars in the text, not a boolean expression
+                return parse_atomic_selector(s);
+            }
+
             // Use boolean expression parser
             match tokenize(s) {
                 Ok(tokens) => match parse_boolean_expression(tokens) {

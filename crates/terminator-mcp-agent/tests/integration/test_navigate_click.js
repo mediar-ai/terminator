@@ -117,7 +117,7 @@ class NavigateAndClickClient {
 
     // Step 2: click_element
     const selector = 'role:hyperlink|name:contains:NETR Online • Public Records, Search Records, Property Tax';
-    const clickContent = await this.callTool('click_element', { selector, timeout_ms: 10000, include_tree: false });
+    const clickContent = await this.callTool('click_element', { selector, timeout_ms: 10000, include_tree_after_action: false });
     const clickJson = NavigateAndClickClient.printContentAsJson(clickContent, 'click_element');
 
     // Highlight key click facts (Windows provides click_result with method/coordinates/details)

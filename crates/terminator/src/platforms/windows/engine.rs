@@ -161,6 +161,24 @@ pub fn get_process_name_by_pid(pid: i32) -> Result<String, AutomationError> {
     }
 }
 
+// Helper function to check if a selector has process scoping
+fn selector_has_process_scope(selector: &Selector) -> bool {
+    match selector {
+        Selector::Process(_) => true,
+        Selector::Chain(selectors) => selectors.iter().any(selector_has_process_scope),
+        Selector::And(selectors) => selectors.iter().any(selector_has_process_scope),
+        Selector::Or(selectors) => selectors.iter().any(selector_has_process_scope),
+        Selector::Not(inner) => selector_has_process_scope(inner),
+        Selector::Has(inner) => selector_has_process_scope(inner),
+        Selector::RightOf(inner)
+        | Selector::LeftOf(inner)
+        | Selector::Above(inner)
+        | Selector::Below(inner)
+        | Selector::Near(inner) => selector_has_process_scope(inner),
+        _ => false,
+    }
+}
+
 // RAII guard to ensure handle is closed
 struct HandleGuard(HANDLE);
 
@@ -847,6 +865,19 @@ impl AccessibilityEngine for WindowsEngine {
         timeout: Option<Duration>,
         depth: Option<usize>,
     ) -> Result<Vec<UIElement>, AutomationError> {
+        // Enforce scoping: desktop-wide search requires process selector when root is None
+        if root.is_none() && !selector_has_process_scope(selector) {
+            return Err(AutomationError::InvalidSelector(format!(
+                "Desktop-wide search not allowed. Selector must include 'process:' prefix to scope search to a specific application.\n\
+                 Examples:\n\
+                 - process:chrome|role:Button|name:Submit\n\
+                 - process:notepad|role:Document\n\
+                 - process:explorer|role:Icon|name:Recycle Bin (for desktop icons/taskbar)\n\
+                 Or use element.locator() to search within a specific element's tree.\n\
+                 Current selector: {selector:?}"
+            )));
+        }
+
         let root_ele = if let Some(el) = root {
             if let Some(ele) = el.as_any().downcast_ref::<WindowsUIElement>() {
                 &ele.element.0
@@ -1257,8 +1288,7 @@ impl AccessibilityEngine for WindowsEngine {
 
                 if filtered_elements.is_empty() {
                     return Err(AutomationError::ElementNotFound(format!(
-                        "No elements found for process: '{}'",
-                        process_name
+                        "No elements found for process: '{process_name}'"
                     )));
                 }
 

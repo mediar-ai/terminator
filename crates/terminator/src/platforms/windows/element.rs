@@ -48,7 +48,7 @@ impl ScrollFallback for WindowsUIElement {
                     let times = (amount * 6.0).round().max(3.0) as usize; // ~3-5 arrow key presses
                     let key = if direction == "up" { "{up}" } else { "{down}" };
                     for _ in 0..times {
-                        self.press_key(key)?;
+                        self.press_key(key, true, true)?;
                         std::thread::sleep(std::time::Duration::from_millis(10));
                     }
                 } else {
@@ -60,7 +60,7 @@ impl ScrollFallback for WindowsUIElement {
                         "{page_down}"
                     };
                     for _ in 0..times {
-                        self.press_key(key)?;
+                        self.press_key(key, true, true)?;
                     }
                 }
             }
@@ -76,7 +76,7 @@ impl ScrollFallback for WindowsUIElement {
                     "{right}"
                 };
                 for _ in 0..times {
-                    self.press_key(key)?;
+                    self.press_key(key, true, true)?;
                     if use_arrow_keys {
                         std::thread::sleep(std::time::Duration::from_millis(10));
                     }
@@ -894,7 +894,195 @@ impl UIElementImpl for WindowsUIElement {
         Ok(())
     }
 
-    fn type_text(&self, text: &str, use_clipboard: bool) -> Result<(), AutomationError> {
+    fn maximize_window_keyboard(&self) -> Result<(), AutomationError> {
+        debug!("Maximizing window using keyboard (Win+Up) for UWP app");
+
+        // Ensure window is activated/focused
+        if let Err(e) = self.activate_window() {
+            debug!("Warning: Could not activate window before maximize: {}", e);
+        }
+
+        // Wait briefly for activation
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // Use keyboard shortcut Win+Up to maximize
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_LWIN, VK_UP,
+        };
+
+        unsafe {
+            // Press Win key + Up key
+            let mut inputs = vec![
+                INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: VK_LWIN,
+                            ..Default::default()
+                        },
+                    },
+                },
+                INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: VK_UP,
+                            ..Default::default()
+                        },
+                    },
+                },
+            ];
+
+            SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+            std::thread::sleep(std::time::Duration::from_millis(50));
+
+            // Release Up key + Win key
+            inputs.clear();
+            inputs.push(INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VK_UP,
+                        dwFlags: KEYEVENTF_KEYUP,
+                        ..Default::default()
+                    },
+                },
+            });
+            inputs.push(INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VK_LWIN,
+                        dwFlags: KEYEVENTF_KEYUP,
+                        ..Default::default()
+                    },
+                },
+            });
+
+            SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+        }
+
+        debug!("Window maximize completed via keyboard");
+        Ok(())
+    }
+
+    fn minimize_window_keyboard(&self) -> Result<(), AutomationError> {
+        debug!("Minimizing window using keyboard (Win+Down) for UWP app");
+
+        // Ensure window is activated/focused
+        if let Err(e) = self.activate_window() {
+            debug!("Warning: Could not activate window before minimize: {}", e);
+        }
+
+        // Wait briefly for activation
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // Use keyboard shortcut Win+Down to minimize
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_DOWN,
+            VK_LWIN,
+        };
+
+        unsafe {
+            // Press Win key + Down key
+            let mut inputs = vec![
+                INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: VK_LWIN,
+                            ..Default::default()
+                        },
+                    },
+                },
+                INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: VK_DOWN,
+                            ..Default::default()
+                        },
+                    },
+                },
+            ];
+
+            SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+            std::thread::sleep(std::time::Duration::from_millis(50));
+
+            // Release Down key + Win key
+            inputs.clear();
+            inputs.push(INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VK_DOWN,
+                        dwFlags: KEYEVENTF_KEYUP,
+                        ..Default::default()
+                    },
+                },
+            });
+            inputs.push(INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VK_LWIN,
+                        dwFlags: KEYEVENTF_KEYUP,
+                        ..Default::default()
+                    },
+                },
+            });
+
+            SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+        }
+
+        debug!("Window minimize completed via keyboard");
+        Ok(())
+    }
+
+    fn get_native_window_handle(&self) -> Result<isize, AutomationError> {
+        self.element
+            .0
+            .get_native_window_handle()
+            .map(|h| h.into())
+            .map_err(|e| {
+                AutomationError::PlatformError(format!("Failed to get native window handle: {e:?}"))
+            })
+    }
+
+    fn type_text(
+        &self,
+        text: &str,
+        use_clipboard: bool,
+        try_focus_before: bool,
+        try_click_before: bool,
+    ) -> Result<(), AutomationError> {
+        // Attempt to focus/click before typing based on parameters
+        // try_focus_before: Try to focus the element first (default: true)
+        // try_click_before: If focus fails, try clicking as fallback (default: true)
+        if try_focus_before {
+            match self.focus() {
+                Ok(_) => debug!("Successfully focused element for typing"),
+                Err(e) => {
+                    debug!("Focus failed: {:?}", e);
+                    if try_click_before {
+                        // Click the element as fallback, which is often needed for certain inputs
+                        if let Err(click_err) = self.click() {
+                            debug!("Click also failed: {:?}", click_err);
+                        } else {
+                            debug!("Clicked element as fallback after focus failed");
+                        }
+                    }
+                }
+            }
+        } else if try_click_before {
+            // Skip focus, just click
+            if let Err(click_err) = self.click() {
+                debug!("Click failed: {:?}", click_err);
+            } else {
+                debug!("Clicked element before typing (focus skipped)");
+            }
+        }
+
         let control_type = self
             .element
             .0
@@ -931,12 +1119,56 @@ impl UIElementImpl for WindowsUIElement {
         }
     }
 
-    fn press_key(&self, key: &str) -> Result<(), AutomationError> {
+    fn press_key(
+        &self,
+        key: &str,
+        try_focus_before: bool,
+        try_click_before: bool,
+    ) -> Result<(), AutomationError> {
+        // Attempt to focus/click before pressing key based on parameters
+        // try_focus_before: Try to focus the element first (default: true)
+        // try_click_before: If focus fails, try clicking as fallback (default: true)
+        if try_focus_before {
+            match self.focus() {
+                Ok(_) => debug!("Successfully focused element for key press"),
+                Err(e) => {
+                    debug!("Focus failed: {:?}", e);
+                    if try_click_before {
+                        // Click the element as fallback
+                        if let Err(click_err) = self.click() {
+                            debug!("Click also failed: {:?}", click_err);
+                        } else {
+                            debug!("Clicked element as fallback after focus failed");
+                        }
+                    }
+                }
+            }
+        } else if try_click_before {
+            // Skip focus, just click
+            if let Err(click_err) = self.click() {
+                debug!("Click failed: {:?}", click_err);
+            } else {
+                debug!("Clicked element before pressing key (focus skipped)");
+            }
+        }
+
         let control_type = self.element.0.get_control_type().map_err(|e| {
             AutomationError::PlatformError(format!("Failed to get control type: {e:?}"))
         })?;
         // check if element accepts input, similar :D
         debug!("pressing key with control_type: {:#?}", control_type);
+
+        // Dismiss inline autocomplete before pressing Enter/Return
+        // This prevents unwanted autocomplete suggestions (e.g., Chrome address bar) from being accepted
+        let key_upper = key.to_uppercase();
+        if key_upper.contains("ENTER") || key_upper.contains("RETURN") {
+            debug!("Dismissing inline autocomplete before pressing Enter/Return");
+            // Press left arrow to dismiss any inline autocomplete suggestion
+            let _ = self.element.0.send_keys("{LEFT}", 10);
+            // Press End to return cursor to end of text
+            let _ = self.element.0.send_keys("{END}", 10);
+        }
+
         self.element
             .0
             .send_keys(key, 10)
@@ -2266,7 +2498,7 @@ impl UIElementImpl for WindowsUIElement {
         if from_min_dist <= from_max_dist {
             // Go to min and step up.
             debug!("Moving from min. Resetting to HOME.");
-            self.press_key("{home}")?;
+            self.press_key("{home}", true, true)?;
             std::thread::sleep(std::time::Duration::from_millis(50));
             let num_steps = (from_min_dist / small_change).round() as u32;
             debug!(
@@ -2274,14 +2506,14 @@ impl UIElementImpl for WindowsUIElement {
                 num_steps, target_value
             );
             for i in 0..num_steps {
-                self.press_key("{right}")?;
+                self.press_key("{right}", true, true)?;
                 std::thread::sleep(std::time::Duration::from_millis(10));
                 debug!("Step {}/{}: Pressed RIGHT", i + 1, num_steps);
             }
         } else {
             // Go to max and step down.
             debug!("Moving from max. Resetting to END.");
-            self.press_key("{end}")?;
+            self.press_key("{end}", true, true)?;
             std::thread::sleep(std::time::Duration::from_millis(50));
             let num_steps = (from_max_dist / small_change).round() as u32;
             debug!(
@@ -2289,7 +2521,7 @@ impl UIElementImpl for WindowsUIElement {
                 num_steps, target_value
             );
             for i in 0..num_steps {
-                self.press_key("{left}")?;
+                self.press_key("{left}", true, true)?;
                 std::thread::sleep(std::time::Duration::from_millis(10));
                 debug!("Step {}/{}: Pressed LEFT", i + 1, num_steps);
             }
@@ -2409,12 +2641,17 @@ impl UIElementImpl for WindowsUIElement {
         self.execute_with_state_tracking("invoke", |elem| elem.invoke(), None)
     }
 
-    fn press_key_with_state(&self, key: &str) -> Result<crate::ActionResult, AutomationError> {
+    fn press_key_with_state(
+        &self,
+        key: &str,
+        try_focus_before: bool,
+        try_click_before: bool,
+    ) -> Result<crate::ActionResult, AutomationError> {
         let key_str = key.to_string();
         self.execute_with_state_tracking(
             "press_key",
-            |elem| elem.press_key(&key_str),
-            Some(serde_json::json!({"key": key_str})),
+            |elem| elem.press_key(&key_str, try_focus_before, try_click_before),
+            Some(serde_json::json!({"key": key_str, "try_focus_before": try_focus_before, "try_click_before": try_click_before})),
         )
     }
 
@@ -2434,13 +2671,15 @@ impl UIElementImpl for WindowsUIElement {
         &self,
         text: &str,
         use_clipboard: bool,
+        try_focus_before: bool,
+        try_click_before: bool,
     ) -> Result<crate::ActionResult, AutomationError> {
         let text_str = text.to_string();
         let clipboard = use_clipboard;
         self.execute_with_state_tracking(
             "type_text",
-            |elem| elem.type_text(&text_str, clipboard),
-            Some(serde_json::json!({"text": text_str, "use_clipboard": clipboard})),
+            |elem| elem.type_text(&text_str, clipboard, try_focus_before, try_click_before),
+            Some(serde_json::json!({"text": text_str, "use_clipboard": clipboard, "try_focus_before": try_focus_before, "try_click_before": try_click_before})),
         )
     }
 

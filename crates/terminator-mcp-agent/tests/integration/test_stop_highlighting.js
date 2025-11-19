@@ -114,7 +114,7 @@ class StopHighlightingTest {
 
     // 1) Navigate to google.com (faster than example.com)
     const url = 'https://google.com';
-    const navContent = await this.callTool('navigate_browser', { url, include_tree: false });
+    const navContent = await this.callTool('navigate_browser', { url, include_tree_after_action: false });
     const navJson = StopHighlightingTest.getFirstJson(navContent, 'navigate_browser');
     if (!navJson || !navJson.element || !navJson.element.suggested_selector) {
       throw new Error('Failed to get suggested_selector from navigate_browser response');
@@ -130,7 +130,7 @@ class StopHighlightingTest {
       duration_ms: durationMs,
       text: 'DEMO',
       text_position: 'TopRight',
-      include_tree: false,
+      include_tree_after_action: false,
       include_detailed_attributes: false,
     };
     const hlContent = await this.callTool('highlight_element', highlightArgs);

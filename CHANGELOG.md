@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.7] - 2025-11-18
+
+### Fixed
+- Linux: Add missing trait method implementations (maximize_window_keyboard, minimize_window_keyboard, get_native_window_handle)
+- Linux: Fix press_key signature to match trait definition
+- Linux: Add Process selector case handling in selector matching
+- Element: Fix unused variable warning
+
+### Changed
+- CI: Remove Linux builds from MCP and NPM publish workflows (Windows-only for now)
+
+## [0.23.6] - 2025-11-18
+
+### Added
+- TypeScript workflow: Export WorkflowBuilder and add function overloads for type inference
+- MCP: Guidance for server-side dev log tools and screenshot investigation
+- Window management: Add window manager module for optimized window state management
+- Window management: Integrate UWP window management support with keyboard-based maximize/restore
+- Selector: Add Process selector for targeting elements by process name
+- Workflow: Add workflow_id parameter for env state persistence
+- Test: Add comprehensive UWP window management tests
+
+### Changed
+- **BREAKING**: Renamed `include_tree` parameter to `include_tree_after_action` across all MCP tools and YAML workflows for clearer semantics
+- **BREAKING**: Enforce mandatory process scoping to eliminate desktop-wide searches - all selectors must include `process:` prefix
+- **BREAKING**: Make clear_before_typing, highlight_before_action, and click_position mandatory parameters
+- **BREAKING**: Make verification parameters mandatory for all action tools
+- Selector: Replace PID parameter with process selector in capture_element_screenshot
+- Performance: Optimize window search depth from 10 to 5
+- Performance: Remove click action delays for faster automation
+- Performance: Remove bounds stability checking for faster Windows element interactions
+- Refactor: Remove element IDs from compact YAML tree view
+- Refactor: Consolidate window management with UWP support in MCP tools
+- MCP: Update tool descriptions to recommend process selector over PID
+
+### Fixed
+- Test: Fix notepad test to use correct process selector syntax
+- Test: Ignore browser script tests failing in CI due to extension connection timeout
+- Selector: Restore boolean operators for non-text prefixed selectors
+- Selector: Handle special characters in prefixed selectors
+- Security: Update js-yaml to fix prototype pollution vulnerability
+- MCP: Fix timeout inconsistency in wait_for_element error details
+- MCP: Ensure window restoration in all error paths
+- MCP: Add tree data management guidance to prevent redundant get_window_tree calls
+- Inline autocomplete: Dismiss before pressing Enter/Return
+- Workflow: Gracefully handle user cancellation in workflow execution
+- CI: Resolve module resolution error in Node.js tests (#367)
+- Formatting: Apply cargo fmt and fix all clippy warnings
+
 ## [0.23.5] - 2025-11-13
 
 ### Changed

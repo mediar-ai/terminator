@@ -58,7 +58,7 @@ async function main() {
   try {
     await callTool(client, 'navigate_browser', {
       url: 'https://github.com/',
-      include_tree: false
+      include_tree_after_action: false
     });
 
     // Try several reliable selector variants for the “More” control
@@ -81,7 +81,7 @@ async function main() {
           duration_ms: 2500,         // 2.5s
           text: 'More',
           text_position: 'TopRight',
-          include_tree: false,
+          include_tree_after_action: false,
           include_element_info: false,
           timeout_ms: 15000
         });

@@ -12,9 +12,34 @@ use rmcp::service::{Peer, RequestContext, RoleServer};
 use rmcp::ErrorData as McpError;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
+
+/// RAII guard to automatically reset the in_sequence flag when dropped
+struct SequenceGuard {
+    flag: Arc<Mutex<bool>>,
+}
+
+impl Drop for SequenceGuard {
+    fn drop(&mut self) {
+        // Reset flag to false when guard is dropped (function exits)
+        if let Ok(mut flag) = self.flag.lock() {
+            *flag = false;
+        }
+    }
+}
+
+impl SequenceGuard {
+    fn new(flag: Arc<Mutex<bool>>) -> Self {
+        // Set flag to true when guard is created
+        if let Ok(mut f) = flag.lock() {
+            *f = true;
+        }
+        Self { flag }
+    }
+}
 
 /// Helper function to recursively validate a value against a variable definition
 fn validate_variable_value(
@@ -346,6 +371,10 @@ impl DesktopWrapper {
         request_context: RequestContext<RoleServer>,
         mut args: ExecuteSequenceArgs,
     ) -> Result<CallToolResult, McpError> {
+        // Set the in_sequence flag for the duration of this function
+        // This flag will be automatically reset to false when this guard is dropped
+        let _sequence_guard = SequenceGuard::new(self.in_sequence.clone());
+
         // Validate that either URL or steps are provided
         if args.url.is_none() && args.steps.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
             return Err(McpError::invalid_params(
@@ -1101,6 +1130,9 @@ impl DesktopWrapper {
         // Track whether we've jumped to troubleshooting
         let mut jumped_to_troubleshooting = false;
 
+        // Track last executed process for window management
+        let mut last_executed_process: Option<String> = None;
+
         // Detect if we're starting directly in the troubleshooting section
         if start_from_index >= main_steps_len {
             jumped_to_troubleshooting = true;
@@ -1145,6 +1177,17 @@ impl DesktopWrapper {
                 "Will stop after {} step at index {} (inclusive)",
                 step_type, end_at_index
             );
+        }
+
+        // Capture initial window state before executing any steps
+        // This captures state before step 0 (which might open new windows)
+        if let Err(e) = self.window_manager.capture_initial_state().await {
+            tracing::warn!(
+                "Failed to capture initial window state before sequence: {}",
+                e
+            );
+        } else {
+            tracing::info!("Captured initial window state before sequence execution");
         }
 
         while current_index < sequence_items.len()
@@ -1341,6 +1384,21 @@ impl DesktopWrapper {
                             ],
                         );
 
+                        // Extract current process from arguments
+                        let current_process = substituted_args
+                            .get("process")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+
+                        // Create execution context for window management
+                        let execution_context =
+                            Some(crate::utils::ToolExecutionContext::sequence_step(
+                                args.url.clone().unwrap_or_default(),
+                                current_index + 1, // 1-based for user display
+                                total_steps,
+                                last_executed_process.clone(),
+                            ));
+
                         let (result, error_occurred) = self
                             .execute_single_tool(
                                 peer.clone(),
@@ -1351,10 +1409,16 @@ impl DesktopWrapper {
                                 current_index,
                                 include_detailed,
                                 original_step.and_then(|s| s.id.as_deref()),
+                                execution_context,
                             )
                             .await;
 
                         final_result = result.clone();
+
+                        // Update last_executed_process for window management
+                        if let Some(ref proc) = current_process {
+                            last_executed_process = Some(proc.clone());
+                        }
 
                         // NEW: Store tool result in env if step has an ID (for ALL tools, not just scripts)
                         if let Some(step_id) = original_step.and_then(|s| s.id.as_deref()) {
@@ -1764,6 +1828,21 @@ impl DesktopWrapper {
                             let mut substituted_args = step_tool_call.arguments.clone();
                             substitute_variables(&mut substituted_args, &execution_context);
 
+                            // Extract current process from arguments
+                            let current_process = substituted_args
+                                .get("process")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+
+                            // Create execution context for window management
+                            let tool_execution_context =
+                                Some(crate::utils::ToolExecutionContext::sequence_step(
+                                    args.url.clone().unwrap_or_default(),
+                                    current_index + 1, // 1-based for user display
+                                    total_steps,
+                                    last_executed_process.clone(),
+                                ));
+
                             let (result, error_occurred) = self
                                 .execute_single_tool(
                                     peer.clone(),
@@ -1774,10 +1853,16 @@ impl DesktopWrapper {
                                     step_index,
                                     include_detailed,
                                     step_tool_call.id.as_deref(), // Use step ID if available
+                                    tool_execution_context,
                                 )
                                 .await;
 
                             group_results.push(result.clone());
+
+                            // Update last_executed_process for window management
+                            if let Some(ref proc) = current_process {
+                                last_executed_process = Some(proc.clone());
+                            }
 
                             if let Some(delay_ms) = step_tool_call.delay_ms {
                                 if delay_ms > 0 {
@@ -2162,6 +2247,15 @@ impl DesktopWrapper {
         );
         workflow_span.end();
 
+        // Restore windows after sequence completion (success or failure)
+        // This ensures windows are restored even if sequence fails mid-execution
+        if let Err(e) = self.window_manager.restore_all_windows().await {
+            tracing::warn!("Failed to restore windows after sequence: {}", e);
+        } else {
+            tracing::info!("Restored all windows to original state after sequence");
+        }
+        self.window_manager.clear_captured_state().await;
+
         Ok(CallToolResult::success(contents))
     }
 
@@ -2176,6 +2270,7 @@ impl DesktopWrapper {
         index: usize,
         include_detailed: bool,
         step_id: Option<&str>,
+        execution_context: Option<crate::utils::ToolExecutionContext>,
     ) -> (serde_json::Value, bool) {
         let tool_start_time = chrono::Utc::now();
         let tool_name_short = tool_name
@@ -2191,7 +2286,13 @@ impl DesktopWrapper {
 
         // The substitution is handled in `execute_sequence_impl`.
         let tool_result = self
-            .dispatch_tool(peer, request_context, tool_name_short, arguments)
+            .dispatch_tool(
+                peer,
+                request_context,
+                tool_name_short,
+                arguments,
+                execution_context,
+            )
             .await;
 
         let (processed_result, error_occurred) = match tool_result {
@@ -2399,6 +2500,14 @@ impl DesktopWrapper {
                 }
             }
         }
+
+        // Restore windows after TypeScript workflow completion (success or failure)
+        if let Err(e) = self.window_manager.restore_all_windows().await {
+            tracing::warn!("Failed to restore windows after TypeScript workflow: {}", e);
+        } else {
+            tracing::info!("Restored all windows to original state after TypeScript workflow");
+        }
+        self.window_manager.clear_captured_state().await;
 
         Ok(CallToolResult {
             content: vec![Content::text(

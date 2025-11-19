@@ -6,7 +6,7 @@
  */
 
 export { createStep } from './step';
-export { createWorkflow } from './workflow';
+export { createWorkflow, WorkflowBuilder } from './workflow';
 export { createWorkflowRunner, WorkflowRunner } from './runner';
 export { createWorkflowError } from './types';
 

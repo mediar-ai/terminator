@@ -933,6 +933,11 @@ fn find_elements_inner<'a>(
                     ));
                 }
             }
+            Selector::Process(_) => {
+                return Err(AutomationError::UnsupportedPlatform(
+                    "Selector::Process is not implemented for Linux yet".to_string(),
+                ));
+            }
         }
         // Only Role and Name selectors are supported below
         let root_binding = linux_engine.get_root_element();
@@ -2341,7 +2346,15 @@ impl UIElementImpl for LinuxUIElement {
         resp_rx.recv().unwrap()
     }
 
-    fn type_text(&self, text: &str, _use_clipboard: bool) -> Result<(), AutomationError> {
+    fn type_text(
+        &self,
+        text: &str,
+        _use_clipboard: bool,
+        _try_focus_before: bool,
+        _try_click_before: bool,
+    ) -> Result<(), AutomationError> {
+        // Note: Linux implementation uses Focusable state check internally
+        // The try_focus_before and try_click_before parameters are not currently used
         let (resp_tx, resp_rx): UnitChannel = std::sync::mpsc::channel();
         let this = self.clone();
         let text = text.to_string();
@@ -2390,7 +2403,13 @@ impl UIElementImpl for LinuxUIElement {
         resp_rx.recv().unwrap()
     }
 
-    fn press_key(&self, key: &str) -> Result<(), AutomationError> {
+    fn press_key(
+        &self,
+        key: &str,
+        _try_focus_before: bool,
+        _try_click_before: bool,
+    ) -> Result<(), AutomationError> {
+        // Note: The try_focus_before and try_click_before parameters are not currently used in Linux implementation
         let (resp_tx, resp_rx): UnitChannel = std::sync::mpsc::channel();
         let this = self.clone();
         let key = key.to_string();
@@ -2891,6 +2910,24 @@ impl UIElementImpl for LinuxUIElement {
 
     fn invoke(&self) -> Result<(), AutomationError> {
         self.click().map(|_| ())
+    }
+
+    fn maximize_window_keyboard(&self) -> Result<(), AutomationError> {
+        Err(AutomationError::UnsupportedOperation(
+            "maximize_window_keyboard is not implemented for Linux yet".to_string(),
+        ))
+    }
+
+    fn minimize_window_keyboard(&self) -> Result<(), AutomationError> {
+        Err(AutomationError::UnsupportedOperation(
+            "minimize_window_keyboard is not implemented for Linux yet".to_string(),
+        ))
+    }
+
+    fn get_native_window_handle(&self) -> Result<isize, AutomationError> {
+        Err(AutomationError::UnsupportedOperation(
+            "get_native_window_handle is not implemented for Linux yet".to_string(),
+        ))
     }
 }
 
