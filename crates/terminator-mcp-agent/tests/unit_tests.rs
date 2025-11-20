@@ -32,6 +32,8 @@ fn test_execute_sequence_args_serialization() {
         troubleshooting: None,
         execute_jumps_at_end: None,
         workflow_id: None,
+        skip_preflight_check: None,
+        window_mgmt: Default::default(),
     };
 
     let json = serde_json::to_string(&args).unwrap();
