@@ -7,10 +7,10 @@ use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetTopWindow, GetWindow, GetWindowLongPtrW, GetWindowPlacement,
-    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, IsZoomed,
-    SetWindowPlacement, ShowWindow, GWL_EXSTYLE, GW_HWNDNEXT, SW_MAXIMIZE, SW_MINIMIZE,
-    WINDOWPLACEMENT, WS_EX_TOPMOST,
+    BringWindowToTop, GetForegroundWindow, GetTopWindow, GetWindow, GetWindowLongPtrW,
+    GetWindowPlacement, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
+    IsZoomed, SetForegroundWindow, SetWindowPlacement, ShowWindow, GWL_EXSTYLE, GW_HWNDNEXT,
+    SW_MAXIMIZE, SW_MINIMIZE, WINDOWPLACEMENT, WS_EX_TOPMOST,
 };
 
 #[derive(Clone, Debug)]
@@ -247,11 +247,15 @@ impl WindowManager {
                 tracing::debug!("maximize_if_needed: Called ShowWindow(SW_MAXIMIZE)");
             }
 
-            // Check if window is foreground after maximize
-            // Note: We don't call SetForegroundWindow because:
-            // 1. UI Automation tools (click, invoke, etc.) work without foreground status
-            // 2. SetForegroundWindow often fails due to Windows security restrictions
-            // 3. Only keyboard input tools actually need focus
+            // Bring window to top of Z-order to ensure it's visible above other windows
+            let _ = BringWindowToTop(hwnd_win);
+            tracing::debug!("maximize_if_needed: Called BringWindowToTop");
+
+            // Try to set as foreground window - may fail due to Windows restrictions but worth trying
+            let fg_result = SetForegroundWindow(hwnd_win);
+            tracing::debug!("maximize_if_needed: SetForegroundWindow returned {}", fg_result.as_bool());
+
+            // Check if window is foreground after our attempts
             let foreground_after = GetForegroundWindow();
             let is_now_foreground = foreground_after.0 == hwnd_win.0;
 
