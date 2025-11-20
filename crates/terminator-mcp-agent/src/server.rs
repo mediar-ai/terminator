@@ -336,8 +336,9 @@ impl DesktopWrapper {
 
                 // Maximize target if not already maximized
                 let should_maximize_target = window_mgmt_opts.maximize_target.unwrap_or(true);
+                let should_bring_to_front = window_mgmt_opts.bring_to_front.unwrap_or(true);
                 if should_maximize_target {
-                    match self.window_manager.maximize_if_needed(window.hwnd).await {
+                    match self.window_manager.maximize_if_needed(window.hwnd, should_bring_to_front).await {
                         Ok(true) => {
                             tracing::info!("Maximized target window");
                         }
@@ -533,8 +534,9 @@ impl DesktopWrapper {
 
                     // Maximize target Win32 window
                     let should_maximize_target = window_mgmt_opts.maximize_target.unwrap_or(true);
+                    let should_bring_to_front = window_mgmt_opts.bring_to_front.unwrap_or(true);
                     if should_maximize_target {
-                        match self.window_manager.maximize_if_needed(window.hwnd).await {
+                        match self.window_manager.maximize_if_needed(window.hwnd, should_bring_to_front).await {
                             Ok(true) => {
                                 tracing::info!("Maximized Win32 window for {}", process);
                             }

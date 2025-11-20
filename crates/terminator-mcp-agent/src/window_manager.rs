@@ -220,8 +220,8 @@ impl WindowManager {
         Ok(minimized_count)
     }
 
-    // Maximize window if not already maximized, and bring to foreground
-    pub async fn maximize_if_needed(&self, hwnd: isize) -> Result<bool, String> {
+    // Maximize window if not already maximized, and optionally bring to foreground
+    pub async fn maximize_if_needed(&self, hwnd: isize, bring_to_front: bool) -> Result<bool, String> {
         // Track this window as the target that needs restoration
         let mut cache = self.window_cache.lock().await;
         cache.target_window = Some(hwnd);
@@ -247,13 +247,18 @@ impl WindowManager {
                 tracing::debug!("maximize_if_needed: Called ShowWindow(SW_MAXIMIZE)");
             }
 
-            // Bring window to top of Z-order to ensure it's visible above other windows
-            let _ = BringWindowToTop(hwnd_win);
-            tracing::debug!("maximize_if_needed: Called BringWindowToTop");
+            // Optionally bring window to foreground
+            if bring_to_front {
+                // Bring window to top of Z-order to ensure it's visible above other windows
+                let _ = BringWindowToTop(hwnd_win);
+                tracing::debug!("maximize_if_needed: Called BringWindowToTop");
 
-            // Try to set as foreground window - may fail due to Windows restrictions but worth trying
-            let fg_result = SetForegroundWindow(hwnd_win);
-            tracing::debug!("maximize_if_needed: SetForegroundWindow returned {}", fg_result.as_bool());
+                // Try to set as foreground window - may fail due to Windows restrictions but worth trying
+                let fg_result = SetForegroundWindow(hwnd_win);
+                tracing::debug!("maximize_if_needed: SetForegroundWindow returned {}", fg_result.as_bool());
+            } else {
+                tracing::debug!("maximize_if_needed: Skipping BringWindowToTop/SetForegroundWindow (bring_to_front=false)");
+            }
 
             // Check if window is foreground after our attempts
             let foreground_after = GetForegroundWindow();

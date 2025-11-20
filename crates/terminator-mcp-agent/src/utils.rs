@@ -43,6 +43,11 @@ pub struct WindowManagementOptions {
         description = "Whether to minimize always-on-top windows that may cover the target. Only used if enable_window_management is true. Defaults to true."
     )]
     pub minimize_always_on_top: Option<bool>,
+
+    #[schemars(
+        description = "Whether to bring the target window to front (BringWindowToTop + SetForegroundWindow). Only used if enable_window_management is true. Defaults to true."
+    )]
+    pub bring_to_front: Option<bool>,
 }
 
 /// Common fields for UI tree inclusion in responses
