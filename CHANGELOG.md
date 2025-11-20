@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.8] - 2025-11-20
+
+### Added
+- KV package: New @mediar-ai/kv package for workflow state sharing with Memory, File, and Redis adapters
+
+### Changed
+- CLI: Add sync_kv_package() to version management for release automation
+- CI: Remove Linux from Python wheels workflow
+- Test: Ignore debugger detach tests failing in CI
+
 ## [0.23.7] - 2025-11-18
 
 ### Fixed
