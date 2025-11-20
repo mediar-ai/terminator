@@ -1007,7 +1007,8 @@ impl DesktopWrapper {
 
         // Check if we should run the pre-flight check
         // Skip if: 1) no browser script steps, OR 2) skip_preflight_check flag is set
-        let should_run_preflight = has_browser_script_steps && !args.skip_preflight_check.unwrap_or(false);
+        let should_run_preflight =
+            has_browser_script_steps && !args.skip_preflight_check.unwrap_or(false);
 
         if has_browser_script_steps && args.skip_preflight_check.unwrap_or(false) {
             info!("Skipping browser extension pre-flight check (skip_preflight_check=true)");
