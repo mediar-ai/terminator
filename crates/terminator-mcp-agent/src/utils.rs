@@ -30,12 +30,12 @@ pub struct MonitorScreenshotOptions {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 pub struct WindowManagementOptions {
     #[schemars(
-        description = "Whether to enable window management (maximize target, minimize others, restore). Defaults to true for backward compatibility."
+        description = "Whether to enable window management (minimize always-on-top windows, optionally maximize target, and restore). Defaults to true."
     )]
     pub enable_window_management: Option<bool>,
 
     #[schemars(
-        description = "Whether to maximize the target window. Only used if enable_window_management is true. Defaults to true."
+        description = "Whether to maximize the target window. Only used if enable_window_management is true. Defaults to false."
     )]
     pub maximize_target: Option<bool>,
 
