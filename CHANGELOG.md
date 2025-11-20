@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.10] - 2025-11-20
+
+### Added
+- MCP: Add local-copy execution mode for TypeScript workflows to fix S3/rclone symlink issues
+- Window management: Add BringWindowToTop and SetForegroundWindow to window management
+
+### Changed
+- Workflow: Copy workflow files to local temp directory before execution for better performance and symlink support
+- MCP: Default MCP_EXECUTION_MODE to "local-copy" in agent wrapper
+
 ## [0.23.9] - 2025-11-20
 
 ### Added
