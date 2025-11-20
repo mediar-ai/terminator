@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.9] - 2025-11-20
+
+### Added
+- MCP: Add optional window management parameters to all MCP tools
+- Docs: Add Bounty Developer Program section to README
+
+### Fixed
+- Tests: Add missing skip_preflight_check and window_mgmt fields to ExecuteSequenceArgs test instantiations
+- Style: Run cargo fmt to fix formatting issues
+
 ## [0.23.8] - 2025-11-20
 
 ### Added
