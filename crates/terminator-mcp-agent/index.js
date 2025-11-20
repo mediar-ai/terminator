@@ -138,10 +138,17 @@ if (argv.includes("--add-to-app")) {
   // Filter out --start if it exists, as it's for the wrapper script
   const agentArgs = argv.filter((arg) => arg !== "--start");
 
+  // Set up environment variables for the child process
+  const childEnv = {
+    ...process.env,
+    MCP_EXECUTION_MODE: process.env.MCP_EXECUTION_MODE || "local-copy",
+  };
+
   let child = spawn(binary, agentArgs, {
     stdio: ["pipe", "pipe", "pipe"],
     shell: false,
     detached: process.platform !== "win32",
+    env: childEnv,
   });
 
   process.stdin.pipe(child.stdin);
@@ -240,6 +247,7 @@ if (argv.includes("--add-to-app")) {
             stdio: ["pipe", "pipe", "pipe"],
             shell: false,
             detached: process.platform !== "win32",
+            env: childEnv,
           });
 
           // Reconnect pipes
