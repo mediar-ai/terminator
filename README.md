@@ -45,33 +45,39 @@ https://github.com/user-attachments/assets/b7bec5df-64a9-4f0e-aba4-1578c11275c7
 
 ## 🚀 What's new
 
-- 10/30 Public alpha is live - [n8n for data entry automation in legacy systems](https://www.mediar.ai/)
+- 10/30 Public alpha is live - [n8n for legacy systems](https://www.mediar.ai)
 - 09/26 Terminator was on [Cohere Labs podcast](https://www.youtube.com/watch?v=cfQxlk8KNmY), also [check the slides](https://092025-cohere.mediar.ai/)
 - 08/25 Big release — NodeJS SDK in YAML workflows, run JS in browser, OS event recording → YAML generation in MCP, and more
 - 08/25 [we raised $2.8m to give AI hands to every desktop](https://x.com/louis030195/status/1948745185178914929) ⚠
-
-> AI-first data entry automation in legacy systems 
 
 ## 🧠 Why Terminator
 
 ### For Developers
 
 - Create automations that work across any desktop app or browser
-- Runs 100x faster than ChatGPT Agents, Claude, Perplexity Comet, BrowserBase, BrowserUse
-- \>95% success rate without costly consultant armies (UIPath, Automation Anywhere)
+- Runs 100x faster than ChatGPT Agents, Claude, Perplexity Comet, BrowserBase, BrowserUse (deterministic, CPU speed, with AI recovery)
+- \>95% success rate unlike most computer use overhyped products
 - MIT-licensed — fork it, ship it, no lock-in
 
 We achieve this by pre-training workflows as deterministic code, and calling AI only when recovery is needed.
 
 ### For Teams
 
-[Our public beta workflow builder](https://www.mediar.ai/) + managed hosting = n8n for data entry automation in legacy systems:
+[Our public beta workflow builder](https://www.mediar.ai) + managed hosting = n8n for legacy systems:
 
-- Record & map your processes in 5 mins
-- Deploy AI to execute them at >95% success rate
-- Kill repetitive work without legacy RPA complexity or cost
+- Record, map your processes, and implement the workflow without technical skills
+- Deploy AI to execute them at >95% success rate without managing hundreds of Windows VMs
+- Kill repetitive work without legacy RPA complexity, implementation and maintenance cost
 
-## 📥 Installation
+### Platform installation method
+
+| Platform | CLI | MCP Agent | Automation | Installation Method |
+|----------|:---:|:---------:|:----------:|---------------------|
+| Windows  | ✅  | ✅        | ✅         | npm/bunx |
+| macOS    | 🟡  | 🟡        | 🟡         | Compile from source |
+| Linux    | 🟡  | 🟡        | 🟡         | Compile from source |
+
+## 📥 Installation for technical users
 
 ### Terminator CLI
 
@@ -96,17 +102,7 @@ cargo build --release
 # Binary at: ./target/release/terminator
 ```
 
-### Platform Support
-
-| Platform | CLI | MCP Agent | Automation | Installation Method |
-|----------|:---:|:---------:|:----------:|---------------------|
-| Windows  | ✅  | ✅        | ✅         | npm/bunx |
-| macOS    | 🟡  | ✅        | 🟡         | Compile from source |
-| Linux    | 🟡  | ✅        | 🟡         | Compile from source |
-
-## 🎯 Choose Your Path
-
-### 🤖 Want AI Automation with Claude Code? (Recommended for Most Users)
+### 🤖 Want AI Automation with Claude Code? 
 
 Install the Terminator MCP in Claude Code:
 
@@ -117,8 +113,6 @@ claude mcp add terminator "npx -y terminator-mcp-agent@latest" -s user
 Or install via the [MCP directory](https://github.com/mediar-ai/terminator/tree/main/terminator-mcp-agent) for other clients (Cursor, VS Code, etc.).
 
 **What this does:** Gives AI assistants the ability to control your desktop and automate tasks across any application.
-
-To create workflows, please [download the desktop app](https://www.mediar.ai/).
 
 ## Feature Support
 
@@ -181,10 +175,6 @@ To create reliable selectors (e.g. `name:Seven`, `role:Button`, `window:Calculat
 - **Usage:** Launch Accerciser → Select the window/app → Browse the accessible widget tree.
 
 ---
-
-## Explore Further
-
-- **[Examples](https://github.com/mediar-ai/terminator/tree/main/examples)**
 
 ## Troubleshooting
 
