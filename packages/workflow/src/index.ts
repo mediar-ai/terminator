@@ -8,7 +8,7 @@
 export { createStep } from './step';
 export { createWorkflow, WorkflowBuilder } from './workflow';
 export { createWorkflowRunner, WorkflowRunner } from './runner';
-export { createWorkflowError } from './types';
+export { WorkflowError, createWorkflowError } from './types';
 
 export type {
   Desktop,

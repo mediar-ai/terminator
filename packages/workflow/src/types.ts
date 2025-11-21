@@ -134,7 +134,7 @@ export interface ExecuteError {
  *
  * @example
  * ```typescript
- * throw createWorkflowError({
+ * throw WorkflowError({
  *   category: 'business',
  *   code: 'SAP_DUPLICATE_INVOICE',
  *   message: 'Invoice already exists in SAP',
@@ -143,7 +143,7 @@ export interface ExecuteError {
  * });
  * ```
  */
-export function createWorkflowError(error: ExecuteError): Error & ExecuteError {
+export function WorkflowError(error: ExecuteError): Error & ExecuteError {
   const err = new Error(error.message) as Error & ExecuteError;
   err.category = error.category;
   err.code = error.code;
@@ -151,6 +151,11 @@ export function createWorkflowError(error: ExecuteError): Error & ExecuteError {
   err.metadata = error.metadata;
   return err;
 }
+
+/**
+ * @deprecated Use WorkflowError instead (follows Error/TypeError naming convention)
+ */
+export const createWorkflowError = WorkflowError;
 
 /**
  * Workflow execution response
