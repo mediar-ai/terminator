@@ -349,7 +349,7 @@ impl DesktopWrapper {
 
         // Use tokio::select to handle cancellation from request manager
         tokio::select! {
-            result = self.execute_sequence_inner(peer, request_context, args) => {
+            result = self.execute_sequence_inner(peer, request_context, args, request_id.clone()) => {
                 // Unregister when done
                 self.request_manager.unregister(&request_id).await;
                 result
@@ -370,6 +370,7 @@ impl DesktopWrapper {
         peer: Peer<RoleServer>,
         request_context: RequestContext<RoleServer>,
         mut args: ExecuteSequenceArgs,
+        execution_id: String,
     ) -> Result<CallToolResult, McpError> {
         // Set the in_sequence flag for the duration of this function
         // This flag will be automatically reset to false when this guard is dropped
@@ -391,7 +392,7 @@ impl DesktopWrapper {
                 WorkflowFormat::TypeScript => {
                     // Execute TypeScript workflow
                     let url_clone = url.clone();
-                    return self.execute_typescript_workflow(&url_clone, args).await;
+                    return self.execute_typescript_workflow(&url_clone, args, execution_id).await;
                 }
                 WorkflowFormat::Yaml => {
                     // Continue with existing YAML workflow logic
@@ -859,6 +860,9 @@ impl DesktopWrapper {
         // Start workflow telemetry span
         let workflow_name = "execute_sequence";
         let mut workflow_span = WorkflowSpan::new(workflow_name);
+
+        // Add execution metadata for filtering/grouping
+        workflow_span.set_attribute("workflow.execution_id", execution_id.clone());
         workflow_span.set_attribute(
             "workflow.total_steps",
             args.steps
@@ -868,6 +872,32 @@ impl DesktopWrapper {
                 .to_string(),
         );
         workflow_span.set_attribute("workflow.stop_on_error", stop_on_error.to_string());
+
+        // Add workflow source metadata
+        if let Some(url) = &args.url {
+            workflow_span.set_attribute("workflow.url", url.clone());
+            // Detect and set workflow format
+            let format = detect_workflow_format(url);
+            workflow_span.set_attribute("workflow.format", format!("{:?}", format).to_lowercase());
+        } else {
+            workflow_span.set_attribute("workflow.format", "inline".to_string());
+        }
+
+        // Add trigger source (from MCP API)
+        workflow_span.set_attribute("workflow.trigger_source", "mcp_api".to_string());
+
+        // Add organization/user context from environment if available
+        if let Ok(org_id) = std::env::var("ORGANIZATION_ID") {
+            workflow_span.set_attribute("organization.id", org_id);
+        }
+        if let Ok(user_id) = std::env::var("USER_ID") {
+            workflow_span.set_attribute("user.id", user_id);
+        }
+
+        // Add execution mode from environment
+        let execution_mode = std::env::var("EXECUTION_MODE")
+            .unwrap_or_else(|_| "normal".to_string());
+        workflow_span.set_attribute("workflow.execution_mode", execution_mode);
 
         // Convert flattened SequenceStep to internal SequenceItem representation
         let mut sequence_items = Vec::new();
@@ -1390,6 +1420,60 @@ impl DesktopWrapper {
                             step_span.set_attribute("step.retry_attempt", attempt.to_string());
                         }
 
+                        // Add workflow execution_id to step for correlation
+                        step_span.set_attribute("workflow.execution_id", execution_id.clone());
+
+                        // Extract and add step-level metadata for filtering/grouping
+                        // Extract current process from arguments
+                        let current_process = substituted_args
+                            .get("process")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        if let Some(ref proc) = current_process {
+                            step_span.set_attribute("step.process", proc.clone());
+                        }
+
+                        // Extract selector if present (common in UI automation tools)
+                        if let Some(selector) = substituted_args.get("selector") {
+                            let selector_str = if let Some(s) = selector.as_str() {
+                                s.to_string()
+                            } else if let Some(obj) = selector.as_object() {
+                                // Handle selector object with "selector" field
+                                obj.get("selector")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("complex_selector")
+                                    .to_string()
+                            } else {
+                                "complex_selector".to_string()
+                            };
+                            step_span.set_attribute("step.selector", selector_str);
+                        }
+
+                        // Extract window_selector if present
+                        if let Some(window_selector) = substituted_args
+                            .get("window_selector")
+                            .and_then(|v| v.as_str())
+                        {
+                            step_span.set_attribute("step.window_selector", window_selector.to_string());
+                        }
+
+                        // Extract URL for browser navigation tools
+                        if let Some(url) = substituted_args.get("url").and_then(|v| v.as_str()) {
+                            step_span.set_attribute("step.url", url.to_string());
+                        }
+
+                        // Extract text for typing tools
+                        if let Some(text) = substituted_args.get("text").and_then(|v| v.as_str()) {
+                            // Only log first 50 chars to avoid PII/sensitive data
+                            let text_preview = if text.len() > 50 {
+                                format!("{}...", &text[..50])
+                            } else {
+                                text.to_string()
+                            };
+                            step_span.set_attribute("step.text_length", text.len().to_string());
+                            step_span.set_attribute("step.text_preview", text_preview);
+                        }
+
                         // Add event for step started
                         workflow_span.add_event(
                             "step.started",
@@ -1398,12 +1482,6 @@ impl DesktopWrapper {
                                 ("step.index", current_index.to_string()),
                             ],
                         );
-
-                        // Extract current process from arguments
-                        let current_process = substituted_args
-                            .get("process")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string());
 
                         // Create execution context for window management
                         let execution_context =
@@ -2458,6 +2536,7 @@ impl DesktopWrapper {
         &self,
         url: &str,
         args: ExecuteSequenceArgs,
+        _execution_id: String, // TODO: Add telemetry for TypeScript workflows
     ) -> Result<CallToolResult, McpError> {
         info!("Executing TypeScript workflow from URL: {}", url);
 

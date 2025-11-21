@@ -336,12 +336,46 @@ mod with_telemetry {
             KeyValue::new(SERVICE_VERSION, env!("CARGO_PKG_VERSION")),
         ];
 
+        // Add deployment environment for segmentation (production, staging, development)
+        let deployment_env = std::env::var("DEPLOYMENT_ENVIRONMENT")
+            .or_else(|_| std::env::var("ENVIRONMENT"))
+            .unwrap_or_else(|_| "development".to_string());
+        resource_kvs.push(KeyValue::new("deployment.environment", deployment_env));
+
+        // Add service instance ID (unique identifier for this instance)
+        let instance_id = std::env::var("SERVICE_INSTANCE_ID")
+            .or_else(|_| std::env::var("INSTANCE_ID"))
+            .unwrap_or_else(|_| {
+                // Generate a unique instance ID using hostname + PID
+                let pid = std::process::id();
+                let hostname = hostname::get()
+                    .ok()
+                    .and_then(|h| h.to_str().map(|s| s.to_string()))
+                    .unwrap_or_else(|| "unknown".to_string());
+                format!("{hostname}-{pid}")
+            });
+        resource_kvs.push(KeyValue::new("service.instance.id", instance_id));
+
         // Add host name for segmentation in ClickHouse
         if let Ok(hostname) = hostname::get() {
             if let Some(hostname_str) = hostname.to_str() {
                 resource_kvs.push(KeyValue::new("host.name", hostname_str.to_string()));
             }
         }
+
+        // Add OS information
+        resource_kvs.push(KeyValue::new("os.type", std::env::consts::OS));
+        resource_kvs.push(KeyValue::new("os.arch", std::env::consts::ARCH));
+        resource_kvs.push(KeyValue::new("os.family", std::env::consts::FAMILY));
+
+        // Add automation API based on OS
+        let automation_api = match std::env::consts::OS {
+            "windows" => "uiautomation",
+            "macos" => "accessibility",
+            "linux" => "atspi",
+            _ => "unknown",
+        };
+        resource_kvs.push(KeyValue::new("automation.api", automation_api));
 
         let resource = Resource::from_schema_url(resource_kvs, SCHEMA_URL);
 
@@ -393,12 +427,46 @@ mod with_telemetry {
             KeyValue::new(SERVICE_VERSION, env!("CARGO_PKG_VERSION")),
         ];
 
+        // Add deployment environment for segmentation (production, staging, development)
+        let deployment_env = std::env::var("DEPLOYMENT_ENVIRONMENT")
+            .or_else(|_| std::env::var("ENVIRONMENT"))
+            .unwrap_or_else(|_| "development".to_string());
+        resource_kvs.push(KeyValue::new("deployment.environment", deployment_env));
+
+        // Add service instance ID (unique identifier for this instance)
+        let instance_id = std::env::var("SERVICE_INSTANCE_ID")
+            .or_else(|_| std::env::var("INSTANCE_ID"))
+            .unwrap_or_else(|_| {
+                // Generate a unique instance ID using hostname + PID
+                let pid = std::process::id();
+                let hostname = hostname::get()
+                    .ok()
+                    .and_then(|h| h.to_str().map(|s| s.to_string()))
+                    .unwrap_or_else(|| "unknown".to_string());
+                format!("{hostname}-{pid}")
+            });
+        resource_kvs.push(KeyValue::new("service.instance.id", instance_id));
+
         // Add host name for segmentation in ClickHouse
         if let Ok(hostname) = hostname::get() {
             if let Some(hostname_str) = hostname.to_str() {
                 resource_kvs.push(KeyValue::new("host.name", hostname_str.to_string()));
             }
         }
+
+        // Add OS information
+        resource_kvs.push(KeyValue::new("os.type", std::env::consts::OS));
+        resource_kvs.push(KeyValue::new("os.arch", std::env::consts::ARCH));
+        resource_kvs.push(KeyValue::new("os.family", std::env::consts::FAMILY));
+
+        // Add automation API based on OS
+        let automation_api = match std::env::consts::OS {
+            "windows" => "uiautomation",
+            "macos" => "accessibility",
+            "linux" => "atspi",
+            _ => "unknown",
+        };
+        resource_kvs.push(KeyValue::new("automation.api", automation_api));
 
         let resource = Resource::from_schema_url(resource_kvs, SCHEMA_URL);
 
