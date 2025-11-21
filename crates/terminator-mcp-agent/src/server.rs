@@ -1711,18 +1711,10 @@ impl DesktopWrapper {
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
         } else {
-            // Skip tree building if both verify fields are empty
-            let should_include_tree = if skip_verification {
-                tracing::debug!("[type_into_element] Skipping tree building as both verify fields are empty");
-                Some(false)
-            } else {
-                args.tree.include_tree_after_action
-            };
-
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                should_include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -1939,6 +1931,76 @@ impl DesktopWrapper {
             "timestamp": chrono::Utc::now().to_rfc3339()
         });
 
+        // POST-ACTION VERIFICATION
+        if !args.action.verify_element_exists.is_empty()
+            || !args.action.verify_element_not_exists.is_empty()
+        {
+            let verify_timeout_ms = args.action.verify_timeout_ms;
+
+            let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_exists.as_str())
+            };
+            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_not_exists.as_str())
+            };
+
+            match crate::helpers::verify_post_action(
+                &self.desktop,
+                &element,
+                verify_exists_opt,
+                verify_not_exists_opt,
+                verify_timeout_ms,
+                &successful_selector,
+            )
+            .await
+            {
+                Ok(verification_result) => {
+                    tracing::info!(
+                        "[click_element] Verification passed: method={}, details={}",
+                        verification_result.method,
+                        verification_result.details
+                    );
+                    span.set_attribute("verification.passed", "true".to_string());
+                    span.set_attribute("verification.method", verification_result.method.clone());
+                    span.set_attribute(
+                        "verification.elapsed_ms",
+                        verification_result.elapsed_ms.to_string(),
+                    );
+
+                    let verification_json = json!({
+                        "passed": verification_result.passed,
+                        "method": verification_result.method,
+                        "details": verification_result.details,
+                        "elapsed_ms": verification_result.elapsed_ms,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    });
+
+                    if let Some(obj) = result_json.as_object_mut() {
+                        obj.insert("verification".to_string(), verification_json);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("[click_element] Verification failed: {}", e);
+                    span.set_attribute("verification.passed", "false".to_string());
+                    span.set_status(false, Some("Verification failed"));
+                    span.end();
+                    return Err(McpError::internal_error(
+                        format!("Post-action verification failed: {e}"),
+                        Some(json!({
+                            "selector_used": successful_selector,
+                            "verify_exists": args.action.verify_element_exists,
+                            "verify_not_exists": args.action.verify_element_not_exists,
+                            "timeout_ms": verify_timeout_ms,
+                        })),
+                    ));
+                }
+            }
+        }
+
         // Attach UI diff if captured
         if let Some(diff_result) = ui_diff {
             tracing::debug!(
@@ -1955,20 +2017,10 @@ impl DesktopWrapper {
             // When diff is enabled, we already have the tree, so don't capture again
             // But respect include_tree if user also wants it attached separately
         } else {
-            // Skip tree building if both verify fields are empty
-            let skip_verification = args.action.verify_element_exists.is_empty()
-                && args.action.verify_element_not_exists.is_empty();
-            let should_include_tree = if skip_verification {
-                tracing::debug!("[click_element] Skipping tree building as both verify fields are empty");
-                Some(false)
-            } else {
-                args.tree.include_tree_after_action
-            };
-
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                should_include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -2141,6 +2193,76 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
             "timestamp": chrono::Utc::now().to_rfc3339()
         });
 
+        // POST-ACTION VERIFICATION
+        if !args.action.verify_element_exists.is_empty()
+            || !args.action.verify_element_not_exists.is_empty()
+        {
+            let verify_timeout_ms = args.action.verify_timeout_ms;
+
+            let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_exists.as_str())
+            };
+            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_not_exists.as_str())
+            };
+
+            match crate::helpers::verify_post_action(
+                &self.desktop,
+                &element,
+                verify_exists_opt,
+                verify_not_exists_opt,
+                verify_timeout_ms,
+                &successful_selector,
+            )
+            .await
+            {
+                Ok(verification_result) => {
+                    tracing::info!(
+                        "[press_key] Verification passed: method={}, details={}",
+                        verification_result.method,
+                        verification_result.details
+                    );
+                    span.set_attribute("verification.passed", "true".to_string());
+                    span.set_attribute("verification.method", verification_result.method.clone());
+                    span.set_attribute(
+                        "verification.elapsed_ms",
+                        verification_result.elapsed_ms.to_string(),
+                    );
+
+                    let verification_json = json!({
+                        "passed": verification_result.passed,
+                        "method": verification_result.method,
+                        "details": verification_result.details,
+                        "elapsed_ms": verification_result.elapsed_ms,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    });
+
+                    if let Some(obj) = result_json.as_object_mut() {
+                        obj.insert("verification".to_string(), verification_json);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("[press_key] Verification failed: {}", e);
+                    span.set_attribute("verification.passed", "false".to_string());
+                    span.set_status(false, Some("Verification failed"));
+                    span.end();
+                    return Err(McpError::internal_error(
+                        format!("Post-action verification failed: {e}"),
+                        Some(json!({
+                            "selector_used": successful_selector,
+                            "verify_exists": args.action.verify_element_exists,
+                            "verify_not_exists": args.action.verify_element_not_exists,
+                            "timeout_ms": verify_timeout_ms,
+                        })),
+                    ));
+                }
+            }
+        }
+
         // Attach UI diff if captured
         if let Some(diff_result) = ui_diff {
             tracing::debug!(
@@ -2154,20 +2276,10 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
         } else {
-            // Skip tree building if both verify fields are empty
-            let skip_verification = args.action.verify_element_exists.is_empty()
-                && args.action.verify_element_not_exists.is_empty();
-            let should_include_tree = if skip_verification {
-                tracing::debug!("[press_key] Skipping tree building as both verify fields are empty");
-                Some(false)
-            } else {
-                args.tree.include_tree_after_action
-            };
-
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                should_include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -5350,18 +5462,10 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
         } else {
-            // Skip tree building if both verify fields are empty
-            let should_include_tree = if should_auto_verify {
-                tracing::debug!("[set_toggled] Skipping tree building as both verify fields are empty");
-                Some(false)
-            } else {
-                args.tree.include_tree_after_action
-            };
-
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                should_include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -5609,18 +5713,10 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
         } else {
-            // Skip tree building if both verify fields are empty
-            let should_include_tree = if should_auto_verify {
-                tracing::debug!("[set_range_value] Skipping tree building as both verify fields are empty");
-                Some(false)
-            } else {
-                args.tree.include_tree_after_action
-            };
-
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                should_include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -5867,18 +5963,10 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
         } else {
-            // Skip tree building if both verify fields are empty
-            let should_include_tree = if should_auto_verify {
-                tracing::debug!("[set_selected] Skipping tree building as both verify fields are empty");
-                Some(false)
-            } else {
-                args.tree.include_tree_after_action
-            };
-
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                should_include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -6495,6 +6583,76 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "timestamp": chrono::Utc::now().to_rfc3339()
         });
 
+        // POST-ACTION VERIFICATION
+        if !args.action.verify_element_exists.is_empty()
+            || !args.action.verify_element_not_exists.is_empty()
+        {
+            let verify_timeout_ms = args.action.verify_timeout_ms;
+
+            let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_exists.as_str())
+            };
+            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_not_exists.as_str())
+            };
+
+            match crate::helpers::verify_post_action(
+                &self.desktop,
+                &element,
+                verify_exists_opt,
+                verify_not_exists_opt,
+                verify_timeout_ms,
+                &successful_selector,
+            )
+            .await
+            {
+                Ok(verification_result) => {
+                    tracing::info!(
+                        "[invoke_element] Verification passed: method={}, details={}",
+                        verification_result.method,
+                        verification_result.details
+                    );
+                    span.set_attribute("verification.passed", "true".to_string());
+                    span.set_attribute("verification.method", verification_result.method.clone());
+                    span.set_attribute(
+                        "verification.elapsed_ms",
+                        verification_result.elapsed_ms.to_string(),
+                    );
+
+                    let verification_json = json!({
+                        "passed": verification_result.passed,
+                        "method": verification_result.method,
+                        "details": verification_result.details,
+                        "elapsed_ms": verification_result.elapsed_ms,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    });
+
+                    if let Some(obj) = result_json.as_object_mut() {
+                        obj.insert("verification".to_string(), verification_json);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("[invoke_element] Verification failed: {}", e);
+                    span.set_attribute("verification.passed", "false".to_string());
+                    span.set_status(false, Some("Verification failed"));
+                    span.end();
+                    return Err(McpError::internal_error(
+                        format!("Post-action verification failed: {e}"),
+                        Some(json!({
+                            "selector_used": successful_selector,
+                            "verify_exists": args.action.verify_element_exists,
+                            "verify_not_exists": args.action.verify_element_not_exists,
+                            "timeout_ms": verify_timeout_ms,
+                        })),
+                    ));
+                }
+            }
+        }
+
         // Attach UI diff if captured
         if let Some(diff_result) = ui_diff {
             tracing::debug!(
@@ -6508,20 +6666,10 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
         } else {
-            // Skip tree building if both verify fields are empty
-            let skip_verification = args.action.verify_element_exists.is_empty()
-                && args.action.verify_element_not_exists.is_empty();
-            let should_include_tree = if skip_verification {
-                tracing::debug!("[invoke_element] Skipping tree building as both verify fields are empty");
-                Some(false)
-            } else {
-                args.tree.include_tree_after_action
-            };
-
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                should_include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -7060,19 +7208,10 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
         } else {
-            // Skip tree building if both verify fields are empty
-            let skip_verification = verify_exists.is_empty();
-            let should_include_tree = if skip_verification {
-                tracing::debug!("[set_value] Skipping tree building as both verify fields are empty");
-                Some(false)
-            } else {
-                args.tree.include_tree_after_action
-            };
-
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                should_include_tree,
+                args.tree.include_tree_after_action,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
