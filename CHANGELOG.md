@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.12] - 2025-11-21
+
+### Fixed
+- CI/CD: Prevent duplicate artifact uploads in Release Terminator CLI workflow
+  - Fixed "Not Found" errors by uploading only archives (*.tar.gz, *.zip) instead of all artifacts
+  - Removed duplicate terminator.exe uploads that were causing workflow failures
+- CI/CD: Remove duplicate tag trigger from Publish Workflow Package workflow
+  - Fixed double workflow runs by removing redundant push:tags trigger
+  - Now only triggers via workflow_run dependency chain after NPM packages are published
+  - Prevents race conditions and ensures correct dependency order
+
 ## [0.23.11] - 2025-11-21
 
 ### Added
