@@ -45,7 +45,7 @@ https://github.com/user-attachments/assets/b7bec5df-64a9-4f0e-aba4-1578c11275c7
 
 ## 🚀 What's new
 
-- 10/30 Public alpha is live - [n8n for legacy systems](https://www.mediar.ai)
+- 10/30 Public alpha is live - [n8n for legacy software](https://www.mediar.ai)
 - 09/26 Terminator was on [Cohere Labs podcast](https://www.youtube.com/watch?v=cfQxlk8KNmY), also [check the slides](https://092025-cohere.mediar.ai/)
 - 08/25 Big release — NodeJS SDK in YAML workflows, run JS in browser, OS event recording → YAML generation in MCP, and more
 - 08/25 [we raised $2.8m to give AI hands to every desktop](https://x.com/louis030195/status/1948745185178914929) ⚠
@@ -63,7 +63,7 @@ We achieve this by pre-training workflows as deterministic code, and calling AI 
 
 ### For Teams
 
-[Our public beta workflow builder](https://www.mediar.ai) + managed hosting = n8n for legacy systems:
+[Our public beta workflow builder](https://www.mediar.ai) + managed hosting:
 
 - Record, map your processes, and implement the workflow without technical skills
 - Deploy AI to execute them at >95% success rate without managing hundreds of Windows VMs
