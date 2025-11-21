@@ -986,11 +986,10 @@ impl DesktopWrapper {
             }
         }
 
-        // Force include_tree to default to true for this tool
         // Use maybe_attach_tree to handle tree extraction with from_selector support
         crate::helpers::maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree_after_action.or(Some(true)), // Default to true for get_window_tree
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -1524,7 +1523,7 @@ impl DesktopWrapper {
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
-                args.tree.ui_diff_before_after.unwrap_or(true),
+                args.tree.ui_diff_before_after,
                 args.tree.tree_max_depth,
                 args.tree.include_detailed_attributes,
                 tree_output_format,
@@ -1875,7 +1874,7 @@ impl DesktopWrapper {
             args.action.timeout_ms,
             args.action.retries,
             action,
-            args.tree.ui_diff_before_after.unwrap_or(true),
+            args.tree.ui_diff_before_after,
             args.tree.tree_max_depth,
             args.tree.include_detailed_attributes,
             tree_output_format,
@@ -2073,7 +2072,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
-                args.tree.ui_diff_before_after.unwrap_or(true),
+                args.tree.ui_diff_before_after,
                 args.tree.tree_max_depth,
                 args.tree.include_detailed_attributes,
                 tree_output_format,
@@ -2168,7 +2167,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
     }
 
     #[tool(
-        description = "Sends a key press to the currently focused element (no selector required). Use curly brace format: '{Ctrl}c', '{Alt}{F4}', '{Enter}', '{PageDown}', '{Tab}', etc. This action requires the application to be focused and may change the UI.
+        description = "Activates the window for the specified process and sends a key press to the focused element. Use curly brace format: '{Ctrl}c', '{Alt}{F4}', '{Enter}', '{PageDown}', '{Tab}', etc.
 
 Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g., 'Tab')."
     )]
@@ -2179,14 +2178,50 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
         let mut span = StepSpan::new("press_key_global", None);
 
         // Add telemetry attributes
+        span.set_attribute("process", args.process.clone());
         span.set_attribute("key", args.key.clone());
 
-        // Identify focused element
+        // Build selector to find window in the specified process
+        let window_selector = format!("process:{} >> role:Window", args.process);
+        span.set_attribute("window_selector", window_selector.clone());
+
+        // Find the window element
         let operation_start = std::time::Instant::now();
-        let element = self.desktop.focused_element().map_err(|e| {
-            // Note: Cannot use span in error closure as it would be moved
+        let window = self
+            .desktop
+            .locator(Selector::from(window_selector.as_str()))
+            .first(None)
+            .await
+            .map_err(|e| {
+                McpError::resource_not_found(
+                    "Failed to find window for process",
+                    Some(json!({
+                        "reason": e.to_string(),
+                        "process": args.process,
+                        "selector": window_selector
+                    })),
+                )
+            })?;
+
+        let find_time_ms = operation_start.elapsed().as_millis() as i64;
+        span.set_attribute("window.find_duration_ms", find_time_ms.to_string());
+
+        // Activate the window to bring it to foreground
+        window.activate_window().map_err(|e| {
             McpError::internal_error(
-                "Failed to get focused element",
+                "Failed to activate window",
+                Some(json!({
+                    "reason": e.to_string(),
+                    "process": args.process
+                })),
+            )
+        })?;
+        span.set_attribute("window.activated", "true".to_string());
+
+        // Get the focused element after activation
+        let element = self.desktop.focused_element().map_err(|e| {
+            McpError::internal_error(
+                "Failed to get focused element after window activation",
                 Some(json!({"reason": e.to_string()})),
             )
         })?;
@@ -2202,10 +2237,10 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
 
         // Gather metadata for debugging / result payload
         let element_info = build_element_info(&element);
+        let window_info = build_element_info(&window);
 
-        // Perform the key press
+        // Perform the key press on the focused element
         element.press_key(&args.key).map_err(|e| {
-            // Note: Cannot use span in error closure as it would be moved
             McpError::resource_not_found(
                 "Failed to press key on focused element",
                 Some(json!({
@@ -2219,10 +2254,87 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
         let mut result_json = json!({
             "action": "press_key_global",
             "status": "success",
+            "process": args.process,
             "key_pressed": args.key,
-            "element": element_info,
+            "window": window_info,
+            "focused_element": element_info,
             "timestamp": chrono::Utc::now().to_rfc3339()
         });
+
+        // POST-ACTION VERIFICATION
+        let verify_exists = args.verify_element_exists.clone();
+        let verify_not_exists = args.verify_element_not_exists.clone();
+        let verify_timeout_ms = args.verify_timeout_ms;
+
+        let skip_verification = verify_exists.is_empty() && verify_not_exists.is_empty();
+
+        if !skip_verification {
+            span.add_event("verification_started", vec![]);
+
+            let verify_exists_opt = if verify_exists.is_empty() {
+                None
+            } else {
+                Some(verify_exists.as_str())
+            };
+            let verify_not_exists_opt = if verify_not_exists.is_empty() {
+                None
+            } else {
+                Some(verify_not_exists.as_str())
+            };
+
+            match crate::helpers::verify_post_action(
+                &self.desktop,
+                &element,
+                verify_exists_opt,
+                verify_not_exists_opt,
+                verify_timeout_ms,
+                &window_selector,
+            )
+            .await
+            {
+                Ok(verification_result) => {
+                    tracing::info!(
+                        "[press_key_global] Verification passed: method={}, details={}",
+                        verification_result.method,
+                        verification_result.details
+                    );
+                    span.set_attribute("verification.passed", "true".to_string());
+                    span.set_attribute("verification.method", verification_result.method.clone());
+                    span.set_attribute(
+                        "verification.elapsed_ms",
+                        verification_result.elapsed_ms.to_string(),
+                    );
+
+                    let verification_json = json!({
+                        "passed": verification_result.passed,
+                        "method": verification_result.method,
+                        "details": verification_result.details,
+                        "elapsed_ms": verification_result.elapsed_ms,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    });
+                    result_json["verification"] = verification_json;
+                }
+                Err(e) => {
+                    tracing::error!("[press_key_global] Verification failed: {}", e);
+                    span.set_attribute("verification.passed", "false".to_string());
+                    span.set_attribute("verification.error", e.to_string());
+                    let error_msg = format!("Verification failed: {}", e);
+                    span.set_status(false, Some(error_msg.as_str()));
+                    span.end();
+
+                    return Err(McpError::internal_error(
+                        "Post-action verification failed",
+                        Some(json!({
+                            "error": e.to_string(),
+                            "verify_element_exists": verify_exists,
+                            "verify_element_not_exists": verify_not_exists,
+                            "verify_timeout_ms": verify_timeout_ms,
+                        })),
+                    ));
+                }
+            }
+        }
+
         maybe_attach_tree(
             &self.desktop,
             args.tree.include_tree_after_action,
@@ -4496,7 +4608,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
-                args.tree.ui_diff_before_after.unwrap_or(true),
+                args.tree.ui_diff_before_after,
                 args.tree.tree_max_depth,
                 args.tree.include_detailed_attributes,
                 tree_output_format,
@@ -4646,7 +4758,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
-                args.tree.ui_diff_before_after.unwrap_or(true),
+                args.tree.ui_diff_before_after,
                 args.tree.tree_max_depth,
                 args.tree.include_detailed_attributes,
                 tree_output_format,
@@ -4905,7 +5017,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
-                args.tree.ui_diff_before_after.unwrap_or(true),
+                args.tree.ui_diff_before_after,
                 args.tree.tree_max_depth,
                 args.tree.include_detailed_attributes,
                 tree_output_format,
@@ -5163,7 +5275,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
-                args.tree.ui_diff_before_after.unwrap_or(true),
+                args.tree.ui_diff_before_after,
                 args.tree.tree_max_depth,
                 args.tree.include_detailed_attributes,
                 tree_output_format,
@@ -5409,7 +5521,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
-                args.tree.ui_diff_before_after.unwrap_or(true),
+                args.tree.ui_diff_before_after,
                 args.tree.tree_max_depth,
                 args.tree.include_detailed_attributes,
                 tree_output_format,
@@ -6149,7 +6261,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     }
                     element.invoke_with_state()
                 },
-                args.tree.ui_diff_before_after.unwrap_or(true),
+                args.tree.ui_diff_before_after,
                 args.tree.tree_max_depth,
                 args.tree.include_detailed_attributes,
                 tree_output_format,
@@ -6616,7 +6728,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
-                args.tree.ui_diff_before_after.unwrap_or(true),
+                args.tree.ui_diff_before_after,
                 args.tree.tree_max_depth,
                 args.tree.include_detailed_attributes,
                 tree_output_format,

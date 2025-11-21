@@ -54,9 +54,9 @@ pub struct WindowManagementOptions {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 pub struct TreeOptions {
     #[schemars(
-        description = "Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results."
+        description = "REQUIRED: Whether to include the UI tree in the response (captured after action execution)."
     )]
-    pub include_tree_after_action: Option<bool>,
+    pub include_tree_after_action: bool,
 
     #[schemars(
         description = "Maximum depth to traverse when building tree (only used if include_tree_after_action is true)"
@@ -79,9 +79,9 @@ pub struct TreeOptions {
     pub tree_output_format: Option<TreeOutputFormat>,
 
     #[schemars(
-        description = "Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree_after_action behavior. Defaults to true."
+        description = "REQUIRED: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree_after_action behavior."
     )]
-    pub ui_diff_before_after: Option<bool>,
+    pub ui_diff_before_after: bool,
 }
 
 /// Common fields for element selection with alternatives and fallbacks
@@ -576,9 +576,30 @@ pub struct PressKeyArgs {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct GlobalKeyArgs {
     #[schemars(
+        description = "Process name to scope the search (e.g., 'chrome', 'notepad', 'explorer'). Required to activate the correct window before pressing the key."
+    )]
+    pub process: String,
+
+    #[schemars(
         description = "The key or key combination to press (e.g., '{PageDown}', '{Ctrl}{V}')"
     )]
     pub key: String,
+
+    #[schemars(
+        description = "REQUIRED: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Use empty string \"\" to skip this check."
+    )]
+    pub verify_element_exists: String,
+
+    #[schemars(
+        description = "REQUIRED: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). Use empty string \"\" to skip this check."
+    )]
+    pub verify_element_not_exists: String,
+
+    #[schemars(
+        description = "REQUIRED: Timeout in milliseconds for post-action verification. The system will poll until verification passes or timeout is reached."
+    )]
+    pub verify_timeout_ms: u64,
+
     #[serde(flatten)]
     pub tree: TreeOptions,
     #[serde(flatten)]
