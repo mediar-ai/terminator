@@ -1711,10 +1711,18 @@ impl DesktopWrapper {
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
         } else {
+            // Skip tree building if both verify fields are empty
+            let should_include_tree = if skip_verification {
+                tracing::debug!("[type_into_element] Skipping tree building as both verify fields are empty");
+                Some(false)
+            } else {
+                args.tree.include_tree_after_action
+            };
+
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree_after_action,
+                should_include_tree,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -1947,10 +1955,20 @@ impl DesktopWrapper {
             // When diff is enabled, we already have the tree, so don't capture again
             // But respect include_tree if user also wants it attached separately
         } else {
+            // Skip tree building if both verify fields are empty
+            let skip_verification = args.action.verify_element_exists.is_empty()
+                && args.action.verify_element_not_exists.is_empty();
+            let should_include_tree = if skip_verification {
+                tracing::debug!("[click_element] Skipping tree building as both verify fields are empty");
+                Some(false)
+            } else {
+                args.tree.include_tree_after_action
+            };
+
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree_after_action,
+                should_include_tree,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -2136,10 +2154,20 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
         } else {
+            // Skip tree building if both verify fields are empty
+            let skip_verification = args.action.verify_element_exists.is_empty()
+                && args.action.verify_element_not_exists.is_empty();
+            let should_include_tree = if skip_verification {
+                tracing::debug!("[press_key] Skipping tree building as both verify fields are empty");
+                Some(false)
+            } else {
+                args.tree.include_tree_after_action
+            };
+
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree_after_action,
+                should_include_tree,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -5322,10 +5350,18 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
         } else {
+            // Skip tree building if both verify fields are empty
+            let should_include_tree = if should_auto_verify {
+                tracing::debug!("[set_toggled] Skipping tree building as both verify fields are empty");
+                Some(false)
+            } else {
+                args.tree.include_tree_after_action
+            };
+
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree_after_action,
+                should_include_tree,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -5573,10 +5609,18 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
         } else {
+            // Skip tree building if both verify fields are empty
+            let should_include_tree = if should_auto_verify {
+                tracing::debug!("[set_range_value] Skipping tree building as both verify fields are empty");
+                Some(false)
+            } else {
+                args.tree.include_tree_after_action
+            };
+
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree_after_action,
+                should_include_tree,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -5823,10 +5867,18 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
         } else {
+            // Skip tree building if both verify fields are empty
+            let should_include_tree = if should_auto_verify {
+                tracing::debug!("[set_selected] Skipping tree building as both verify fields are empty");
+                Some(false)
+            } else {
+                args.tree.include_tree_after_action
+            };
+
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree_after_action,
+                should_include_tree,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -6456,10 +6508,20 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
         } else {
+            // Skip tree building if both verify fields are empty
+            let skip_verification = args.action.verify_element_exists.is_empty()
+                && args.action.verify_element_not_exists.is_empty();
+            let should_include_tree = if skip_verification {
+                tracing::debug!("[invoke_element] Skipping tree building as both verify fields are empty");
+                Some(false)
+            } else {
+                args.tree.include_tree_after_action
+            };
+
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree_after_action,
+                should_include_tree,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
@@ -6998,10 +7060,19 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
         } else {
+            // Skip tree building if both verify fields are empty
+            let skip_verification = verify_exists.is_empty();
+            let should_include_tree = if skip_verification {
+                tracing::debug!("[set_value] Skipping tree building as both verify fields are empty");
+                Some(false)
+            } else {
+                args.tree.include_tree_after_action
+            };
+
             // Normal tree attachment when diff not requested
             maybe_attach_tree(
                 &self.desktop,
-                args.tree.include_tree_after_action,
+                should_include_tree,
                 args.tree.tree_max_depth,
                 args.tree.tree_from_selector.as_deref(),
                 args.tree.include_detailed_attributes,
