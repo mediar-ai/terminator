@@ -6510,7 +6510,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             tracing::info!("[set_zoom] Direct MCP call detected - performing window management");
             // Note: set_zoom operates on browser context, using generic browser process
             let _ = self
-                .prepare_window_management("chrome", None, None, None, &Default::default())
+                .prepare_window_management("chrome", None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!(
@@ -7754,6 +7754,13 @@ impl DesktopWrapper {
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         }
 
+        // Set in_sequence flag to prevent individual tools from doing their own window management
+        // dispatch_tool handles window management centrally
+        {
+            let mut in_seq = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            *in_seq = true;
+        }
+
         // Wrap each tool call with cancellation support
         let result = match tool_name {
             "get_window_tree" => {
@@ -8130,6 +8137,12 @@ impl DesktopWrapper {
                 Some(json!({"tool_name": tool_name})),
             )),
         };
+
+        // Reset in_sequence flag after tool execution
+        {
+            let mut in_seq = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            *in_seq = false;
+        }
 
         // Restore windows appropriately based on execution context
         match execution_context {
