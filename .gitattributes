@@ -5,15 +5,15 @@
 
 # Explicitly declare text files you want to always be normalized and converted
 # to native line endings on checkout.
-*.rs text
-*.toml text
-*.yml text
-*.yaml text
-*.json text
-*.md text
-*.txt text
+*.rs text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
 *.sh text eol=lf
-*.py text
+*.py text eol=lf
 
 # Declare files that will always have CRLF line endings on checkout.
 *.bat text eol=crlf
