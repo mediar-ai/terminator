@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.13] - 2025-11-21
+
+### Added
+- CI/CD: Add GitHub Actions workflow to publish @mediar-ai/kv package
+  - Automatically builds TypeScript and publishes to npm on version tags
+  - Synced @mediar-ai/kv version to 0.23.13 (was stuck at 0.1.0 since v0.23.8)
+
 ## [0.23.12] - 2025-11-21
 
 ### Fixed
