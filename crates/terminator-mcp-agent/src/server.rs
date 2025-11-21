@@ -335,7 +335,7 @@ impl DesktopWrapper {
                 }
 
                 // Maximize target if not already maximized
-                let should_maximize_target = window_mgmt_opts.maximize_target.unwrap_or(true);
+                let should_maximize_target = window_mgmt_opts.maximize_target.unwrap_or(false);
                 let should_bring_to_front = window_mgmt_opts.bring_to_front.unwrap_or(true);
 
                 if should_maximize_target {
@@ -444,7 +444,7 @@ impl DesktopWrapper {
                 }
 
                 // 2. Maximize UWP target window using keyboard (ShowWindow doesn't work for UWP)
-                let should_maximize_target = window_mgmt_opts.maximize_target.unwrap_or(true);
+                let should_maximize_target = window_mgmt_opts.maximize_target.unwrap_or(false);
                 if should_maximize_target {
                     if let Some(element) = ui_element {
                         if let Err(e) = element.maximize_window_keyboard() {
@@ -549,7 +549,7 @@ impl DesktopWrapper {
                     }
 
                     // Maximize target Win32 window
-                    let should_maximize_target = window_mgmt_opts.maximize_target.unwrap_or(true);
+                    let should_maximize_target = window_mgmt_opts.maximize_target.unwrap_or(false);
                     let should_bring_to_front = window_mgmt_opts.bring_to_front.unwrap_or(true);
 
                     if should_maximize_target {
