@@ -23,8 +23,15 @@ terminator tag                         # Tag and push current version
 
 ### Installation (Run Once)
 
+**Windows (Recommended):**
 ```bash
-cargo install --path terminator-cli   # Install globally to PATH
+npm install -g @mediar-ai/cli        # npm wrapper with Windows binaries
+# Then use: terminator release
+```
+
+**macOS/Linux (Compile from source):**
+```bash
+cargo install --path crates/terminator-cli   # Install globally to PATH
 ```
 
 ### CLI Help
