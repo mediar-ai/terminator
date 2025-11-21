@@ -1477,6 +1477,11 @@ impl DesktopWrapper {
             move |element: UIElement| {
                 let text_to_type = text_to_type.clone();
                 async move {
+                    // Activate window to ensure it has keyboard focus before typing
+                    if let Err(e) = element.activate_window() {
+                        tracing::warn!("Failed to activate window before typing: {}", e);
+                    }
+
                     // Apply highlighting before action if enabled
                     if highlight_before {
                         Self::ensure_visible_and_apply_highlight(&element, "type");
@@ -1935,7 +1940,7 @@ impl DesktopWrapper {
         if !args.action.verify_element_exists.is_empty()
             || !args.action.verify_element_not_exists.is_empty()
         {
-            let verify_timeout_ms = args.action.verify_timeout_ms;
+            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
 
             let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
                 None
@@ -2110,6 +2115,11 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
             move |element: UIElement| {
                 let key_to_press = key_to_press.clone();
                 async move {
+                    // Activate window to ensure it has keyboard focus before pressing key
+                    if let Err(e) = element.activate_window() {
+                        tracing::warn!("Failed to activate window before pressing key: {}", e);
+                    }
+
                     // Ensure element is visible and apply highlighting if enabled
                     if highlight_before {
                         Self::ensure_visible_and_apply_highlight(&element, "key");
@@ -2197,7 +2207,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
         if !args.action.verify_element_exists.is_empty()
             || !args.action.verify_element_not_exists.is_empty()
         {
-            let verify_timeout_ms = args.action.verify_timeout_ms;
+            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
 
             let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
                 None
@@ -6587,7 +6597,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if !args.action.verify_element_exists.is_empty()
             || !args.action.verify_element_not_exists.is_empty()
         {
-            let verify_timeout_ms = args.action.verify_timeout_ms;
+            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
 
             let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
                 None
@@ -7061,7 +7071,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let value_to_set = args.value.clone();
         let action = move |element: UIElement| {
             let value_to_set = value_to_set.clone();
-            async move { element.set_value(&value_to_set) }
+            async move {
+                // Activate window to ensure it has keyboard focus before setting value
+                if let Err(e) = element.activate_window() {
+                    tracing::warn!("Failed to activate window before setting value: {}", e);
+                }
+                element.set_value(&value_to_set)
+            }
         };
 
         // Store tree config to avoid move issues

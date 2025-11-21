@@ -691,10 +691,6 @@ where
                     tracing::warn!(
                         "[ui_diff] Could not get PID from element, skipping diff capture"
                     );
-                    // Activate window to ensure it has keyboard focus before action
-                    if let Err(e) = element.activate_window() {
-                        tracing::warn!("Failed to activate window before action: {}", e);
-                    }
                     // Fall back to executing without diff
                     match action(element.clone()).await {
                         Ok(result) => return Ok(((result, element), successful_selector, None)),
@@ -737,10 +733,6 @@ where
                         Ok(tree) => tree,
                         Err(e) => {
                             tracing::warn!("[ui_diff] Failed to capture tree before action: {}. Continuing without diff.", e);
-                            // Activate window to ensure it has keyboard focus before action
-                            if let Err(e) = element.activate_window() {
-                                tracing::warn!("Failed to activate window before action: {}", e);
-                            }
                             // Execute action without diff
                             match action(element.clone()).await {
                                 Ok(result) => {
@@ -765,11 +757,6 @@ where
                     };
                     // Clone tree_output_format to avoid move issues in retry loop
                     let before_str = format_tree_string(&tree_before, tree_output_format);
-
-                    // Activate window to ensure it has keyboard focus before action
-                    if let Err(e) = element.activate_window() {
-                        tracing::warn!("Failed to activate window before action: {}", e);
-                    }
 
                     // Execute action
                     match action(element.clone()).await {
