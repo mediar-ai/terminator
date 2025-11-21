@@ -2331,8 +2331,9 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
         span.set_attribute("process", args.process.clone());
         span.set_attribute("key", args.key.clone());
 
-        // Build selector to find window in the specified process
-        let window_selector = format!("process:{} >> role:Window", args.process);
+        // Build selector to find the root window for the process
+        // Using just process: prefix gets the main/root window directly
+        let window_selector = format!("process:{}", args.process);
         span.set_attribute("window_selector", window_selector.clone());
 
         // Find the window element
@@ -7142,7 +7143,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 args.value
             );
             span.set_attribute("verification.auto_inferred", "true".to_string());
-            format!("value:{}", args.value)
+            format!("text:{}", args.value)
         } else {
             args.action.verify_element_exists.clone()
         };
