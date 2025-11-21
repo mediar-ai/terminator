@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.14] - 2025-11-21
+
+### Changed
+- Workflow: Rename createWorkflowError to WorkflowError for consistency
+
 ## [0.23.13] - 2025-11-21
 
 ### Added
