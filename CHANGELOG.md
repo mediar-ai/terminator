@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.15] - 2025-11-21
+
+### Added
+- Workflow: Add onSuccess handler that returns data for MCP integration
+
+### Changed
+- Docs: Improve CLI installation instructions with npm wrapper guidance
+
 ## [0.23.14] - 2025-11-21
 
 ### Changed
