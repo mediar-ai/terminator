@@ -337,8 +337,9 @@ impl DesktopWrapper {
                 // Maximize target if not already maximized
                 let should_maximize_target = window_mgmt_opts.maximize_target.unwrap_or(true);
                 let should_bring_to_front = window_mgmt_opts.bring_to_front.unwrap_or(true);
+
                 if should_maximize_target {
-                    match self.window_manager.maximize_if_needed(window.hwnd, should_bring_to_front).await {
+                    match self.window_manager.maximize_if_needed(window.hwnd).await {
                         Ok(true) => {
                             tracing::info!("Maximized target window");
                         }
@@ -347,6 +348,21 @@ impl DesktopWrapper {
                         }
                         Err(e) => {
                             tracing::warn!("Failed to maximize window: {}", e);
+                        }
+                    }
+                }
+
+                // Bring window to front (independent of maximize)
+                if should_bring_to_front {
+                    match self.window_manager.bring_window_to_front(window.hwnd).await {
+                        Ok(true) => {
+                            tracing::info!("Brought target window to front");
+                        }
+                        Ok(false) => {
+                            tracing::debug!("Failed to bring window to front (Windows restrictions)");
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to bring window to front: {}", e);
                         }
                     }
                 }
@@ -535,8 +551,9 @@ impl DesktopWrapper {
                     // Maximize target Win32 window
                     let should_maximize_target = window_mgmt_opts.maximize_target.unwrap_or(true);
                     let should_bring_to_front = window_mgmt_opts.bring_to_front.unwrap_or(true);
+
                     if should_maximize_target {
-                        match self.window_manager.maximize_if_needed(window.hwnd, should_bring_to_front).await {
+                        match self.window_manager.maximize_if_needed(window.hwnd).await {
                             Ok(true) => {
                                 tracing::info!("Maximized Win32 window for {}", process);
                             }
@@ -545,6 +562,21 @@ impl DesktopWrapper {
                             }
                             Err(e) => {
                                 tracing::warn!("Failed to maximize Win32 window: {}", e);
+                            }
+                        }
+                    }
+
+                    // Bring window to front (independent of maximize)
+                    if should_bring_to_front {
+                        match self.window_manager.bring_window_to_front(window.hwnd).await {
+                            Ok(true) => {
+                                tracing::info!("Brought Win32 window to front for {}", process);
+                            }
+                            Ok(false) => {
+                                tracing::debug!("Failed to bring Win32 window to front (Windows restrictions)");
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to bring Win32 window to front: {}", e);
                             }
                         }
                     }

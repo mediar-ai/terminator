@@ -4,13 +4,14 @@ use std::time::Instant;
 use tokio::sync::Mutex;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+    AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
+    PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, GetForegroundWindow, GetTopWindow, GetWindow, GetWindowLongPtrW,
     GetWindowPlacement, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
     IsZoomed, SetForegroundWindow, SetWindowPlacement, ShowWindow, GWL_EXSTYLE, GW_HWNDNEXT,
-    SW_MAXIMIZE, SW_MINIMIZE, WINDOWPLACEMENT, WS_EX_TOPMOST,
+    SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SW_SHOW, WINDOWPLACEMENT, WS_EX_TOPMOST,
 };
 
 #[derive(Clone, Debug)]
@@ -220,8 +221,8 @@ impl WindowManager {
         Ok(minimized_count)
     }
 
-    // Maximize window if not already maximized, and optionally bring to foreground
-    pub async fn maximize_if_needed(&self, hwnd: isize, bring_to_front: bool) -> Result<bool, String> {
+    // Maximize window if not already maximized
+    pub async fn maximize_if_needed(&self, hwnd: isize) -> Result<bool, String> {
         // Track this window as the target that needs restoration
         let mut cache = self.window_cache.lock().await;
         cache.target_window = Some(hwnd);
@@ -231,15 +232,10 @@ impl WindowManager {
             let hwnd_win = HWND(hwnd as *mut _);
             let was_maximized = IsZoomed(hwnd_win).as_bool();
 
-            // Check foreground window before our operation
-            let foreground_before = GetForegroundWindow();
-            let was_foreground = foreground_before.0 == hwnd_win.0;
-
             tracing::debug!(
-                "maximize_if_needed: hwnd={:?}, was_maximized={}, was_foreground={}",
+                "maximize_if_needed: hwnd={:?}, was_maximized={}",
                 hwnd,
-                was_maximized,
-                was_foreground
+                was_maximized
             );
 
             if !was_maximized {
@@ -247,17 +243,83 @@ impl WindowManager {
                 tracing::debug!("maximize_if_needed: Called ShowWindow(SW_MAXIMIZE)");
             }
 
-            // Optionally bring window to foreground
-            if bring_to_front {
-                // Bring window to top of Z-order to ensure it's visible above other windows
-                let _ = BringWindowToTop(hwnd_win);
-                tracing::debug!("maximize_if_needed: Called BringWindowToTop");
+            Ok(!was_maximized)
+        }
+    }
 
-                // Try to set as foreground window - may fail due to Windows restrictions but worth trying
-                let fg_result = SetForegroundWindow(hwnd_win);
-                tracing::debug!("maximize_if_needed: SetForegroundWindow returned {}", fg_result.as_bool());
-            } else {
-                tracing::debug!("maximize_if_needed: Skipping BringWindowToTop/SetForegroundWindow (bring_to_front=false)");
+    // Bring window to front (BringWindowToTop + SetForegroundWindow)
+    // Uses AttachThreadInput trick to bypass Windows' focus-stealing prevention
+    pub async fn bring_window_to_front(&self, hwnd: isize) -> Result<bool, String> {
+        unsafe {
+            let hwnd_win = HWND(hwnd as *mut _);
+
+            // Check foreground window before our operation
+            let foreground_before = GetForegroundWindow();
+            let was_foreground = foreground_before.0 == hwnd_win.0;
+
+            tracing::debug!(
+                "bring_window_to_front: hwnd={:?}, was_foreground={}",
+                hwnd,
+                was_foreground
+            );
+
+            // If window is minimized, restore it first
+            if IsIconic(hwnd_win).as_bool() {
+                let _ = ShowWindow(hwnd_win, SW_RESTORE);
+                tracing::debug!("bring_window_to_front: Restored minimized window");
+            }
+
+            // Get thread IDs for the AttachThreadInput trick
+            let current_thread_id = GetCurrentThreadId();
+            let target_thread_id = GetWindowThreadProcessId(hwnd_win, None);
+            let foreground_thread_id = GetWindowThreadProcessId(foreground_before, None);
+
+            tracing::debug!(
+                "bring_window_to_front: current_thread={}, target_thread={}, foreground_thread={}",
+                current_thread_id,
+                target_thread_id,
+                foreground_thread_id
+            );
+
+            // Attach to foreground window's thread to gain permission to set foreground
+            let mut attached_to_foreground = false;
+            let mut attached_to_target = false;
+
+            if foreground_thread_id != 0 && foreground_thread_id != current_thread_id {
+                if AttachThreadInput(current_thread_id, foreground_thread_id, true).as_bool() {
+                    attached_to_foreground = true;
+                    tracing::debug!("bring_window_to_front: Attached to foreground thread");
+                }
+            }
+
+            // Also attach to target window's thread
+            if target_thread_id != 0 && target_thread_id != current_thread_id && target_thread_id != foreground_thread_id {
+                if AttachThreadInput(current_thread_id, target_thread_id, true).as_bool() {
+                    attached_to_target = true;
+                    tracing::debug!("bring_window_to_front: Attached to target thread");
+                }
+            }
+
+            // Now try to bring the window to front
+            // First, bring to top of Z-order
+            let _ = BringWindowToTop(hwnd_win);
+            tracing::debug!("bring_window_to_front: Called BringWindowToTop");
+
+            // Make visible and active
+            let _ = ShowWindow(hwnd_win, SW_SHOW);
+
+            // Set as foreground window
+            let fg_result = SetForegroundWindow(hwnd_win);
+            tracing::debug!("bring_window_to_front: SetForegroundWindow returned {}", fg_result.as_bool());
+
+            // Detach from threads
+            if attached_to_target {
+                let _ = AttachThreadInput(current_thread_id, target_thread_id, false);
+                tracing::debug!("bring_window_to_front: Detached from target thread");
+            }
+            if attached_to_foreground {
+                let _ = AttachThreadInput(current_thread_id, foreground_thread_id, false);
+                tracing::debug!("bring_window_to_front: Detached from foreground thread");
             }
 
             // Check if window is foreground after our attempts
@@ -265,14 +327,13 @@ impl WindowManager {
             let is_now_foreground = foreground_after.0 == hwnd_win.0;
 
             tracing::debug!(
-                "maximize_if_needed: hwnd={:?}, maximized={}, is_foreground={} (was: {})",
+                "bring_window_to_front: hwnd={:?}, is_foreground={} (was: {})",
                 hwnd,
-                !was_maximized,
                 is_now_foreground,
                 was_foreground
             );
 
-            Ok(!was_maximized)
+            Ok(is_now_foreground)
         }
     }
 
