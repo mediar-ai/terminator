@@ -1178,6 +1178,11 @@ pub struct ExecuteSequenceArgs {
     )]
     pub trace_id: Option<String>,
 
+    #[schemars(
+        description = "Optional execution ID for distributed tracing. When provided by the executor, this execution_id will be attached to all logs for correlation."
+    )]
+    pub execution_id: Option<String>,
+
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
 }

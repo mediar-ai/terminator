@@ -870,6 +870,11 @@ impl DesktopWrapper {
             workflow_span.set_attribute("trace_id", trace_id.clone());
         }
 
+        // Add execution_id for distributed tracing if provided by executor
+        if let Some(exec_id) = &args.execution_id {
+            workflow_span.set_attribute("execution_id", exec_id.clone());
+        }
+
         workflow_span.set_attribute(
             "workflow.total_steps",
             args.steps
