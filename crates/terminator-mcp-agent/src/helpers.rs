@@ -1,14 +1,12 @@
 use crate::expression_eval;
 use crate::mcp_types::TreeOutputFormat;
+use crate::tree_formatter::{format_tree_as_compact_yaml, format_ui_node_as_compact_yaml};
 use crate::utils::ToolCall;
 use regex::Regex;
 use rmcp::ErrorData as McpError;
 use serde_json::{json, Value};
 use std::time::Duration;
-use terminator::{
-    format_tree_as_compact_yaml, format_ui_node_as_compact_yaml, AutomationError, Desktop,
-    Selector, UIElement,
-}; // NEW: import expression evaluator
+use terminator::{AutomationError, Desktop, Selector, UIElement};
 
 /// Helper function to parse comma-separated alternative selectors into a Vec<String>
 pub fn parse_alternative_selectors(alternatives: Option<&str>) -> Vec<String> {
