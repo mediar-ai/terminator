@@ -79,7 +79,7 @@ pub struct TreeOptions {
     pub tree_output_format: Option<TreeOutputFormat>,
 
     #[schemars(
-        description = "Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree_after_action behavior. Defaults to false."
+        description = "Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree_after_action behavior. Defaults to true."
     )]
     pub ui_diff_before_after: Option<bool>,
 }
