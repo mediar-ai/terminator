@@ -130,9 +130,12 @@ While Terminator aims for full cross-platform support, current capabilities vary
 | Workflow Recording           |    ✅    |   ❌   |   ❌   | Record human workflows for deterministic automation. |
 | Monitor Management           |    ✅    |   🟡   |   🟡   | Multi-display support.                               |
 | Screen & Element Capture     |    ✅    |   ✅   |   🟡   | Take screenshots of displays or elements.            |
-| **Language Bindings**        |         |       |       |                                                      |
+| **Libraries**        |         |       |       |                                                      |
 | Python (`terminator.py`)     |    🟡    |   🟡   |   🟡   | `pip install terminator`                          |
 | TypeScript (`@mediar-ai/terminator`) |    ✅    |   ✅   |   ✅   | `npm i @mediar-ai/terminator`                                |
+| Workflow (`@mediar-ai/workflow`) |    ✅    |   ✅   |   ✅   | `npm i @mediar-ai/workflow`                                |
+| CLI (`@mediar-ai/cli`) |    ✅    |   ✅   |   ✅   | `npm i @mediar-ai/cli`                                |
+| KV (`@mediar-ai/kv`) |    ✅    |   ✅   |   ✅   | `npm i @mediar-ai/kv`                                |
 | MCP (`terminator-mcp-agent`) |    ✅    |   ✅   |   ✅   | `npx -y terminator-mcp-agent --add-to-app [app]`     |
 | Rust (`terminator-rs`)       |    ✅    |   ✅   |   ✅   | `cargo add terminator-rs`                            |
 
