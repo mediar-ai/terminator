@@ -708,8 +708,12 @@ pub struct HighlightElementArgs {
     pub text: Option<String>,
     #[schemars(description = "Position of text overlay relative to the highlighted element")]
     pub text_position: Option<TextPosition>,
-    #[schemars(description = "Font styling options for text overlay")]
-    pub font_style: Option<FontStyle>,
+    #[schemars(description = "Font size in pixels (default: 14)")]
+    pub font_size: Option<u32>,
+    #[schemars(description = "Whether the font should be bold (default: false)")]
+    pub font_bold: Option<bool>,
+    #[schemars(description = "Text color in BGR format (default: 0 = black)")]
+    pub font_color: Option<u32>,
     pub include_element_info: Option<bool>,
     #[serde(flatten)]
     pub selector: SelectorOptions,

@@ -3777,7 +3777,15 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let text_position = None;
 
         #[cfg(target_os = "windows")]
-        let font_style = args.font_style.clone().map(|style| style.into());
+        let font_style = if args.font_size.is_some() || args.font_bold.is_some() || args.font_color.is_some() {
+            Some(terminator::platforms::windows::FontStyle {
+                size: args.font_size.unwrap_or(14),
+                bold: args.font_bold.unwrap_or(false),
+                color: args.font_color.unwrap_or(0),
+            })
+        } else {
+            None
+        };
         #[cfg(not(target_os = "windows"))]
         let font_style = None;
 
