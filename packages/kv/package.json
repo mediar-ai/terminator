@@ -1,6 +1,6 @@
 {
   "name": "@mediar-ai/kv",
-  "version": "0.1.0",
+  "version": "0.23.12",
   "description": "State sharing and KV store for Terminator workflows",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
