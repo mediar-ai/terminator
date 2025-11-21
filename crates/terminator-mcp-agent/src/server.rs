@@ -4,7 +4,7 @@ use crate::telemetry::StepSpan;
 use crate::utils::find_and_execute_with_retry_with_fallback;
 pub use crate::utils::DesktopWrapper;
 use crate::utils::{
-    get_timeout, ActionHighlightConfig, ActivateElementArgs, CaptureElementScreenshotArgs,
+    get_timeout, ActivateElementArgs, CaptureElementScreenshotArgs,
     ClickElementArgs, CloseElementArgs, DelayArgs, ExecuteBrowserScriptArgs, ExecuteSequenceArgs,
     GetApplicationsArgs, GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs, LocatorArgs,
     MaximizeWindowArgs, MinimizeWindowArgs, MouseDragArgs, NavigateBrowserArgs,
@@ -1360,10 +1360,9 @@ impl DesktopWrapper {
         Ok(())
     }
 
-    /// Ensures element is visible and optionally applies highlighting before action
+    /// Ensures element is visible and applies highlighting before action with hardcoded defaults
     fn ensure_visible_and_apply_highlight(
         element: &UIElement,
-        highlight_config: &ActionHighlightConfig,
         action_name: &str,
     ) {
         // Always ensure element is in view first (for all actions, not just when highlighting)
@@ -1371,39 +1370,38 @@ impl DesktopWrapper {
             tracing::warn!("Failed to ensure element is in view for {action_name} action: {e}");
         }
 
-        // Then apply highlighting if enabled
-        if highlight_config.enabled {
-            let duration = highlight_config
-                .duration_ms
-                .map(std::time::Duration::from_millis);
-            let color = highlight_config.color;
-            let text = highlight_config.text.as_deref();
+        // Hardcoded highlight configuration
+        let duration = Some(std::time::Duration::from_millis(500));
+        let color = Some(0x00FF00); // Green in BGR
+        let role_text = element.role();
+        let text = Some(role_text.as_str());
 
-            #[cfg(target_os = "windows")]
-            let text_position = highlight_config.text_position.clone().map(|pos| pos.into());
-            #[cfg(not(target_os = "windows"))]
-            let text_position = None;
+        #[cfg(target_os = "windows")]
+        let text_position = Some(crate::mcp_types::TextPosition::Top.into());
+        #[cfg(not(target_os = "windows"))]
+        let text_position = None;
 
-            #[cfg(target_os = "windows")]
-            let font_style = highlight_config
-                .font_style
-                .clone()
-                .map(|style| style.into());
-            #[cfg(not(target_os = "windows"))]
-            let font_style = None;
+        #[cfg(target_os = "windows")]
+        let font_style = Some(crate::mcp_types::FontStyle {
+            size: 12,
+            bold: true,
+            color: 0xFFFFFF, // White text
+        }.into());
+        #[cfg(not(target_os = "windows"))]
+        let font_style = None;
 
-            tracing::info!(
-                "HIGHLIGHT_BEFORE_{} duration={:?}",
-                action_name.to_uppercase(),
-                duration
-            );
-            if let Ok(_highlight_handle) =
-                element.highlight(color, duration, text, text_position, font_style)
-            {
-                // Highlight applied successfully - runs concurrently with action
-            } else {
-                tracing::warn!("Failed to apply highlighting before {action_name} action");
-            }
+        tracing::info!(
+            "HIGHLIGHT_BEFORE_{} duration={:?} role={}",
+            action_name.to_uppercase(),
+            duration,
+            role_text
+        );
+        if let Ok(_highlight_handle) =
+            element.highlight(color, duration, text, text_position, font_style)
+        {
+            // Highlight applied successfully - runs concurrently with action
+        } else {
+            tracing::warn!("Failed to apply highlighting before {action_name} action");
         }
     }
 
@@ -1474,15 +1472,16 @@ impl DesktopWrapper {
         let should_clear = args.clear_before_typing;
         let try_focus_before = args.try_focus_before;
         let try_click_before = args.try_click_before;
+        let highlight_before = args.highlight.highlight_before_action;
 
         let action = {
-            let highlight_config = args.highlight.highlight_before_action.clone();
             move |element: UIElement| {
                 let text_to_type = text_to_type.clone();
-                let highlight_config = highlight_config.clone();
                 async move {
-                    // Apply highlighting before action if configured
-                    Self::ensure_visible_and_apply_highlight(&element, &highlight_config, "type");
+                    // Apply highlighting before action if enabled
+                    if highlight_before {
+                        Self::ensure_visible_and_apply_highlight(&element, "type");
+                    }
 
                     // Execute the typing action with state tracking
                     if should_clear {
@@ -1808,15 +1807,16 @@ impl DesktopWrapper {
             tracing::debug!("[click_element] In sequence - skipping window management (dispatch_tool handles it)");
         }
 
+        let highlight_before = args.highlight.highlight_before_action;
         let action = {
-            let highlight_config = args.highlight.highlight_before_action.clone();
             let click_position = args.click_position.clone();
             move |element: UIElement| {
-                let highlight_config = highlight_config.clone();
                 let click_position = click_position.clone();
                 async move {
-                    // Ensure element is visible and apply highlighting if configured
-                    Self::ensure_visible_and_apply_highlight(&element, &highlight_config, "click");
+                    // Ensure element is visible and apply highlighting if enabled
+                    if highlight_before {
+                        Self::ensure_visible_and_apply_highlight(&element, "click");
+                    }
 
                     // Click at specified position
                     // Get element bounds to calculate absolute position
@@ -2036,14 +2036,15 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
         let key_to_press = args.key.clone();
         let try_focus_before = args.try_focus_before;
         let try_click_before = args.try_click_before;
+        let highlight_before = args.highlight.highlight_before_action;
         let action = {
-            let highlight_config = args.highlight.highlight_before_action.clone();
             move |element: UIElement| {
                 let key_to_press = key_to_press.clone();
-                let highlight_config = highlight_config.clone();
                 async move {
-                    // Ensure element is visible and apply highlighting if configured
-                    Self::ensure_visible_and_apply_highlight(&element, &highlight_config, "key");
+                    // Ensure element is visible and apply highlighting if enabled
+                    if highlight_before {
+                        Self::ensure_visible_and_apply_highlight(&element, "key");
+                    }
 
                     // Execute the key press action with state tracking
                     element.press_key_with_state_and_focus(
@@ -4456,14 +4457,15 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
         let direction = args.direction.clone();
         let amount = args.amount;
+        let highlight_before = args.highlight.highlight_before_action;
         let action = {
-            let highlight_config = args.highlight.highlight_before_action.clone();
             move |element: UIElement| {
                 let direction = direction.clone();
-                let highlight_config = highlight_config.clone();
                 async move {
-                    // Ensure element is visible and apply highlighting if configured
-                    Self::ensure_visible_and_apply_highlight(&element, &highlight_config, "scroll");
+                    // Ensure element is visible and apply highlighting if enabled
+                    if highlight_before {
+                        Self::ensure_visible_and_apply_highlight(&element, "scroll");
+                    }
 
                     // Execute the scroll action with state tracking
                     element.scroll_with_state(&direction, amount)

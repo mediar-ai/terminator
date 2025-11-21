@@ -180,9 +180,9 @@ pub struct ActionOptions {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct HighlightOptions {
     #[schemars(
-        description = "REQUIRED: Highlighting configuration to visually indicate the target element before the action. Set enabled: false to disable highlighting."
+        description = "REQUIRED: Whether to highlight the element before action. When true, shows a green border with element role as text."
     )]
-    pub highlight_before_action: ActionHighlightConfig,
+    pub highlight_before_action: bool,
 }
 
 /// Arguments for tools that select elements
