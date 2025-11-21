@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.11] - 2025-11-21
+
+### Added
+- Telemetry: Add OpenTelemetry metadata for better filtering and grouping in ClickHouse dashboards
+  - Resource-level: deployment.environment, service.instance.id, os.type, os.arch, automation.api
+  - Workflow-level: workflow.execution_id, workflow.url, workflow.format, workflow.trigger_source
+  - Step-level: step.process, step.selector, step.url, step.text_length for improved filtering
+- MCP: Add post-action verification to missing action tools
+- MCP: Add activate_window before actions and enhance press_key_global
+- MCP: Make ui_diff_before_after and include_tree_after_action mandatory
+- MCP: Make verify_timeout_ms optional with 2000ms default
+- MCP: Add bring_to_front flag to separate foreground from window management
+
+### Fixed
+- MCP: Use text: selector instead of value: for set_value auto-verification
+- MCP: Hide #ID selectors in compact YAML tree view
+- MCP: Add unwrap_or(2000) to verify_timeout_ms in verification code
+- MCP: Set in_sequence flag in dispatch_tool to prevent double window management
+- Windows: Use AttachThreadInput to bypass Windows focus-stealing prevention
+
+### Changed
+- MCP: Skip tree building when both verify fields are empty
+- MCP: Make highlight_before_action a required boolean parameter
+- MCP: Flatten FontStyle into HighlightElementArgs
+- MCP: Change maximize_target default from true to false
+- Editor: Add .editorconfig and fix .gitattributes line endings
+
+### Documentation
+- MCP: Improve MCP agent prompt with selector syntax guide
+- MCP: Update MCP agent prompt with tool behavior defaults
+
 ## [0.23.10] - 2025-11-20
 
 ### Added
