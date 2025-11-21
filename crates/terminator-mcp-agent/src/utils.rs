@@ -171,9 +171,10 @@ pub struct ActionOptions {
     pub verify_element_not_exists: String,
 
     #[schemars(
-        description = "REQUIRED: Timeout in milliseconds for post-action verification. The system will poll until verification passes or timeout is reached."
+        description = "Timeout in milliseconds for post-action verification. The system will poll until verification passes or timeout is reached. Defaults to 2000ms."
     )]
-    pub verify_timeout_ms: u64,
+    #[serde(default)]
+    pub verify_timeout_ms: Option<u64>,
 }
 
 /// Common fields for visual highlighting before actions

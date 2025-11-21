@@ -1605,7 +1605,7 @@ impl DesktopWrapper {
         if !skip_verification {
             span.add_event("verification_started", vec![]);
 
-            let verify_timeout_ms = args.action.verify_timeout_ms;
+            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
             span.set_attribute("verification.timeout_ms", verify_timeout_ms.to_string());
 
             // Substitute variables in verification selectors
@@ -5003,7 +5003,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             || !args.action.verify_element_not_exists.is_empty()
         {
             // Explicit verification using selectors
-            let verify_timeout_ms = args.action.verify_timeout_ms;
+            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
 
             let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
                 None
@@ -5254,7 +5254,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             || !args.action.verify_element_not_exists.is_empty()
         {
             // Explicit verification using selectors
-            let verify_timeout_ms = args.action.verify_timeout_ms;
+            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
 
             let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
                 None
@@ -5504,7 +5504,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             || !args.action.verify_element_not_exists.is_empty()
         {
             // Explicit verification using selectors
-            let verify_timeout_ms = args.action.verify_timeout_ms;
+            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
 
             let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
                 None
@@ -6673,7 +6673,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let skip_verification = verify_exists.is_empty() && verify_not_exists.is_empty();
 
         if !skip_verification {
-            let verify_timeout_ms = args.action.verify_timeout_ms;
+            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
 
             let verify_exists_opt = if verify_exists.is_empty() {
                 None
