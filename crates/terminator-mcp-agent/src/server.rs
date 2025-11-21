@@ -3658,6 +3658,77 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "end": (args.end_x, args.end_y),
             "timestamp": chrono::Utc::now().to_rfc3339()
         });
+
+        // POST-ACTION VERIFICATION
+        if !args.action.verify_element_exists.is_empty()
+            || !args.action.verify_element_not_exists.is_empty()
+        {
+            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
+
+            let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_exists.as_str())
+            };
+            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_not_exists.as_str())
+            };
+
+            match crate::helpers::verify_post_action(
+                &self.desktop,
+                &element,
+                verify_exists_opt,
+                verify_not_exists_opt,
+                verify_timeout_ms,
+                &successful_selector,
+            )
+            .await
+            {
+                Ok(verification_result) => {
+                    tracing::info!(
+                        "[mouse_drag] Verification passed: method={}, details={}",
+                        verification_result.method,
+                        verification_result.details
+                    );
+                    span.set_attribute("verification.passed", "true".to_string());
+                    span.set_attribute("verification.method", verification_result.method.clone());
+                    span.set_attribute(
+                        "verification.elapsed_ms",
+                        verification_result.elapsed_ms.to_string(),
+                    );
+
+                    let verification_json = json!({
+                        "passed": verification_result.passed,
+                        "method": verification_result.method,
+                        "details": verification_result.details,
+                        "elapsed_ms": verification_result.elapsed_ms,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    });
+
+                    if let Some(obj) = result_json.as_object_mut() {
+                        obj.insert("verification".to_string(), verification_json);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("[mouse_drag] Verification failed: {}", e);
+                    span.set_attribute("verification.passed", "false".to_string());
+                    span.set_status(false, Some("Verification failed"));
+                    span.end();
+                    return Err(McpError::internal_error(
+                        format!("Post-action verification failed: {e}"),
+                        Some(json!({
+                            "selector_used": successful_selector,
+                            "verify_exists": args.action.verify_element_exists,
+                            "verify_not_exists": args.action.verify_element_not_exists,
+                            "timeout_ms": verify_timeout_ms,
+                        })),
+                    ));
+                }
+            }
+        }
+
         maybe_attach_tree(
             &self.desktop,
             args.tree.include_tree_after_action,
@@ -4650,6 +4721,76 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "amount": args.amount,
             "timestamp": chrono::Utc::now().to_rfc3339()
         });
+
+        // POST-ACTION VERIFICATION
+        if !args.action.verify_element_exists.is_empty()
+            || !args.action.verify_element_not_exists.is_empty()
+        {
+            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
+
+            let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_exists.as_str())
+            };
+            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_not_exists.as_str())
+            };
+
+            match crate::helpers::verify_post_action(
+                &self.desktop,
+                &element,
+                verify_exists_opt,
+                verify_not_exists_opt,
+                verify_timeout_ms,
+                &successful_selector,
+            )
+            .await
+            {
+                Ok(verification_result) => {
+                    tracing::info!(
+                        "[scroll_element] Verification passed: method={}, details={}",
+                        verification_result.method,
+                        verification_result.details
+                    );
+                    span.set_attribute("verification.passed", "true".to_string());
+                    span.set_attribute("verification.method", verification_result.method.clone());
+                    span.set_attribute(
+                        "verification.elapsed_ms",
+                        verification_result.elapsed_ms.to_string(),
+                    );
+
+                    let verification_json = json!({
+                        "passed": verification_result.passed,
+                        "method": verification_result.method,
+                        "details": verification_result.details,
+                        "elapsed_ms": verification_result.elapsed_ms,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    });
+
+                    if let Some(obj) = result_json.as_object_mut() {
+                        obj.insert("verification".to_string(), verification_json);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("[scroll_element] Verification failed: {}", e);
+                    span.set_attribute("verification.passed", "false".to_string());
+                    span.set_status(false, Some("Verification failed"));
+                    span.end();
+                    return Err(McpError::internal_error(
+                        format!("Post-action verification failed: {e}"),
+                        Some(json!({
+                            "selector_used": successful_selector,
+                            "verify_exists": args.action.verify_element_exists,
+                            "verify_not_exists": args.action.verify_element_not_exists,
+                            "timeout_ms": verify_timeout_ms,
+                        })),
+                    ));
+                }
+            }
+        }
 
         // Attach UI diff if captured
         if let Some(diff_result) = ui_diff {

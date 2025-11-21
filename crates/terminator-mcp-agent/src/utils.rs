@@ -1986,18 +1986,25 @@ where
         )
         .await
         {
-            Ok((element, successful_selector)) => match action(element.clone()).await {
-                Ok(result) => return Ok(((result, element), successful_selector)),
-                Err(e) => {
-                    last_error = Some(e.into());
-                    if attempt < retry_count {
-                        warn!(
-                            "Action failed on attempt {}/{}. Retrying... Error: {}",
-                            attempt + 1,
-                            retry_count + 1,
-                            last_error.as_ref().unwrap()
-                        );
-                        tokio::time::sleep(Duration::from_millis(250)).await; // Wait before next retry
+            Ok((element, successful_selector)) => {
+                // Activate window to ensure it has keyboard focus before action
+                if let Err(e) = element.activate_window() {
+                    tracing::warn!("Failed to activate window before action: {}", e);
+                }
+
+                match action(element.clone()).await {
+                    Ok(result) => return Ok(((result, element), successful_selector)),
+                    Err(e) => {
+                        last_error = Some(e.into());
+                        if attempt < retry_count {
+                            warn!(
+                                "Action failed on attempt {}/{}. Retrying... Error: {}",
+                                attempt + 1,
+                                retry_count + 1,
+                                last_error.as_ref().unwrap()
+                            );
+                            tokio::time::sleep(Duration::from_millis(250)).await; // Wait before next retry
+                        }
                     }
                 }
             },
