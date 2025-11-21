@@ -863,6 +863,13 @@ impl DesktopWrapper {
 
         // Add execution metadata for filtering/grouping
         workflow_span.set_attribute("workflow.execution_id", execution_id.clone());
+        workflow_span.set_attribute("log_source", "agent".to_string());
+
+        // Add trace_id for distributed tracing if provided by executor
+        if let Some(trace_id) = &args.trace_id {
+            workflow_span.set_attribute("trace_id", trace_id.clone());
+        }
+
         workflow_span.set_attribute(
             "workflow.total_steps",
             args.steps

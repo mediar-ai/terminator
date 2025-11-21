@@ -1173,6 +1173,11 @@ pub struct ExecuteSequenceArgs {
     )]
     pub skip_preflight_check: Option<bool>,
 
+    #[schemars(
+        description = "Optional trace ID for distributed tracing. When provided by the executor, this trace_id will be used in OpenTelemetry spans to correlate executor and agent logs."
+    )]
+    pub trace_id: Option<String>,
+
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
 }
