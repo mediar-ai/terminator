@@ -243,6 +243,11 @@ jobs:
         with:
           path: artifacts
 
+      - name: List artifacts structure
+        run: |
+          echo "Artifacts directory structure:"
+          find artifacts -type f
+
       - name: Create GitHub Release & Upload Assets
         uses: softprops/action-gh-release@v2
         with:
@@ -293,5 +298,7 @@ jobs:
             The CLI is also available as an NPM package: `npm install -g @mediar-ai/cli`
 
             ### What's Changed
-            See the [full changelog](https://github.com/mediar-ai/terminator/compare/v${{ github.event.before }}...${{ github.ref_name }})
-          files: artifacts/**/*
+            See the [CHANGELOG](https://github.com/mediar-ai/terminator/blob/${{ github.ref_name }}/CHANGELOG.md) for details
+          files: |
+            artifacts/**/terminator-cli-*.tar.gz
+            artifacts/**/terminator-cli-*.zip
