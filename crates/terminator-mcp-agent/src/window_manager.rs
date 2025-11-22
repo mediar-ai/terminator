@@ -285,20 +285,20 @@ impl WindowManager {
             let mut attached_to_foreground = false;
             let mut attached_to_target = false;
 
-            if foreground_thread_id != 0 && foreground_thread_id != current_thread_id {
-                if AttachThreadInput(current_thread_id, foreground_thread_id, true).as_bool() {
+            if foreground_thread_id != 0 && foreground_thread_id != current_thread_id
+                && AttachThreadInput(current_thread_id, foreground_thread_id, true).as_bool() {
                     attached_to_foreground = true;
                     tracing::debug!("bring_window_to_front: Attached to foreground thread");
                 }
-            }
 
             // Also attach to target window's thread
-            if target_thread_id != 0 && target_thread_id != current_thread_id && target_thread_id != foreground_thread_id {
-                if AttachThreadInput(current_thread_id, target_thread_id, true).as_bool() {
+            if target_thread_id != 0
+                && target_thread_id != current_thread_id
+                && target_thread_id != foreground_thread_id
+                && AttachThreadInput(current_thread_id, target_thread_id, true).as_bool() {
                     attached_to_target = true;
                     tracing::debug!("bring_window_to_front: Attached to target thread");
                 }
-            }
 
             // Now try to bring the window to front
             // First, bring to top of Z-order
@@ -310,7 +310,10 @@ impl WindowManager {
 
             // Set as foreground window
             let fg_result = SetForegroundWindow(hwnd_win);
-            tracing::debug!("bring_window_to_front: SetForegroundWindow returned {}", fg_result.as_bool());
+            tracing::debug!(
+                "bring_window_to_front: SetForegroundWindow returned {}",
+                fg_result.as_bool()
+            );
 
             // Detach from threads
             if attached_to_target {

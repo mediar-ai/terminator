@@ -4,8 +4,8 @@ use crate::telemetry::StepSpan;
 use crate::utils::find_and_execute_with_retry_with_fallback;
 pub use crate::utils::DesktopWrapper;
 use crate::utils::{
-    get_timeout, ActivateElementArgs, CaptureElementScreenshotArgs,
-    ClickElementArgs, CloseElementArgs, DelayArgs, ExecuteBrowserScriptArgs, ExecuteSequenceArgs,
+    get_timeout, ActivateElementArgs, CaptureElementScreenshotArgs, ClickElementArgs,
+    CloseElementArgs, DelayArgs, ExecuteBrowserScriptArgs, ExecuteSequenceArgs,
     GetApplicationsArgs, GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs, LocatorArgs,
     MaximizeWindowArgs, MinimizeWindowArgs, MouseDragArgs, NavigateBrowserArgs,
     OpenApplicationArgs, PressKeyArgs, RunCommandArgs, ScrollElementArgs, SelectOptionArgs,
@@ -359,7 +359,9 @@ impl DesktopWrapper {
                             tracing::info!("Brought target window to front");
                         }
                         Ok(false) => {
-                            tracing::debug!("Failed to bring window to front (Windows restrictions)");
+                            tracing::debug!(
+                                "Failed to bring window to front (Windows restrictions)"
+                            );
                         }
                         Err(e) => {
                             tracing::warn!("Failed to bring window to front: {}", e);
@@ -573,7 +575,9 @@ impl DesktopWrapper {
                                 tracing::info!("Brought Win32 window to front for {}", process);
                             }
                             Ok(false) => {
-                                tracing::debug!("Failed to bring Win32 window to front (Windows restrictions)");
+                                tracing::debug!(
+                                    "Failed to bring Win32 window to front (Windows restrictions)"
+                                );
                             }
                             Err(e) => {
                                 tracing::warn!("Failed to bring Win32 window to front: {}", e);
@@ -1360,10 +1364,7 @@ impl DesktopWrapper {
     }
 
     /// Ensures element is visible and applies highlighting before action with hardcoded defaults
-    fn ensure_visible_and_apply_highlight(
-        element: &UIElement,
-        action_name: &str,
-    ) {
+    fn ensure_visible_and_apply_highlight(element: &UIElement, action_name: &str) {
         // Always ensure element is in view first (for all actions, not just when highlighting)
         if let Err(e) = Self::ensure_element_in_view(element) {
             tracing::warn!("Failed to ensure element is in view for {action_name} action: {e}");
@@ -1381,11 +1382,14 @@ impl DesktopWrapper {
         let text_position = None;
 
         #[cfg(target_os = "windows")]
-        let font_style = Some(crate::mcp_types::FontStyle {
-            size: 12,
-            bold: true,
-            color: 0xFFFFFF, // White text
-        }.into());
+        let font_style = Some(
+            crate::mcp_types::FontStyle {
+                size: 12,
+                bold: true,
+                color: 0xFFFFFF, // White text
+            }
+            .into(),
+        );
         #[cfg(not(target_os = "windows"))]
         let font_style = None;
 
@@ -2469,7 +2473,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
                     tracing::error!("[press_key_global] Verification failed: {}", e);
                     span.set_attribute("verification.passed", "false".to_string());
                     span.set_attribute("verification.error", e.to_string());
-                    let error_msg = format!("Verification failed: {}", e);
+                    let error_msg = format!("Verification failed: {e}");
                     span.set_status(false, Some(error_msg.as_str()));
                     span.end();
 
@@ -4111,15 +4115,16 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let text_position = None;
 
         #[cfg(target_os = "windows")]
-        let font_style = if args.font_size.is_some() || args.font_bold.is_some() || args.font_color.is_some() {
-            Some(terminator::platforms::windows::FontStyle {
-                size: args.font_size.unwrap_or(14),
-                bold: args.font_bold.unwrap_or(false),
-                color: args.font_color.unwrap_or(0),
-            })
-        } else {
-            None
-        };
+        let font_style =
+            if args.font_size.is_some() || args.font_bold.is_some() || args.font_color.is_some() {
+                Some(terminator::platforms::windows::FontStyle {
+                    size: args.font_size.unwrap_or(14),
+                    bold: args.font_bold.unwrap_or(false),
+                    color: args.font_color.unwrap_or(0),
+                })
+            } else {
+                None
+            };
         #[cfg(not(target_os = "windows"))]
         let font_style = None;
 

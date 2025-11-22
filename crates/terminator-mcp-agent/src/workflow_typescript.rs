@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use tracing::{debug, info, warn};
 
@@ -79,7 +79,7 @@ fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<(), McpError> {
         }
 
         debug!("Successfully copied directory using robocopy");
-        return Ok(());
+        Ok(())
     }
 
     // On Unix systems, use cp -r
@@ -450,7 +450,7 @@ impl TypeScriptWorkflow {
 
     fn create_execution_script(
         &self,
-        execution_dir: &PathBuf,
+        execution_dir: &Path,
         inputs: Value,
         start_from_step: Option<&str>,
         end_at_step: Option<&str>,

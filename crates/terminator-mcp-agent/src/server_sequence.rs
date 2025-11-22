@@ -392,7 +392,9 @@ impl DesktopWrapper {
                 WorkflowFormat::TypeScript => {
                     // Execute TypeScript workflow
                     let url_clone = url.clone();
-                    return self.execute_typescript_workflow(&url_clone, args, execution_id).await;
+                    return self
+                        .execute_typescript_workflow(&url_clone, args, execution_id)
+                        .await;
                 }
                 WorkflowFormat::Yaml => {
                     // Continue with existing YAML workflow logic
@@ -890,7 +892,7 @@ impl DesktopWrapper {
             workflow_span.set_attribute("workflow.url", url.clone());
             // Detect and set workflow format
             let format = detect_workflow_format(url);
-            workflow_span.set_attribute("workflow.format", format!("{:?}", format).to_lowercase());
+            workflow_span.set_attribute("workflow.format", format!("{format:?}").to_lowercase());
         } else {
             workflow_span.set_attribute("workflow.format", "inline".to_string());
         }
@@ -907,8 +909,8 @@ impl DesktopWrapper {
         }
 
         // Add execution mode from environment
-        let execution_mode = std::env::var("EXECUTION_MODE")
-            .unwrap_or_else(|_| "normal".to_string());
+        let execution_mode =
+            std::env::var("EXECUTION_MODE").unwrap_or_else(|_| "normal".to_string());
         workflow_span.set_attribute("workflow.execution_mode", execution_mode);
 
         // Convert flattened SequenceStep to internal SequenceItem representation
@@ -1466,7 +1468,8 @@ impl DesktopWrapper {
                             .get("window_selector")
                             .and_then(|v| v.as_str())
                         {
-                            step_span.set_attribute("step.window_selector", window_selector.to_string());
+                            step_span
+                                .set_attribute("step.window_selector", window_selector.to_string());
                         }
 
                         // Extract URL for browser navigation tools
