@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.18] - 2025-11-21
+
+### Added
+- MCP: Add version field to /health endpoint for monitoring
+
+### Fixed
+- Code quality: Address cargo clippy warnings (format strings, collapsible if, ptr_arg)
+
 ## [0.23.17] - 2025-11-21
 
 ### Added
