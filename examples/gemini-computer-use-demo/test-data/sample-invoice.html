@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Sample Invoice</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+            max-width: 800px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .company {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .invoice-title {
+            font-size: 20px;
+            color: #7f8c8d;
+            margin-top: 5px;
+        }
+        .info-section {
+            margin: 20px 0;
+        }
+        .info-row {
+            margin: 8px 0;
+        }
+        .label {
+            font-weight: bold;
+            display: inline-block;
+            width: 120px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th {
+            background-color: #3498db;
+            color: white;
+            padding: 12px;
+            text-align: left;
+        }
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #ecf0f1;
+        }
+        .totals {
+            float: right;
+            width: 300px;
+            margin-top: 20px;
+        }
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+            padding: 5px 10px;
+        }
+        .total-row.final {
+            font-weight: bold;
+            font-size: 18px;
+            background-color: #ecf0f1;
+            margin-top: 10px;
+        }
+        .footer {
+            margin-top: 80px;
+            text-align: center;
+            color: #7f8c8d;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="company">ACME Corporation</div>
+        <div class="invoice-title">INVOICE</div>
+    </div>
+
+    <div class="info-section">
+        <div class="info-row">
+            <span class="label">Invoice Number:</span>
+            <span>INV-2025-001234</span>
+        </div>
+        <div class="info-row">
+            <span class="label">Date:</span>
+            <span>November 22, 2025</span>
+        </div>
+        <div class="info-row">
+            <span class="label">Vendor:</span>
+            <span>Tech Solutions Inc.</span>
+        </div>
+        <div class="info-row">
+            <span class="label">Customer:</span>
+            <span>ACME Corporation</span>
+        </div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Description</th>
+                <th style="text-align:center">Quantity</th>
+                <th style="text-align:right">Unit Price</th>
+                <th style="text-align:right">Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Professional Software License</td>
+                <td style="text-align:center">5</td>
+                <td style="text-align:right">$299.00</td>
+                <td style="text-align:right">$1,495.00</td>
+            </tr>
+            <tr>
+                <td>Cloud Hosting Service (Annual)</td>
+                <td style="text-align:center">1</td>
+                <td style="text-align:right">$1,200.00</td>
+                <td style="text-align:right">$1,200.00</td>
+            </tr>
+            <tr>
+                <td>Technical Support Package</td>
+                <td style="text-align:center">3</td>
+                <td style="text-align:right">$150.00</td>
+                <td style="text-align:right">$450.00</td>
+            </tr>
+            <tr>
+                <td>API Integration Service</td>
+                <td style="text-align:center">8</td>
+                <td style="text-align:right">$75.00</td>
+                <td style="text-align:right">$600.00</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="totals">
+        <div class="total-row">
+            <span>Subtotal:</span>
+            <span>$3,745.00</span>
+        </div>
+        <div class="total-row">
+            <span>Tax (8%):</span>
+            <span>$299.60</span>
+        </div>
+        <div class="total-row final">
+            <span>TOTAL:</span>
+            <span>$4,044.60</span>
+        </div>
+    </div>
+
+    <div style="clear:both"></div>
+
+    <div class="footer">
+        <p>Thank you for your business!</p>
+        <p>Payment due within 30 days • Please reference invoice number on payment</p>
+    </div>
+</body>
+</html>

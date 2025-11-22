@@ -1,0 +1,30 @@
+{
+  "name": "gemini-computer-use-demo",
+  "version": "1.0.0",
+  "description": "Demo showcasing Gemini Computer Use model with Terminator MCP for PDF-to-spreadsheet workflow",
+  "main": "src/workflow.js",
+  "type": "module",
+  "scripts": {
+    "demo": "node src/workflow.js",
+    "test-gemini": "node src/gemini-client.js --test",
+    "test-terminator": "node src/terminator-client.js --test"
+  },
+  "keywords": [
+    "gemini",
+    "computer-use",
+    "terminator",
+    "mcp",
+    "automation",
+    "pdf",
+    "spreadsheet"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "prettier": "^3.1.0"
+  }
+}
