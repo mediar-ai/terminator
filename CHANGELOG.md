@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.19] - 2025-11-22
+
+### Fixed
+- Telemetry: Add structured log attributes for OpenTelemetry correlation
+- Build: Revert bun install mode restriction for S3 mount compatibility
+
 ## [0.23.18] - 2025-11-21
 
 ### Added
