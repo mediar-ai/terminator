@@ -305,8 +305,11 @@ impl TypeScriptWorkflow {
             (self.workflow_path.clone(), None)
         };
 
-        // Ensure dependencies are installed and cached
-        self.ensure_dependencies_in(&execution_dir).await?;
+        // Ensure dependencies are installed and cached (only in local-copy mode)
+        // In direct mode (S3), dependencies must be pre-installed in the workflow folder
+        if use_local_copy {
+            self.ensure_dependencies_in(&execution_dir).await?;
+        }
 
         // Create execution script (using execution_dir for imports)
         let exec_script = self.create_execution_script(
