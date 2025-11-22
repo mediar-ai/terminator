@@ -33,6 +33,8 @@ fn test_execute_sequence_args_serialization() {
         execute_jumps_at_end: None,
         workflow_id: None,
         skip_preflight_check: None,
+        trace_id: None,
+        execution_id: None,
         window_mgmt: Default::default(),
     };
 
