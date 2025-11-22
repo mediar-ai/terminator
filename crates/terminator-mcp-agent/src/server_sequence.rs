@@ -852,11 +852,19 @@ impl DesktopWrapper {
             "Executing sequence with context: {}",
             serde_json::to_string_pretty(&execution_context).unwrap_or_default()
         );
+        // Extract attributes early for logging
+        let log_source = "agent";
+        let trace_id_val = args.trace_id.as_deref().unwrap_or("");
+        let execution_id_val = args.execution_id.as_deref().unwrap_or("");
+
         info!(
-            "Starting execute_sequence: steps={}, stop_on_error={}, include_detailed_results={}",
-            args.steps.as_ref().map(|s| s.len()).unwrap_or(0),
-            stop_on_error,
-            include_detailed
+            log_source = %log_source,
+            execution_id = %execution_id_val,
+            trace_id = %trace_id_val,
+            steps = args.steps.as_ref().map(|s| s.len()).unwrap_or(0),
+            stop_on_error = %stop_on_error,
+            include_detailed = %include_detailed,
+            "Starting execute_sequence"
         );
 
         // Start workflow telemetry span
@@ -865,7 +873,7 @@ impl DesktopWrapper {
 
         // Add execution metadata for filtering/grouping
         workflow_span.set_attribute("workflow.execution_id", execution_id.clone());
-        workflow_span.set_attribute("log_source", "agent".to_string());
+        workflow_span.set_attribute("log_source", log_source.to_string());
 
         // Add trace_id for distributed tracing if provided by executor
         if let Some(trace_id) = &args.trace_id {
@@ -2239,12 +2247,15 @@ impl DesktopWrapper {
             "failed"
         };
         info!(
-            "execute_sequence completed: status={}, executed_tools={}, total_results={}, total_duration_ms={}, cancelled={}",
-            final_status,
-            actually_executed_count,
-            results.len(),
-            total_duration,
-            cancelled_by_user
+            log_source = %log_source,
+            execution_id = %execution_id_val,
+            trace_id = %trace_id_val,
+            status = %final_status,
+            executed_tools = %actually_executed_count,
+            total_results = %results.len(),
+            total_duration_ms = %total_duration,
+            cancelled = %cancelled_by_user,
+            "execute_sequence completed"
         );
 
         let mut summary = json!({
