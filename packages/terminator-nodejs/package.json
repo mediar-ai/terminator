@@ -40,11 +40,11 @@
     }
   },
   "optionalDependencies": {
-    "@mediar-ai/terminator-darwin-arm64": "0.23.17",
-    "@mediar-ai/terminator-darwin-x64": "0.23.17",
-    "@mediar-ai/terminator-linux-x64-gnu": "0.23.17",
-    "@mediar-ai/terminator-win32-arm64-msvc": "0.23.17",
-    "@mediar-ai/terminator-win32-x64-msvc": "0.23.17"
+    "@mediar-ai/terminator-darwin-arm64": "0.23.18",
+    "@mediar-ai/terminator-darwin-x64": "0.23.18",
+    "@mediar-ai/terminator-linux-x64-gnu": "0.23.18",
+    "@mediar-ai/terminator-win32-arm64-msvc": "0.23.18",
+    "@mediar-ai/terminator-win32-x64-msvc": "0.23.18"
   },
   "repository": {
     "type": "git",
@@ -62,5 +62,5 @@
     "test-hook": "powershell.exe -ExecutionPolicy Bypass -File \"../../.git/hooks/pre-push.ps1\""
   },
   "types": "wrapper.d.ts",
-  "version": "0.23.17"
+  "version": "0.23.18"
 }
