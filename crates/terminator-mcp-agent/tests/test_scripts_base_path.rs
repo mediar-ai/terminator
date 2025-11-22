@@ -107,6 +107,10 @@ steps:
             scripts_base_path: Some("/custom/path".to_string()),
             execute_jumps_at_end: Some(false),
             workflow_id: Some("test-workflow-123".to_string()),
+            skip_preflight_check: Some(false),
+            trace_id: Some("test-trace-123".to_string()),
+            execution_id: Some("test-execution-456".to_string()),
+            window_mgmt: Default::default(),
         };
 
         let serialized = serde_json::to_string(&args).unwrap();

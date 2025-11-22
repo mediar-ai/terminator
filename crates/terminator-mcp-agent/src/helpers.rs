@@ -1,14 +1,12 @@
 use crate::expression_eval;
 use crate::mcp_types::TreeOutputFormat;
+use crate::tree_formatter::{format_tree_as_compact_yaml, format_ui_node_as_compact_yaml};
 use crate::utils::ToolCall;
 use regex::Regex;
 use rmcp::ErrorData as McpError;
 use serde_json::{json, Value};
 use std::time::Duration;
-use terminator::{
-    format_tree_as_compact_yaml, format_ui_node_as_compact_yaml, AutomationError, Desktop,
-    Selector, UIElement,
-}; // NEW: import expression evaluator
+use terminator::{AutomationError, Desktop, Selector, UIElement};
 
 /// Helper function to parse comma-separated alternative selectors into a Vec<String>
 pub fn parse_alternative_selectors(alternatives: Option<&str>) -> Vec<String> {
@@ -384,7 +382,7 @@ pub fn infer_expected_outcomes(tool_calls: &[ToolCall]) -> Vec<String> {
 #[allow(clippy::too_many_arguments)]
 pub async fn maybe_attach_tree(
     desktop: &Desktop,
-    include_tree_after_action: Option<bool>,
+    include_tree_after_action: bool,
     tree_max_depth: Option<usize>,
     tree_from_selector: Option<&str>,
     include_detailed_attributes: Option<bool>,
@@ -397,8 +395,7 @@ pub async fn maybe_attach_tree(
     use terminator::Selector;
 
     // Check if tree should be included
-    let should_include = include_tree_after_action.unwrap_or(true);
-    if !should_include {
+    if !include_tree_after_action {
         return;
     }
 

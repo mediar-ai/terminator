@@ -2,9 +2,9 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use rmcp::ErrorData as McpError;
 
@@ -27,6 +27,103 @@ pub fn detect_js_runtime() -> JsRuntime {
     // Fallback to node
     info!("Bun not found, using node runtime");
     JsRuntime::Node
+}
+
+/// Copy directory contents recursively (cross-platform)
+fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<(), McpError> {
+    use std::fs;
+
+    debug!("Copying {} to {}", src.display(), dst.display());
+
+    // Create destination directory
+    fs::create_dir_all(dst).map_err(|e| {
+        McpError::internal_error(
+            format!("Failed to create temp directory: {e}"),
+            Some(json!({"error": e.to_string(), "path": dst.display().to_string()})),
+        )
+    })?;
+
+    // On Windows, use robocopy for better performance and symlink handling
+    #[cfg(target_os = "windows")]
+    {
+        let output = Command::new("robocopy")
+            .arg(src)
+            .arg(dst)
+            .arg("/E") // Copy subdirectories, including empty ones
+            .arg("/NFL") // No file list
+            .arg("/NDL") // No directory list
+            .arg("/NJH") // No job header
+            .arg("/NJS") // No job summary
+            .arg("/nc") // No class
+            .arg("/ns") // No size
+            .arg("/np") // No progress
+            .output()
+            .map_err(|e| {
+                McpError::internal_error(
+                    format!("Failed to execute robocopy: {e}"),
+                    Some(json!({"error": e.to_string()})),
+                )
+            })?;
+
+        // robocopy exit codes: 0-7 are success, 8+ are errors
+        let exit_code = output.status.code().unwrap_or(16);
+        if exit_code >= 8 {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(McpError::internal_error(
+                format!("Robocopy failed with exit code {exit_code}: {stderr}"),
+                Some(json!({
+                    "exit_code": exit_code,
+                    "stderr": stderr.to_string(),
+                })),
+            ));
+        }
+
+        debug!("Successfully copied directory using robocopy");
+        Ok(())
+    }
+
+    // On Unix systems, use cp -r
+    #[cfg(not(target_os = "windows"))]
+    {
+        let output = Command::new("cp")
+            .arg("-r")
+            .arg(src)
+            .arg(dst)
+            .output()
+            .map_err(|e| {
+                McpError::internal_error(
+                    format!("Failed to execute cp: {e}"),
+                    Some(json!({"error": e.to_string()})),
+                )
+            })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(McpError::internal_error(
+                format!("cp failed: {stderr}"),
+                Some(json!({
+                    "stderr": stderr.to_string(),
+                })),
+            ));
+        }
+
+        debug!("Successfully copied directory using cp");
+        Ok(())
+    }
+}
+
+/// Clean up temporary directory
+fn cleanup_temp_dir(path: &PathBuf) {
+    use std::fs;
+    if let Err(e) = fs::remove_dir_all(path) {
+        warn!(
+            "Failed to clean up temporary directory {}: {}",
+            path.display(),
+            e
+        );
+    } else {
+        debug!("Cleaned up temporary directory: {}", path.display());
+    }
 }
 
 #[derive(Debug)]
@@ -171,12 +268,54 @@ impl TypeScriptWorkflow {
         end_at_step: Option<&str>,
         restored_state: Option<Value>,
     ) -> Result<TypeScriptWorkflowResult, McpError> {
-        // Ensure dependencies are installed and cached
-        self.ensure_dependencies().await?;
+        use std::env;
 
-        // Create execution script
-        let exec_script =
-            self.create_execution_script(inputs, start_from_step, end_at_step, restored_state)?;
+        // Check execution mode
+        let execution_mode = env::var("MCP_EXECUTION_MODE").unwrap_or_default();
+        let use_local_copy = execution_mode == "local-copy";
+
+        // Determine execution directory
+        let (execution_dir, temp_dir_guard) = if use_local_copy {
+            info!("🔄 Local-copy mode enabled - copying workflow to temporary directory");
+
+            // Create unique temporary directory
+            let temp_base = env::var("TEMP")
+                .or_else(|_| env::var("TMP"))
+                .unwrap_or_else(|_| {
+                    if cfg!(target_os = "windows") {
+                        "C:\\Temp".to_string()
+                    } else {
+                        "/tmp".to_string()
+                    }
+                });
+
+            let temp_dir =
+                PathBuf::from(temp_base).join(format!("mcp-exec-{}", uuid::Uuid::new_v4()));
+
+            info!("📁 Temporary directory: {}", temp_dir.display());
+
+            // Copy workflow files to temp directory
+            copy_dir_recursive(&self.workflow_path, &temp_dir)?;
+
+            info!("✅ Files copied successfully");
+
+            (temp_dir.clone(), Some(temp_dir))
+        } else {
+            debug!("📍 Direct mode - executing from source directory");
+            (self.workflow_path.clone(), None)
+        };
+
+        // Ensure dependencies are installed and cached
+        self.ensure_dependencies_in(&execution_dir).await?;
+
+        // Create execution script (using execution_dir for imports)
+        let exec_script = self.create_execution_script(
+            &execution_dir,
+            inputs,
+            start_from_step,
+            end_at_step,
+            restored_state,
+        )?;
 
         debug!(
             "Executing TypeScript workflow with script:\n{}",
@@ -193,11 +332,11 @@ impl TypeScriptWorkflow {
             JsRuntime::Bun => {
                 info!(
                     "Executing workflow with bun: {}/{}",
-                    self.workflow_path.display(),
+                    execution_dir.display(),
                     self.entry_file
                 );
                 Command::new("bun")
-                    .current_dir(&self.workflow_path)
+                    .current_dir(&execution_dir)
                     .arg("--eval")
                     .arg(&exec_script)
                     .stdout(Stdio::piped()) // Capture stdout for JSON result
@@ -213,11 +352,11 @@ impl TypeScriptWorkflow {
             JsRuntime::Node => {
                 info!(
                     "Executing workflow with node: {}/{}",
-                    self.workflow_path.display(),
+                    execution_dir.display(),
                     self.entry_file
                 );
                 Command::new("node")
-                    .current_dir(&self.workflow_path)
+                    .current_dir(&execution_dir)
                     .arg("--import")
                     .arg("tsx/esm")
                     .arg("--eval")
@@ -301,18 +440,24 @@ impl TypeScriptWorkflow {
             )
         })?;
 
+        // Clean up temporary directory if used
+        if let Some(temp_dir) = temp_dir_guard {
+            cleanup_temp_dir(&temp_dir);
+        }
+
         Ok(result)
     }
 
     fn create_execution_script(
         &self,
+        execution_dir: &Path,
         inputs: Value,
         start_from_step: Option<&str>,
         end_at_step: Option<&str>,
         restored_state: Option<Value>,
     ) -> Result<String, McpError> {
         // Convert Windows path to forward slashes for file:// URL
-        let workflow_path_str = self.workflow_path.display().to_string();
+        let workflow_path_str = execution_dir.display().to_string();
         let workflow_path = workflow_path_str.replace('\\', "/");
         let entry_file = &self.entry_file;
 
@@ -435,12 +580,12 @@ try {{
         ))
     }
 
-    /// Ensure dependencies are installed
+    /// Ensure dependencies are installed in a specific directory
     ///
     /// Simple strategy: Just run bun/npm install in the workflow directory.
-    /// Since workflow is mounted from S3, node_modules will be persisted there automatically.
-    async fn ensure_dependencies(&self) -> Result<(), McpError> {
-        let package_json_path = self.workflow_path.join("package.json");
+    /// In local-copy mode, installs in temp dir. In direct mode, installs in source (S3).
+    async fn ensure_dependencies_in(&self, workflow_dir: &PathBuf) -> Result<(), McpError> {
+        let package_json_path = workflow_dir.join("package.json");
 
         // Check if package.json exists
         if !package_json_path.exists() {
@@ -448,14 +593,14 @@ try {{
             return Ok(());
         }
 
-        let workflow_node_modules = self.workflow_path.join("node_modules");
+        let workflow_node_modules = workflow_dir.join("node_modules");
         let runtime = detect_js_runtime();
 
         // Check if dependencies need updating by comparing package.json mtime with lockfile
         let needs_install = if workflow_node_modules.exists() {
             let lockfile_path = match runtime {
-                JsRuntime::Bun => self.workflow_path.join("bun.lockb"),
-                JsRuntime::Node => self.workflow_path.join("package-lock.json"),
+                JsRuntime::Bun => workflow_dir.join("bun.lockb"),
+                JsRuntime::Node => workflow_dir.join("package-lock.json"),
             };
 
             // If lockfile doesn't exist, need to install
@@ -500,11 +645,11 @@ try {{
         let install_result = match runtime {
             JsRuntime::Bun => Command::new("bun")
                 .arg("install")
-                .current_dir(&self.workflow_path)
+                .current_dir(workflow_dir)
                 .output(),
             JsRuntime::Node => Command::new("npm")
                 .arg("install")
-                .current_dir(&self.workflow_path)
+                .current_dir(workflow_dir)
                 .output(),
         }
         .map_err(|e| {

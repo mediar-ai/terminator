@@ -26,13 +26,37 @@ pub struct MonitorScreenshotOptions {
     pub include_monitor_screenshots: Option<bool>,
 }
 
+/// Common fields for window management control
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+pub struct WindowManagementOptions {
+    #[schemars(
+        description = "Whether to enable window management (minimize always-on-top windows, optionally maximize target, and restore). Defaults to true."
+    )]
+    pub enable_window_management: Option<bool>,
+
+    #[schemars(
+        description = "Whether to maximize the target window. Only used if enable_window_management is true. Defaults to false."
+    )]
+    pub maximize_target: Option<bool>,
+
+    #[schemars(
+        description = "Whether to minimize always-on-top windows that may cover the target. Only used if enable_window_management is true. Defaults to true."
+    )]
+    pub minimize_always_on_top: Option<bool>,
+
+    #[schemars(
+        description = "Whether to bring the target window to front (BringWindowToTop + SetForegroundWindow). Only used if enable_window_management is true. Defaults to true."
+    )]
+    pub bring_to_front: Option<bool>,
+}
+
 /// Common fields for UI tree inclusion in responses
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 pub struct TreeOptions {
     #[schemars(
-        description = "Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results."
+        description = "REQUIRED: Whether to include the UI tree in the response (captured after action execution)."
     )]
-    pub include_tree_after_action: Option<bool>,
+    pub include_tree_after_action: bool,
 
     #[schemars(
         description = "Maximum depth to traverse when building tree (only used if include_tree_after_action is true)"
@@ -55,9 +79,9 @@ pub struct TreeOptions {
     pub tree_output_format: Option<TreeOutputFormat>,
 
     #[schemars(
-        description = "Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree_after_action behavior. Defaults to false."
+        description = "REQUIRED: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree_after_action behavior."
     )]
-    pub ui_diff_before_after: Option<bool>,
+    pub ui_diff_before_after: bool,
 }
 
 /// Common fields for element selection with alternatives and fallbacks
@@ -147,18 +171,19 @@ pub struct ActionOptions {
     pub verify_element_not_exists: String,
 
     #[schemars(
-        description = "REQUIRED: Timeout in milliseconds for post-action verification. The system will poll until verification passes or timeout is reached."
+        description = "Timeout in milliseconds for post-action verification. The system will poll until verification passes or timeout is reached. Defaults to 2000ms."
     )]
-    pub verify_timeout_ms: u64,
+    #[serde(default)]
+    pub verify_timeout_ms: Option<u64>,
 }
 
 /// Common fields for visual highlighting before actions
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct HighlightOptions {
     #[schemars(
-        description = "REQUIRED: Highlighting configuration to visually indicate the target element before the action. Set enabled: false to disable highlighting."
+        description = "REQUIRED: Whether to highlight the element before action. When true, shows a green border with element role as text."
     )]
-    pub highlight_before_action: ActionHighlightConfig,
+    pub highlight_before_action: bool,
 }
 
 /// Arguments for tools that select elements
@@ -175,6 +200,9 @@ pub struct ElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 /// Arguments for tools that perform actions on elements with highlighting
@@ -194,6 +222,9 @@ pub struct ActionElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 // Validation helpers for better type safety
@@ -209,6 +240,9 @@ pub struct StopHighlightingArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -218,6 +252,9 @@ pub struct DelayArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 // Tool execution context for window management
@@ -343,6 +380,9 @@ pub struct GetWindowTreeArgs {
     pub tree: TreeOptions,
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -365,6 +405,9 @@ pub struct LocatorArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, Serialize, JsonSchema, Clone)]
@@ -455,6 +498,9 @@ pub struct ClickElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -489,6 +535,9 @@ pub struct TypeIntoElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -519,18 +568,45 @@ pub struct PressKeyArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct GlobalKeyArgs {
     #[schemars(
+        description = "Process name to scope the search (e.g., 'chrome', 'notepad', 'explorer'). Required to activate the correct window before pressing the key."
+    )]
+    pub process: String,
+
+    #[schemars(
         description = "The key or key combination to press (e.g., '{PageDown}', '{Ctrl}{V}')"
     )]
     pub key: String,
+
+    #[schemars(
+        description = "REQUIRED: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Use empty string \"\" to skip this check."
+    )]
+    pub verify_element_exists: String,
+
+    #[schemars(
+        description = "REQUIRED: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). Use empty string \"\" to skip this check."
+    )]
+    pub verify_element_not_exists: String,
+
+    #[schemars(
+        description = "REQUIRED: Timeout in milliseconds for post-action verification. The system will poll until verification passes or timeout is reached."
+    )]
+    pub verify_timeout_ms: u64,
+
     #[serde(flatten)]
     pub tree: TreeOptions,
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -590,6 +666,9 @@ pub struct MouseDragArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -612,6 +691,9 @@ pub struct ValidateElementArgs {
         description = "Maximum dimension (width or height) for the screenshot. Screenshots larger than this will be resized while maintaining aspect ratio. Default: 1920px"
     )]
     pub max_dimension: Option<u32>,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -634,6 +716,9 @@ pub struct CaptureElementScreenshotArgs {
         description = "Maximum dimension (width or height) for the screenshot. Screenshots larger than this will be resized while maintaining aspect ratio. Default: 1920px"
     )]
     pub max_dimension: Option<u32>,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -645,8 +730,12 @@ pub struct HighlightElementArgs {
     pub text: Option<String>,
     #[schemars(description = "Position of text overlay relative to the highlighted element")]
     pub text_position: Option<TextPosition>,
-    #[schemars(description = "Font styling options for text overlay")]
-    pub font_style: Option<FontStyle>,
+    #[schemars(description = "Font size in pixels (default: 14)")]
+    pub font_size: Option<u32>,
+    #[schemars(description = "Whether the font should be bold (default: false)")]
+    pub font_bold: Option<bool>,
+    #[schemars(description = "Text color in BGR format (default: 0 = black)")]
+    pub font_color: Option<u32>,
     pub include_element_info: Option<bool>,
     #[serde(flatten)]
     pub selector: SelectorOptions,
@@ -659,6 +748,9 @@ pub struct HighlightElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -676,6 +768,9 @@ pub struct WaitForElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -690,6 +785,9 @@ pub struct NavigateBrowserArgs {
     pub tree: TreeOptions,
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -712,6 +810,9 @@ pub struct ExecuteBrowserScriptArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -721,6 +822,9 @@ pub struct OpenApplicationArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -738,6 +842,9 @@ pub struct SelectOptionArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -755,6 +862,9 @@ pub struct SetToggledArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, serde::Deserialize, JsonSchema)]
@@ -770,6 +880,9 @@ pub struct MaximizeWindowArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, serde::Deserialize, JsonSchema)]
@@ -785,6 +898,9 @@ pub struct MinimizeWindowArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -802,6 +918,9 @@ pub struct SetRangeValueArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -819,6 +938,9 @@ pub struct SetValueArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -836,6 +958,9 @@ pub struct SetSelectedArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
@@ -861,6 +986,9 @@ pub struct ScrollElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -876,6 +1004,9 @@ pub struct ActivateElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema, Clone)]
@@ -1036,6 +1167,24 @@ pub struct ExecuteSequenceArgs {
         description = "Optional workflow identifier for env state persistence. If provided, will be used instead of URL hash for determining state file location. This allows passing workflow definitions inline without needing a file URL."
     )]
     pub workflow_id: Option<String>,
+
+    #[schemars(
+        description = "Skip the browser extension pre-flight check. When true, workflows with execute_browser_script steps will not open/close an about:blank tab to verify extension connectivity before execution. Default: false (pre-flight check enabled)."
+    )]
+    pub skip_preflight_check: Option<bool>,
+
+    #[schemars(
+        description = "Optional trace ID for distributed tracing. When provided by the executor, this trace_id will be used in OpenTelemetry spans to correlate executor and agent logs."
+    )]
+    pub trace_id: Option<String>,
+
+    #[schemars(
+        description = "Optional execution ID for distributed tracing. When provided by the executor, this execution_id will be attached to all logs for correlation."
+    )]
+    pub execution_id: Option<String>,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema, Clone)]
@@ -1108,6 +1257,9 @@ pub struct CloseElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Deserialize, JsonSchema, Debug, Clone)]
@@ -1129,6 +1281,9 @@ pub struct SetZoomArgs {
     pub tree: TreeOptions,
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
 }
 
 #[derive(Debug)]

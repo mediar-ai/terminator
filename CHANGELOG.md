@@ -7,6 +7,122 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.18] - 2025-11-21
+
+### Added
+- MCP: Add version field to /health endpoint for monitoring
+
+### Fixed
+- Code quality: Address cargo clippy warnings (format strings, collapsible if, ptr_arg)
+
+## [0.23.17] - 2025-11-21
+
+### Added
+- Telemetry: Receive and use execution_id from executor for distributed tracing
+
+### Fixed
+- Tests: Add missing trace_id and execution_id fields to test fixtures
+
+### Changed
+- Docs: Update README terminology from 'legacy systems' to 'legacy software'
+
+## [0.23.16] - 2025-11-21
+
+### Added
+- Telemetry: Add log_source and trace_id fields for distributed tracing support
+
+## [0.23.15] - 2025-11-21
+
+### Added
+- Workflow: Add onSuccess handler that returns data for MCP integration
+
+### Changed
+- Docs: Improve CLI installation instructions with npm wrapper guidance
+
+## [0.23.14] - 2025-11-21
+
+### Changed
+- Workflow: Rename createWorkflowError to WorkflowError for consistency
+
+## [0.23.13] - 2025-11-21
+
+### Added
+- CI/CD: Add GitHub Actions workflow to publish @mediar-ai/kv package
+  - Automatically builds TypeScript and publishes to npm on version tags
+  - Synced @mediar-ai/kv version to 0.23.13 (was stuck at 0.1.0 since v0.23.8)
+
+## [0.23.12] - 2025-11-21
+
+### Fixed
+- CI/CD: Prevent duplicate artifact uploads in Release Terminator CLI workflow
+  - Fixed "Not Found" errors by uploading only archives (*.tar.gz, *.zip) instead of all artifacts
+  - Removed duplicate terminator.exe uploads that were causing workflow failures
+- CI/CD: Remove duplicate tag trigger from Publish Workflow Package workflow
+  - Fixed double workflow runs by removing redundant push:tags trigger
+  - Now only triggers via workflow_run dependency chain after NPM packages are published
+  - Prevents race conditions and ensures correct dependency order
+
+## [0.23.11] - 2025-11-21
+
+### Added
+- Telemetry: Add OpenTelemetry metadata for better filtering and grouping in ClickHouse dashboards
+  - Resource-level: deployment.environment, service.instance.id, os.type, os.arch, automation.api
+  - Workflow-level: workflow.execution_id, workflow.url, workflow.format, workflow.trigger_source
+  - Step-level: step.process, step.selector, step.url, step.text_length for improved filtering
+- MCP: Add post-action verification to missing action tools
+- MCP: Add activate_window before actions and enhance press_key_global
+- MCP: Make ui_diff_before_after and include_tree_after_action mandatory
+- MCP: Make verify_timeout_ms optional with 2000ms default
+- MCP: Add bring_to_front flag to separate foreground from window management
+
+### Fixed
+- MCP: Use text: selector instead of value: for set_value auto-verification
+- MCP: Hide #ID selectors in compact YAML tree view
+- MCP: Add unwrap_or(2000) to verify_timeout_ms in verification code
+- MCP: Set in_sequence flag in dispatch_tool to prevent double window management
+- Windows: Use AttachThreadInput to bypass Windows focus-stealing prevention
+
+### Changed
+- MCP: Skip tree building when both verify fields are empty
+- MCP: Make highlight_before_action a required boolean parameter
+- MCP: Flatten FontStyle into HighlightElementArgs
+- MCP: Change maximize_target default from true to false
+- Editor: Add .editorconfig and fix .gitattributes line endings
+
+### Documentation
+- MCP: Improve MCP agent prompt with selector syntax guide
+- MCP: Update MCP agent prompt with tool behavior defaults
+
+## [0.23.10] - 2025-11-20
+
+### Added
+- MCP: Add local-copy execution mode for TypeScript workflows to fix S3/rclone symlink issues
+- Window management: Add BringWindowToTop and SetForegroundWindow to window management
+
+### Changed
+- Workflow: Copy workflow files to local temp directory before execution for better performance and symlink support
+- MCP: Default MCP_EXECUTION_MODE to "local-copy" in agent wrapper
+
+## [0.23.9] - 2025-11-20
+
+### Added
+- MCP: Add optional window management parameters to all MCP tools
+- Docs: Add Bounty Developer Program section to README
+
+### Fixed
+- Tests: Add missing skip_preflight_check and window_mgmt fields to ExecuteSequenceArgs test instantiations
+- Style: Run cargo fmt to fix formatting issues
+
+## [0.23.8] - 2025-11-20
+
+### Added
+- KV package: New @mediar-ai/kv package for workflow state sharing with Memory, File, and Redis adapters
+
+### Changed
+- CLI: Add sync_kv_package() to version management for release automation
+- CI: Remove Linux from Python wheels workflow
+- Test: Ignore debugger detach tests failing in CI
+
 ## [0.23.7] - 2025-11-18
 
 ### Fixed

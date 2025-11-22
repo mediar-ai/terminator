@@ -1,62 +1,18 @@
-name: Publish Workflow Package
+name: Publish KV Package
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
-  workflow_run:
-    workflows: ["Publish NPM Packages"]
-    types:
-      - completed
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  wait-for-terminator:
-    name: Wait for @mediar-ai/terminator to be published
-    runs-on: ubuntu-latest
-    # Only run if triggered by successful workflow_run
-    if: |
-      github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 18
-
-      - name: Extract version from package.json
-        id: version
-        run: |
-          # Get version from package.json peerDependencies
-          VERSION=$(node -p "require('./packages/workflow/package.json').peerDependencies['@mediar-ai/terminator'].replace('^', '')")
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Waiting for @mediar-ai/terminator@$VERSION"
-
-      - name: Wait for @mediar-ai/terminator to be available
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          echo "Waiting for @mediar-ai/terminator@$VERSION to be available on NPM..."
-
-          for i in {1..30}; do
-            if npm view "@mediar-ai/terminator@$VERSION" version >/dev/null 2>&1; then
-              echo "✅ @mediar-ai/terminator@$VERSION is available!"
-              exit 0
-            fi
-            echo "⏳ Waiting for package... (attempt $i/30)"
-            sleep 20
-          done
-
-          echo "❌ Timeout: @mediar-ai/terminator@$VERSION not found after 10 minutes"
-          exit 1
-
   publish:
-    name: Publish @mediar-ai/workflow to NPM
+    name: Publish @mediar-ai/kv to NPM
     runs-on: ubuntu-latest
-    needs: [wait-for-terminator]
-    # Run on workflow_dispatch regardless of dependency
-    if: always() && (needs.wait-for-terminator.result == 'success' || github.event_name == 'workflow_dispatch')
 
     steps:
       - uses: actions/checkout@v4
@@ -69,17 +25,17 @@ jobs:
 
       - name: Install dependencies
         run: |
-          cd packages/workflow
+          cd packages/kv
           npm install
 
       - name: Build TypeScript
         run: |
-          cd packages/workflow
+          cd packages/kv
           npm run build
 
       - name: Verify build output
         run: |
-          cd packages/workflow
+          cd packages/kv
           echo "Verifying dist/ directory exists:"
           ls -la dist/ || echo "dist/ directory not found"
           if [ -f "dist/index.js" ] && [ -f "dist/index.d.ts" ]; then
@@ -91,7 +47,7 @@ jobs:
 
       - name: Publish to NPM
         run: |
-          cd packages/workflow
+          cd packages/kv
 
           # Extract package info
           PACKAGE_NAME=$(node -p "require('./package.json').name")
@@ -118,7 +74,7 @@ jobs:
       - name: Verify publication
         continue-on-error: true
         run: |
-          cd packages/workflow
+          cd packages/kv
           PACKAGE_NAME=$(node -p "require('./package.json').name")
           PACKAGE_VERSION=$(node -p "require('./package.json').version")
 

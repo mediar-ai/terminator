@@ -517,6 +517,9 @@ fn sync_all_versions() {
     // Sync Workflow Package
     sync_workflow_package(&workspace_version);
 
+    // Sync KV Package
+    sync_kv_package(&workspace_version);
+
     // Update Cargo.lock
     println!("🔒 Updating Cargo.lock...");
     if let Err(e) = run_command("cargo", &["check", "--quiet"]) {
@@ -753,6 +756,25 @@ fn sync_workflow_package(version: &str) {
             eprintln!("⚠️  Warning: Failed to update workflow package.json: {e}");
         } else {
             println!("✅ Workflow package synced to {version}");
+        }
+    }
+}
+
+fn sync_kv_package(version: &str) {
+    println!("📦 Syncing KV package to version {version}...");
+
+    let kv_dir = Path::new("packages/kv");
+    if !kv_dir.exists() {
+        println!("⚠️  KV package directory not found, skipping");
+        return;
+    }
+
+    let package_json = kv_dir.join("package.json");
+    if package_json.exists() {
+        if let Err(e) = update_package_json(&package_json.to_string_lossy(), version) {
+            eprintln!("⚠️  Warning: Failed to update KV package.json: {e}");
+        } else {
+            println!("✅ KV package synced to {version}");
         }
     }
 }

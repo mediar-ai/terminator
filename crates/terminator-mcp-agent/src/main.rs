@@ -743,6 +743,7 @@ async fn health_check() -> impl axum::response::IntoResponse {
         "status": "healthy",
         "message": "MCP server process is alive and responding",
         "timestamp": chrono::Utc::now().to_rfc3339(),
+        "version": env!("CARGO_PKG_VERSION"),
         "endpoints": {
             "/health": "Liveness check (this endpoint)",
             "/ready": "Readiness check with full UIAutomation validation",

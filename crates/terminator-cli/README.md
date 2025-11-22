@@ -14,14 +14,26 @@ The Terminator CLI is a powerful command-line tool for managing the Terminator p
 
 ## Installation
 
-From the workspace root:
+**Windows (Recommended - npm wrapper):**
+```bash
+# Run directly without installation
+npx @mediar-ai/cli --help
+bunx @mediar-ai/cli --help
+
+# Or install globally
+npm install -g @mediar-ai/cli
+```
+
+**macOS / Linux (Compile from Source):**
+
+⚠️ The npm package `@mediar-ai/cli` only includes Windows binaries. Other platforms must compile from source.
 
 ```bash
-# Build the CLI
+# From the workspace root
 cargo build --release --bin terminator
 
 # Install globally (optional)
-cargo install --path terminator-cli
+cargo install --path crates/terminator-cli
 ```
 
 ## Quick Start

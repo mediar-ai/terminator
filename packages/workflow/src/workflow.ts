@@ -22,7 +22,7 @@ import { createWorkflowRunner } from './runner';
 export class WorkflowBuilder<TInput = any, TState extends Record<string, any> = {}> {
   private config: WorkflowConfig<TInput>;
   private steps: Step[] = [];
-  private successHandler?: (context: WorkflowSuccessContext<TInput, TState>) => Promise<void>;
+  private successHandler?: (context: WorkflowSuccessContext<TInput, TState>) => Promise<any>;
   private errorHandler?: (context: WorkflowErrorContext<TInput, TState>) => Promise<void>;
 
   constructor(config: WorkflowConfig<TInput>) {
@@ -42,10 +42,24 @@ export class WorkflowBuilder<TInput = any, TState extends Record<string, any> = 
   }
 
   /**
-   * Set success handler with typed state
+   * Set success handler that returns workflow result data
+   * The returned value will be automatically set as context.data
+   * 
+   * @example
+   * ```typescript
+   * .onSuccess(({ input, context }) => ({
+   *   accountEmail: input.email,
+   *   completed: true,
+   * }))
+   * ```
    */
-  onSuccess(handler: (context: WorkflowSuccessContext<TInput, TState>) => Promise<void>): this {
-    this.successHandler = handler;
+  onSuccess<TSuccess = any>(
+    handler: (context: Omit<WorkflowSuccessContext<TInput, TState>, "duration">) => TSuccess | Promise<TSuccess>
+  ): this {
+    this.successHandler = async (ctx) => {
+      const result = await Promise.resolve(handler({ input: ctx.input, context: ctx.context, logger: ctx.logger }));
+      return result;
+    };
     return this;
   }
 
@@ -205,12 +219,16 @@ function createWorkflowInstance<TInput = any>(
 
         // Call success handler if provided
         if (successHandler) {
-          await successHandler({
+          const result = await successHandler({
             input: validatedInput,
             context,
             logger: log,
             duration,
           });
+          // Automatically set context.data with returned value
+          if (result !== undefined) {
+            context.data = result;
+          }
         }
 
         // Return success response with state tracking

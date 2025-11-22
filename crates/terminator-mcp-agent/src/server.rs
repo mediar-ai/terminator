@@ -4,8 +4,8 @@ use crate::telemetry::StepSpan;
 use crate::utils::find_and_execute_with_retry_with_fallback;
 pub use crate::utils::DesktopWrapper;
 use crate::utils::{
-    get_timeout, ActionHighlightConfig, ActivateElementArgs, CaptureElementScreenshotArgs,
-    ClickElementArgs, CloseElementArgs, DelayArgs, ExecuteBrowserScriptArgs, ExecuteSequenceArgs,
+    get_timeout, ActivateElementArgs, CaptureElementScreenshotArgs, ClickElementArgs,
+    CloseElementArgs, DelayArgs, ExecuteBrowserScriptArgs, ExecuteSequenceArgs,
     GetApplicationsArgs, GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs, LocatorArgs,
     MaximizeWindowArgs, MinimizeWindowArgs, MouseDragArgs, NavigateBrowserArgs,
     OpenApplicationArgs, PressKeyArgs, RunCommandArgs, ScrollElementArgs, SelectOptionArgs,
@@ -226,8 +226,16 @@ impl DesktopWrapper {
         execution_context: Option<&crate::utils::ToolExecutionContext>,
         process_id: Option<u32>,
         ui_element: Option<&terminator::platforms::windows::WindowsUIElement>,
+        window_mgmt_opts: &crate::utils::WindowManagementOptions,
     ) -> Result<(), String> {
         let start = std::time::Instant::now();
+
+        // Check if window management is enabled (defaults to true for backward compatibility)
+        let enabled = window_mgmt_opts.enable_window_management.unwrap_or(true);
+        if !enabled {
+            tracing::debug!("Window management disabled by user, skipping");
+            return Ok(());
+        }
 
         // Update window cache on-demand before managing windows
         // Initial state is captured once before sequence starts (in server_sequence.rs)
@@ -297,7 +305,11 @@ impl DesktopWrapper {
                 // Maximizing brings the target to front naturally, so we only need to handle
                 // always-on-top windows that would otherwise cover it
                 // First UI tool in sequence has no previous_process
-                if ctx.previous_process.is_none() || !ctx.in_sequence {
+                let should_minimize_always_on_top =
+                    window_mgmt_opts.minimize_always_on_top.unwrap_or(true);
+                if should_minimize_always_on_top
+                    && (ctx.previous_process.is_none() || !ctx.in_sequence)
+                {
                     let always_on_top_windows =
                         self.window_manager.get_always_on_top_windows().await;
                     if !always_on_top_windows.is_empty() {
@@ -323,15 +335,37 @@ impl DesktopWrapper {
                 }
 
                 // Maximize target if not already maximized
-                match self.window_manager.maximize_if_needed(window.hwnd).await {
-                    Ok(true) => {
-                        tracing::info!("Maximized target window");
+                let should_maximize_target = window_mgmt_opts.maximize_target.unwrap_or(false);
+                let should_bring_to_front = window_mgmt_opts.bring_to_front.unwrap_or(true);
+
+                if should_maximize_target {
+                    match self.window_manager.maximize_if_needed(window.hwnd).await {
+                        Ok(true) => {
+                            tracing::info!("Maximized target window");
+                        }
+                        Ok(false) => {
+                            tracing::debug!("Target window already maximized");
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to maximize window: {}", e);
+                        }
                     }
-                    Ok(false) => {
-                        tracing::debug!("Target window already maximized");
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to maximize window: {}", e);
+                }
+
+                // Bring window to front (independent of maximize)
+                if should_bring_to_front {
+                    match self.window_manager.bring_window_to_front(window.hwnd).await {
+                        Ok(true) => {
+                            tracing::info!("Brought target window to front");
+                        }
+                        Ok(false) => {
+                            tracing::debug!(
+                                "Failed to bring window to front (Windows restrictions)"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to bring window to front: {}", e);
+                        }
                     }
                 }
             } else {
@@ -412,55 +446,63 @@ impl DesktopWrapper {
                 }
 
                 // 2. Maximize UWP target window using keyboard (ShowWindow doesn't work for UWP)
-                if let Some(element) = ui_element {
-                    if let Err(e) = element.maximize_window_keyboard() {
-                        tracing::warn!(
-                            "Failed to maximize UWP window via keyboard for {}: {}",
-                            process,
-                            e
-                        );
+                let should_maximize_target = window_mgmt_opts.maximize_target.unwrap_or(false);
+                if should_maximize_target {
+                    if let Some(element) = ui_element {
+                        if let Err(e) = element.maximize_window_keyboard() {
+                            tracing::warn!(
+                                "Failed to maximize UWP window via keyboard for {}: {}",
+                                process,
+                                e
+                            );
+                        } else {
+                            tracing::info!(
+                                "Maximized UWP window for {} via keyboard (Win+Up)",
+                                process
+                            );
+                        }
                     } else {
-                        tracing::info!(
-                            "Maximized UWP window for {} via keyboard (Win+Up)",
-                            process
-                        );
+                        tracing::warn!("Cannot maximize UWP window - no ui_element provided");
                     }
-                } else {
-                    tracing::warn!("Cannot maximize UWP window - no ui_element provided");
                 }
 
                 // 3. Minimize Win32 always-on-top windows (if any)
                 // Note: UWP always-on-top windows are not visible via Win32 enumeration
-                let always_on_top_windows = self.window_manager.get_always_on_top_windows().await;
-                if !always_on_top_windows.is_empty() {
-                    tracing::info!(
-                        "Found {} always-on-top Win32 windows to minimize",
-                        always_on_top_windows.len()
-                    );
-
-                    if let Some(hwnd) = uwp_hwnd {
-                        match self
-                            .window_manager
-                            .minimize_always_on_top_windows(hwnd)
-                            .await
-                        {
-                            Ok(count) => {
-                                tracing::info!(
-                                    "Minimized {} Win32 always-on-top windows (UWP target app)",
-                                    count
-                                );
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    "Failed to minimize always-on-top windows for UWP app: {}",
-                                    e
-                                );
-                            }
-                        }
-                    } else {
-                        tracing::warn!(
-                            "Could not get HWND from UWP element to minimize always-on-top windows"
+                let should_minimize_always_on_top =
+                    window_mgmt_opts.minimize_always_on_top.unwrap_or(true);
+                if should_minimize_always_on_top {
+                    let always_on_top_windows =
+                        self.window_manager.get_always_on_top_windows().await;
+                    if !always_on_top_windows.is_empty() {
+                        tracing::info!(
+                            "Found {} always-on-top Win32 windows to minimize",
+                            always_on_top_windows.len()
                         );
+
+                        if let Some(hwnd) = uwp_hwnd {
+                            match self
+                                .window_manager
+                                .minimize_always_on_top_windows(hwnd)
+                                .await
+                            {
+                                Ok(count) => {
+                                    tracing::info!(
+                                        "Minimized {} Win32 always-on-top windows (UWP target app)",
+                                        count
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "Failed to minimize always-on-top windows for UWP app: {}",
+                                        e
+                                    );
+                                }
+                            }
+                        } else {
+                            tracing::warn!(
+                                "Could not get HWND from UWP element to minimize always-on-top windows"
+                            );
+                        }
                     }
                 }
             } else {
@@ -476,41 +518,70 @@ impl DesktopWrapper {
 
                 if let Some(window) = window {
                     // Minimize always-on-top Win32 windows
-                    let always_on_top_windows =
-                        self.window_manager.get_always_on_top_windows().await;
-                    if !always_on_top_windows.is_empty() {
-                        tracing::info!(
-                            "Found {} always-on-top Win32 windows",
-                            always_on_top_windows.len()
-                        );
-                        match self
-                            .window_manager
-                            .minimize_always_on_top_windows(window.hwnd)
-                            .await
-                        {
-                            Ok(count) => {
-                                tracing::info!(
-                                    "Minimized {} always-on-top Win32 windows for {}",
-                                    count,
-                                    process
-                                );
-                            }
-                            Err(e) => {
-                                tracing::warn!("Failed to minimize always-on-top windows: {}", e);
+                    let should_minimize_always_on_top =
+                        window_mgmt_opts.minimize_always_on_top.unwrap_or(true);
+                    if should_minimize_always_on_top {
+                        let always_on_top_windows =
+                            self.window_manager.get_always_on_top_windows().await;
+                        if !always_on_top_windows.is_empty() {
+                            tracing::info!(
+                                "Found {} always-on-top Win32 windows",
+                                always_on_top_windows.len()
+                            );
+                            match self
+                                .window_manager
+                                .minimize_always_on_top_windows(window.hwnd)
+                                .await
+                            {
+                                Ok(count) => {
+                                    tracing::info!(
+                                        "Minimized {} always-on-top Win32 windows for {}",
+                                        count,
+                                        process
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "Failed to minimize always-on-top windows: {}",
+                                        e
+                                    );
+                                }
                             }
                         }
                     }
 
                     // Maximize target Win32 window
-                    match self.window_manager.maximize_if_needed(window.hwnd).await {
-                        Ok(true) => {
-                            tracing::info!("Maximized Win32 window for {}", process);
+                    let should_maximize_target = window_mgmt_opts.maximize_target.unwrap_or(false);
+                    let should_bring_to_front = window_mgmt_opts.bring_to_front.unwrap_or(true);
+
+                    if should_maximize_target {
+                        match self.window_manager.maximize_if_needed(window.hwnd).await {
+                            Ok(true) => {
+                                tracing::info!("Maximized Win32 window for {}", process);
+                            }
+                            Ok(false) => {
+                                tracing::debug!("Win32 window already maximized");
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to maximize Win32 window: {}", e);
+                            }
                         }
-                        Ok(false) => {
-                            tracing::debug!("Win32 window already maximized");
-                        }
-                        Err(e) => {
-                            tracing::warn!("Failed to maximize Win32 window: {}", e);
+                    }
+
+                    // Bring window to front (independent of maximize)
+                    if should_bring_to_front {
+                        match self.window_manager.bring_window_to_front(window.hwnd).await {
+                            Ok(true) => {
+                                tracing::info!("Brought Win32 window to front for {}", process);
+                            }
+                            Ok(false) => {
+                                tracing::debug!(
+                                    "Failed to bring Win32 window to front (Windows restrictions)"
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to bring Win32 window to front: {}", e);
+                            }
                         }
                     }
                 } else {
@@ -830,7 +901,7 @@ impl DesktopWrapper {
                 "[get_window_tree] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.process, None, None, None)
+                .prepare_window_management(&args.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!("[get_window_tree] In sequence - skipping window management (dispatch_tool handles it)");
@@ -919,11 +990,10 @@ impl DesktopWrapper {
             }
         }
 
-        // Force include_tree to default to true for this tool
         // Use maybe_attach_tree to handle tree extraction with from_selector support
         crate::helpers::maybe_attach_tree(
             &self.desktop,
-            args.tree.include_tree_after_action.or(Some(true)), // Default to true for get_window_tree
+            args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
             args.tree.tree_from_selector.as_deref(),
             args.tree.include_detailed_attributes,
@@ -1293,50 +1363,48 @@ impl DesktopWrapper {
         Ok(())
     }
 
-    /// Ensures element is visible and optionally applies highlighting before action
-    fn ensure_visible_and_apply_highlight(
-        element: &UIElement,
-        highlight_config: &ActionHighlightConfig,
-        action_name: &str,
-    ) {
+    /// Ensures element is visible and applies highlighting before action with hardcoded defaults
+    fn ensure_visible_and_apply_highlight(element: &UIElement, action_name: &str) {
         // Always ensure element is in view first (for all actions, not just when highlighting)
         if let Err(e) = Self::ensure_element_in_view(element) {
             tracing::warn!("Failed to ensure element is in view for {action_name} action: {e}");
         }
 
-        // Then apply highlighting if enabled
-        if highlight_config.enabled {
-            let duration = highlight_config
-                .duration_ms
-                .map(std::time::Duration::from_millis);
-            let color = highlight_config.color;
-            let text = highlight_config.text.as_deref();
+        // Hardcoded highlight configuration
+        let duration = Some(std::time::Duration::from_millis(500));
+        let color = Some(0x00FF00); // Green in BGR
+        let role_text = element.role();
+        let text = Some(role_text.as_str());
 
-            #[cfg(target_os = "windows")]
-            let text_position = highlight_config.text_position.clone().map(|pos| pos.into());
-            #[cfg(not(target_os = "windows"))]
-            let text_position = None;
+        #[cfg(target_os = "windows")]
+        let text_position = Some(crate::mcp_types::TextPosition::Top.into());
+        #[cfg(not(target_os = "windows"))]
+        let text_position = None;
 
-            #[cfg(target_os = "windows")]
-            let font_style = highlight_config
-                .font_style
-                .clone()
-                .map(|style| style.into());
-            #[cfg(not(target_os = "windows"))]
-            let font_style = None;
-
-            tracing::info!(
-                "HIGHLIGHT_BEFORE_{} duration={:?}",
-                action_name.to_uppercase(),
-                duration
-            );
-            if let Ok(_highlight_handle) =
-                element.highlight(color, duration, text, text_position, font_style)
-            {
-                // Highlight applied successfully - runs concurrently with action
-            } else {
-                tracing::warn!("Failed to apply highlighting before {action_name} action");
+        #[cfg(target_os = "windows")]
+        let font_style = Some(
+            crate::mcp_types::FontStyle {
+                size: 12,
+                bold: true,
+                color: 0xFFFFFF, // White text
             }
+            .into(),
+        );
+        #[cfg(not(target_os = "windows"))]
+        let font_style = None;
+
+        tracing::info!(
+            "HIGHLIGHT_BEFORE_{} duration={:?} role={}",
+            action_name.to_uppercase(),
+            duration,
+            role_text
+        );
+        if let Ok(_highlight_handle) =
+            element.highlight(color, duration, text, text_position, font_style)
+        {
+            // Highlight applied successfully - runs concurrently with action
+        } else {
+            tracing::warn!("Failed to apply highlighting before {action_name} action");
         }
     }
 
@@ -1391,7 +1459,13 @@ impl DesktopWrapper {
                 "[type_into_element] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!("[type_into_element] In sequence - skipping window management (dispatch_tool handles it)");
@@ -1401,15 +1475,21 @@ impl DesktopWrapper {
         let should_clear = args.clear_before_typing;
         let try_focus_before = args.try_focus_before;
         let try_click_before = args.try_click_before;
+        let highlight_before = args.highlight.highlight_before_action;
 
         let action = {
-            let highlight_config = args.highlight.highlight_before_action.clone();
             move |element: UIElement| {
                 let text_to_type = text_to_type.clone();
-                let highlight_config = highlight_config.clone();
                 async move {
-                    // Apply highlighting before action if configured
-                    Self::ensure_visible_and_apply_highlight(&element, &highlight_config, "type");
+                    // Activate window to ensure it has keyboard focus before typing
+                    if let Err(e) = element.activate_window() {
+                        tracing::warn!("Failed to activate window before typing: {}", e);
+                    }
+
+                    // Apply highlighting before action if enabled
+                    if highlight_before {
+                        Self::ensure_visible_and_apply_highlight(&element, "type");
+                    }
 
                     // Execute the typing action with state tracking
                     if should_clear {
@@ -1452,7 +1532,7 @@ impl DesktopWrapper {
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
-                args.tree.ui_diff_before_after.unwrap_or(false),
+                args.tree.ui_diff_before_after,
                 args.tree.tree_max_depth,
                 args.tree.include_detailed_attributes,
                 tree_output_format,
@@ -1533,7 +1613,7 @@ impl DesktopWrapper {
         if !skip_verification {
             span.add_event("verification_started", vec![]);
 
-            let verify_timeout_ms = args.action.verify_timeout_ms;
+            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
             span.set_attribute("verification.timeout_ms", verify_timeout_ms.to_string());
 
             // Substitute variables in verification selectors
@@ -1723,21 +1803,28 @@ impl DesktopWrapper {
                 "[click_element] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!("[click_element] In sequence - skipping window management (dispatch_tool handles it)");
         }
 
+        let highlight_before = args.highlight.highlight_before_action;
         let action = {
-            let highlight_config = args.highlight.highlight_before_action.clone();
             let click_position = args.click_position.clone();
             move |element: UIElement| {
-                let highlight_config = highlight_config.clone();
                 let click_position = click_position.clone();
                 async move {
-                    // Ensure element is visible and apply highlighting if configured
-                    Self::ensure_visible_and_apply_highlight(&element, &highlight_config, "click");
+                    // Ensure element is visible and apply highlighting if enabled
+                    if highlight_before {
+                        Self::ensure_visible_and_apply_highlight(&element, "click");
+                    }
 
                     // Click at specified position
                     // Get element bounds to calculate absolute position
@@ -1796,7 +1883,7 @@ impl DesktopWrapper {
             args.action.timeout_ms,
             args.action.retries,
             action,
-            args.tree.ui_diff_before_after.unwrap_or(false),
+            args.tree.ui_diff_before_after,
             args.tree.tree_max_depth,
             args.tree.include_detailed_attributes,
             tree_output_format,
@@ -1852,6 +1939,76 @@ impl DesktopWrapper {
             "element": element_info,
             "timestamp": chrono::Utc::now().to_rfc3339()
         });
+
+        // POST-ACTION VERIFICATION
+        if !args.action.verify_element_exists.is_empty()
+            || !args.action.verify_element_not_exists.is_empty()
+        {
+            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
+
+            let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_exists.as_str())
+            };
+            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_not_exists.as_str())
+            };
+
+            match crate::helpers::verify_post_action(
+                &self.desktop,
+                &element,
+                verify_exists_opt,
+                verify_not_exists_opt,
+                verify_timeout_ms,
+                &successful_selector,
+            )
+            .await
+            {
+                Ok(verification_result) => {
+                    tracing::info!(
+                        "[click_element] Verification passed: method={}, details={}",
+                        verification_result.method,
+                        verification_result.details
+                    );
+                    span.set_attribute("verification.passed", "true".to_string());
+                    span.set_attribute("verification.method", verification_result.method.clone());
+                    span.set_attribute(
+                        "verification.elapsed_ms",
+                        verification_result.elapsed_ms.to_string(),
+                    );
+
+                    let verification_json = json!({
+                        "passed": verification_result.passed,
+                        "method": verification_result.method,
+                        "details": verification_result.details,
+                        "elapsed_ms": verification_result.elapsed_ms,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    });
+
+                    if let Some(obj) = result_json.as_object_mut() {
+                        obj.insert("verification".to_string(), verification_json);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("[click_element] Verification failed: {}", e);
+                    span.set_attribute("verification.passed", "false".to_string());
+                    span.set_status(false, Some("Verification failed"));
+                    span.end();
+                    return Err(McpError::internal_error(
+                        format!("Post-action verification failed: {e}"),
+                        Some(json!({
+                            "selector_used": successful_selector,
+                            "verify_exists": args.action.verify_element_exists,
+                            "verify_not_exists": args.action.verify_element_not_exists,
+                            "timeout_ms": verify_timeout_ms,
+                        })),
+                    ));
+                }
+            }
+        }
 
         // Attach UI diff if captured
         if let Some(diff_result) = ui_diff {
@@ -1940,7 +2097,13 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
         if should_restore {
             tracing::info!("[press_key] Direct MCP call detected - performing window management");
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!(
@@ -1951,14 +2114,20 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
         let key_to_press = args.key.clone();
         let try_focus_before = args.try_focus_before;
         let try_click_before = args.try_click_before;
+        let highlight_before = args.highlight.highlight_before_action;
         let action = {
-            let highlight_config = args.highlight.highlight_before_action.clone();
             move |element: UIElement| {
                 let key_to_press = key_to_press.clone();
-                let highlight_config = highlight_config.clone();
                 async move {
-                    // Ensure element is visible and apply highlighting if configured
-                    Self::ensure_visible_and_apply_highlight(&element, &highlight_config, "key");
+                    // Activate window to ensure it has keyboard focus before pressing key
+                    if let Err(e) = element.activate_window() {
+                        tracing::warn!("Failed to activate window before pressing key: {}", e);
+                    }
+
+                    // Ensure element is visible and apply highlighting if enabled
+                    if highlight_before {
+                        Self::ensure_visible_and_apply_highlight(&element, "key");
+                    }
 
                     // Execute the key press action with state tracking
                     element.press_key_with_state_and_focus(
@@ -1987,7 +2156,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
-                args.tree.ui_diff_before_after.unwrap_or(false),
+                args.tree.ui_diff_before_after,
                 args.tree.tree_max_depth,
                 args.tree.include_detailed_attributes,
                 tree_output_format,
@@ -2038,6 +2207,76 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
             "timestamp": chrono::Utc::now().to_rfc3339()
         });
 
+        // POST-ACTION VERIFICATION
+        if !args.action.verify_element_exists.is_empty()
+            || !args.action.verify_element_not_exists.is_empty()
+        {
+            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
+
+            let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_exists.as_str())
+            };
+            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_not_exists.as_str())
+            };
+
+            match crate::helpers::verify_post_action(
+                &self.desktop,
+                &element,
+                verify_exists_opt,
+                verify_not_exists_opt,
+                verify_timeout_ms,
+                &successful_selector,
+            )
+            .await
+            {
+                Ok(verification_result) => {
+                    tracing::info!(
+                        "[press_key] Verification passed: method={}, details={}",
+                        verification_result.method,
+                        verification_result.details
+                    );
+                    span.set_attribute("verification.passed", "true".to_string());
+                    span.set_attribute("verification.method", verification_result.method.clone());
+                    span.set_attribute(
+                        "verification.elapsed_ms",
+                        verification_result.elapsed_ms.to_string(),
+                    );
+
+                    let verification_json = json!({
+                        "passed": verification_result.passed,
+                        "method": verification_result.method,
+                        "details": verification_result.details,
+                        "elapsed_ms": verification_result.elapsed_ms,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    });
+
+                    if let Some(obj) = result_json.as_object_mut() {
+                        obj.insert("verification".to_string(), verification_json);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("[press_key] Verification failed: {}", e);
+                    span.set_attribute("verification.passed", "false".to_string());
+                    span.set_status(false, Some("Verification failed"));
+                    span.end();
+                    return Err(McpError::internal_error(
+                        format!("Post-action verification failed: {e}"),
+                        Some(json!({
+                            "selector_used": successful_selector,
+                            "verify_exists": args.action.verify_element_exists,
+                            "verify_not_exists": args.action.verify_element_not_exists,
+                            "timeout_ms": verify_timeout_ms,
+                        })),
+                    ));
+                }
+            }
+        }
+
         // Attach UI diff if captured
         if let Some(diff_result) = ui_diff {
             tracing::debug!(
@@ -2082,7 +2321,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
     }
 
     #[tool(
-        description = "Sends a key press to the currently focused element (no selector required). Use curly brace format: '{Ctrl}c', '{Alt}{F4}', '{Enter}', '{PageDown}', '{Tab}', etc. This action requires the application to be focused and may change the UI.
+        description = "Activates the window for the specified process and sends a key press to the focused element. Use curly brace format: '{Ctrl}c', '{Alt}{F4}', '{Enter}', '{PageDown}', '{Tab}', etc.
 
 Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g., 'Tab')."
     )]
@@ -2093,14 +2332,51 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
         let mut span = StepSpan::new("press_key_global", None);
 
         // Add telemetry attributes
+        span.set_attribute("process", args.process.clone());
         span.set_attribute("key", args.key.clone());
 
-        // Identify focused element
+        // Build selector to find the root window for the process
+        // Using just process: prefix gets the main/root window directly
+        let window_selector = format!("process:{}", args.process);
+        span.set_attribute("window_selector", window_selector.clone());
+
+        // Find the window element
         let operation_start = std::time::Instant::now();
-        let element = self.desktop.focused_element().map_err(|e| {
-            // Note: Cannot use span in error closure as it would be moved
+        let window = self
+            .desktop
+            .locator(Selector::from(window_selector.as_str()))
+            .first(None)
+            .await
+            .map_err(|e| {
+                McpError::resource_not_found(
+                    "Failed to find window for process",
+                    Some(json!({
+                        "reason": e.to_string(),
+                        "process": args.process,
+                        "selector": window_selector
+                    })),
+                )
+            })?;
+
+        let find_time_ms = operation_start.elapsed().as_millis() as i64;
+        span.set_attribute("window.find_duration_ms", find_time_ms.to_string());
+
+        // Activate the window to bring it to foreground
+        window.activate_window().map_err(|e| {
             McpError::internal_error(
-                "Failed to get focused element",
+                "Failed to activate window",
+                Some(json!({
+                    "reason": e.to_string(),
+                    "process": args.process
+                })),
+            )
+        })?;
+        span.set_attribute("window.activated", "true".to_string());
+
+        // Get the focused element after activation
+        let element = self.desktop.focused_element().map_err(|e| {
+            McpError::internal_error(
+                "Failed to get focused element after window activation",
                 Some(json!({"reason": e.to_string()})),
             )
         })?;
@@ -2116,10 +2392,10 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
 
         // Gather metadata for debugging / result payload
         let element_info = build_element_info(&element);
+        let window_info = build_element_info(&window);
 
-        // Perform the key press
+        // Perform the key press on the focused element
         element.press_key(&args.key).map_err(|e| {
-            // Note: Cannot use span in error closure as it would be moved
             McpError::resource_not_found(
                 "Failed to press key on focused element",
                 Some(json!({
@@ -2133,10 +2409,87 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
         let mut result_json = json!({
             "action": "press_key_global",
             "status": "success",
+            "process": args.process,
             "key_pressed": args.key,
-            "element": element_info,
+            "window": window_info,
+            "focused_element": element_info,
             "timestamp": chrono::Utc::now().to_rfc3339()
         });
+
+        // POST-ACTION VERIFICATION
+        let verify_exists = args.verify_element_exists.clone();
+        let verify_not_exists = args.verify_element_not_exists.clone();
+        let verify_timeout_ms = args.verify_timeout_ms;
+
+        let skip_verification = verify_exists.is_empty() && verify_not_exists.is_empty();
+
+        if !skip_verification {
+            span.add_event("verification_started", vec![]);
+
+            let verify_exists_opt = if verify_exists.is_empty() {
+                None
+            } else {
+                Some(verify_exists.as_str())
+            };
+            let verify_not_exists_opt = if verify_not_exists.is_empty() {
+                None
+            } else {
+                Some(verify_not_exists.as_str())
+            };
+
+            match crate::helpers::verify_post_action(
+                &self.desktop,
+                &element,
+                verify_exists_opt,
+                verify_not_exists_opt,
+                verify_timeout_ms,
+                &window_selector,
+            )
+            .await
+            {
+                Ok(verification_result) => {
+                    tracing::info!(
+                        "[press_key_global] Verification passed: method={}, details={}",
+                        verification_result.method,
+                        verification_result.details
+                    );
+                    span.set_attribute("verification.passed", "true".to_string());
+                    span.set_attribute("verification.method", verification_result.method.clone());
+                    span.set_attribute(
+                        "verification.elapsed_ms",
+                        verification_result.elapsed_ms.to_string(),
+                    );
+
+                    let verification_json = json!({
+                        "passed": verification_result.passed,
+                        "method": verification_result.method,
+                        "details": verification_result.details,
+                        "elapsed_ms": verification_result.elapsed_ms,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    });
+                    result_json["verification"] = verification_json;
+                }
+                Err(e) => {
+                    tracing::error!("[press_key_global] Verification failed: {}", e);
+                    span.set_attribute("verification.passed", "false".to_string());
+                    span.set_attribute("verification.error", e.to_string());
+                    let error_msg = format!("Verification failed: {e}");
+                    span.set_status(false, Some(error_msg.as_str()));
+                    span.end();
+
+                    return Err(McpError::internal_error(
+                        "Post-action verification failed",
+                        Some(json!({
+                            "error": e.to_string(),
+                            "verify_element_exists": verify_exists,
+                            "verify_element_not_exists": verify_not_exists,
+                            "verify_timeout_ms": verify_timeout_ms,
+                        })),
+                    ));
+                }
+            }
+        }
+
         maybe_attach_tree(
             &self.desktop,
             args.tree.include_tree_after_action,
@@ -3210,7 +3563,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[activate_element] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!("[activate_element] In sequence - skipping window management (dispatch_tool handles it)");
@@ -3407,7 +3766,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
         if should_restore {
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         }
 
@@ -3448,6 +3813,77 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "end": (args.end_x, args.end_y),
             "timestamp": chrono::Utc::now().to_rfc3339()
         });
+
+        // POST-ACTION VERIFICATION
+        if !args.action.verify_element_exists.is_empty()
+            || !args.action.verify_element_not_exists.is_empty()
+        {
+            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
+
+            let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_exists.as_str())
+            };
+            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_not_exists.as_str())
+            };
+
+            match crate::helpers::verify_post_action(
+                &self.desktop,
+                &element,
+                verify_exists_opt,
+                verify_not_exists_opt,
+                verify_timeout_ms,
+                &successful_selector,
+            )
+            .await
+            {
+                Ok(verification_result) => {
+                    tracing::info!(
+                        "[mouse_drag] Verification passed: method={}, details={}",
+                        verification_result.method,
+                        verification_result.details
+                    );
+                    span.set_attribute("verification.passed", "true".to_string());
+                    span.set_attribute("verification.method", verification_result.method.clone());
+                    span.set_attribute(
+                        "verification.elapsed_ms",
+                        verification_result.elapsed_ms.to_string(),
+                    );
+
+                    let verification_json = json!({
+                        "passed": verification_result.passed,
+                        "method": verification_result.method,
+                        "details": verification_result.details,
+                        "elapsed_ms": verification_result.elapsed_ms,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    });
+
+                    if let Some(obj) = result_json.as_object_mut() {
+                        obj.insert("verification".to_string(), verification_json);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("[mouse_drag] Verification failed: {}", e);
+                    span.set_attribute("verification.passed", "false".to_string());
+                    span.set_status(false, Some("Verification failed"));
+                    span.end();
+                    return Err(McpError::internal_error(
+                        format!("Post-action verification failed: {e}"),
+                        Some(json!({
+                            "selector_used": successful_selector,
+                            "verify_exists": args.action.verify_element_exists,
+                            "verify_not_exists": args.action.verify_element_not_exists,
+                            "timeout_ms": verify_timeout_ms,
+                        })),
+                    ));
+                }
+            }
+        }
+
         maybe_attach_tree(
             &self.desktop,
             args.tree.include_tree_after_action,
@@ -3506,7 +3942,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[validate_element] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!("[validate_element] In sequence - skipping window management (dispatch_tool handles it)");
@@ -3650,7 +4092,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[highlight_element] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!("[highlight_element] In sequence - skipping window management (dispatch_tool handles it)");
@@ -3667,7 +4115,16 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let text_position = None;
 
         #[cfg(target_os = "windows")]
-        let font_style = args.font_style.clone().map(|style| style.into());
+        let font_style =
+            if args.font_size.is_some() || args.font_bold.is_some() || args.font_color.is_some() {
+                Some(terminator::platforms::windows::FontStyle {
+                    size: args.font_size.unwrap_or(14),
+                    bold: args.font_bold.unwrap_or(false),
+                    color: args.font_color.unwrap_or(0),
+                })
+            } else {
+                None
+            };
         #[cfg(not(target_os = "windows"))]
         let font_style = None;
 
@@ -3806,7 +4263,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[wait_for_element] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!("[wait_for_element] In sequence - skipping window management (dispatch_tool handles it)");
@@ -4066,7 +4529,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[navigate_browser] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.process, None, None, None)
+                .prepare_window_management(&args.process, None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!("[navigate_browser] In sequence - skipping window management (dispatch_tool handles it)");
@@ -4160,7 +4623,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             );
             // Note: UIElement is a trait object, can't extract platform-specific type, so pass None
             let _ = self
-                .prepare_window_management(&args.app_name, None, Some(process_id), None)
+                .prepare_window_management(
+                    &args.app_name,
+                    None,
+                    Some(process_id),
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!("[open_application] In sequence - skipping window management (dispatch_tool handles it)");
@@ -4234,7 +4703,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[close_element] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!("[close_element] In sequence - skipping window management (dispatch_tool handles it)");
@@ -4315,7 +4790,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[scroll_element] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!("[scroll_element] In sequence - skipping window management (dispatch_tool handles it)");
@@ -4323,14 +4804,15 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
         let direction = args.direction.clone();
         let amount = args.amount;
+        let highlight_before = args.highlight.highlight_before_action;
         let action = {
-            let highlight_config = args.highlight.highlight_before_action.clone();
             move |element: UIElement| {
                 let direction = direction.clone();
-                let highlight_config = highlight_config.clone();
                 async move {
-                    // Ensure element is visible and apply highlighting if configured
-                    Self::ensure_visible_and_apply_highlight(&element, &highlight_config, "scroll");
+                    // Ensure element is visible and apply highlighting if enabled
+                    if highlight_before {
+                        Self::ensure_visible_and_apply_highlight(&element, "scroll");
+                    }
 
                     // Execute the scroll action with state tracking
                     element.scroll_with_state(&direction, amount)
@@ -4353,7 +4835,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
-                args.tree.ui_diff_before_after.unwrap_or(false),
+                args.tree.ui_diff_before_after,
                 args.tree.tree_max_depth,
                 args.tree.include_detailed_attributes,
                 tree_output_format,
@@ -4395,6 +4877,76 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "amount": args.amount,
             "timestamp": chrono::Utc::now().to_rfc3339()
         });
+
+        // POST-ACTION VERIFICATION
+        if !args.action.verify_element_exists.is_empty()
+            || !args.action.verify_element_not_exists.is_empty()
+        {
+            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
+
+            let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_exists.as_str())
+            };
+            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_not_exists.as_str())
+            };
+
+            match crate::helpers::verify_post_action(
+                &self.desktop,
+                &element,
+                verify_exists_opt,
+                verify_not_exists_opt,
+                verify_timeout_ms,
+                &successful_selector,
+            )
+            .await
+            {
+                Ok(verification_result) => {
+                    tracing::info!(
+                        "[scroll_element] Verification passed: method={}, details={}",
+                        verification_result.method,
+                        verification_result.details
+                    );
+                    span.set_attribute("verification.passed", "true".to_string());
+                    span.set_attribute("verification.method", verification_result.method.clone());
+                    span.set_attribute(
+                        "verification.elapsed_ms",
+                        verification_result.elapsed_ms.to_string(),
+                    );
+
+                    let verification_json = json!({
+                        "passed": verification_result.passed,
+                        "method": verification_result.method,
+                        "details": verification_result.details,
+                        "elapsed_ms": verification_result.elapsed_ms,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    });
+
+                    if let Some(obj) = result_json.as_object_mut() {
+                        obj.insert("verification".to_string(), verification_json);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("[scroll_element] Verification failed: {}", e);
+                    span.set_attribute("verification.passed", "false".to_string());
+                    span.set_status(false, Some("Verification failed"));
+                    span.end();
+                    return Err(McpError::internal_error(
+                        format!("Post-action verification failed: {e}"),
+                        Some(json!({
+                            "selector_used": successful_selector,
+                            "verify_exists": args.action.verify_element_exists,
+                            "verify_not_exists": args.action.verify_element_not_exists,
+                            "timeout_ms": verify_timeout_ms,
+                        })),
+                    ));
+                }
+            }
+        }
 
         // Attach UI diff if captured
         if let Some(diff_result) = ui_diff {
@@ -4464,7 +5016,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[select_option] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!("[select_option] In sequence - skipping window management (dispatch_tool handles it)");
@@ -4497,7 +5055,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
-                args.tree.ui_diff_before_after.unwrap_or(false),
+                args.tree.ui_diff_before_after,
                 args.tree.tree_max_depth,
                 args.tree.include_detailed_attributes,
                 tree_output_format,
@@ -4615,7 +5173,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[list_options] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!("[list_options] In sequence - skipping window management (dispatch_tool handles it)");
@@ -4712,7 +5276,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if should_restore {
             tracing::info!("[set_toggled] Direct MCP call detected - performing window management");
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!(
@@ -4744,7 +5314,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
-                args.tree.ui_diff_before_after.unwrap_or(false),
+                args.tree.ui_diff_before_after,
                 args.tree.tree_max_depth,
                 args.tree.include_detailed_attributes,
                 tree_output_format,
@@ -4842,7 +5412,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             || !args.action.verify_element_not_exists.is_empty()
         {
             // Explicit verification using selectors
-            let verify_timeout_ms = args.action.verify_timeout_ms;
+            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
 
             let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
                 None
@@ -4966,7 +5536,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[set_range_value] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!("[set_range_value] In sequence - skipping window management (dispatch_tool handles it)");
@@ -4996,7 +5572,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
-                args.tree.ui_diff_before_after.unwrap_or(false),
+                args.tree.ui_diff_before_after,
                 args.tree.tree_max_depth,
                 args.tree.include_detailed_attributes,
                 tree_output_format,
@@ -5087,7 +5663,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             || !args.action.verify_element_not_exists.is_empty()
         {
             // Explicit verification using selectors
-            let verify_timeout_ms = args.action.verify_timeout_ms;
+            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
 
             let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
                 None
@@ -5211,7 +5787,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[set_selected] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!("[set_selected] In sequence - skipping window management (dispatch_tool handles it)");
@@ -5236,7 +5818,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
-                args.tree.ui_diff_before_after.unwrap_or(false),
+                args.tree.ui_diff_before_after,
                 args.tree.tree_max_depth,
                 args.tree.include_detailed_attributes,
                 tree_output_format,
@@ -5331,7 +5913,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             || !args.action.verify_element_not_exists.is_empty()
         {
             // Explicit verification using selectors
-            let verify_timeout_ms = args.action.verify_timeout_ms;
+            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
 
             let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
                 None
@@ -5459,7 +6041,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if should_restore {
             tracing::info!("[is_toggled] Direct MCP call detected - performing window management");
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!(
@@ -5561,7 +6149,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[get_range_value] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!("[get_range_value] In sequence - skipping window management (dispatch_tool handles it)");
@@ -5659,7 +6253,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if should_restore {
             tracing::info!("[is_selected] Direct MCP call detected - performing window management");
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!(
@@ -5752,7 +6352,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if should_restore {
             tracing::info!("[capture_element_screenshot] Direct MCP call detected - performing window management");
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!("[capture_element_screenshot] In sequence - skipping window management (dispatch_tool handles it)");
@@ -5919,7 +6525,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[invoke_element] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!("[invoke_element] In sequence - skipping window management (dispatch_tool handles it)");
@@ -5946,7 +6558,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     }
                     element.invoke_with_state()
                 },
-                args.tree.ui_diff_before_after.unwrap_or(false),
+                args.tree.ui_diff_before_after,
                 args.tree.tree_max_depth,
                 args.tree.include_detailed_attributes,
                 tree_output_format,
@@ -5986,6 +6598,76 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "timestamp": chrono::Utc::now().to_rfc3339()
         });
+
+        // POST-ACTION VERIFICATION
+        if !args.action.verify_element_exists.is_empty()
+            || !args.action.verify_element_not_exists.is_empty()
+        {
+            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
+
+            let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_exists.as_str())
+            };
+            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() {
+                None
+            } else {
+                Some(args.action.verify_element_not_exists.as_str())
+            };
+
+            match crate::helpers::verify_post_action(
+                &self.desktop,
+                &element,
+                verify_exists_opt,
+                verify_not_exists_opt,
+                verify_timeout_ms,
+                &successful_selector,
+            )
+            .await
+            {
+                Ok(verification_result) => {
+                    tracing::info!(
+                        "[invoke_element] Verification passed: method={}, details={}",
+                        verification_result.method,
+                        verification_result.details
+                    );
+                    span.set_attribute("verification.passed", "true".to_string());
+                    span.set_attribute("verification.method", verification_result.method.clone());
+                    span.set_attribute(
+                        "verification.elapsed_ms",
+                        verification_result.elapsed_ms.to_string(),
+                    );
+
+                    let verification_json = json!({
+                        "passed": verification_result.passed,
+                        "method": verification_result.method,
+                        "details": verification_result.details,
+                        "elapsed_ms": verification_result.elapsed_ms,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    });
+
+                    if let Some(obj) = result_json.as_object_mut() {
+                        obj.insert("verification".to_string(), verification_json);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("[invoke_element] Verification failed: {}", e);
+                    span.set_attribute("verification.passed", "false".to_string());
+                    span.set_status(false, Some("Verification failed"));
+                    span.end();
+                    return Err(McpError::internal_error(
+                        format!("Post-action verification failed: {e}"),
+                        Some(json!({
+                            "selector_used": successful_selector,
+                            "verify_exists": args.action.verify_element_exists,
+                            "verify_not_exists": args.action.verify_element_not_exists,
+                            "timeout_ms": verify_timeout_ms,
+                        })),
+                    ));
+                }
+            }
+        }
 
         // Attach UI diff if captured
         if let Some(diff_result) = ui_diff {
@@ -6117,7 +6799,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[maximize_window] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!("[maximize_window] In sequence - skipping window management (dispatch_tool handles it)");
@@ -6207,7 +6895,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 "[minimize_window] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!("[minimize_window] In sequence - skipping window management (dispatch_tool handles it)");
@@ -6295,7 +6989,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             tracing::info!("[set_zoom] Direct MCP call detected - performing window management");
             // Note: set_zoom operates on browser context, using generic browser process
             let _ = self
-                .prepare_window_management("chrome", None, None, None)
+                .prepare_window_management("chrome", None, None, None, &args.window_mgmt)
                 .await;
         } else {
             tracing::debug!(
@@ -6366,7 +7060,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if should_restore {
             tracing::info!("[set_value] Direct MCP call detected - performing window management");
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!(
@@ -6377,7 +7077,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let value_to_set = args.value.clone();
         let action = move |element: UIElement| {
             let value_to_set = value_to_set.clone();
-            async move { element.set_value(&value_to_set) }
+            async move {
+                // Activate window to ensure it has keyboard focus before setting value
+                if let Err(e) = element.activate_window() {
+                    tracing::warn!("Failed to activate window before setting value: {}", e);
+                }
+                element.set_value(&value_to_set)
+            }
         };
 
         // Store tree config to avoid move issues
@@ -6395,7 +7101,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 args.action.timeout_ms,
                 args.action.retries,
                 action,
-                args.tree.ui_diff_before_after.unwrap_or(false),
+                args.tree.ui_diff_before_after,
                 args.tree.tree_max_depth,
                 args.tree.include_detailed_attributes,
                 tree_output_format,
@@ -6442,7 +7148,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 args.value
             );
             span.set_attribute("verification.auto_inferred", "true".to_string());
-            format!("value:{}", args.value)
+            format!("text:{}", args.value)
         } else {
             args.action.verify_element_exists.clone()
         };
@@ -6452,7 +7158,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let skip_verification = verify_exists.is_empty() && verify_not_exists.is_empty();
 
         if !skip_verification {
-            let verify_timeout_ms = args.action.verify_timeout_ms;
+            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
 
             let verify_exists_opt = if verify_exists.is_empty() {
                 None
@@ -6830,7 +7536,13 @@ Requires Chrome extension to be installed."
                 "[execute_browser_script] Direct MCP call detected - performing window management"
             );
             let _ = self
-                .prepare_window_management(&args.selector.process, None, None, None)
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
                 .await;
         } else {
             tracing::debug!("[execute_browser_script] In sequence - skipping window management (dispatch_tool handles it)");
@@ -7507,14 +8219,31 @@ impl DesktopWrapper {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
+        // Extract window management options from arguments (defaults to enabled)
+        let window_mgmt_opts: crate::utils::WindowManagementOptions =
+            serde_json::from_value(arguments.clone()).unwrap_or_default();
+
         // Perform window management if needed
         if let Some(ref process) = process_name {
             let _ = self
-                .prepare_window_management(process, execution_context.as_ref(), None, None)
+                .prepare_window_management(
+                    process,
+                    execution_context.as_ref(),
+                    None,
+                    None,
+                    &window_mgmt_opts,
+                )
                 .await;
 
             // Small delay to let window operations settle
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+
+        // Set in_sequence flag to prevent individual tools from doing their own window management
+        // dispatch_tool handles window management centrally
+        {
+            let mut in_seq = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            *in_seq = true;
         }
 
         // Wrap each tool call with cancellation support
@@ -7893,6 +8622,12 @@ impl DesktopWrapper {
                 Some(json!({"tool_name": tool_name})),
             )),
         };
+
+        // Reset in_sequence flag after tool execution
+        {
+            let mut in_seq = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            *in_seq = false;
+        }
 
         // Restore windows appropriately based on execution context
         match execution_context {
