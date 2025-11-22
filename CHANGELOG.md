@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.17] - 2025-11-21
+
+### Added
+- Telemetry: Receive and use execution_id from executor for distributed tracing
+
+### Fixed
+- Tests: Add missing trace_id and execution_id fields to test fixtures
+
+### Changed
+- Docs: Update README terminology from 'legacy systems' to 'legacy software'
+
 ## [0.23.16] - 2025-11-21
 
 ### Added
