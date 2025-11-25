@@ -1,4 +1,4 @@
-use crate::{AutomationError, Browser, Selector, UIElement, UINode};
+use crate::{AutomationError, Browser, OcrElement, Selector, UIElement, UINode};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -167,6 +167,27 @@ pub trait AccessibilityEngine: Send + Sync {
         &self,
         screenshot: &crate::ScreenshotResult,
     ) -> Result<String, AutomationError>;
+
+    /// OCR on screenshot with bounding boxes - returns structured OCR elements with absolute screen coordinates
+    /// Default implementation returns UnsupportedOperation - override in platform-specific engines
+    fn ocr_screenshot_with_bounds(
+        &self,
+        _screenshot: &crate::ScreenshotResult,
+        _window_x: f64,
+        _window_y: f64,
+    ) -> Result<OcrElement, AutomationError> {
+        Err(AutomationError::UnsupportedOperation(
+            "OCR with bounding boxes not supported on this platform".to_string(),
+        ))
+    }
+
+    /// Click at absolute screen coordinates
+    /// Default implementation returns UnsupportedOperation - override in platform-specific engines
+    fn click_at_coordinates(&self, _x: f64, _y: f64) -> Result<(), AutomationError> {
+        Err(AutomationError::UnsupportedOperation(
+            "Click at coordinates not supported on this platform".to_string(),
+        ))
+    }
 
     /// Activate browser window
     fn activate_browser_window_by_title(&self, title: &str) -> Result<(), AutomationError>;
