@@ -267,6 +267,10 @@ pub struct HotkeyEvent {
     /// Whether this was a global or application-specific hotkey
     pub is_global: bool,
 
+    /// Process executable name (e.g., "chrome.exe", "Notepad.exe")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_name: Option<String>,
+
     /// Event metadata (UI element, application, etc.)
     pub metadata: EventMetadata,
 }
@@ -317,6 +321,10 @@ pub struct ClickEvent {
     /// Useful for clicking within large elements like table rows
     #[serde(skip_serializing_if = "Option::is_none")]
     pub relative_position: Option<(f32, f32)>,
+
+    /// Process executable name (e.g., "chrome.exe", "Notepad.exe")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_name: Option<String>,
 
     /// Event metadata with UI element context
     pub metadata: EventMetadata,
@@ -851,6 +859,9 @@ pub struct TextInputCompletedEvent {
     pub typing_duration_ms: u64,
     /// Number of individual keystroke events that contributed to this input
     pub keystroke_count: u32,
+    /// Process executable name (e.g., "chrome.exe", "Notepad.exe")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_name: Option<String>,
     /// Event metadata with UI element context
     pub metadata: EventMetadata,
 }
@@ -1359,6 +1370,8 @@ pub struct SerializableHotkeyEvent {
     #[serde(skip_serializing_if = "is_empty_string")]
     pub action: Option<String>,
     pub is_global: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_name: Option<String>,
     pub metadata: SerializableEventMetadata,
 }
 
@@ -1368,6 +1381,7 @@ impl From<&HotkeyEvent> for SerializableHotkeyEvent {
             combination: event.combination.clone(),
             action: event.action.clone(),
             is_global: event.is_global,
+            process_name: event.process_name.clone(),
             metadata: (&event.metadata).into(),
         }
     }
@@ -1384,6 +1398,8 @@ pub struct SerializableTextInputCompletedEvent {
     pub focus_method: FieldFocusMethod,
     pub typing_duration_ms: u64,
     pub keystroke_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_name: Option<String>,
     pub metadata: SerializableEventMetadata,
 }
 
@@ -1397,6 +1413,7 @@ impl From<&TextInputCompletedEvent> for SerializableTextInputCompletedEvent {
             focus_method: event.focus_method.clone(),
             typing_duration_ms: event.typing_duration_ms,
             keystroke_count: event.keystroke_count,
+            process_name: event.process_name.clone(),
             metadata: (&event.metadata).into(),
         }
     }
@@ -1498,6 +1515,8 @@ pub struct SerializableClickEvent {
     pub child_text_content: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub relative_position: Option<(f32, f32)>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_name: Option<String>,
     pub metadata: SerializableEventMetadata,
 }
 
@@ -1512,6 +1531,7 @@ impl From<&ClickEvent> for SerializableClickEvent {
             element_description: event.element_description.clone(),
             child_text_content: event.child_text_content.clone(),
             relative_position: event.relative_position,
+            process_name: event.process_name.clone(),
             metadata: (&event.metadata).into(),
         }
     }
