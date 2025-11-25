@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.20] - 2025-11-25
+
+### Added
+- MCP: Add tracing span with trace_id for distributed tracing
+- Extension: Add lifecycle logging and health reporting
+- UI Automation: Add element verification to open_application and navigate_browser
+
 ## [0.23.19] - 2025-11-22
 
 ### Fixed
