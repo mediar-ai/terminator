@@ -874,7 +874,7 @@ impl DesktopWrapper {
             steps = args.steps.as_ref().map(|s| s.len()).unwrap_or(0),
             stop_on_error = %stop_on_error,
             include_detailed = %include_detailed,
-            "Starting execute_sequence"
+            "Starting execute_sequence [execution_id={}, trace_id={}]", execution_id_val, trace_id_val
         );
 
         // Start workflow telemetry span
