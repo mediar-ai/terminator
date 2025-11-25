@@ -336,6 +336,10 @@ pub struct DesktopWrapper {
     /// Used to determine if individual tools should handle window management
     #[serde(skip)]
     pub in_sequence: Arc<Mutex<bool>>,
+    /// Stores OCR index-to-bounds mapping from the last get_window_tree with include_ocr
+    /// Key is 1-based index, value is (text, (x, y, width, height))
+    #[serde(skip)]
+    pub ocr_bounds: Arc<Mutex<std::collections::HashMap<u32, (String, (f64, f64, f64, f64))>>>,
 }
 
 impl Default for DesktopWrapper {
@@ -382,6 +386,12 @@ pub struct GetWindowTreeArgs {
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
+
+    #[schemars(
+        description = "Whether to perform OCR on the window and include recognized text with bounding boxes. OCR results are returned as a separate 'ocr_tree' field with word-level positioning for click targeting. Defaults to false."
+    )]
+    #[serde(default)]
+    pub include_ocr: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -668,6 +678,18 @@ pub struct MouseDragArgs {
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ClickOcrIndexArgs {
+    #[schemars(description = "The 1-based index of the OCR word to click (from get_window_tree with include_ocr=true)")]
+    pub index: u32,
+
+    #[serde(flatten)]
+    pub tree: TreeOptions,
+
+    #[serde(flatten)]
+    pub monitor: MonitorScreenshotOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
