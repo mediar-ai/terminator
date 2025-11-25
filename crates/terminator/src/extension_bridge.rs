@@ -51,6 +51,11 @@ struct ResetRequest {
     action: String,
 }
 
+#[derive(Debug, Serialize)]
+struct GetHealthRequest {
+    action: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 enum BridgeIncoming {
@@ -95,6 +100,15 @@ enum TypedIncoming {
     LogEvent {
         id: String,
         entry: Option<serde_json::Value>,
+    },
+    #[serde(rename = "extension_health")]
+    ExtensionHealth {
+        extension_id: Option<String>,
+        version: Option<String>,
+        last_heartbeat: Option<String>,
+        recent_logs: Option<Vec<serde_json::Value>>,
+        install_reason: Option<String>,
+        previous_version: Option<String>,
     },
 }
 
@@ -462,6 +476,47 @@ impl ExtensionBridge {
                             }
                             Ok(BridgeIncoming::Typed(TypedIncoming::Hello { .. })) => {
                                 tracing::info!("Extension connected");
+                                // Request extension health info for logging
+                                let health_req = GetHealthRequest {
+                                    action: "get_extension_health".to_string(),
+                                };
+                                if let Ok(payload) = serde_json::to_string(&health_req) {
+                                    if tx.send(Message::Text(payload)).is_err() {
+                                        tracing::warn!("Failed to send health request to extension");
+                                    }
+                                }
+                            }
+                            Ok(BridgeIncoming::Typed(TypedIncoming::ExtensionHealth {
+                                extension_id,
+                                version,
+                                last_heartbeat,
+                                recent_logs,
+                                install_reason,
+                                previous_version,
+                            })) => {
+                                let ext_id = extension_id.unwrap_or_else(|| "unknown".to_string());
+                                let ver = version.unwrap_or_else(|| "unknown".to_string());
+                                let heartbeat = last_heartbeat.unwrap_or_else(|| "never".to_string());
+                                let reason = install_reason.unwrap_or_else(|| "unknown".to_string());
+                                let prev_ver = previous_version.unwrap_or_else(|| "none".to_string());
+                                let log_count = recent_logs.as_ref().map(|l| l.len()).unwrap_or(0);
+
+                                tracing::info!(
+                                    extension_id = %ext_id,
+                                    version = %ver,
+                                    last_heartbeat = %heartbeat,
+                                    install_reason = %reason,
+                                    previous_version = %prev_ver,
+                                    recent_log_count = log_count,
+                                    "Extension health report"
+                                );
+
+                                // Log recent lifecycle events if present
+                                if let Some(logs) = recent_logs {
+                                    for log_entry in logs.iter().take(5) {
+                                        tracing::info!(entry = %log_entry, "Extension lifecycle event");
+                                    }
+                                }
                             }
                             Ok(BridgeIncoming::Typed(TypedIncoming::Pong)) => {}
                             Err(e) => tracing::warn!("Invalid incoming JSON: {}", e),
