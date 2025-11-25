@@ -171,9 +171,8 @@ pub struct ActionOptions {
     pub verify_element_not_exists: String,
 
     #[schemars(
-        description = "Timeout in milliseconds for post-action verification. The system will poll until verification passes or timeout is reached. Defaults to 2000ms."
+        description = "Timeout in milliseconds for post-action verification. The system will poll until verification passes or timeout is reached. Defaults to 2000ms if not specified."
     )]
-    #[serde(default)]
     pub verify_timeout_ms: Option<u64>,
 }
 
@@ -596,9 +595,9 @@ pub struct GlobalKeyArgs {
     pub verify_element_not_exists: String,
 
     #[schemars(
-        description = "REQUIRED: Timeout in milliseconds for post-action verification. The system will poll until verification passes or timeout is reached."
+        description = "Timeout in milliseconds for post-action verification. The system will poll until verification passes or timeout is reached. Defaults to 2000ms if not specified."
     )]
-    pub verify_timeout_ms: u64,
+    pub verify_timeout_ms: Option<u64>,
 
     #[serde(flatten)]
     pub tree: TreeOptions,
@@ -781,6 +780,22 @@ pub struct NavigateBrowserArgs {
         description = "Browser process name (e.g., 'chrome', 'msedge', 'firefox'). Will start the browser if not running."
     )]
     pub process: String,
+
+    #[schemars(
+        description = "REQUIRED: Selector that should exist after navigation completes. Used to verify the page loaded successfully. Use empty string \"\" to skip this check."
+    )]
+    pub verify_element_exists: String,
+
+    #[schemars(
+        description = "REQUIRED: Selector that should NOT exist after navigation completes. Use empty string \"\" to skip this check."
+    )]
+    pub verify_element_not_exists: String,
+
+    #[schemars(
+        description = "Timeout in milliseconds for post-action verification. The system will poll until verification passes or timeout is reached. Defaults to 2000ms if not specified."
+    )]
+    pub verify_timeout_ms: Option<u64>,
+
     #[serde(flatten)]
     pub tree: TreeOptions,
     #[serde(flatten)]
@@ -819,6 +834,21 @@ pub struct ExecuteBrowserScriptArgs {
 pub struct OpenApplicationArgs {
     #[schemars(description = "Name of the application to open")]
     pub app_name: String,
+
+    #[schemars(
+        description = "REQUIRED: Selector that should exist after the application opens. Used to verify the app loaded successfully (e.g., 'process:notepad|role:Document'). Use empty string \"\" to skip this check."
+    )]
+    pub verify_element_exists: String,
+
+    #[schemars(
+        description = "REQUIRED: Selector that should NOT exist after the application opens. Use empty string \"\" to skip this check."
+    )]
+    pub verify_element_not_exists: String,
+
+    #[schemars(
+        description = "Timeout in milliseconds for post-action verification. The system will poll until verification passes or timeout is reached. Defaults to 2000ms if not specified."
+    )]
+    pub verify_timeout_ms: Option<u64>,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,

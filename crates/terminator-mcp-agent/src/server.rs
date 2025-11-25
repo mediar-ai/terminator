@@ -2419,7 +2419,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
         // POST-ACTION VERIFICATION
         let verify_exists = args.verify_element_exists.clone();
         let verify_not_exists = args.verify_element_not_exists.clone();
-        let verify_timeout_ms = args.verify_timeout_ms;
+        let verify_timeout_ms = args.verify_timeout_ms.unwrap_or(2000);
 
         let skip_verification = verify_exists.is_empty() && verify_not_exists.is_empty();
 
@@ -4505,9 +4505,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
     }
 
     #[tool(
-        description = "Opens a URL in the specified browser (uses SDK's built-in browser automation). This is the RECOMMENDED method for browser navigation - more reliable than manually manipulating the address bar with keyboard/mouse actions. Handles page loading, waiting, and error recovery automatically."
+        description = "Opens a URL in the specified browser (uses SDK's built-in browser automation). This is the RECOMMENDED method for browser navigation - more reliable than manually manipulating the address bar with keyboard/mouse actions. Handles page loading, waiting, and error recovery automatically. Requires verify_element_exists and verify_element_not_exists parameters (use empty string \"\" to skip verification)."
     )]
-    async fn navigate_browser(
+    pub async fn navigate_browser(
         &self,
         Parameters(args): Parameters<NavigateBrowserArgs>,
     ) -> Result<CallToolResult, McpError> {
@@ -4567,6 +4567,67 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         )
         .await;
 
+        // POST-ACTION VERIFICATION
+        if !args.verify_element_exists.is_empty() || !args.verify_element_not_exists.is_empty() {
+            let verify_exists_opt = if args.verify_element_exists.is_empty() {
+                None
+            } else {
+                Some(args.verify_element_exists.as_str())
+            };
+            let verify_not_exists_opt = if args.verify_element_not_exists.is_empty() {
+                None
+            } else {
+                Some(args.verify_element_not_exists.as_str())
+            };
+
+            match crate::helpers::verify_post_action(
+                &self.desktop,
+                &ui_element,
+                verify_exists_opt,
+                verify_not_exists_opt,
+                args.verify_timeout_ms.unwrap_or(2000),
+                &args.url,
+            )
+            .await
+            {
+                Ok(verification_result) => {
+                    tracing::info!(
+                        "[navigate_browser] Verification passed: method={}, details={}",
+                        verification_result.method,
+                        verification_result.details
+                    );
+                    span.set_attribute("verification.passed", "true".to_string());
+                    span.set_attribute("verification.method", verification_result.method.clone());
+                    span.set_attribute(
+                        "verification.elapsed_ms",
+                        verification_result.elapsed_ms.to_string(),
+                    );
+
+                    let verification_json = json!({
+                        "passed": verification_result.passed,
+                        "method": verification_result.method,
+                        "details": verification_result.details,
+                        "elapsed_ms": verification_result.elapsed_ms,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    });
+
+                    if let Some(obj) = result_json.as_object_mut() {
+                        obj.insert("verification".to_string(), verification_json);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("[navigate_browser] Verification failed: {}", e);
+                    span.set_attribute("verification.passed", "false".to_string());
+                    span.set_status(false, Some("Verification failed"));
+                    span.end();
+                    return Err(McpError::internal_error(
+                        format!("Post-action verification failed: {e}"),
+                        None,
+                    ));
+                }
+            }
+        }
+
         self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
@@ -4582,7 +4643,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         ))
     }
 
-    #[tool(description = "Opens an application by name (uses SDK's built-in app launcher).")]
+    #[tool(description = "Opens an application by name (uses SDK's built-in app launcher). Requires verify_element_exists and verify_element_not_exists parameters (use empty string \"\" to skip verification).")]
     pub async fn open_application(
         &self,
         Parameters(args): Parameters<OpenApplicationArgs>,
@@ -4656,6 +4717,67 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     if let Some(obj) = result_json.as_object_mut() {
                         obj.insert("ui_tree".to_string(), tree_val);
                     }
+                }
+            }
+        }
+
+        // POST-ACTION VERIFICATION
+        if !args.verify_element_exists.is_empty() || !args.verify_element_not_exists.is_empty() {
+            let verify_exists_opt = if args.verify_element_exists.is_empty() {
+                None
+            } else {
+                Some(args.verify_element_exists.as_str())
+            };
+            let verify_not_exists_opt = if args.verify_element_not_exists.is_empty() {
+                None
+            } else {
+                Some(args.verify_element_not_exists.as_str())
+            };
+
+            match crate::helpers::verify_post_action(
+                &self.desktop,
+                &ui_element,
+                verify_exists_opt,
+                verify_not_exists_opt,
+                args.verify_timeout_ms.unwrap_or(2000),
+                &args.app_name,
+            )
+            .await
+            {
+                Ok(verification_result) => {
+                    tracing::info!(
+                        "[open_application] Verification passed: method={}, details={}",
+                        verification_result.method,
+                        verification_result.details
+                    );
+                    span.set_attribute("verification.passed", "true".to_string());
+                    span.set_attribute("verification.method", verification_result.method.clone());
+                    span.set_attribute(
+                        "verification.elapsed_ms",
+                        verification_result.elapsed_ms.to_string(),
+                    );
+
+                    let verification_json = json!({
+                        "passed": verification_result.passed,
+                        "method": verification_result.method,
+                        "details": verification_result.details,
+                        "elapsed_ms": verification_result.elapsed_ms,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    });
+
+                    if let Some(obj) = result_json.as_object_mut() {
+                        obj.insert("verification".to_string(), verification_json);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("[open_application] Verification failed: {}", e);
+                    span.set_attribute("verification.passed", "false".to_string());
+                    span.set_status(false, Some("Verification failed"));
+                    span.end();
+                    return Err(McpError::internal_error(
+                        format!("Post-action verification failed: {e}"),
+                        None,
+                    ));
                 }
             }
         }
