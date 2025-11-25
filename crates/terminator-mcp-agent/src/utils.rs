@@ -1484,14 +1484,16 @@ pub fn init_logging() -> Result<Option<LogCapture>> {
     // Build the subscriber with stderr output, file output, log capture, optional OTLP, and optional Sentry
     #[cfg(feature = "telemetry")]
     {
-        // Try to create OTLP layer - ADD IT FIRST so it works with Registry type
+        // Try to create combined OTLP layer (traces + logs)
+        // The combined layer includes tracing-opentelemetry (for TraceId propagation) and
+        // OpenTelemetryTracingBridge (for sending logs with TraceId)
         match crate::telemetry::create_otel_logs_layer() {
             Some(otel_layer) => {
                 use tracing_subscriber::layer::SubscriberExt;
 
-                // Start with Registry - add OTLP first, then optionally Sentry
+                // Start with Registry - add combined OTEL layer first
                 let base_subscriber = tracing_subscriber::registry().with(
-                    // OTEL layer with RUST_LOG filtering - CRITICAL to avoid HTTP client noise
+                    // Combined OTEL layer with RUST_LOG filtering - CRITICAL to avoid HTTP client noise
                     otel_layer.with_filter(
                         EnvFilter::try_from_default_env()
                             .unwrap_or_else(|_| {
