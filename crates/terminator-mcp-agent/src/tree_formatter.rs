@@ -1,4 +1,5 @@
 use terminator::element::SerializableUIElement;
+use terminator::OcrElement;
 use terminator::UINode;
 
 /// Convert UINode to SerializableUIElement for unified formatting
@@ -143,6 +144,116 @@ fn format_node(node: &SerializableUIElement, indent: usize, output: &mut String)
     if let Some(ref children) = node.children {
         for child in children {
             format_node(child, indent + 1, output);
+        }
+    }
+}
+
+/// Result of OCR tree formatting - includes both the formatted string and bounds mapping
+#[derive(Debug, Clone)]
+pub struct OcrFormattingResult {
+    /// The formatted YAML string
+    pub formatted: String,
+    /// Mapping of index to (text, bounds) for click targeting
+    /// Key is 1-based index, value is (text, (x, y, width, height))
+    pub index_to_bounds: std::collections::HashMap<u32, (String, (f64, f64, f64, f64))>,
+}
+
+/// Format an OCR tree as compact YAML with indexed words for click targeting
+///
+/// Output format:
+/// - [OcrResult] (text_angle: 0.0)
+///   - [OcrLine] "Line of text"
+///     - [OcrWord] #1 "word" (bounds: [x,y,w,h])
+///     - [OcrWord] #2 "another" (bounds: [x,y,w,h])
+///
+/// Returns both the formatted string and a mapping of index → bounds for click_ocr_index
+pub fn format_ocr_tree_as_compact_yaml(tree: &OcrElement, indent: usize) -> OcrFormattingResult {
+    let mut output = String::new();
+    let mut index_to_bounds = std::collections::HashMap::new();
+    let mut next_index = 1u32;
+    format_ocr_node(tree, indent, &mut output, &mut index_to_bounds, &mut next_index);
+    OcrFormattingResult {
+        formatted: output,
+        index_to_bounds,
+    }
+}
+
+fn format_ocr_node(
+    node: &OcrElement,
+    indent: usize,
+    output: &mut String,
+    index_to_bounds: &mut std::collections::HashMap<u32, (String, (f64, f64, f64, f64))>,
+    next_index: &mut u32,
+) {
+    // Build the indent string
+    let indent_str = if indent > 0 {
+        "  ".repeat(indent)
+    } else {
+        String::new()
+    };
+
+    // Add indent and dash prefix
+    output.push_str(&indent_str);
+    output.push_str("- ");
+
+    // Format: [ROLE] "text"
+    output.push_str(&format!("[{}]", node.role));
+
+    // For OcrWord, add index number before the text
+    let current_index = if node.role == "OcrWord" {
+        let idx = *next_index;
+        *next_index += 1;
+        output.push_str(&format!(" #{idx}"));
+        Some(idx)
+    } else {
+        None
+    };
+
+    // Add text if present
+    if let Some(ref text) = node.text {
+        if !text.is_empty() {
+            // For words and lines, show the text in quotes
+            if node.role == "OcrWord" || node.role == "OcrLine" {
+                output.push_str(&format!(" \"{}\"", text));
+            }
+        }
+    }
+
+    // Add additional context in parentheses
+    let mut context_parts = Vec::new();
+
+    // Add bounds if present (absolute screen coordinates for clicking)
+    if let Some((x, y, w, h)) = node.bounds {
+        context_parts.push(format!("bounds: [{x:.0},{y:.0},{w:.0},{h:.0}]"));
+
+        // Store bounds for OcrWord elements
+        if let Some(idx) = current_index {
+            let text = node.text.clone().unwrap_or_default();
+            index_to_bounds.insert(idx, (text, (x, y, w, h)));
+        }
+    }
+
+    // Add text angle for OcrResult
+    if let Some(angle) = node.text_angle {
+        context_parts.push(format!("text_angle: {angle:.1}"));
+    }
+
+    // Add confidence if present
+    if let Some(confidence) = node.confidence {
+        context_parts.push(format!("confidence: {confidence:.2}"));
+    }
+
+    // Add context if any parts exist
+    if !context_parts.is_empty() {
+        output.push_str(&format!(" ({})", context_parts.join(", ")));
+    }
+
+    output.push('\n');
+
+    // Recursively format children
+    if let Some(ref children) = node.children {
+        for child in children {
+            format_ocr_node(child, indent + 1, output, index_to_bounds, next_index);
         }
     }
 }
