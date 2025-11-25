@@ -5,7 +5,7 @@ use crate::utils::find_and_execute_with_retry_with_fallback;
 pub use crate::utils::DesktopWrapper;
 use crate::utils::{
     get_timeout, ActivateElementArgs, CaptureElementScreenshotArgs, ClickElementArgs,
-    CloseElementArgs, DelayArgs, ExecuteBrowserScriptArgs, ExecuteSequenceArgs,
+    ClickOcrIndexArgs, CloseElementArgs, DelayArgs, ExecuteBrowserScriptArgs, ExecuteSequenceArgs,
     GetApplicationsArgs, GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs, LocatorArgs,
     MaximizeWindowArgs, MinimizeWindowArgs, MouseDragArgs, NavigateBrowserArgs,
     OpenApplicationArgs, PressKeyArgs, RunCommandArgs, ScrollElementArgs, SelectOptionArgs,
@@ -757,6 +757,7 @@ impl DesktopWrapper {
             current_scripts_base_path: Arc::new(Mutex::new(None)),
             window_manager: Arc::new(crate::window_manager::WindowManager::new()),
             in_sequence: Arc::new(std::sync::Mutex::new(false)),
+            ocr_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         })
     }
 
@@ -867,6 +868,43 @@ impl DesktopWrapper {
             },
             Err(e) => Err(format!("Failed to execute browser script: {e}")),
         }
+    }
+
+    /// Perform OCR on a window by its process ID and return structured results with bounding boxes
+    #[cfg(target_os = "windows")]
+    async fn perform_ocr_for_process(&self, pid: u32) -> Result<terminator::OcrElement, String> {
+        // Find the window element for this process
+        let apps = self
+            .desktop
+            .applications()
+            .map_err(|e| format!("Failed to get applications: {e}"))?;
+
+        let window_element = apps
+            .into_iter()
+            .find(|app| app.process_id().unwrap_or(0) == pid)
+            .ok_or_else(|| format!("No window found for PID {pid}"))?;
+
+        // Get window bounds (absolute screen coordinates)
+        let bounds = window_element
+            .bounds()
+            .map_err(|e| format!("Failed to get window bounds: {e}"))?;
+
+        let (window_x, window_y, _width, _height) = bounds;
+
+        // Capture screenshot of the window
+        let screenshot = window_element
+            .capture()
+            .map_err(|e| format!("Failed to capture window screenshot: {e}"))?;
+
+        // Perform OCR with bounding boxes using Desktop's method
+        self.desktop
+            .ocr_screenshot_with_bounds(&screenshot, window_x, window_y)
+            .map_err(|e| format!("OCR failed: {e}"))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    async fn perform_ocr_for_process(&self, _pid: u32) -> Result<terminator::OcrElement, String> {
+        Err("OCR with bounding boxes is currently only supported on Windows".to_string())
     }
 
     #[tool(
@@ -1003,6 +1041,43 @@ impl DesktopWrapper {
             None, // No found element for window tree
         )
         .await;
+
+        // Perform OCR if requested
+        if args.include_ocr {
+            match self.perform_ocr_for_process(pid).await {
+                Ok(ocr_result) => {
+                    // Format OCR tree based on tree_output_format (same as UI tree)
+                    let format = args
+                        .tree
+                        .tree_output_format
+                        .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
+
+                    match format {
+                        crate::mcp_types::TreeOutputFormat::CompactYaml => {
+                            let ocr_formatting_result =
+                                crate::tree_formatter::format_ocr_tree_as_compact_yaml(
+                                    &ocr_result, 0
+                                );
+                            // Store the index-to-bounds mapping for click_ocr_index
+                            if let Ok(mut bounds) = self.ocr_bounds.lock() {
+                                *bounds = ocr_formatting_result.index_to_bounds;
+                            }
+                            result_json["ocr_tree"] = json!(ocr_formatting_result.formatted);
+                        }
+                        crate::mcp_types::TreeOutputFormat::VerboseJson => {
+                            result_json["ocr_tree"] =
+                                serde_json::to_value(&ocr_result).unwrap_or_default();
+                        }
+                    }
+                    result_json["ocr_text"] = json!(ocr_result.text);
+                    info!("OCR completed for PID {}", pid);
+                }
+                Err(e) => {
+                    warn!("OCR failed for PID {}: {}", pid, e);
+                    result_json["ocr_error"] = json!(e.to_string());
+                }
+            }
+        }
 
         span.set_status(true, None);
         span.end();
@@ -3910,6 +3985,84 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             )
             .await,
         ))
+    }
+
+    #[tool(
+        description = "Clicks on an OCR-detected word by its index number. First call get_window_tree with include_ocr=true to get the OCR tree with indexed words (e.g., [OcrWord] #1 \"Submit\"). Then use this tool with the index number to click that word. This action does not require an element selector."
+    )]
+    async fn click_ocr_index(
+        &self,
+        Parameters(args): Parameters<ClickOcrIndexArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        // Start telemetry span
+        let mut span = StepSpan::new("click_ocr_index", None);
+        span.set_attribute("index", args.index.to_string());
+
+        // Look up the bounds for this index
+        let bounds_result = {
+            let bounds = self.ocr_bounds.lock().map_err(|e| {
+                McpError::internal_error(
+                    format!("Failed to lock OCR bounds: {e}"),
+                    None,
+                )
+            })?;
+            bounds.get(&args.index).cloned()
+        };
+
+        let Some((text, (x, y, width, height))) = bounds_result else {
+            span.set_status(false, Some("Index not found"));
+            span.end();
+            return Err(McpError::internal_error(
+                format!("OCR index {} not found. Call get_window_tree with include_ocr=true first to get indexed OCR words.", args.index),
+                Some(json!({ "index": args.index })),
+            ));
+        };
+
+        // Calculate center of the bounds
+        let click_x = x + width / 2.0;
+        let click_y = y + height / 2.0;
+
+        span.set_attribute("text", text.clone());
+        span.set_attribute("click_x", click_x.to_string());
+        span.set_attribute("click_y", click_y.to_string());
+
+        // Perform the click
+        match self.desktop.click_at_coordinates(click_x, click_y) {
+            Ok(()) => {
+                let result_json = json!({
+                    "action": "click_ocr_index",
+                    "status": "success",
+                    "index": args.index,
+                    "text": text,
+                    "clicked_at": { "x": click_x, "y": click_y },
+                    "bounds": { "x": x, "y": y, "width": width, "height": height },
+                });
+
+                span.set_status(true, None);
+                span.end();
+
+                Ok(CallToolResult::success(
+                    append_monitor_screenshots_if_enabled(
+                        &self.desktop,
+                        vec![Content::json(result_json)?],
+                        args.monitor.include_monitor_screenshots,
+                    )
+                    .await,
+                ))
+            }
+            Err(e) => {
+                span.set_status(false, Some(&e.to_string()));
+                span.end();
+
+                Err(McpError::internal_error(
+                    format!("Failed to click OCR index {} (\"{}\"): {e}", args.index, text),
+                    Some(json!({
+                        "index": args.index,
+                        "text": text,
+                    })),
+                ))
+            }
+        }
     }
 
     #[tool(
@@ -8591,6 +8744,15 @@ impl DesktopWrapper {
                     Some(json!({"error": e.to_string()})),
                 )),
             },
+            "click_ocr_index" => {
+                match serde_json::from_value::<ClickOcrIndexArgs>(arguments.clone()) {
+                    Ok(args) => self.click_ocr_index(Parameters(args)).await,
+                    Err(e) => Err(McpError::invalid_params(
+                        "Invalid arguments for click_ocr_index",
+                        Some(json!({"error": e.to_string()})),
+                    )),
+                }
+            }
             "highlight_element" => {
                 match serde_json::from_value::<HighlightElementArgs>(arguments.clone()) {
                     Ok(args) => self.highlight_element(Parameters(args)).await,
