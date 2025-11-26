@@ -39,6 +39,7 @@ struct BackendResponse {
 /// * `base64_image` - Base64 encoded PNG image
 /// * `image_width` - Width of the image in pixels (for coordinate conversion)
 /// * `image_height` - Height of the image in pixels (for coordinate conversion)
+/// * `imgsz` - Optional icon detection image size (640-1920, default 640). Higher = better detection but slower.
 ///
 /// # Returns
 /// * `Ok((items, raw_json))` - Parsed items with absolute pixel coordinates
@@ -47,13 +48,16 @@ pub async fn parse_image_with_backend(
     base64_image: &str,
     image_width: u32,
     image_height: u32,
+    imgsz: Option<u32>,
 ) -> Result<(Vec<OmniparserItem>, String)> {
     let backend_url = env::var("OMNIPARSER_BACKEND_URL")
         .unwrap_or_else(|_| "https://app.mediar.ai/api/omniparser/parse".to_string());
 
+    let imgsz_val = imgsz.unwrap_or(1920).clamp(640, 1920);
+
     info!(
-        "Calling OmniParser backend at {} (image: {}x{})",
-        backend_url, image_width, image_height
+        "Calling OmniParser backend at {} (image: {}x{}, imgsz: {})",
+        backend_url, image_width, image_height, imgsz_val
     );
 
     let client = reqwest::Client::builder()
@@ -61,7 +65,8 @@ pub async fn parse_image_with_backend(
         .build()?;
 
     let payload = serde_json::json!({
-        "image": base64_image
+        "image": base64_image,
+        "imgsz": imgsz_val
     });
 
     let resp = client
@@ -124,5 +129,5 @@ pub async fn parse_image_with_replicate(
 ) -> Result<(Vec<OmniparserItem>, String)> {
     // Default to common screen resolution - caller should use parse_image_with_backend directly
     warn!("parse_image_with_replicate is deprecated, use parse_image_with_backend with image dimensions");
-    parse_image_with_backend(base64_image, 1920, 1080).await
+    parse_image_with_backend(base64_image, 1920, 1080, None).await
 }

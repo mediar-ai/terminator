@@ -898,37 +898,93 @@ impl DesktopWrapper {
             .capture()
             .map_err(|e| format!("Failed to capture window screenshot: {e}"))?;
 
-        // Get screenshot dimensions for coordinate conversion
-        let screenshot_width = screenshot.width;
-        let screenshot_height = screenshot.height;
+        // Get original screenshot dimensions
+        let original_width = screenshot.width;
+        let original_height = screenshot.height;
 
-        // Convert to base64 PNG
-        let mut cursor = std::io::Cursor::new(Vec::new());
-        screenshot
-            .write_to(&mut cursor, image::ImageFormat::Png)
-            .map_err(|e| format!("Failed to encode screenshot: {e}"))?;
-        let base64_image = general_purpose::STANDARD.encode(cursor.get_ref());
+        // Convert BGRA to RGBA (xcap returns BGRA format)
+        let rgba_data: Vec<u8> = screenshot
+            .image_data
+            .chunks_exact(4)
+            .flat_map(|bgra| [bgra[2], bgra[1], bgra[0], bgra[3]]) // B,G,R,A -> R,G,B,A
+            .collect();
 
-        // Call OmniParser backend
+        // Apply resize if needed (max 1920px to match Replicate's imgsz limit)
+        const MAX_DIM: u32 = 1920;
+        let (final_width, final_height, final_rgba_data, scale_factor) =
+            if original_width > MAX_DIM || original_height > MAX_DIM {
+                // Calculate new dimensions maintaining aspect ratio
+                let scale =
+                    (MAX_DIM as f32 / original_width.max(original_height) as f32).min(1.0);
+                let new_width = (original_width as f32 * scale).round() as u32;
+                let new_height = (original_height as f32 * scale).round() as u32;
+
+                // Create ImageBuffer from RGBA data and resize
+                let img = ImageBuffer::<Rgba<u8>, _>::from_raw(
+                    original_width,
+                    original_height,
+                    rgba_data,
+                )
+                .ok_or_else(|| "Failed to create image buffer from screenshot data".to_string())?;
+
+                let resized =
+                    image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
+
+                info!(
+                    "OmniParser: Resized screenshot from {}x{} to {}x{} (scale: {:.2})",
+                    original_width, original_height, new_width, new_height, scale
+                );
+
+                (new_width, new_height, resized.into_raw(), scale as f64)
+            } else {
+                (original_width, original_height, rgba_data, 1.0)
+            };
+
+        // Encode to PNG
+        let mut png_data = Vec::new();
+        let encoder = PngEncoder::new(Cursor::new(&mut png_data));
+        encoder
+            .write_image(
+                &final_rgba_data,
+                final_width,
+                final_height,
+                ExtendedColorType::Rgba8,
+            )
+            .map_err(|e| format!("Failed to encode screenshot to PNG: {e}"))?;
+
+        let base64_image = general_purpose::STANDARD.encode(&png_data);
+
+        info!(
+            "OmniParser: Sending {}x{} image ({} KB)",
+            final_width,
+            final_height,
+            png_data.len() / 1024
+        );
+
+        // Call OmniParser backend with imgsz=1920 for best detection
         let (items, _raw_json) = crate::omniparser::parse_image_with_backend(
             &base64_image,
-            screenshot_width,
-            screenshot_height,
+            final_width,
+            final_height,
+            Some(MAX_DIM), // Use max imgsz for best detection quality
         )
         .await
         .map_err(|e| format!("Omniparser failed: {e}"))?;
 
-        // Convert relative coordinates to absolute screen coordinates
+        // Convert coordinates to absolute screen coordinates
+        // If image was resized, scale coordinates back to original size first
         let mut absolute_items = Vec::new();
         for item in items {
             let mut new_item = item.clone();
             if let Some(box_2d) = new_item.box_2d {
-                // box_2d is [x_min, y_min, x_max, y_max] relative to the window screenshot
+                // box_2d is [x_min, y_min, x_max, y_max] relative to the (possibly resized) screenshot
+                // Scale back to original size if image was resized, then add window offset
+                let inv_scale = 1.0 / scale_factor;
                 new_item.box_2d = Some([
-                    box_2d[0] + window_x,
-                    box_2d[1] + window_y,
-                    box_2d[2] + window_x,
-                    box_2d[3] + window_y,
+                    (box_2d[0] * inv_scale) + window_x,
+                    (box_2d[1] * inv_scale) + window_y,
+                    (box_2d[2] * inv_scale) + window_x,
+                    (box_2d[3] * inv_scale) + window_y,
                 ]);
             }
             absolute_items.push(new_item);
