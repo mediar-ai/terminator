@@ -340,6 +340,10 @@ pub struct DesktopWrapper {
     /// Key is 1-based index, value is (text, (x, y, width, height))
     #[serde(skip)]
     pub ocr_bounds: Arc<Mutex<std::collections::HashMap<u32, (String, (f64, f64, f64, f64))>>>,
+    /// Stores Omniparser items from the last get_window_tree with include_omniparser
+    /// Key is 1-based index, value is item details
+    #[serde(skip)]
+    pub omniparser_items: Arc<Mutex<std::collections::HashMap<u32, crate::omniparser::OmniparserItem>>>,
 }
 
 impl Default for DesktopWrapper {
@@ -392,6 +396,12 @@ pub struct GetWindowTreeArgs {
     )]
     #[serde(default)]
     pub include_ocr: bool,
+
+    #[schemars(
+        description = "Whether to use Omniparser V2 to detect icons and fields. Returns an 'omniparser_tree' field with indexed items for click targeting. Defaults to false."
+    )]
+    #[serde(default)]
+    pub include_omniparser: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -680,11 +690,36 @@ pub struct MouseDragArgs {
     pub window_mgmt: WindowManagementOptions,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ClickType {
+    #[default]
+    Left,
+    Double,
+    Right,
+}
+
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ClickOcrIndexArgs {
     #[schemars(
         description = "The 1-based index of the OCR word to click (from get_window_tree with include_ocr=true)"
     )]
+    pub index: u32,
+
+    #[schemars(description = "Type of click to perform: 'left' (default, single left click), 'double' (double left click), or 'right' (right click)")]
+    #[serde(default)]
+    pub click_type: ClickType,
+
+    #[serde(flatten)]
+    pub tree: TreeOptions,
+
+    #[serde(flatten)]
+    pub monitor: MonitorScreenshotOptions,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ClickOmniparserIndexArgs {
+    #[schemars(description = "The 1-based index of the Omniparser item to click (from get_window_tree with include_omniparser=true)")]
     pub index: u32,
 
     #[serde(flatten)]
