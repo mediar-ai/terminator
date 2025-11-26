@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tracing::{debug, info, warn};
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tracing::{debug, error, info, warn, Instrument};
 
 use rmcp::ErrorData as McpError;
 
@@ -27,6 +28,54 @@ pub fn detect_js_runtime() -> JsRuntime {
     // Fallback to node
     info!("Bun not found, using node runtime");
     JsRuntime::Node
+}
+
+/// Log level parsed from TypeScript console output
+#[derive(Debug, Clone, PartialEq)]
+pub enum LogLevel {
+    Error,
+    Warn,
+    Info,
+    Debug,
+}
+
+/// Parsed log line from TypeScript workflow output
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParsedLogLine {
+    pub level: LogLevel,
+    pub message: String,
+}
+
+/// Parse a log line from TypeScript workflow stderr output
+/// Returns the log level and message content
+pub fn parse_log_line(line: &str) -> ParsedLogLine {
+    if let Some(msg) = line.strip_prefix("[ERROR] ") {
+        ParsedLogLine {
+            level: LogLevel::Error,
+            message: msg.to_string(),
+        }
+    } else if let Some(msg) = line.strip_prefix("[WARN] ") {
+        ParsedLogLine {
+            level: LogLevel::Warn,
+            message: msg.to_string(),
+        }
+    } else if let Some(msg) = line.strip_prefix("[DEBUG] ") {
+        ParsedLogLine {
+            level: LogLevel::Debug,
+            message: msg.to_string(),
+        }
+    } else if let Some(msg) = line.strip_prefix("[INFO] ") {
+        ParsedLogLine {
+            level: LogLevel::Info,
+            message: msg.to_string(),
+        }
+    } else {
+        // Default to info for unprefixed lines
+        ParsedLogLine {
+            level: LogLevel::Info,
+            message: line.to_string(),
+        }
+    }
 }
 
 /// Copy directory contents recursively (cross-platform)
@@ -323,24 +372,23 @@ impl TypeScriptWorkflow {
         );
 
         // Execute via bun (priority) or node (fallback)
-        // CRITICAL: Use spawn() with inherited stderr for real-time log streaming
-        // The .output() method buffers all output until completion, hiding logs during execution
+        // Use tokio::process for async stderr streaming with tracing integration
         let runtime = detect_js_runtime();
 
         use std::process::Stdio;
-        let child = match runtime {
+        let mut child = match runtime {
             JsRuntime::Bun => {
                 info!(
                     "Executing workflow with bun: {}/{}",
                     execution_dir.display(),
                     self.entry_file
                 );
-                Command::new("bun")
+                tokio::process::Command::new("bun")
                     .current_dir(&execution_dir)
                     .arg("--eval")
                     .arg(&exec_script)
                     .stdout(Stdio::piped()) // Capture stdout for JSON result
-                    .stderr(Stdio::inherit()) // Stream stderr (logs) in real-time
+                    .stderr(Stdio::piped()) // Capture stderr for tracing integration
                     .spawn()
                     .map_err(|e| {
                         McpError::internal_error(
@@ -355,14 +403,14 @@ impl TypeScriptWorkflow {
                     execution_dir.display(),
                     self.entry_file
                 );
-                Command::new("node")
+                tokio::process::Command::new("node")
                     .current_dir(&execution_dir)
                     .arg("--import")
                     .arg("tsx/esm")
                     .arg("--eval")
                     .arg(&exec_script)
                     .stdout(Stdio::piped()) // Capture stdout for JSON result
-                    .stderr(Stdio::inherit()) // Stream stderr (logs) in real-time
+                    .stderr(Stdio::piped()) // Capture stderr for tracing integration
                     .spawn()
                     .map_err(|e| {
                         McpError::internal_error(
@@ -373,8 +421,38 @@ impl TypeScriptWorkflow {
             }
         };
 
+        // Take stderr and spawn a task to stream logs through tracing
+        // This preserves trace_id/execution_id context via .in_current_span()
+        let stderr = child.stderr.take();
+        if let Some(stderr) = stderr {
+            tokio::spawn(
+                async move {
+                    let reader = BufReader::new(stderr);
+                    let mut lines = reader.lines();
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        let parsed = parse_log_line(&line);
+                        match parsed.level {
+                            LogLevel::Error => {
+                                error!(target: "workflow.typescript", "{}", parsed.message)
+                            }
+                            LogLevel::Warn => {
+                                warn!(target: "workflow.typescript", "{}", parsed.message)
+                            }
+                            LogLevel::Debug => {
+                                debug!(target: "workflow.typescript", "{}", parsed.message)
+                            }
+                            LogLevel::Info => {
+                                info!(target: "workflow.typescript", "{}", parsed.message)
+                            }
+                        }
+                    }
+                }
+                .in_current_span(),
+            );
+        }
+
         // Wait for completion and get output
-        let output = child.wait_with_output().map_err(|e| {
+        let output = child.wait_with_output().await.map_err(|e| {
             McpError::internal_error(
                 format!("Failed to wait for workflow completion: {e}"),
                 Some(json!({"error": e.to_string()})),
@@ -382,8 +460,6 @@ impl TypeScriptWorkflow {
         })?;
 
         if !output.status.success() {
-            // Note: stderr was streamed to console in real-time (Stdio::inherit)
-            // so we won't have it captured here - that's intentional for better UX
             let stdout = String::from_utf8_lossy(&output.stdout);
             return Err(McpError::internal_error(
                 format!(
@@ -393,7 +469,7 @@ impl TypeScriptWorkflow {
                 Some(json!({
                     "stdout": stdout.to_string(),
                     "exit_code": output.status.code(),
-                    "note": "stderr was streamed to console in real-time"
+                    "note": "stderr was streamed through tracing"
                 })),
             ));
         }
@@ -493,18 +569,25 @@ impl TypeScriptWorkflow {
         // This automatically skips onError when step control options are present
         Ok(format!(
             r#"
-// Suppress workflow progress output by redirecting console methods to stderr
+// Redirect console methods to stderr with level prefixes for Rust tracing integration
 const originalLog = console.log;
-const originalInfo = console.info;
+const originalError = console.error;
+
+// Format args to string for logging
+const formatArgs = (...args) => args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+
 console.log = (...args) => {{
-    // Only allow JSON output to stdout
+    // Only allow JSON output to stdout (for result parsing)
     if (args.length === 1 && typeof args[0] === 'string' && args[0].startsWith('{{')) {{
         originalLog(...args);
     }} else {{
-        console.error(...args);
+        originalError('[INFO]', formatArgs(...args));
     }}
 }};
-console.info = console.error;
+console.info = (...args) => originalError('[INFO]', formatArgs(...args));
+console.warn = (...args) => originalError('[WARN]', formatArgs(...args));
+console.error = (...args) => originalError('[ERROR]', formatArgs(...args));
+console.debug = (...args) => originalError('[DEBUG]', formatArgs(...args));
 
 // Set environment to suppress workflow output if supported
 process.env.WORKFLOW_SILENT = 'true';
@@ -533,14 +616,14 @@ try {{
     const stepOptions = {step_options_json};
 
     // Debug logging
-    console.error('[DEBUG] Step options being passed to workflow.run():', JSON.stringify(stepOptions));
-    console.error('[DEBUG] Workflow has run method?', typeof workflow.run);
-    console.error('[DEBUG] Inputs:', JSON.stringify(inputs));
+    console.debug('Step options being passed to workflow.run():', JSON.stringify(stepOptions));
+    console.debug('Workflow has run method?', typeof workflow.run);
+    console.debug('Inputs:', JSON.stringify(inputs));
 
     const result = await workflow.run(inputs, undefined, undefined, stepOptions);
 
     // Debug the result
-    console.error('[DEBUG] Result from workflow.run():', JSON.stringify(result));
+    console.debug('Result from workflow.run():', JSON.stringify(result));
 
     // Get workflow metadata for response
     const metadata = workflow.getMetadata ? workflow.getMetadata() : {{
@@ -812,5 +895,69 @@ mod tests {
         let err = result.unwrap_err();
         assert!(err.message.contains("Multiple workflow files detected"));
         assert!(err.message.contains("my-workflow.ts"));
+    }
+
+    #[test]
+    fn test_parse_log_line_error() {
+        let parsed = parse_log_line("[ERROR] Something went wrong");
+        assert_eq!(parsed.level, LogLevel::Error);
+        assert_eq!(parsed.message, "Something went wrong");
+    }
+
+    #[test]
+    fn test_parse_log_line_warn() {
+        let parsed = parse_log_line("[WARN] This is a warning");
+        assert_eq!(parsed.level, LogLevel::Warn);
+        assert_eq!(parsed.message, "This is a warning");
+    }
+
+    #[test]
+    fn test_parse_log_line_info() {
+        let parsed = parse_log_line("[INFO] Informational message");
+        assert_eq!(parsed.level, LogLevel::Info);
+        assert_eq!(parsed.message, "Informational message");
+    }
+
+    #[test]
+    fn test_parse_log_line_debug() {
+        let parsed = parse_log_line("[DEBUG] Debug details here");
+        assert_eq!(parsed.level, LogLevel::Debug);
+        assert_eq!(parsed.message, "Debug details here");
+    }
+
+    #[test]
+    fn test_parse_log_line_unprefixed_defaults_to_info() {
+        let parsed = parse_log_line("Some random output without prefix");
+        assert_eq!(parsed.level, LogLevel::Info);
+        assert_eq!(parsed.message, "Some random output without prefix");
+    }
+
+    #[test]
+    fn test_parse_log_line_empty_message() {
+        let parsed = parse_log_line("[ERROR] ");
+        assert_eq!(parsed.level, LogLevel::Error);
+        assert_eq!(parsed.message, "");
+    }
+
+    #[test]
+    fn test_parse_log_line_with_json_content() {
+        let parsed = parse_log_line("[DEBUG] {\"key\": \"value\", \"count\": 42}");
+        assert_eq!(parsed.level, LogLevel::Debug);
+        assert_eq!(parsed.message, "{\"key\": \"value\", \"count\": 42}");
+    }
+
+    #[test]
+    fn test_parse_log_line_preserves_spaces_in_message() {
+        let parsed = parse_log_line("[INFO]    Multiple   spaces   here");
+        assert_eq!(parsed.level, LogLevel::Info);
+        assert_eq!(parsed.message, "   Multiple   spaces   here");
+    }
+
+    #[test]
+    fn test_parse_log_line_case_sensitive() {
+        // Lowercase prefix should not be recognized
+        let parsed = parse_log_line("[error] lowercase prefix");
+        assert_eq!(parsed.level, LogLevel::Info); // Falls through to default
+        assert_eq!(parsed.message, "[error] lowercase prefix");
     }
 }
