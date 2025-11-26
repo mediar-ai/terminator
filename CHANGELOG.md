@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.24] - 2025-11-26
+
+### Added
+- MCP: Stream TypeScript workflow logs through Rust tracing with full OpenTelemetry integration
+- MCP: Add log level prefixes ([ERROR], [WARN], [INFO], [DEBUG]) in TypeScript execution
+- MCP: Add ParsedLogLine struct and parse_log_line function for log parsing
+
+### Fixed
+- Telemetry: TypeScript workflow logs now include trace_id/execution_id for ClickHouse correlation
+
 ## [0.23.23] - 2025-11-26
 
 ### Added
