@@ -2572,10 +2572,34 @@ impl DesktopWrapper {
         &self,
         url: &str,
         args: ExecuteSequenceArgs,
-        _execution_id: String, // TODO: Add telemetry for TypeScript workflows
+        execution_id: String,
     ) -> Result<CallToolResult, McpError> {
-        info!("Executing TypeScript workflow from URL: {}", url);
+        // Extract trace context for distributed tracing
+        let trace_id_val = args.trace_id.clone().unwrap_or_default();
+        let execution_id_val = args.execution_id.clone().unwrap_or_else(|| execution_id.clone());
 
+        // Create tracing span with execution context
+        // All nested logs (including from TypeScript workflow stderr) will inherit this context
+        let workflow_span = info_span!(
+            "execute_typescript_workflow",
+            trace_id = %trace_id_val,
+            execution_id = %execution_id_val,
+            log_source = "agent",
+            url = %url,
+        );
+
+        // Log start with execution context for ClickHouse filtering
+        info!(
+            log_source = "agent",
+            execution_id = %execution_id_val,
+            trace_id = %trace_id_val,
+            url = %url,
+            "Starting TypeScript workflow execution [execution_id={}, trace_id={}]",
+            execution_id_val, trace_id_val
+        );
+
+        // Execute within the span context so all nested logs inherit execution_id/trace_id
+        async move {
         // Load saved state if resuming
         let restored_state = if args.start_from_step.is_some() {
             Self::load_workflow_state(args.workflow_id.as_deref(), Some(url)).await?
@@ -2656,5 +2680,8 @@ impl DesktopWrapper {
             meta: None,
             structured_content: None,
         })
+        }
+        .instrument(workflow_span)
+        .await
     }
 }
