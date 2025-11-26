@@ -29,7 +29,6 @@ use tokio::sync::Mutex;
 
 mod commands;
 mod mcp_client;
-mod telemetry_receiver;
 mod typescript_workflow;
 mod workflow_result;
 mod workflow_validator;
