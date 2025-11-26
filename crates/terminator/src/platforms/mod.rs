@@ -189,6 +189,14 @@ pub trait AccessibilityEngine: Send + Sync {
         ))
     }
 
+    /// Click at absolute screen coordinates with specified click type (left, double, right)
+    /// Default implementation returns UnsupportedOperation - override in platform-specific engines
+    fn click_at_coordinates_with_type(&self, _x: f64, _y: f64, _click_type: crate::ClickType) -> Result<(), AutomationError> {
+        Err(AutomationError::UnsupportedOperation(
+            "Click at coordinates with type not supported on this platform".to_string(),
+        ))
+    }
+
     /// Activate browser window
     fn activate_browser_window_by_title(&self, title: &str) -> Result<(), AutomationError>;
 
