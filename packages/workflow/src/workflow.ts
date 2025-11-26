@@ -5,6 +5,7 @@ import * as path from 'path';
 import type {
   Workflow,
   WorkflowConfig,
+  ResolvedWorkflowConfig,
   Step,
   WorkflowContext,
   WorkflowSuccessContext,
@@ -39,20 +40,16 @@ function readPackageJson(): { name?: string; version?: string; description?: str
 }
 
 /**
- * Resolves workflow config by filling in missing name/version/description from package.json
+ * Resolves workflow config by adding name/version/description from package.json
  */
-function resolveConfig<TInput>(config: WorkflowConfig<TInput>): WorkflowConfig<TInput> & { name: string } {
+function resolveConfig<TInput>(config: WorkflowConfig<TInput>): ResolvedWorkflowConfig<TInput> {
   const pkgInfo = readPackageJson();
-
-  const resolvedName = config.name || pkgInfo.name || 'Unnamed Workflow';
-  const resolvedVersion = config.version || pkgInfo.version;
-  const resolvedDescription = config.description || pkgInfo.description;
 
   return {
     ...config,
-    name: resolvedName,
-    version: resolvedVersion,
-    description: resolvedDescription,
+    name: pkgInfo.name || 'Unnamed Workflow',
+    version: pkgInfo.version,
+    description: pkgInfo.description,
   };
 }
 
@@ -62,12 +59,12 @@ function resolveConfig<TInput>(config: WorkflowConfig<TInput>): WorkflowConfig<T
  * @template TState - Accumulated state type from all previous steps
  */
 export class WorkflowBuilder<TInput = any, TState extends Record<string, any> = {}> {
-  private config: WorkflowConfig<TInput>;
+  private config: ResolvedWorkflowConfig<TInput>;
   private steps: Step[] = [];
   private successHandler?: (context: WorkflowSuccessContext<TInput, TState>) => Promise<any>;
   private errorHandler?: (context: WorkflowErrorContext<TInput, TState>) => Promise<void>;
 
-  constructor(config: WorkflowConfig<TInput>) {
+  constructor(config: ResolvedWorkflowConfig<TInput>) {
     this.config = config;
   }
 
@@ -131,7 +128,7 @@ export class WorkflowBuilder<TInput = any, TState extends Record<string, any> = 
  * Creates a workflow instance
  */
 function createWorkflowInstance<TInput = any>(
-  config: WorkflowConfig<TInput>,
+  config: ResolvedWorkflowConfig<TInput>,
   steps: Step[],
   successHandler?: (context: WorkflowSuccessContext<TInput>) => Promise<void>,
   errorHandler?: (context: WorkflowErrorContext<TInput>) => Promise<void>

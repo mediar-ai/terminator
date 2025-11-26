@@ -280,18 +280,12 @@ export interface Step<
 }
 
 /**
- * Workflow configuration
+ * Workflow configuration (user-facing)
  *
- * Note: name, version, and description are optional - if not provided,
- * they will be auto-read from package.json in the workflow's directory.
+ * Note: name, version, and description are automatically read from package.json.
+ * Do NOT pass these fields - they will be ignored.
  */
 export interface WorkflowConfig<TInput = any> {
-  /** Workflow name (auto-read from package.json if not provided) */
-  name?: string;
-  /** Optional workflow description */
-  description?: string;
-  /** Optional workflow version */
-  version?: string;
   /** Input schema (Zod) */
   input: z.ZodSchema<TInput>;
   /** Optional tags */
@@ -300,6 +294,19 @@ export interface WorkflowConfig<TInput = any> {
   steps?: Step[];
   /** Workflow-level error handler */
   onError?: (context: WorkflowErrorContext<TInput>) => Promise<ExecutionResponse | void>;
+}
+
+/**
+ * Internal resolved workflow configuration with metadata from package.json
+ * @internal
+ */
+export interface ResolvedWorkflowConfig<TInput = any> extends WorkflowConfig<TInput> {
+  /** Workflow name (from package.json) */
+  name: string;
+  /** Workflow description (from package.json) */
+  description?: string;
+  /** Workflow version (from package.json) */
+  version?: string;
 }
 
 /**
@@ -352,7 +359,7 @@ export interface WorkflowErrorContext<TInput = any, TState = Record<string, any>
  * Workflow instance
  */
 export interface Workflow<TInput = any> {
-  config: WorkflowConfig<TInput>;
+  config: ResolvedWorkflowConfig<TInput>;
   steps: Step[];
 
   /** Run the workflow */
@@ -364,7 +371,7 @@ export interface Workflow<TInput = any> {
 
   /** Get workflow metadata */
   getMetadata(): {
-    name: string | undefined;
+    name: string;
     description?: string;
     version?: string;
     input: z.ZodSchema<TInput>;
