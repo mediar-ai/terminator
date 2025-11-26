@@ -699,28 +699,24 @@ pub enum ClickType {
     Right,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum VisionType {
+    Ocr,
+    Omniparser,
+}
+
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct ClickOcrIndexArgs {
-    #[schemars(
-        description = "The 1-based index of the OCR word to click (from get_window_tree with include_ocr=true)"
-    )]
+pub struct ClickCvIndexArgs {
+    #[schemars(description = "The 1-based index of the vision-detected item to click (from get_window_tree with include_ocr=true or include_omniparser=true)")]
     pub index: u32,
+
+    #[schemars(description = "Vision system that detected the item: 'ocr' for OCR-detected text, 'omniparser' for Omniparser-detected UI elements")]
+    pub vision_type: VisionType,
 
     #[schemars(description = "Type of click to perform: 'left' (default, single left click), 'double' (double left click), or 'right' (right click)")]
     #[serde(default)]
     pub click_type: ClickType,
-
-    #[serde(flatten)]
-    pub tree: TreeOptions,
-
-    #[serde(flatten)]
-    pub monitor: MonitorScreenshotOptions,
-}
-
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct ClickOmniparserIndexArgs {
-    #[schemars(description = "The 1-based index of the Omniparser item to click (from get_window_tree with include_omniparser=true)")]
-    pub index: u32,
 
     #[serde(flatten)]
     pub tree: TreeOptions,

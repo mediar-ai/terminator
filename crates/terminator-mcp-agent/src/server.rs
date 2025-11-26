@@ -5,7 +5,7 @@ use crate::utils::find_and_execute_with_retry_with_fallback;
 pub use crate::utils::DesktopWrapper;
 use crate::utils::{
     get_timeout, ActivateElementArgs, CaptureElementScreenshotArgs, ClickElementArgs,
-    ClickOcrIndexArgs, CloseElementArgs, DelayArgs, ExecuteBrowserScriptArgs, ExecuteSequenceArgs,
+    CloseElementArgs, DelayArgs, ExecuteBrowserScriptArgs, ExecuteSequenceArgs,
     GetApplicationsArgs, GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs, LocatorArgs,
     MaximizeWindowArgs, MinimizeWindowArgs, MouseDragArgs, NavigateBrowserArgs,
     OpenApplicationArgs, PressKeyArgs, RunCommandArgs, ScrollElementArgs, SelectOptionArgs,
@@ -4088,39 +4088,85 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
     }
 
     #[tool(
-        description = "Clicks on an OCR-detected word by its index number. First call get_window_tree with include_ocr=true to get the OCR tree with indexed words (e.g., [OcrWord] #1 \"Submit\"). Then use this tool with the index number to click that word. Supports different click types: 'left' (default, single left click), 'double' (double left click), or 'right' (right click). This action does not require an element selector."
+        description = "Clicks on a computer vision-detected item by its index number. First call get_window_tree with include_ocr=true or include_omniparser=true to get indexed items. Then use this tool with the index number and vision type to click that item. Supports different click types: 'left' (default), 'double', or 'right'. This action does not require an element selector."
     )]
-    async fn click_ocr_index(
+    async fn click_cv_index(
         &self,
-        Parameters(args): Parameters<ClickOcrIndexArgs>,
+        Parameters(args): Parameters<crate::utils::ClickCvIndexArgs>,
     ) -> Result<CallToolResult, McpError> {
         // Start telemetry span
-        let mut span = StepSpan::new("click_ocr_index", None);
+        let mut span = StepSpan::new("click_cv_index", None);
         span.set_attribute("index", args.index.to_string());
+        span.set_attribute("vision_type", format!("{:?}", args.vision_type));
         span.set_attribute("click_type", format!("{:?}", args.click_type));
 
-        // Look up the bounds for this index
-        let bounds_result = {
-            let bounds = self.ocr_bounds.lock().map_err(|e| {
-                McpError::internal_error(format!("Failed to lock OCR bounds: {e}"), None)
-            })?;
-            bounds.get(&args.index).cloned()
-        };
+        // Get bounds based on vision type
+        let (item_label, bounds) = match args.vision_type {
+            crate::utils::VisionType::Ocr => {
+                // Look up the OCR bounds
+                let bounds_result = {
+                    let bounds = self.ocr_bounds.lock().map_err(|e| {
+                        McpError::internal_error(
+                            format!("Failed to lock OCR bounds: {e}"),
+                            None,
+                        )
+                    })?;
+                    bounds.get(&args.index).cloned()
+                };
 
-        let Some((text, (x, y, width, height))) = bounds_result else {
-            span.set_status(false, Some("Index not found"));
-            span.end();
-            return Err(McpError::internal_error(
-                format!("OCR index {} not found. Call get_window_tree with include_ocr=true first to get indexed OCR words.", args.index),
-                Some(json!({ "index": args.index })),
-            ));
+                let Some((text, (x, y, width, height))) = bounds_result else {
+                    span.set_status(false, Some("OCR index not found"));
+                    span.end();
+                    return Err(McpError::internal_error(
+                        format!("OCR index {} not found. Call get_window_tree with include_ocr=true first to get indexed OCR words.", args.index),
+                        Some(json!({ "index": args.index, "vision_type": "ocr" })),
+                    ));
+                };
+
+                (text, (x, y, width, height))
+            }
+            crate::utils::VisionType::Omniparser => {
+                // Look up the Omniparser item
+                let item_result = {
+                    let items = self.omniparser_items.lock().map_err(|e| {
+                        McpError::internal_error(
+                            format!("Failed to lock Omniparser items: {e}"),
+                            None,
+                        )
+                    })?;
+                    items.get(&args.index).cloned()
+                };
+
+                let Some(item) = item_result else {
+                    span.set_status(false, Some("Omniparser index not found"));
+                    span.end();
+                    return Err(McpError::internal_error(
+                        format!(
+                            "Omniparser index {} not found. Call get_window_tree with include_omniparser=true first to get indexed items.",
+                            args.index
+                        ),
+                        Some(json!({ "index": args.index, "vision_type": "omniparser" })),
+                    ));
+                };
+
+                let bounds = item.box_2d.ok_or_else(|| {
+                    McpError::internal_error("Item has no bounds", None)
+                })?;
+
+                let x = bounds[0];
+                let y = bounds[1];
+                let width = bounds[2] - bounds[0];
+                let height = bounds[3] - bounds[1];
+
+                (item.label, (x, y, width, height))
+            }
         };
 
         // Calculate center of the bounds
-        let click_x = x + width / 2.0;
-        let click_y = y + height / 2.0;
+        let click_x = bounds.0 + bounds.2 / 2.0;
+        let click_y = bounds.1 + bounds.3 / 2.0;
 
-        span.set_attribute("text", text.clone());
+        span.set_attribute("label", item_label.clone());
         span.set_attribute("click_x", click_x.to_string());
         span.set_attribute("click_y", click_y.to_string());
 
@@ -4134,19 +4180,24 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         // Perform the click
         match self.desktop.click_at_coordinates_with_type(click_x, click_y, terminator_click_type) {
             Ok(()) => {
+                let vision_type_str = match args.vision_type {
+                    crate::utils::VisionType::Ocr => "ocr",
+                    crate::utils::VisionType::Omniparser => "omniparser",
+                };
                 let click_type_str = match args.click_type {
                     crate::utils::ClickType::Left => "left",
                     crate::utils::ClickType::Double => "double",
                     crate::utils::ClickType::Right => "right",
                 };
                 let result_json = json!({
-                    "action": "click_ocr_index",
+                    "action": "click_cv_index",
                     "status": "success",
                     "index": args.index,
-                    "text": text,
+                    "vision_type": vision_type_str,
                     "click_type": click_type_str,
+                    "label": item_label,
                     "clicked_at": { "x": click_x, "y": click_y },
-                    "bounds": { "x": x, "y": y, "width": width, "height": height },
+                    "bounds": { "x": bounds.0, "y": bounds.1, "width": bounds.2, "height": bounds.3 },
                 });
 
                 span.set_status(true, None);
@@ -4166,107 +4217,11 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 span.end();
 
                 Err(McpError::internal_error(
-                    format!(
-                        "Failed to click OCR index {} (\"{}\"): {e}",
-                        args.index, text
-                    ),
+                    format!("Failed to click index {} (\"{}\"): {e}", args.index, item_label),
                     Some(json!({
                         "index": args.index,
-                        "text": text,
-                    })),
-                ))
-            }
-        }
-    }
-
-    #[tool(
-        description = "Clicks on an Omniparser-detected item by its index number. First call get_window_tree with include_omniparser=true to get the Omniparser tree with indexed items. Then use this tool with the index number to click that item. This action does not require an element selector."
-    )]
-    async fn click_omniparser_index(
-        &self,
-        Parameters(args): Parameters<crate::utils::ClickOmniparserIndexArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        // Start telemetry span
-        let mut span = StepSpan::new("click_omniparser_index", None);
-        span.set_attribute("index", args.index.to_string());
-
-        // Look up the item for this index
-        let item_result = {
-            let items = self.omniparser_items.lock().map_err(|e| {
-                McpError::internal_error(
-                    format!("Failed to lock Omniparser items: {e}"),
-                    None,
-                )
-            })?;
-            items.get(&args.index).cloned()
-        };
-
-        let Some(item) = item_result else {
-            span.set_status(false, Some("Index not found"));
-            span.end();
-            return Err(McpError::internal_error(
-                format!(
-                    "Omniparser index {} not found. Call get_window_tree with include_omniparser=true first to get indexed items.",
-                    args.index
-                ),
-                Some(json!({ "index": args.index })),
-            ));
-        };
-
-        let bounds = item.box_2d.ok_or_else(|| {
-            McpError::internal_error("Item has no bounds", None)
-        })?;
-
-        let x = bounds[0];
-        let y = bounds[1];
-        let width = bounds[2] - bounds[0];
-        let height = bounds[3] - bounds[1];
-
-        // Calculate center of the bounds
-        let click_x = x + width / 2.0;
-        let click_y = y + height / 2.0;
-
-        span.set_attribute("label", item.label.clone());
-        span.set_attribute("click_x", click_x.to_string());
-        span.set_attribute("click_y", click_y.to_string());
-
-        // Perform the click
-        match self.desktop.click_at_coordinates(click_x, click_y) {
-            Ok(()) => {
-                let result_json = json!({
-                    "action": "click_omniparser_index",
-                    "status": "success",
-                    "index": args.index,
-                    "label": item.label,
-                    "content": item.content,
-                    "clicked_at": { "x": click_x, "y": click_y },
-                    "bounds": { "x": x, "y": y, "width": width, "height": height },
-                });
-
-                span.set_status(true, None);
-                span.end();
-
-                Ok(CallToolResult::success(
-                    append_monitor_screenshots_if_enabled(
-                        &self.desktop,
-                        vec![Content::json(result_json)?],
-                        args.monitor.include_monitor_screenshots,
-                    )
-                    .await,
-                ))
-            }
-            Err(e) => {
-                span.set_status(false, Some(&e.to_string()));
-                span.end();
-
-                Err(McpError::internal_error(
-                    format!(
-                        "Failed to click Omniparser index {} (\"{}\"): {e}",
-                        args.index, item.label
-                    ),
-                    Some(json!({
-                        "index": args.index,
-                        "label": item.label,
+                        "vision_type": format!("{:?}", args.vision_type).to_lowercase(),
+                        "label": item_label,
                     })),
                 ))
             }
@@ -8681,7 +8636,7 @@ console.info = function(...args) {
 impl DesktopWrapper {
     pub(crate) async fn dispatch_tool(
         &self,
-        _peer: Peer<RoleServer>,
+        peer: Peer<RoleServer>,
         request_context: RequestContext<RoleServer>,
         tool_name: &str,
         arguments: &serde_json::Value,
@@ -8955,11 +8910,11 @@ impl DesktopWrapper {
                     Some(json!({"error": e.to_string()})),
                 )),
             },
-            "click_ocr_index" => {
-                match serde_json::from_value::<ClickOcrIndexArgs>(arguments.clone()) {
-                    Ok(args) => self.click_ocr_index(Parameters(args)).await,
+            "click_cv_index" => {
+                match serde_json::from_value::<crate::utils::ClickCvIndexArgs>(arguments.clone()) {
+                    Ok(args) => self.click_cv_index(Parameters(args)).await,
                     Err(e) => Err(McpError::invalid_params(
-                        "Invalid arguments for click_ocr_index",
+                        "Invalid arguments for click_cv_index",
                         Some(json!({"error": e.to_string()})),
                     )),
                 }
@@ -9092,12 +9047,15 @@ impl DesktopWrapper {
             },
             // run_javascript is deprecated and merged into run_command with engine
             "execute_sequence" => {
-                // For execute_sequence, we need peer and request_context
-                // Since we don't have them here, this is a special case that should be handled differently
-                Err(McpError::internal_error(
-                    "execute_sequence requires special handling",
-                    Some(json!({"error": "Cannot dispatch execute_sequence through this method"})),
-                ))
+                // Handle nested execute_sequence calls by delegating to execute_sequence_impl
+                // Use Box::pin to handle async recursion (dispatch_tool -> execute_sequence_impl -> ... -> dispatch_tool)
+                match serde_json::from_value::<ExecuteSequenceArgs>(arguments.clone()) {
+                    Ok(args) => Box::pin(self.execute_sequence_impl(peer, request_context, args)).await,
+                    Err(e) => Err(McpError::invalid_params(
+                        "Invalid arguments for execute_sequence",
+                        Some(json!({ "error": e.to_string() })),
+                    )),
+                }
             }
             "stop_highlighting" => {
                 match serde_json::from_value::<StopHighlightingArgs>(arguments.clone()) {
