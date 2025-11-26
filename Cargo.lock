@@ -466,8 +466,6 @@ dependencies = [
  "http 1.3.1",
  "http-body 1.0.1",
  "http-body-util",
- "hyper 1.7.0",
- "hyper-util",
  "itoa",
  "matchit 0.7.3",
  "memchr",
@@ -476,15 +474,10 @@ dependencies = [
  "pin-project-lite",
  "rustversion",
  "serde",
- "serde_json",
- "serde_path_to_error",
- "serde_urlencoded",
  "sync_wrapper",
- "tokio",
  "tower 0.5.2",
  "tower-layer",
  "tower-service",
- "tracing",
 ]
 
 [[package]]
@@ -539,7 +532,6 @@ dependencies = [
  "sync_wrapper",
  "tower-layer",
  "tower-service",
- "tracing",
 ]
 
 [[package]]
@@ -3536,11 +3528,9 @@ version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6e05acbfada5ec79023c85368af14abd0b307c015e9064d249b2a950ef459a6"
 dependencies = [
- "hex",
  "opentelemetry",
  "opentelemetry_sdk",
  "prost",
- "serde",
  "tonic",
 ]
 
@@ -5179,15 +5169,12 @@ version = "0.23.24"
 dependencies = [
  "anthropic-sdk",
  "anyhow",
- "axum 0.7.9",
  "bytes",
  "chrono",
  "clap",
  "colored",
  "dirs",
  "dotenvy",
- "opentelemetry-proto",
- "prost",
  "regex",
  "reqwest",
  "rmcp",

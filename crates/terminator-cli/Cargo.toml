@@ -54,9 +54,6 @@ dirs = "5.0"
 regex = "1.10"
 
 # Simple HTTP server for receiving telemetry
-axum = "0.7"
 bytes = "1.5"
 
 # Protobuf support for parsing OTLP data
-prost = "0.13"
-opentelemetry-proto = "0.27"
