@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { Desktop } from '@mediar-ai/terminator';
+import * as fs from 'fs';
+import * as path from 'path';
 import type {
   Workflow,
   WorkflowConfig,
@@ -13,6 +15,46 @@ import type {
 } from './types';
 import { ConsoleLogger } from './types';
 import { createWorkflowRunner } from './runner';
+
+/**
+ * Workflow builder that accumulates state types
+ * Reads workflow metadata from package.json in the current working directory
+ */
+function readPackageJson(): { name?: string; version?: string; description?: string } {
+  try {
+    const packageJsonPath = path.join(process.cwd(), 'package.json');
+    if (fs.existsSync(packageJsonPath)) {
+      const content = fs.readFileSync(packageJsonPath, 'utf-8');
+      const pkg = JSON.parse(content);
+      return {
+        name: pkg.name,
+        version: pkg.version,
+        description: pkg.description,
+      };
+    }
+  } catch {
+    // Silently ignore errors reading package.json
+  }
+  return {};
+}
+
+/**
+ * Resolves workflow config by filling in missing name/version/description from package.json
+ */
+function resolveConfig<TInput>(config: WorkflowConfig<TInput>): WorkflowConfig<TInput> & { name: string } {
+  const pkgInfo = readPackageJson();
+
+  const resolvedName = config.name || pkgInfo.name || 'Unnamed Workflow';
+  const resolvedVersion = config.version || pkgInfo.version;
+  const resolvedDescription = config.description || pkgInfo.description;
+
+  return {
+    ...config,
+    name: resolvedName,
+    version: resolvedVersion,
+    description: resolvedDescription,
+  };
+}
 
 /**
  * Workflow builder that accumulates state types
@@ -75,8 +117,8 @@ export class WorkflowBuilder<TInput = any, TState extends Record<string, any> = 
    * Build the workflow
    */
   build(): Workflow<TInput> {
-    return createWorkflowInstance(
-      this.config,
+    return createWorkflowInstance(resolveConfig(
+      this.config),
       this.steps,
       this.successHandler as any,
       this.errorHandler as any
@@ -85,6 +127,7 @@ export class WorkflowBuilder<TInput = any, TState extends Record<string, any> = 
 }
 
 /**
+ * Workflow builder that accumulates state types
  * Creates a workflow instance
  */
 function createWorkflowInstance<TInput = any>(
@@ -407,9 +450,9 @@ export function createWorkflow<TInput = any>(
 ): WorkflowBuilder<TInput, {}> | Workflow<TInput> {
   // If steps are provided in config, create workflow directly
   if (config.steps && config.steps.length > 0) {
-    return createWorkflowInstance(config, config.steps);
+    return createWorkflowInstance(resolveConfig(config), config.steps);
   }
 
   // Otherwise, return builder for chaining with type-safe state
-  return new WorkflowBuilder<TInput, {}>(config);
+  return new WorkflowBuilder<TInput, {}>(resolveConfig(config));
 }

@@ -266,10 +266,13 @@ export interface Step<
 
 /**
  * Workflow configuration
+ *
+ * Note: name, version, and description are optional - if not provided,
+ * they will be auto-read from package.json in the workflow's directory.
  */
 export interface WorkflowConfig<TInput = any> {
-  /** Workflow name */
-  name: string;
+  /** Workflow name (auto-read from package.json if not provided) */
+  name?: string;
   /** Optional workflow description */
   description?: string;
   /** Optional workflow version */
@@ -346,7 +349,7 @@ export interface Workflow<TInput = any> {
 
   /** Get workflow metadata */
   getMetadata(): {
-    name: string;
+    name: string | undefined;
     description?: string;
     version?: string;
     input: z.ZodSchema<TInput>;
