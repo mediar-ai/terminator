@@ -233,12 +233,32 @@ function createWorkflowInstance<TInput = any>(
       let lastStepId: string | undefined;
       let lastStepIndex: number | undefined;
 
-      try {
-        // Execute steps sequentially
-        for (let i = 0; i < steps.length; i++) {
-          const step = steps[i];
+      // Max iterations to prevent infinite loops
+      const MAX_ITERATIONS = 1000;
+      let iterations = 0;
 
-          log.info(`[${i + 1}/${steps.length}] ${step.config.name}`);
+      try {
+        // Execute steps with support for branching via 'next' pointer
+        let currentIndex = 0;
+
+        while (currentIndex < steps.length && iterations < MAX_ITERATIONS) {
+          iterations++;
+          const step = steps[currentIndex];
+
+          // Check condition
+          if (step.config.condition) {
+            const shouldRun = step.config.condition({
+              input: validatedInput,
+              context,
+            });
+            if (!shouldRun) {
+              log.info(`[${currentIndex + 1}/${steps.length}] ${step.config.name} (skipped)`);
+              currentIndex++;
+              continue;
+            }
+          }
+
+          log.info(`[${currentIndex + 1}/${steps.length}] ${step.config.name}`);
 
           await step.run({
             desktop: desktopInstance,
@@ -249,9 +269,34 @@ function createWorkflowInstance<TInput = any>(
 
           // Track last completed step for state persistence
           lastStepId = step.config.id;
-          lastStepIndex = i;
+          lastStepIndex = currentIndex;
 
           log.info('');
+
+          // Handle 'next' pointer for branching
+          if (step.config.next) {
+            const nextStepId = typeof step.config.next === 'function'
+              ? step.config.next({ input: validatedInput, context })
+              : step.config.next;
+
+            if (nextStepId) {
+              const nextIndex = steps.findIndex(s => s.config.id === nextStepId);
+              if (nextIndex === -1) {
+                throw new Error(`Step '${step.config.id}' references unknown next step: '${nextStepId}'`);
+              }
+              log.info(`  → jumping to '${nextStepId}'`);
+              currentIndex = nextIndex;
+              continue;
+            }
+          }
+
+          // Default: move to next sequential step
+          currentIndex++;
+        }
+
+        // Check for infinite loop
+        if (iterations >= MAX_ITERATIONS) {
+          throw new Error(`Workflow exceeded maximum iterations (${MAX_ITERATIONS}). Possible infinite loop detected.`);
         }
 
         const duration = Date.now() - startTime;

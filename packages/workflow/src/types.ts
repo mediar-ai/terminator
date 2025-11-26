@@ -236,6 +236,21 @@ export interface StepConfig<
 
   /** Condition to determine if step should run */
   condition?: (context: { input: TInput; context: WorkflowContext<TInput, TStateIn> }) => boolean;
+
+  /**
+   * Next step to execute after this one.
+   * Can be a step ID string or a function that returns a step ID.
+   * If not provided, execution continues to the next step in sequence.
+   * Use this for branching, loops, or conditional flow control.
+   * 
+   * @example
+   * // Static jump
+   * next: 'step_id'
+   * 
+   * // Conditional jump
+   * next: ({ context }) => context.state.isDuplicate ? 'handle_dupe' : 'process'
+   */
+  next?: string | ((context: { input: TInput; context: WorkflowContext<TInput, TStateIn> }) => string | undefined);
 }
 
 /**
