@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.25] - 2025-11-26
+
+### Added
+- Workflow SDK: Add `next` pointer for step branching and loops
+  - Static jumps: `next: 'step_id'`
+  - Dynamic branching: `next: ({ context }) => condition ? 'a' : 'b'`
+  - Retry loops with counter
+  - Infinite loop detection (max 1000 iterations)
+- Workflow SDK: Auto-read name/version/description from package.json
+
+### Changed
+- Workflow SDK: Remove name/version/description from createWorkflow() - now exclusively read from package.json (single source of truth)
+
+### Fixed
+- CLI: Remove unused telemetry receiver
+- Code: Fix clippy warnings (unused imports, extra blank lines)
+
 ## [0.23.24] - 2025-11-26
 
 ### Added
