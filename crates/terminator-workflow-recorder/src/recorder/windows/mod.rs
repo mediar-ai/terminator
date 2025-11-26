@@ -2680,7 +2680,7 @@ impl WindowsRecorder {
                         },
                         child_text_content,
                         relative_position,
-                        process_name: Self::get_process_name_from_element(&element),
+                        process_name: Self::get_process_name_from_element(element),
                         metadata: EventMetadata::with_ui_element_and_timestamp(Some(
                             element.clone(),
                         )),

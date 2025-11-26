@@ -220,7 +220,7 @@ fn format_ocr_node(
         if !text.is_empty() {
             // For words and lines, show the text in quotes
             if node.role == "OcrWord" || node.role == "OcrLine" {
-                output.push_str(&format!(" \"{}\"", text));
+                output.push_str(&format!(" \"{text}\""));
             }
         }
     }

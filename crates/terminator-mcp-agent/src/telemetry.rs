@@ -555,8 +555,8 @@ mod with_telemetry {
         eprintln!(
             "✓ OpenTelemetry combined layer enabled (traces + logs with TraceId propagation)"
         );
-        eprintln!("  Logs: {}/v1/logs", otlp_endpoint);
-        eprintln!("  Traces: {}/v1/traces", otlp_endpoint);
+        eprintln!("  Logs: {otlp_endpoint}/v1/logs");
+        eprintln!("  Traces: {otlp_endpoint}/v1/traces");
 
         // Combine both layers: traces layer FIRST (creates OTEL spans), then logs layer (reads TraceId)
         use tracing_subscriber::Layer;
