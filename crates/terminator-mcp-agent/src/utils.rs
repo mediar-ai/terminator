@@ -12,7 +12,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 use terminator::{AutomationError, Desktop, UIElement};
 use tokio::sync::Mutex as TokioMutex;
-use tracing::{warn, Level};
+use tracing::{warn, Instrument, Level};
 use tracing_subscriber::{util::SubscriberInitExt, EnvFilter, Layer};
 
 // ===== Composition Base Types for Reducing Duplication =====
@@ -343,7 +343,8 @@ pub struct DesktopWrapper {
     /// Stores Omniparser items from the last get_window_tree with include_omniparser
     /// Key is 1-based index, value is item details
     #[serde(skip)]
-    pub omniparser_items: Arc<Mutex<std::collections::HashMap<u32, crate::omniparser::OmniparserItem>>>,
+    pub omniparser_items:
+        Arc<Mutex<std::collections::HashMap<u32, crate::omniparser::OmniparserItem>>>,
 }
 
 impl Default for DesktopWrapper {
@@ -708,13 +709,19 @@ pub enum VisionType {
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ClickCvIndexArgs {
-    #[schemars(description = "The 1-based index of the vision-detected item to click (from get_window_tree with include_ocr=true or include_omniparser=true)")]
+    #[schemars(
+        description = "The 1-based index of the vision-detected item to click (from get_window_tree with include_ocr=true or include_omniparser=true)"
+    )]
     pub index: u32,
 
-    #[schemars(description = "Vision system that detected the item: 'ocr' for OCR-detected text, 'omniparser' for Omniparser-detected UI elements")]
+    #[schemars(
+        description = "Vision system that detected the item: 'ocr' for OCR-detected text, 'omniparser' for Omniparser-detected UI elements"
+    )]
     pub vision_type: VisionType,
 
-    #[schemars(description = "Type of click to perform: 'left' (default, single left click), 'double' (double left click), or 'right' (right click)")]
+    #[schemars(
+        description = "Type of click to perform: 'left' (default, single left click), 'double' (double left click), or 'right' (right click)"
+    )]
     #[serde(default)]
     pub click_type: ClickType,
 
@@ -1861,13 +1868,16 @@ pub async fn find_element_with_fallbacks(
     // Create primary task
     let desktop_clone = desktop.clone();
     let primary_clone = primary_selector.to_string();
-    let primary_task = tokio::spawn(async move {
-        let locator = desktop_clone.locator(terminator::Selector::from(primary_clone.as_str()));
-        match locator.first(Some(timeout_duration)).await {
-            Ok(element) => Ok((element, primary_clone)),
-            Err(e) => Err((primary_clone, e)),
+    let primary_task = tokio::spawn(
+        async move {
+            let locator = desktop_clone.locator(terminator::Selector::from(primary_clone.as_str()));
+            match locator.first(Some(timeout_duration)).await {
+                Ok(element) => Ok((element, primary_clone)),
+                Err(e) => Err((primary_clone, e)),
+            }
         }
-    });
+        .in_current_span(),
+    );
 
     // Create alternative tasks
     let mut alternative_tasks = Vec::new();
@@ -1875,14 +1885,17 @@ pub async fn find_element_with_fallbacks(
         for selector_str in alternatives {
             let desktop_clone = desktop.clone();
             let selector_clone = selector_str.clone();
-            let task = tokio::spawn(async move {
-                let locator =
-                    desktop_clone.locator(terminator::Selector::from(selector_clone.as_str()));
-                match locator.first(Some(timeout_duration)).await {
-                    Ok(element) => Ok((element, selector_clone)),
-                    Err(e) => Err((selector_clone, e)),
+            let task = tokio::spawn(
+                async move {
+                    let locator =
+                        desktop_clone.locator(terminator::Selector::from(selector_clone.as_str()));
+                    match locator.first(Some(timeout_duration)).await {
+                        Ok(element) => Ok((element, selector_clone)),
+                        Err(e) => Err((selector_clone, e)),
+                    }
                 }
-            });
+                .in_current_span(),
+            );
             alternative_tasks.push(task);
         }
     }

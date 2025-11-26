@@ -3581,10 +3581,16 @@ impl AccessibilityEngine for WindowsEngine {
         Ok(())
     }
 
-    fn click_at_coordinates_with_type(&self, x: f64, y: f64, click_type: crate::ClickType) -> Result<(), AutomationError> {
+    fn click_at_coordinates_with_type(
+        &self,
+        x: f64,
+        y: f64,
+        click_type: crate::ClickType,
+    ) -> Result<(), AutomationError> {
         use windows::Win32::UI::Input::KeyboardAndMouse::{
             SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN,
-            MOUSEEVENTF_LEFTUP, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_MOVE, MOUSEINPUT,
+            MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
+            MOUSEINPUT,
         };
         use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
 
@@ -3618,9 +3624,7 @@ impl AccessibilityEngine for WindowsEngine {
             crate::ClickType::Left | crate::ClickType::Double => {
                 (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP)
             }
-            crate::ClickType::Right => {
-                (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP)
-            }
+            crate::ClickType::Right => (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
         };
 
         // Create button down input

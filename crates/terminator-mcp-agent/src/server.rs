@@ -31,7 +31,7 @@ use sysinfo::{ProcessesToUpdate, System};
 use terminator::element::UIElementImpl;
 use terminator::{AutomationError, Browser, Desktop, Selector, UIElement};
 use tokio::sync::Mutex;
-use tracing::{info, warn};
+use tracing::{info, warn, Instrument};
 
 // New imports for image encoding
 use base64::{engine::general_purpose, Engine as _};
@@ -4106,10 +4106,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 // Look up the OCR bounds
                 let bounds_result = {
                     let bounds = self.ocr_bounds.lock().map_err(|e| {
-                        McpError::internal_error(
-                            format!("Failed to lock OCR bounds: {e}"),
-                            None,
-                        )
+                        McpError::internal_error(format!("Failed to lock OCR bounds: {e}"), None)
                     })?;
                     bounds.get(&args.index).cloned()
                 };
@@ -4149,9 +4146,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     ));
                 };
 
-                let bounds = item.box_2d.ok_or_else(|| {
-                    McpError::internal_error("Item has no bounds", None)
-                })?;
+                let bounds = item
+                    .box_2d
+                    .ok_or_else(|| McpError::internal_error("Item has no bounds", None))?;
 
                 let x = bounds[0];
                 let y = bounds[1];
@@ -4178,7 +4175,10 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         };
 
         // Perform the click
-        match self.desktop.click_at_coordinates_with_type(click_x, click_y, terminator_click_type) {
+        match self
+            .desktop
+            .click_at_coordinates_with_type(click_x, click_y, terminator_click_type)
+        {
             Ok(()) => {
                 let vision_type_str = match args.vision_type {
                     crate::utils::VisionType::Ocr => "ocr",
@@ -4217,7 +4217,10 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 span.end();
 
                 Err(McpError::internal_error(
-                    format!("Failed to click index {} (\"{}\"): {e}", args.index, item_label),
+                    format!(
+                        "Failed to click index {} (\"{}\"): {e}",
+                        args.index, item_label
+                    ),
                     Some(json!({
                         "index": args.index,
                         "vision_type": format!("{:?}", args.vision_type).to_lowercase(),
@@ -4498,11 +4501,14 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         }
         let active_highlights_clone = self.active_highlights.clone();
         let expire_after = args.duration_ms.unwrap_or(1000);
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(expire_after)).await;
-            let mut list = active_highlights_clone.lock().await;
-            let _ = list.pop();
-        });
+        tokio::spawn(
+            async move {
+                tokio::time::sleep(Duration::from_millis(expire_after)).await;
+                let mut list = active_highlights_clone.lock().await;
+                let _ = list.pop();
+            }
+            .in_current_span(),
+        );
 
         // Build minimal response by default; gate heavy element info behind flag
         let mut result_json = json!({
@@ -8891,10 +8897,13 @@ impl DesktopWrapper {
 
                     // Link it to the request context cancellation
                     let ct_for_task = request_context.ct.clone();
-                    tokio::spawn(async move {
-                        ct_for_task.cancelled().await;
-                        cancellation_token.cancel();
-                    });
+                    tokio::spawn(
+                        async move {
+                            ct_for_task.cancelled().await;
+                            cancellation_token.cancel();
+                        }
+                        .in_current_span(),
+                    );
 
                     self.run_command_impl(args, Some(child_token)).await
                 }
@@ -9050,7 +9059,9 @@ impl DesktopWrapper {
                 // Handle nested execute_sequence calls by delegating to execute_sequence_impl
                 // Use Box::pin to handle async recursion (dispatch_tool -> execute_sequence_impl -> ... -> dispatch_tool)
                 match serde_json::from_value::<ExecuteSequenceArgs>(arguments.clone()) {
-                    Ok(args) => Box::pin(self.execute_sequence_impl(peer, request_context, args)).await,
+                    Ok(args) => {
+                        Box::pin(self.execute_sequence_impl(peer, request_context, args)).await
+                    }
                     Err(e) => Err(McpError::invalid_params(
                         "Invalid arguments for execute_sequence",
                         Some(json!({ "error": e.to_string() })),

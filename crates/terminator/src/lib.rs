@@ -600,7 +600,12 @@ impl Desktop {
     /// Click at absolute screen coordinates with specified click type (left, double, right)
     /// This is useful for clicking on OCR-detected text elements with different click types
     #[instrument(skip(self))]
-    pub fn click_at_coordinates_with_type(&self, x: f64, y: f64, click_type: ClickType) -> Result<(), AutomationError> {
+    pub fn click_at_coordinates_with_type(
+        &self,
+        x: f64,
+        y: f64,
+        click_type: ClickType,
+    ) -> Result<(), AutomationError> {
         self.engine.click_at_coordinates_with_type(x, y, click_type)
     }
 

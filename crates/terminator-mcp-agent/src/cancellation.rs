@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
+use tracing::{info, warn, Instrument};
 
 /// Context for a single MCP request that can be cancelled
 #[derive(Clone, Debug)]
@@ -74,17 +74,20 @@ impl RequestManager {
         if let Some(timeout) = context.timeout_duration {
             let context_clone = context.clone();
             let manager = self.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(timeout).await;
-                if !context_clone.is_cancelled() {
-                    warn!(
-                        "Request {} timed out after {:?}",
-                        context_clone.request_id, timeout
-                    );
-                    context_clone.cancel();
-                    manager.unregister(&context_clone.request_id).await;
+            tokio::spawn(
+                async move {
+                    tokio::time::sleep(timeout).await;
+                    if !context_clone.is_cancelled() {
+                        warn!(
+                            "Request {} timed out after {:?}",
+                            context_clone.request_id, timeout
+                        );
+                        context_clone.cancel();
+                        manager.unregister(&context_clone.request_id).await;
+                    }
                 }
-            });
+                .in_current_span(),
+            );
         }
 
         let mut requests = self.active_requests.write().await;

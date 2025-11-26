@@ -79,7 +79,10 @@ pub async fn parse_image_with_backend(
     }
 
     let response_text = resp.text().await?;
-    debug!("OmniParser backend response: {}", &response_text[..response_text.len().min(500)]);
+    debug!(
+        "OmniParser backend response: {}",
+        &response_text[..response_text.len().min(500)]
+    );
 
     let backend_response: BackendResponse = serde_json::from_str(&response_text)
         .map_err(|e| anyhow!("Failed to parse backend response: {}", e))?;
