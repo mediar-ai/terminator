@@ -663,6 +663,10 @@ pub struct RunCommandArgs {
         description = "Include execution logs (stdout/stderr) in response. Defaults to false. On errors, logs are always included regardless of this setting."
     )]
     pub include_logs: Option<bool>,
+    #[schemars(
+        description = "Timeout in milliseconds for shell command execution (ignored when 'engine' is used). Defaults to 120000 (2 minutes). Set to 0 for no timeout."
+    )]
+    pub timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]

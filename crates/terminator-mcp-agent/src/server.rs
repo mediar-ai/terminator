@@ -2855,6 +2855,10 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         if let Some(engine_value) = args.engine.as_ref() {
             let engine = engine_value.to_ascii_lowercase();
 
+            // Default timeout: 2 minutes (120000ms), 0 means no timeout
+            let timeout_ms = args.timeout_ms.unwrap_or(120_000);
+            let timeout_duration = std::time::Duration::from_millis(timeout_ms);
+
             // Track resolved script path for working directory determination
             let mut resolved_script_path: Option<PathBuf> = None;
 
@@ -3247,12 +3251,29 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     None
                 };
 
-                let execution_result = scripting_engine::execute_javascript_with_nodejs(
+                let execution_future = scripting_engine::execute_javascript_with_nodejs(
                     final_script,
                     cancellation_token,
                     script_working_dir,
-                )
-                .await?;
+                );
+
+                let execution_result = if timeout_ms == 0 {
+                    execution_future.await?
+                } else {
+                    match tokio::time::timeout(timeout_duration, execution_future).await {
+                        Ok(result) => result?,
+                        Err(_) => {
+                            return Err(McpError::internal_error(
+                                "JavaScript execution timed out",
+                                Some(json!({
+                                    "reason": format!("Execution exceeded timeout of {}ms", timeout_ms),
+                                    "engine": "javascript",
+                                    "timeout_ms": timeout_ms
+                                })),
+                            ));
+                        }
+                    }
+                };
 
                 // Extract logs, stderr, and actual result
                 let logs = execution_result.get("logs").cloned();
@@ -3345,12 +3366,29 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     None
                 };
 
-                let execution_result = scripting_engine::execute_typescript_with_nodejs(
+                let execution_future = scripting_engine::execute_typescript_with_nodejs(
                     final_script,
                     cancellation_token,
                     script_working_dir,
-                )
-                .await?;
+                );
+
+                let execution_result = if timeout_ms == 0 {
+                    execution_future.await?
+                } else {
+                    match tokio::time::timeout(timeout_duration, execution_future).await {
+                        Ok(result) => result?,
+                        Err(_) => {
+                            return Err(McpError::internal_error(
+                                "TypeScript execution timed out",
+                                Some(json!({
+                                    "reason": format!("Execution exceeded timeout of {}ms", timeout_ms),
+                                    "engine": "typescript",
+                                    "timeout_ms": timeout_ms
+                                })),
+                            ));
+                        }
+                    }
+                };
 
                 // Extract logs, stderr, and actual result (same as JS)
                 let logs = execution_result.get("logs").cloned();
@@ -3432,11 +3470,28 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     None
                 };
 
-                let execution_result = scripting_engine::execute_python_with_bindings(
+                let execution_future = scripting_engine::execute_python_with_bindings(
                     final_script,
                     script_working_dir,
-                )
-                .await?;
+                );
+
+                let execution_result = if timeout_ms == 0 {
+                    execution_future.await?
+                } else {
+                    match tokio::time::timeout(timeout_duration, execution_future).await {
+                        Ok(result) => result?,
+                        Err(_) => {
+                            return Err(McpError::internal_error(
+                                "Python execution timed out",
+                                Some(json!({
+                                    "reason": format!("Execution exceeded timeout of {}ms", timeout_ms),
+                                    "engine": "python",
+                                    "timeout_ms": timeout_ms
+                                })),
+                            ));
+                        }
+                    }
+                };
 
                 // Extract logs, stderr, and actual result (same structure as JS/TS now)
                 let logs = execution_result.get("logs").cloned();
@@ -3722,21 +3777,49 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             (None, Some(unix_cmd))
         };
 
-        let output = self
+        // Default timeout: 2 minutes (120000ms), 0 means no timeout
+        let timeout_ms = args.timeout_ms.unwrap_or(120_000);
+        let command_future = self
             .desktop
-            .run_command(windows_cmd.as_deref(), unix_cmd.as_deref())
+            .run_command(windows_cmd.as_deref(), unix_cmd.as_deref());
+
+        let output = if timeout_ms == 0 {
+            // No timeout
+            command_future.await
+        } else {
+            // Apply timeout
+            match tokio::time::timeout(
+                std::time::Duration::from_millis(timeout_ms),
+                command_future,
+            )
             .await
-            .map_err(|e| {
-                McpError::internal_error(
-                    "Failed to run command",
-                    Some(json!({
-                        "reason": e.to_string(),
-                        "command": run_str,
-                        "shell": args.shell,
-                        "working_directory": args.working_directory
-                    })),
-                )
-            })?;
+            {
+                Ok(result) => result,
+                Err(_) => {
+                    return Err(McpError::internal_error(
+                        "Shell command timed out",
+                        Some(json!({
+                            "reason": format!("Command exceeded timeout of {}ms", timeout_ms),
+                            "command": run_str,
+                            "shell": args.shell,
+                            "working_directory": args.working_directory,
+                            "timeout_ms": timeout_ms
+                        })),
+                    ));
+                }
+            }
+        }
+        .map_err(|e| {
+            McpError::internal_error(
+                "Failed to run command",
+                Some(json!({
+                    "reason": e.to_string(),
+                    "command": run_str,
+                    "shell": args.shell,
+                    "working_directory": args.working_directory
+                })),
+            )
+        })?;
 
         span.set_status(true, None);
         span.end();
