@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- MCP: Add unified click_cv_index tool with vision_type parameter (ocr/omniparser) replacing separate click tools
+- MCP: Add click_type parameter (left/double/right) to click_cv_index for different click actions
+- UI Automation: Add click_at_coordinates_with_type method supporting left, double, and right clicks
+
+### Changed
+- MCP: Replace click_ocr_index and click_omniparser_index with unified click_cv_index tool
+
 ## [0.23.21] - 2025-11-25
 
 ### Added

@@ -166,7 +166,7 @@ pub struct OcrFormattingResult {
 ///     - [OcrWord] #1 "word" (bounds: [x,y,w,h])
 ///     - [OcrWord] #2 "another" (bounds: [x,y,w,h])
 ///
-/// Returns both the formatted string and a mapping of index → bounds for click_ocr_index
+/// Returns both the formatted string and a mapping of index → bounds for click_cv_index with vision_type='ocr'
 pub fn format_ocr_tree_as_compact_yaml(tree: &OcrElement, indent: usize) -> OcrFormattingResult {
     let mut output = String::new();
     let mut index_to_bounds = std::collections::HashMap::new();
