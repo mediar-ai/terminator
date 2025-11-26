@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.21] - 2025-11-25
+
+### Added
+- MCP: Add OCR support and click_ocr_index tool for text-based UI automation
+- MCP: Add OCR tree formatting with indexed words in get_window_tree
+- UI Automation: Expose OCR and coordinate click on Desktop
+- UI Automation: Implement Windows OCR with bounding boxes using Windows Media OCR
+- Workflow Recorder: Add process_name field to event structs and TextInputTracker
+
+### Fixed
+- Telemetry: Add tracing-opentelemetry layer for TraceId propagation to logs
+
+### Changed
+- MCP: Update get_window_tree description with OCR usage information
+
+## [0.23.20] - 2025-11-25
+
+### Added
+- MCP: Add tracing span with trace_id for distributed tracing
+- Extension: Add lifecycle logging and health reporting
+- UI Automation: Add element verification to open_application and navigate_browser
+
+## [0.23.19] - 2025-11-22
+
+### Fixed
+- Telemetry: Add structured log attributes for OpenTelemetry correlation
+- Build: Revert bun install mode restriction for S3 mount compatibility
+
 ## [0.23.18] - 2025-11-21
 
 ### Added

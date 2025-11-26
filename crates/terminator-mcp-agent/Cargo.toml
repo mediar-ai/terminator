@@ -5,7 +5,7 @@ edition.workspace = true
 
 [features]
 default = ["telemetry", "sentry"]
-telemetry = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-semantic-conventions", "dep:opentelemetry-appender-tracing"]
+telemetry = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-semantic-conventions", "dep:opentelemetry-appender-tracing", "dep:tracing-opentelemetry"]
 sentry = ["dep:sentry", "dep:sentry-tracing"]
 
 [lib]
@@ -63,6 +63,7 @@ opentelemetry_sdk = { version = "0.27", features = ["rt-tokio", "logs"], optiona
 opentelemetry-otlp = { version = "0.27", features = ["http-proto", "reqwest-client", "logs"], optional = true }
 opentelemetry-semantic-conventions = { version = "0.27", optional = true }
 opentelemetry-appender-tracing = { version = "0.27", optional = true }
+tracing-opentelemetry = { version = "0.28", optional = true }
 
 # Sentry dependencies (optional, behind 'sentry' feature)
 sentry = { version = "0.45", optional = true, default-features = false, features = ["backtrace", "contexts", "panic", "reqwest", "rustls", "anyhow", "tracing"] }

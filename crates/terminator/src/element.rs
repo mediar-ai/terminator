@@ -230,6 +230,81 @@ fn is_empty_properties(props: &HashMap<String, Option<serde_json::Value>>) -> bo
     props.is_empty() || props.values().all(|v| v.is_none())
 }
 
+/// Serializable OCR element for representing text detected via optical character recognition.
+/// Mirrors the structure of SerializableUIElement for consistent tree formatting.
+///
+/// Hierarchy: OcrResult -> OcrLine -> OcrWord
+/// - OcrResult: Root element containing all recognized text and rotation angle
+/// - OcrLine: A line of text containing multiple words
+/// - OcrWord: Individual word with precise bounding box
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OcrElement {
+    /// Role type: "OcrResult", "OcrLine", or "OcrWord"
+    pub role: String,
+    /// The recognized text content
+    #[serde(skip_serializing_if = "is_empty_string")]
+    pub text: Option<String>,
+    /// Bounding box as (x, y, width, height) in absolute screen coordinates
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bounds: Option<(f64, f64, f64, f64)>,
+    /// Text rotation angle in degrees (only present on OcrResult)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_angle: Option<f64>,
+    /// Confidence score (0.0 to 1.0) if available
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f64>,
+    /// Child elements (lines for OcrResult, words for OcrLine)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<OcrElement>>,
+}
+
+impl OcrElement {
+    /// Create a new OcrResult (root element)
+    pub fn new_result(text: String, text_angle: Option<f64>, lines: Vec<OcrElement>) -> Self {
+        Self {
+            role: "OcrResult".to_string(),
+            text: Some(text),
+            bounds: None,
+            text_angle,
+            confidence: None,
+            children: if lines.is_empty() { None } else { Some(lines) },
+        }
+    }
+
+    /// Create a new OcrLine
+    pub fn new_line(
+        text: String,
+        bounds: Option<(f64, f64, f64, f64)>,
+        words: Vec<OcrElement>,
+    ) -> Self {
+        Self {
+            role: "OcrLine".to_string(),
+            text: Some(text),
+            bounds,
+            text_angle: None,
+            confidence: None,
+            children: if words.is_empty() { None } else { Some(words) },
+        }
+    }
+
+    /// Create a new OcrWord
+    pub fn new_word(text: String, bounds: (f64, f64, f64, f64), confidence: Option<f64>) -> Self {
+        Self {
+            role: "OcrWord".to_string(),
+            text: Some(text),
+            bounds: Some(bounds),
+            text_angle: None,
+            confidence,
+            children: None,
+        }
+    }
+
+    /// Get display name for tree formatting
+    pub fn display_name(&self) -> String {
+        self.text.clone().unwrap_or_default()
+    }
+}
+
 /// Attributes associated with a UI element
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct UIElementAttributes {

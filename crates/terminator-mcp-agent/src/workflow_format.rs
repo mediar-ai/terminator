@@ -23,8 +23,18 @@ pub fn detect_workflow_format(url: &str) -> WorkflowFormat {
             let workflow_ts = path.join("workflow.ts");
             let index_ts = path.join("index.ts");
 
+            // Also check src/ subfolder for TypeScript files
+            let src_terminator_ts = path.join("src").join("terminator.ts");
+            let src_workflow_ts = path.join("src").join("workflow.ts");
+            let src_index_ts = path.join("src").join("index.ts");
+
             if package_json.exists()
-                && (terminator_ts.exists() || workflow_ts.exists() || index_ts.exists())
+                && (terminator_ts.exists()
+                    || workflow_ts.exists()
+                    || index_ts.exists()
+                    || src_terminator_ts.exists()
+                    || src_workflow_ts.exists()
+                    || src_index_ts.exists())
             {
                 return WorkflowFormat::TypeScript;
             }
@@ -109,6 +119,57 @@ mod tests {
         fs::create_dir(&project_dir).unwrap();
         fs::write(project_dir.join("package.json"), "{}").unwrap();
         fs::write(project_dir.join("index.ts"), "export default {};").unwrap();
+
+        let url = format!("file://{}", project_dir.display());
+        assert_eq!(detect_workflow_format(&url), WorkflowFormat::TypeScript);
+    }
+
+    #[test]
+    fn test_detect_ts_project_with_src_folder() {
+        let temp_dir = TempDir::new().unwrap();
+        let project_dir = temp_dir.path().join("project");
+        fs::create_dir(&project_dir).unwrap();
+        fs::create_dir(project_dir.join("src")).unwrap();
+        fs::write(project_dir.join("package.json"), "{}").unwrap();
+        fs::write(
+            project_dir.join("src").join("terminator.ts"),
+            "export default {};",
+        )
+        .unwrap();
+
+        let url = format!("file://{}", project_dir.display());
+        assert_eq!(detect_workflow_format(&url), WorkflowFormat::TypeScript);
+    }
+
+    #[test]
+    fn test_detect_ts_project_with_src_workflow() {
+        let temp_dir = TempDir::new().unwrap();
+        let project_dir = temp_dir.path().join("project");
+        fs::create_dir(&project_dir).unwrap();
+        fs::create_dir(project_dir.join("src")).unwrap();
+        fs::write(project_dir.join("package.json"), "{}").unwrap();
+        fs::write(
+            project_dir.join("src").join("workflow.ts"),
+            "export default {};",
+        )
+        .unwrap();
+
+        let url = format!("file://{}", project_dir.display());
+        assert_eq!(detect_workflow_format(&url), WorkflowFormat::TypeScript);
+    }
+
+    #[test]
+    fn test_detect_ts_project_with_src_index() {
+        let temp_dir = TempDir::new().unwrap();
+        let project_dir = temp_dir.path().join("project");
+        fs::create_dir(&project_dir).unwrap();
+        fs::create_dir(project_dir.join("src")).unwrap();
+        fs::write(project_dir.join("package.json"), "{}").unwrap();
+        fs::write(
+            project_dir.join("src").join("index.ts"),
+            "export default {};",
+        )
+        .unwrap();
 
         let url = format!("file://{}", project_dir.display());
         assert_eq!(detect_workflow_format(&url), WorkflowFormat::TypeScript);

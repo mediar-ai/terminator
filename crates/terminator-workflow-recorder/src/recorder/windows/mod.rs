@@ -120,6 +120,16 @@ impl WindowsRecorder {
             .as_millis() as u64
     }
 
+    /// Get process name from a UI element's process ID
+    fn get_process_name_from_element(element: &UIElement) -> Option<String> {
+        let process_id = element.process_id().ok()?;
+        let mut system = System::new();
+        system.refresh_processes(ProcessesToUpdate::All, true);
+        system
+            .process(Pid::from_u32(process_id))
+            .map(|p| p.name().to_string_lossy().to_string())
+    }
+
     /// Collect text content from only direct children (no recursion for deepest element approach)
     fn collect_direct_child_text_content(element: &UIElement) -> Vec<String> {
         let mut child_texts = Vec::new();
@@ -1383,6 +1393,7 @@ impl WindowsRecorder {
                     combination: format!("{:?}", pattern.keys), // TODO: Format properly
                     action: Some(pattern.action.clone()),
                     is_global: true,
+                    process_name: None, // TODO: Pass process context from caller
                     metadata: EventMetadata {
                         ui_element: None,
                         timestamp: Some(Self::capture_timestamp()),
@@ -2391,6 +2402,9 @@ impl WindowsRecorder {
                                     typing_duration_ms: typing_duration.as_millis() as u64,
                                     input_method: crate::TextInputMethod::Suggestion,
                                     focus_method: text_input.focus_method.clone(),
+                                    process_name: Self::get_process_name_from_element(
+                                        &text_input.element,
+                                    ),
                                     metadata: EventMetadata::with_ui_element_and_timestamp(Some(
                                         text_input.element.clone(),
                                     )),
@@ -2451,6 +2465,9 @@ impl WindowsRecorder {
                                     typing_duration_ms: typing_duration.as_millis() as u64,
                                     input_method: crate::TextInputMethod::Suggestion,
                                     focus_method: temp_tracker.focus_method.clone(),
+                                    process_name: Self::get_process_name_from_element(
+                                        &temp_tracker.element,
+                                    ),
                                     metadata: EventMetadata::with_ui_element_and_timestamp(Some(
                                         temp_tracker.element.clone(),
                                     )),
@@ -2663,6 +2680,7 @@ impl WindowsRecorder {
                         },
                         child_text_content,
                         relative_position,
+                        process_name: Self::get_process_name_from_element(element),
                         metadata: EventMetadata::with_ui_element_and_timestamp(Some(
                             element.clone(),
                         )),
@@ -2697,6 +2715,7 @@ impl WindowsRecorder {
                 element_description: None,
                 child_text_content: Vec::new(),
                 relative_position: None,
+                process_name: None,
                 metadata: EventMetadata {
                     ui_element: None,
                     timestamp: Some(Self::capture_timestamp()),
@@ -3038,6 +3057,7 @@ impl WindowsRecorder {
                     },
                     child_text_content,
                     relative_position: None, // No relative position for keyboard-triggered clicks
+                    process_name: Self::get_process_name_from_element(&element),
                     metadata: EventMetadata::with_ui_element_and_timestamp(Some(element.clone())),
                 };
 
