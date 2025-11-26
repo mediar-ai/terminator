@@ -5,7 +5,7 @@ use crate::utils::find_and_execute_with_retry_with_fallback;
 pub use crate::utils::DesktopWrapper;
 use crate::utils::{
     get_timeout, ActivateElementArgs, CaptureElementScreenshotArgs, ClickElementArgs,
-    CloseElementArgs, DelayArgs, ExecuteBrowserScriptArgs, ExecuteSequenceArgs,
+    ClickOcrIndexArgs, CloseElementArgs, DelayArgs, ExecuteBrowserScriptArgs, ExecuteSequenceArgs,
     GetApplicationsArgs, GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs, LocatorArgs,
     MaximizeWindowArgs, MinimizeWindowArgs, MouseDragArgs, NavigateBrowserArgs,
     OpenApplicationArgs, PressKeyArgs, RunCommandArgs, ScrollElementArgs, SelectOptionArgs,
@@ -757,6 +757,7 @@ impl DesktopWrapper {
             current_scripts_base_path: Arc::new(Mutex::new(None)),
             window_manager: Arc::new(crate::window_manager::WindowManager::new()),
             in_sequence: Arc::new(std::sync::Mutex::new(false)),
+            ocr_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         })
     }
 
@@ -869,8 +870,45 @@ impl DesktopWrapper {
         }
     }
 
+    /// Perform OCR on a window by its process ID and return structured results with bounding boxes
+    #[cfg(target_os = "windows")]
+    async fn perform_ocr_for_process(&self, pid: u32) -> Result<terminator::OcrElement, String> {
+        // Find the window element for this process
+        let apps = self
+            .desktop
+            .applications()
+            .map_err(|e| format!("Failed to get applications: {e}"))?;
+
+        let window_element = apps
+            .into_iter()
+            .find(|app| app.process_id().unwrap_or(0) == pid)
+            .ok_or_else(|| format!("No window found for PID {pid}"))?;
+
+        // Get window bounds (absolute screen coordinates)
+        let bounds = window_element
+            .bounds()
+            .map_err(|e| format!("Failed to get window bounds: {e}"))?;
+
+        let (window_x, window_y, _width, _height) = bounds;
+
+        // Capture screenshot of the window
+        let screenshot = window_element
+            .capture()
+            .map_err(|e| format!("Failed to capture window screenshot: {e}"))?;
+
+        // Perform OCR with bounding boxes using Desktop's method
+        self.desktop
+            .ocr_screenshot_with_bounds(&screenshot, window_x, window_y)
+            .map_err(|e| format!("OCR failed: {e}"))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    async fn perform_ocr_for_process(&self, _pid: u32) -> Result<terminator::OcrElement, String> {
+        Err("OCR with bounding boxes is currently only supported on Windows".to_string())
+    }
+
     #[tool(
-        description = "Get the complete UI tree for an application by process name (e.g., 'chrome', 'msedge', 'notepad'). Returns tree for the first matching process found. Returns detailed element information (role, name, id, enabled state, bounds, children). This is your primary tool for understanding the application's current state. Supports tree optimization: tree_max_depth (e.g., 30) to limit tree depth when you only need shallow inspection, tree_from_selector to get subtrees starting from a specific element, include_detailed_attributes to control verbosity (defaults to true). This is a read-only operation."
+        description = "Get the complete UI tree for an application by process name (e.g., 'chrome', 'msedge', 'notepad'). Returns tree for the first matching process found. Returns detailed element information (role, name, id, enabled state, bounds, children). This is your primary tool for understanding the application's current state. Supports tree optimization: tree_max_depth (e.g., 30) to limit tree depth when you only need shallow inspection, tree_from_selector to get subtrees starting from a specific element, include_detailed_attributes to control verbosity (defaults to true). Use `include_ocr: true` to perform OCR and get indexed words (e.g., [OcrWord] #1 \"Submit\") for click targeting with `click_ocr_index`. This is a read-only operation."
     )]
     pub async fn get_window_tree(
         &self,
@@ -1003,6 +1041,44 @@ impl DesktopWrapper {
             None, // No found element for window tree
         )
         .await;
+
+        // Perform OCR if requested
+        if args.include_ocr {
+            match self.perform_ocr_for_process(pid).await {
+                Ok(ocr_result) => {
+                    // Format OCR tree based on tree_output_format (same as UI tree)
+                    let format = args
+                        .tree
+                        .tree_output_format
+                        .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
+
+                    match format {
+                        crate::mcp_types::TreeOutputFormat::CompactYaml => {
+                            let ocr_formatting_result =
+                                crate::tree_formatter::format_ocr_tree_as_compact_yaml(
+                                    &ocr_result,
+                                    0,
+                                );
+                            // Store the index-to-bounds mapping for click_ocr_index
+                            if let Ok(mut bounds) = self.ocr_bounds.lock() {
+                                *bounds = ocr_formatting_result.index_to_bounds;
+                            }
+                            result_json["ocr_tree"] = json!(ocr_formatting_result.formatted);
+                        }
+                        crate::mcp_types::TreeOutputFormat::VerboseJson => {
+                            result_json["ocr_tree"] =
+                                serde_json::to_value(&ocr_result).unwrap_or_default();
+                        }
+                    }
+                    result_json["ocr_text"] = json!(ocr_result.text);
+                    info!("OCR completed for PID {}", pid);
+                }
+                Err(e) => {
+                    warn!("OCR failed for PID {}: {}", pid, e);
+                    result_json["ocr_error"] = json!(e.to_string());
+                }
+            }
+        }
 
         span.set_status(true, None);
         span.end();
@@ -2419,7 +2495,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
         // POST-ACTION VERIFICATION
         let verify_exists = args.verify_element_exists.clone();
         let verify_not_exists = args.verify_element_not_exists.clone();
-        let verify_timeout_ms = args.verify_timeout_ms;
+        let verify_timeout_ms = args.verify_timeout_ms.unwrap_or(2000);
 
         let skip_verification = verify_exists.is_empty() && verify_not_exists.is_empty();
 
@@ -3913,6 +3989,84 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
     }
 
     #[tool(
+        description = "Clicks on an OCR-detected word by its index number. First call get_window_tree with include_ocr=true to get the OCR tree with indexed words (e.g., [OcrWord] #1 \"Submit\"). Then use this tool with the index number to click that word. This action does not require an element selector."
+    )]
+    async fn click_ocr_index(
+        &self,
+        Parameters(args): Parameters<ClickOcrIndexArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        // Start telemetry span
+        let mut span = StepSpan::new("click_ocr_index", None);
+        span.set_attribute("index", args.index.to_string());
+
+        // Look up the bounds for this index
+        let bounds_result = {
+            let bounds = self.ocr_bounds.lock().map_err(|e| {
+                McpError::internal_error(format!("Failed to lock OCR bounds: {e}"), None)
+            })?;
+            bounds.get(&args.index).cloned()
+        };
+
+        let Some((text, (x, y, width, height))) = bounds_result else {
+            span.set_status(false, Some("Index not found"));
+            span.end();
+            return Err(McpError::internal_error(
+                format!("OCR index {} not found. Call get_window_tree with include_ocr=true first to get indexed OCR words.", args.index),
+                Some(json!({ "index": args.index })),
+            ));
+        };
+
+        // Calculate center of the bounds
+        let click_x = x + width / 2.0;
+        let click_y = y + height / 2.0;
+
+        span.set_attribute("text", text.clone());
+        span.set_attribute("click_x", click_x.to_string());
+        span.set_attribute("click_y", click_y.to_string());
+
+        // Perform the click
+        match self.desktop.click_at_coordinates(click_x, click_y) {
+            Ok(()) => {
+                let result_json = json!({
+                    "action": "click_ocr_index",
+                    "status": "success",
+                    "index": args.index,
+                    "text": text,
+                    "clicked_at": { "x": click_x, "y": click_y },
+                    "bounds": { "x": x, "y": y, "width": width, "height": height },
+                });
+
+                span.set_status(true, None);
+                span.end();
+
+                Ok(CallToolResult::success(
+                    append_monitor_screenshots_if_enabled(
+                        &self.desktop,
+                        vec![Content::json(result_json)?],
+                        args.monitor.include_monitor_screenshots,
+                    )
+                    .await,
+                ))
+            }
+            Err(e) => {
+                span.set_status(false, Some(&e.to_string()));
+                span.end();
+
+                Err(McpError::internal_error(
+                    format!(
+                        "Failed to click OCR index {} (\"{}\"): {e}",
+                        args.index, text
+                    ),
+                    Some(json!({
+                        "index": args.index,
+                        "text": text,
+                    })),
+                ))
+            }
+        }
+    }
+
+    #[tool(
         description = "Validates that an element exists and provides detailed information about it. This is a read-only operation that NEVER throws errors. Returns status='success' with exists=true when found, or status='failed' with exists=false when not found. Use {step_id}_status or {step_id}_result.exists for conditional logic. This is the preferred tool for checking optional/conditional UI elements."
     )]
     pub async fn validate_element(
@@ -4505,9 +4659,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
     }
 
     #[tool(
-        description = "Opens a URL in the specified browser (uses SDK's built-in browser automation). This is the RECOMMENDED method for browser navigation - more reliable than manually manipulating the address bar with keyboard/mouse actions. Handles page loading, waiting, and error recovery automatically."
+        description = "Opens a URL in the specified browser (uses SDK's built-in browser automation). This is the RECOMMENDED method for browser navigation - more reliable than manually manipulating the address bar with keyboard/mouse actions. Handles page loading, waiting, and error recovery automatically. Requires verify_element_exists and verify_element_not_exists parameters (use empty string \"\" to skip verification)."
     )]
-    async fn navigate_browser(
+    pub async fn navigate_browser(
         &self,
         Parameters(args): Parameters<NavigateBrowserArgs>,
     ) -> Result<CallToolResult, McpError> {
@@ -4567,6 +4721,67 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         )
         .await;
 
+        // POST-ACTION VERIFICATION
+        if !args.verify_element_exists.is_empty() || !args.verify_element_not_exists.is_empty() {
+            let verify_exists_opt = if args.verify_element_exists.is_empty() {
+                None
+            } else {
+                Some(args.verify_element_exists.as_str())
+            };
+            let verify_not_exists_opt = if args.verify_element_not_exists.is_empty() {
+                None
+            } else {
+                Some(args.verify_element_not_exists.as_str())
+            };
+
+            match crate::helpers::verify_post_action(
+                &self.desktop,
+                &ui_element,
+                verify_exists_opt,
+                verify_not_exists_opt,
+                args.verify_timeout_ms.unwrap_or(2000),
+                &args.url,
+            )
+            .await
+            {
+                Ok(verification_result) => {
+                    tracing::info!(
+                        "[navigate_browser] Verification passed: method={}, details={}",
+                        verification_result.method,
+                        verification_result.details
+                    );
+                    span.set_attribute("verification.passed", "true".to_string());
+                    span.set_attribute("verification.method", verification_result.method.clone());
+                    span.set_attribute(
+                        "verification.elapsed_ms",
+                        verification_result.elapsed_ms.to_string(),
+                    );
+
+                    let verification_json = json!({
+                        "passed": verification_result.passed,
+                        "method": verification_result.method,
+                        "details": verification_result.details,
+                        "elapsed_ms": verification_result.elapsed_ms,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    });
+
+                    if let Some(obj) = result_json.as_object_mut() {
+                        obj.insert("verification".to_string(), verification_json);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("[navigate_browser] Verification failed: {}", e);
+                    span.set_attribute("verification.passed", "false".to_string());
+                    span.set_status(false, Some("Verification failed"));
+                    span.end();
+                    return Err(McpError::internal_error(
+                        format!("Post-action verification failed: {e}"),
+                        None,
+                    ));
+                }
+            }
+        }
+
         self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
@@ -4582,7 +4797,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         ))
     }
 
-    #[tool(description = "Opens an application by name (uses SDK's built-in app launcher).")]
+    #[tool(
+        description = "Opens an application by name (uses SDK's built-in app launcher). Requires verify_element_exists and verify_element_not_exists parameters (use empty string \"\" to skip verification)."
+    )]
     pub async fn open_application(
         &self,
         Parameters(args): Parameters<OpenApplicationArgs>,
@@ -4656,6 +4873,67 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     if let Some(obj) = result_json.as_object_mut() {
                         obj.insert("ui_tree".to_string(), tree_val);
                     }
+                }
+            }
+        }
+
+        // POST-ACTION VERIFICATION
+        if !args.verify_element_exists.is_empty() || !args.verify_element_not_exists.is_empty() {
+            let verify_exists_opt = if args.verify_element_exists.is_empty() {
+                None
+            } else {
+                Some(args.verify_element_exists.as_str())
+            };
+            let verify_not_exists_opt = if args.verify_element_not_exists.is_empty() {
+                None
+            } else {
+                Some(args.verify_element_not_exists.as_str())
+            };
+
+            match crate::helpers::verify_post_action(
+                &self.desktop,
+                &ui_element,
+                verify_exists_opt,
+                verify_not_exists_opt,
+                args.verify_timeout_ms.unwrap_or(2000),
+                &args.app_name,
+            )
+            .await
+            {
+                Ok(verification_result) => {
+                    tracing::info!(
+                        "[open_application] Verification passed: method={}, details={}",
+                        verification_result.method,
+                        verification_result.details
+                    );
+                    span.set_attribute("verification.passed", "true".to_string());
+                    span.set_attribute("verification.method", verification_result.method.clone());
+                    span.set_attribute(
+                        "verification.elapsed_ms",
+                        verification_result.elapsed_ms.to_string(),
+                    );
+
+                    let verification_json = json!({
+                        "passed": verification_result.passed,
+                        "method": verification_result.method,
+                        "details": verification_result.details,
+                        "elapsed_ms": verification_result.elapsed_ms,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    });
+
+                    if let Some(obj) = result_json.as_object_mut() {
+                        obj.insert("verification".to_string(), verification_json);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("[open_application] Verification failed: {}", e);
+                    span.set_attribute("verification.passed", "false".to_string());
+                    span.set_status(false, Some("Verification failed"));
+                    span.end();
+                    return Err(McpError::internal_error(
+                        format!("Post-action verification failed: {e}"),
+                        None,
+                    ));
                 }
             }
         }
@@ -8028,7 +8306,8 @@ console.info = function(...args) {
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
                 Err(e) => {
-                    tracing::error!(
+                    // Use warn! since browser script failures are often expected (extension not installed, user script errors)
+                    tracing::warn!(
                         "[execute_browser_script] failed selector='{}' alt='{:?}' fallback='{:?}' error={}",
                         args.selector.selector,
                         args.selector.alternative_selectors,
@@ -8469,6 +8748,15 @@ impl DesktopWrapper {
                     Some(json!({"error": e.to_string()})),
                 )),
             },
+            "click_ocr_index" => {
+                match serde_json::from_value::<ClickOcrIndexArgs>(arguments.clone()) {
+                    Ok(args) => self.click_ocr_index(Parameters(args)).await,
+                    Err(e) => Err(McpError::invalid_params(
+                        "Invalid arguments for click_ocr_index",
+                        Some(json!({"error": e.to_string()})),
+                    )),
+                }
+            }
             "highlight_element" => {
                 match serde_json::from_value::<HighlightElementArgs>(arguments.clone()) {
                     Ok(args) => self.highlight_element(Parameters(args)).await,

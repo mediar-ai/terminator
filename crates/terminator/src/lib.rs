@@ -22,7 +22,7 @@ pub mod tree_formatter;
 pub mod types;
 pub mod utils;
 
-pub use element::{SerializableUIElement, UIElement, UIElementAttributes};
+pub use element::{OcrElement, SerializableUIElement, UIElement, UIElementAttributes};
 pub use errors::AutomationError;
 pub use locator::Locator;
 pub use selector::Selector;
@@ -573,6 +573,26 @@ impl Desktop {
         screenshot: &ScreenshotResult,
     ) -> Result<String, AutomationError> {
         self.engine.ocr_screenshot(screenshot).await
+    }
+
+    /// OCR on screenshot with bounding boxes - returns structured OCR elements with absolute screen coordinates
+    /// Window coordinates are used to convert OCR bounding boxes to absolute screen positions
+    #[instrument(skip(self, screenshot))]
+    pub fn ocr_screenshot_with_bounds(
+        &self,
+        screenshot: &ScreenshotResult,
+        window_x: f64,
+        window_y: f64,
+    ) -> Result<OcrElement, AutomationError> {
+        self.engine
+            .ocr_screenshot_with_bounds(screenshot, window_x, window_y)
+    }
+
+    /// Click at absolute screen coordinates
+    /// This is useful for clicking on OCR-detected text elements
+    #[instrument(skip(self))]
+    pub fn click_at_coordinates(&self, x: f64, y: f64) -> Result<(), AutomationError> {
+        self.engine.click_at_coordinates(x, y)
     }
 
     #[instrument(skip(self, title))]

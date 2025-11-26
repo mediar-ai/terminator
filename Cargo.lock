@@ -5175,7 +5175,7 @@ dependencies = [
 
 [[package]]
 name = "terminator-cli"
-version = "0.23.18"
+version = "0.23.22"
 dependencies = [
  "anthropic-sdk",
  "anyhow",
@@ -5203,7 +5203,7 @@ dependencies = [
 
 [[package]]
 name = "terminator-mcp-agent"
-version = "0.23.18"
+version = "0.23.22"
 dependencies = [
  "anyhow",
  "arboard",
@@ -5243,6 +5243,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-appender",
+ "tracing-opentelemetry",
  "tracing-subscriber",
  "uuid",
  "windows 0.58.0",
@@ -5250,7 +5251,7 @@ dependencies = [
 
 [[package]]
 name = "terminator-node-bindings"
-version = "0.23.18"
+version = "0.23.22"
 dependencies = [
  "napi",
  "napi-build",
@@ -5262,7 +5263,7 @@ dependencies = [
 
 [[package]]
 name = "terminator-py-bindings"
-version = "0.23.18"
+version = "0.23.22"
 dependencies = [
  "pyo3",
  "pyo3-async-runtimes",
@@ -5276,7 +5277,7 @@ dependencies = [
 
 [[package]]
 name = "terminator-rs"
-version = "0.23.18"
+version = "0.23.22"
 dependencies = [
  "accessibility",
  "accessibility-sys",
@@ -5320,7 +5321,7 @@ dependencies = [
 
 [[package]]
 name = "terminator-workflow-recorder"
-version = "0.23.18"
+version = "0.23.22"
 dependencies = [
  "arboard",
  "async-stream",
@@ -5807,6 +5808,24 @@ dependencies = [
  "log",
  "once_cell",
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-opentelemetry"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97a971f6058498b5c0f1affa23e7ea202057a7301dbff68e968b2d578bcbd053"
+dependencies = [
+ "js-sys",
+ "once_cell",
+ "opentelemetry",
+ "opentelemetry_sdk",
+ "smallvec",
+ "tracing",
+ "tracing-core",
+ "tracing-log",
+ "tracing-subscriber",
+ "web-time",
 ]
 
 [[package]]

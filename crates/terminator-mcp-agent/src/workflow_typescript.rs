@@ -583,7 +583,6 @@ try {{
     /// Ensure dependencies are installed in a specific directory
     ///
     /// Simple strategy: Just run bun/npm install in the workflow directory.
-    /// In local-copy mode, installs in temp dir. In direct mode, installs in source (S3).
     async fn ensure_dependencies_in(&self, workflow_dir: &PathBuf) -> Result<(), McpError> {
         let package_json_path = workflow_dir.join("package.json");
 
@@ -639,7 +638,7 @@ try {{
             return Ok(());
         }
 
-        // Install dependencies in workflow directory (will be persisted to S3)
+        // Install dependencies in workflow directory
         info!("⏳ Installing dependencies...");
 
         let install_result = match runtime {
@@ -671,7 +670,6 @@ try {{
         }
 
         info!("✓ Dependencies installed successfully");
-        info!("✓ node_modules will be persisted to S3 with workflow");
 
         Ok(())
     }

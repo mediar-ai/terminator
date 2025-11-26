@@ -171,9 +171,8 @@ pub struct ActionOptions {
     pub verify_element_not_exists: String,
 
     #[schemars(
-        description = "Timeout in milliseconds for post-action verification. The system will poll until verification passes or timeout is reached. Defaults to 2000ms."
+        description = "Timeout in milliseconds for post-action verification. The system will poll until verification passes or timeout is reached. Defaults to 2000ms if not specified."
     )]
-    #[serde(default)]
     pub verify_timeout_ms: Option<u64>,
 }
 
@@ -337,6 +336,10 @@ pub struct DesktopWrapper {
     /// Used to determine if individual tools should handle window management
     #[serde(skip)]
     pub in_sequence: Arc<Mutex<bool>>,
+    /// Stores OCR index-to-bounds mapping from the last get_window_tree with include_ocr
+    /// Key is 1-based index, value is (text, (x, y, width, height))
+    #[serde(skip)]
+    pub ocr_bounds: Arc<Mutex<std::collections::HashMap<u32, (String, (f64, f64, f64, f64))>>>,
 }
 
 impl Default for DesktopWrapper {
@@ -383,6 +386,12 @@ pub struct GetWindowTreeArgs {
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
+
+    #[schemars(
+        description = "Whether to perform OCR on the window and include recognized text with bounding boxes. OCR results are returned as a separate 'ocr_tree' field with word-level positioning for click targeting. Defaults to false."
+    )]
+    #[serde(default)]
+    pub include_ocr: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -596,9 +605,9 @@ pub struct GlobalKeyArgs {
     pub verify_element_not_exists: String,
 
     #[schemars(
-        description = "REQUIRED: Timeout in milliseconds for post-action verification. The system will poll until verification passes or timeout is reached."
+        description = "Timeout in milliseconds for post-action verification. The system will poll until verification passes or timeout is reached. Defaults to 2000ms if not specified."
     )]
-    pub verify_timeout_ms: u64,
+    pub verify_timeout_ms: Option<u64>,
 
     #[serde(flatten)]
     pub tree: TreeOptions,
@@ -669,6 +678,20 @@ pub struct MouseDragArgs {
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ClickOcrIndexArgs {
+    #[schemars(
+        description = "The 1-based index of the OCR word to click (from get_window_tree with include_ocr=true)"
+    )]
+    pub index: u32,
+
+    #[serde(flatten)]
+    pub tree: TreeOptions,
+
+    #[serde(flatten)]
+    pub monitor: MonitorScreenshotOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -781,6 +804,22 @@ pub struct NavigateBrowserArgs {
         description = "Browser process name (e.g., 'chrome', 'msedge', 'firefox'). Will start the browser if not running."
     )]
     pub process: String,
+
+    #[schemars(
+        description = "REQUIRED: Selector that should exist after navigation completes. Used to verify the page loaded successfully. Use empty string \"\" to skip this check."
+    )]
+    pub verify_element_exists: String,
+
+    #[schemars(
+        description = "REQUIRED: Selector that should NOT exist after navigation completes. Use empty string \"\" to skip this check."
+    )]
+    pub verify_element_not_exists: String,
+
+    #[schemars(
+        description = "Timeout in milliseconds for post-action verification. The system will poll until verification passes or timeout is reached. Defaults to 2000ms if not specified."
+    )]
+    pub verify_timeout_ms: Option<u64>,
+
     #[serde(flatten)]
     pub tree: TreeOptions,
     #[serde(flatten)]
@@ -819,6 +858,21 @@ pub struct ExecuteBrowserScriptArgs {
 pub struct OpenApplicationArgs {
     #[schemars(description = "Name of the application to open")]
     pub app_name: String,
+
+    #[schemars(
+        description = "REQUIRED: Selector that should exist after the application opens. Used to verify the app loaded successfully (e.g., 'process:notepad|role:Document'). Use empty string \"\" to skip this check."
+    )]
+    pub verify_element_exists: String,
+
+    #[schemars(
+        description = "REQUIRED: Selector that should NOT exist after the application opens. Use empty string \"\" to skip this check."
+    )]
+    pub verify_element_not_exists: String,
+
+    #[schemars(
+        description = "Timeout in milliseconds for post-action verification. The system will poll until verification passes or timeout is reached. Defaults to 2000ms if not specified."
+    )]
+    pub verify_timeout_ms: Option<u64>,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -1160,7 +1214,7 @@ pub struct ExecuteSequenceArgs {
     )]
     pub execute_jumps_at_end: Option<bool>,
     #[schemars(
-        description = "Optional base path for resolving script files. When script_file is used in run_command or execute_browser_script, relative paths will first be searched in this directory, then fallback to workflow directory or current directory. Useful for mounting external file sources like S3 via rclone."
+        description = "Optional base path for resolving script files. When script_file is used in run_command or execute_browser_script, relative paths will first be searched in this directory, then fallback to workflow directory or current directory."
     )]
     pub scripts_base_path: Option<String>,
     #[schemars(
@@ -1432,14 +1486,16 @@ pub fn init_logging() -> Result<Option<LogCapture>> {
     // Build the subscriber with stderr output, file output, log capture, optional OTLP, and optional Sentry
     #[cfg(feature = "telemetry")]
     {
-        // Try to create OTLP layer - ADD IT FIRST so it works with Registry type
+        // Try to create combined OTLP layer (traces + logs)
+        // The combined layer includes tracing-opentelemetry (for TraceId propagation) and
+        // OpenTelemetryTracingBridge (for sending logs with TraceId)
         match crate::telemetry::create_otel_logs_layer() {
             Some(otel_layer) => {
                 use tracing_subscriber::layer::SubscriberExt;
 
-                // Start with Registry - add OTLP first, then optionally Sentry
+                // Start with Registry - add combined OTEL layer first
                 let base_subscriber = tracing_subscriber::registry().with(
-                    // OTEL layer with RUST_LOG filtering - CRITICAL to avoid HTTP client noise
+                    // Combined OTEL layer with RUST_LOG filtering - CRITICAL to avoid HTTP client noise
                     otel_layer.with_filter(
                         EnvFilter::try_from_default_env()
                             .unwrap_or_else(|_| {

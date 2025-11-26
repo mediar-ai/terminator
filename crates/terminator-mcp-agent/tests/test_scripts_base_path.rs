@@ -228,8 +228,8 @@ mod integration_tests {
     use terminator_mcp_agent::utils::ExecuteSequenceArgs;
 
     #[test]
-    fn test_workflow_with_mounted_s3_simulation() {
-        // Simulate the S3 mount scenario
+    fn test_workflow_with_mounted_storage_simulation() {
+        // Simulate the mounted storage scenario
         let temp_dir = TempDir::new().unwrap();
         let mount_path = temp_dir.path().join("mnt").join("workflows").join("abc123");
         fs::create_dir_all(&mount_path).unwrap();

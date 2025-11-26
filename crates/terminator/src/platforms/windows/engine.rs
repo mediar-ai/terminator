@@ -40,6 +40,12 @@ use windows::Win32::System::Diagnostics::ToolHelp::{
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
+// Windows Media OCR imports
+use windows::Media::Ocr::OcrEngine as WinOcrEngine;
+
+// Import OcrElement for bounding box OCR results
+use crate::element::OcrElement;
+
 // Define a default timeout duration
 // Set to 0 for one-time search (no polling) - add explicit timeout where waiting is needed
 const DEFAULT_FIND_TIMEOUT: Duration = Duration::from_millis(0);
@@ -679,6 +685,127 @@ impl WindowsEngine {
                 Ok(false)
             }
         }
+    }
+
+    /// Perform OCR on a screenshot and return structured results with bounding boxes.
+    /// Uses Windows native OCR (Windows.Media.Ocr) for accurate word-level positioning.
+    ///
+    /// # Arguments
+    /// * `screenshot` - The screenshot to perform OCR on
+    /// * `window_x` - X offset of the window on screen (to convert to absolute coords)
+    /// * `window_y` - Y offset of the window on screen (to convert to absolute coords)
+    ///
+    /// # Returns
+    /// An OcrElement tree with bounds in absolute screen coordinates
+    pub fn ocr_screenshot_with_bounds(
+        &self,
+        screenshot: &ScreenshotResult,
+        window_x: f64,
+        window_y: f64,
+    ) -> Result<OcrElement, AutomationError> {
+        use windows::Graphics::Imaging::{BitmapPixelFormat, SoftwareBitmap};
+        use windows::Storage::Streams::DataWriter;
+
+        // Windows OCR expects BGRA format, but our screenshot is RGBA
+        // Convert RGBA to BGRA
+        let mut bgra_data = screenshot.image_data.clone();
+        for chunk in bgra_data.chunks_exact_mut(4) {
+            chunk.swap(0, 2); // Swap R and B
+        }
+
+        // Create an IBuffer from the pixel data using DataWriter
+        let writer = DataWriter::new().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to create DataWriter: {e}"))
+        })?;
+
+        writer
+            .WriteBytes(&bgra_data)
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to write bytes: {e}")))?;
+
+        let buffer = writer
+            .DetachBuffer()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to detach buffer: {e}")))?;
+
+        // Create SoftwareBitmap directly from raw pixel buffer
+        let bitmap = SoftwareBitmap::CreateCopyFromBuffer(
+            &buffer,
+            BitmapPixelFormat::Bgra8,
+            screenshot.width as i32,
+            screenshot.height as i32,
+        )
+        .map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to create SoftwareBitmap: {e}"))
+        })?;
+
+        // Create OCR engine from user profile languages
+        let ocr_engine = WinOcrEngine::TryCreateFromUserProfileLanguages().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to create Windows OCR engine: {e}"))
+        })?;
+
+        // Perform OCR recognition (blocking)
+        let result = ocr_engine
+            .RecognizeAsync(&bitmap)
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to start OCR: {e}")))?
+            .get()
+            .map_err(|e| AutomationError::PlatformError(format!("OCR recognition failed: {e}")))?;
+
+        // Get text angle (rotation)
+        let text_angle = result.TextAngle().ok().and_then(|opt| opt.Value().ok());
+
+        // Get full text
+        let full_text = result.Text().map(|s| s.to_string()).unwrap_or_default();
+
+        // Build OcrElement tree from lines and words
+        let lines = result
+            .Lines()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to get OCR lines: {e}")))?;
+
+        let mut ocr_lines = Vec::new();
+        for line in lines {
+            let line_text = line.Text().map(|s| s.to_string()).unwrap_or_default();
+
+            // Get words for this line
+            let words = line.Words().map_err(|e| {
+                AutomationError::PlatformError(format!("Failed to get OCR words: {e}"))
+            })?;
+
+            let mut ocr_words = Vec::new();
+            let mut line_bounds: Option<(f64, f64, f64, f64)> = None;
+
+            for word in words {
+                let word_text = word.Text().map(|s| s.to_string()).unwrap_or_default();
+
+                // Get bounding rectangle and convert to absolute screen coordinates
+                let rect = word.BoundingRect().map_err(|e| {
+                    AutomationError::PlatformError(format!("Failed to get word bounds: {e}"))
+                })?;
+
+                let word_bounds = (
+                    window_x + rect.X as f64,
+                    window_y + rect.Y as f64,
+                    rect.Width as f64,
+                    rect.Height as f64,
+                );
+
+                // Update line bounds to encompass all words
+                line_bounds = Some(match line_bounds {
+                    None => word_bounds,
+                    Some((lx, ly, lw, lh)) => {
+                        let new_x = lx.min(word_bounds.0);
+                        let new_y = ly.min(word_bounds.1);
+                        let new_right = (lx + lw).max(word_bounds.0 + word_bounds.2);
+                        let new_bottom = (ly + lh).max(word_bounds.1 + word_bounds.3);
+                        (new_x, new_y, new_right - new_x, new_bottom - new_y)
+                    }
+                });
+
+                ocr_words.push(OcrElement::new_word(word_text, word_bounds, None));
+            }
+
+            ocr_lines.push(OcrElement::new_line(line_text, line_bounds, ocr_words));
+        }
+
+        Ok(OcrElement::new_result(full_text, text_angle, ocr_lines))
     }
 }
 
@@ -3374,6 +3501,84 @@ impl AccessibilityEngine for WindowsEngine {
             .map_err(|e| AutomationError::PlatformError(format!("OCR recognition failed: {e}")))?;
 
         Ok(text)
+    }
+
+    fn ocr_screenshot_with_bounds(
+        &self,
+        screenshot: &ScreenshotResult,
+        window_x: f64,
+        window_y: f64,
+    ) -> Result<OcrElement, AutomationError> {
+        // Delegate to the implementation in impl WindowsEngine
+        WindowsEngine::ocr_screenshot_with_bounds(self, screenshot, window_x, window_y)
+    }
+
+    fn click_at_coordinates(&self, x: f64, y: f64) -> Result<(), AutomationError> {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN,
+            MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE, MOUSEINPUT,
+        };
+        use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+
+        // Convert screen coordinates to absolute input coordinates (0-65535 range)
+        let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+        let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+        let abs_x = ((x / screen_w as f64) * 65535.0).round() as i32;
+        let abs_y = ((y / screen_h as f64) * 65535.0).round() as i32;
+
+        // Move mouse to position
+        let move_input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx: abs_x,
+                    dy: abs_y,
+                    mouseData: 0,
+                    dwFlags: MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+
+        // Mouse button down
+        let down_input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx: 0,
+                    dy: 0,
+                    mouseData: 0,
+                    dwFlags: MOUSEEVENTF_LEFTDOWN,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+
+        // Mouse button up
+        let up_input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx: 0,
+                    dy: 0,
+                    mouseData: 0,
+                    dwFlags: MOUSEEVENTF_LEFTUP,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+
+        // Send all inputs
+        unsafe {
+            SendInput(&[move_input], std::mem::size_of::<INPUT>() as i32);
+            SendInput(&[down_input], std::mem::size_of::<INPUT>() as i32);
+            SendInput(&[up_input], std::mem::size_of::<INPUT>() as i32);
+        }
+
+        Ok(())
     }
 
     fn activate_browser_window_by_title(&self, title: &str) -> Result<(), AutomationError> {

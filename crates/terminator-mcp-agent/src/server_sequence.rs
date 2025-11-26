@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, info_span, warn, Instrument};
 use uuid::Uuid;
 
 /// RAII guard to automatically reset the in_sequence flag when dropped
@@ -348,8 +348,18 @@ impl DesktopWrapper {
             .await;
 
         // Use tokio::select to handle cancellation from request manager
+        // Create span with trace_id for distributed tracing - all nested logs inherit it
+        let trace_id_val = args.trace_id.clone().unwrap_or_default();
+        let execution_id_val = args.execution_id.clone().unwrap_or_default();
+        let tracing_span = info_span!(
+            "execute_sequence",
+            trace_id = %trace_id_val,
+            execution_id = %execution_id_val,
+            log_source = "agent",
+        );
+
         tokio::select! {
-            result = self.execute_sequence_inner(peer, request_context, args, request_id.clone()) => {
+            result = self.execute_sequence_inner(peer, request_context, args, request_id.clone()).instrument(tracing_span) => {
                 // Unregister when done
                 self.request_manager.unregister(&request_id).await;
                 result
@@ -852,11 +862,19 @@ impl DesktopWrapper {
             "Executing sequence with context: {}",
             serde_json::to_string_pretty(&execution_context).unwrap_or_default()
         );
+        // Extract attributes early for logging
+        let log_source = "agent";
+        let trace_id_val = args.trace_id.as_deref().unwrap_or("");
+        let execution_id_val = args.execution_id.as_deref().unwrap_or("");
+
         info!(
-            "Starting execute_sequence: steps={}, stop_on_error={}, include_detailed_results={}",
-            args.steps.as_ref().map(|s| s.len()).unwrap_or(0),
-            stop_on_error,
-            include_detailed
+            log_source = %log_source,
+            execution_id = %execution_id_val,
+            trace_id = %trace_id_val,
+            steps = args.steps.as_ref().map(|s| s.len()).unwrap_or(0),
+            stop_on_error = %stop_on_error,
+            include_detailed = %include_detailed,
+            "Starting execute_sequence [execution_id={}, trace_id={}]", execution_id_val, trace_id_val
         );
 
         // Start workflow telemetry span
@@ -865,7 +883,7 @@ impl DesktopWrapper {
 
         // Add execution metadata for filtering/grouping
         workflow_span.set_attribute("workflow.execution_id", execution_id.clone());
-        workflow_span.set_attribute("log_source", "agent".to_string());
+        workflow_span.set_attribute("log_source", log_source.to_string());
 
         // Add trace_id for distributed tracing if provided by executor
         if let Some(trace_id) = &args.trace_id {
@@ -2239,12 +2257,15 @@ impl DesktopWrapper {
             "failed"
         };
         info!(
-            "execute_sequence completed: status={}, executed_tools={}, total_results={}, total_duration_ms={}, cancelled={}",
-            final_status,
-            actually_executed_count,
-            results.len(),
-            total_duration,
-            cancelled_by_user
+            log_source = %log_source,
+            execution_id = %execution_id_val,
+            trace_id = %trace_id_val,
+            status = %final_status,
+            executed_tools = %actually_executed_count,
+            total_results = %results.len(),
+            total_duration_ms = %total_duration,
+            cancelled = %cancelled_by_user,
+            "execute_sequence completed"
         );
 
         let mut summary = json!({

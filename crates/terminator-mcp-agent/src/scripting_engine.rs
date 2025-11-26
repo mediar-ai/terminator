@@ -514,21 +514,22 @@ async fn ensure_terminator_js_installed(runtime: &str) -> Result<std::path::Path
 
                             loop {
                                 if start_time.elapsed() > timeout_duration {
-                                    error!(
+                                    // Use warn! since timeouts are often environmental (slow network)
+                                    warn!(
                                         "[{}] npm install timed out after {:?}, killing process",
                                         runtime, timeout_duration
                                     );
                                     let _ = child.kill().await;
                                     // Print collected output on timeout
                                     if !stdout_lines.is_empty() {
-                                        error!(
+                                        debug!(
                                             "[{}] npm stdout:\n{}",
                                             runtime,
                                             stdout_lines.join("\n")
                                         );
                                     }
                                     if !stderr_lines.is_empty() {
-                                        error!(
+                                        debug!(
                                             "[{}] npm stderr:\n{}",
                                             runtime,
                                             stderr_lines.join("\n")
@@ -596,13 +597,14 @@ async fn ensure_terminator_js_installed(runtime: &str) -> Result<std::path::Path
                                                 }
 
                                                 // Only log output if there was an error
+                                                // Use warn! since npm failures are often environmental (network, missing packages)
                                                 if !status.success() {
-                                                    error!("[{}] npm install failed with exit code {:?}", runtime, status.code());
+                                                    warn!("[{}] npm install failed with exit code {:?}", runtime, status.code());
                                                     if !stdout_lines.is_empty() {
-                                                        error!("[{}] npm stdout:\n{}", runtime, stdout_lines.join("\n"));
+                                                        debug!("[{}] npm stdout:\n{}", runtime, stdout_lines.join("\n"));
                                                     }
                                                     if !stderr_lines.is_empty() {
-                                                        error!("[{}] npm stderr:\n{}", runtime, stderr_lines.join("\n"));
+                                                        debug!("[{}] npm stderr:\n{}", runtime, stderr_lines.join("\n"));
                                                     }
                                                 } else {
                                                     info!("[{}] Dependencies installed successfully", runtime);
@@ -1184,9 +1186,9 @@ global.sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
                                 }
                             }
                         } else if line.starts_with("__ERROR__") && line.ends_with("__END__") {
-                            // Parse error
+                            // Parse error - use warn! since script errors are expected (user code issues)
                             let error_json = line.replace("__ERROR__", "").replace("__END__", "");
-                            error!("[Node.js] Received error from script: {}", error_json);
+                            warn!("[Node.js] Received error from script: {}", error_json);
 
                             if let Ok(error_data) = serde_json::from_str::<serde_json::Value>(&error_json) {
                                 // Extract the error message for better reporting
@@ -1271,8 +1273,9 @@ global.sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
         let exit_code = status.code();
         let stderr_combined = stderr_output.join("\n");
 
-        error!("[Node.js] Process exited with error code: {:?}", exit_code);
-        error!("[Node.js] Combined stderr output:\n{}", stderr_combined);
+        // Use warn! since script failures are expected (user script errors, not system errors)
+        warn!("[Node.js] Process exited with error code: {:?}", exit_code);
+        debug!("[Node.js] Combined stderr output:\n{}", stderr_combined);
 
         return Err(McpError::internal_error(
             "Node.js process exited with error",
