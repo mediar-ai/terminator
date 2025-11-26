@@ -13,7 +13,7 @@ use crate::utils::{
     StopHighlightingArgs, TypeIntoElementArgs, ValidateElementArgs, WaitForElementArgs,
 };
 use image::imageops::FilterType;
-use image::{ExtendedColorType, ImageBuffer, ImageEncoder, ImageFormat, Rgba};
+use image::{ExtendedColorType, ImageBuffer, ImageEncoder, Rgba};
 use regex::Regex;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{

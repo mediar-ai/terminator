@@ -1007,7 +1007,6 @@ pub async fn execute_command_with_progress_and_retry(
     use colored::Colorize;
     use tracing::debug;
 
-
     // Special handling for execute_sequence to capture full result
     if tool == "execute_sequence" {
         match transport {
@@ -1148,7 +1147,6 @@ pub async fn execute_command_with_progress_and_retry(
                             {
                                 service.cancel().await?;
 
-
                                 return Ok(json_result);
                             }
                         }
@@ -1156,7 +1154,6 @@ pub async fn execute_command_with_progress_and_retry(
                 }
 
                 service.cancel().await?;
-
 
                 Ok(json!({"status": "unknown", "message": "No parseable result from workflow"}))
             }
@@ -1314,7 +1311,6 @@ pub async fn execute_command_with_progress_and_retry(
                             {
                                 service.cancel().await?;
 
-
                                 return Ok(json_result);
                             }
                         }
@@ -1322,7 +1318,6 @@ pub async fn execute_command_with_progress_and_retry(
                 }
 
                 service.cancel().await?;
-
 
                 Ok(json!({"status": "unknown", "message": "No parseable result from workflow"}))
             }

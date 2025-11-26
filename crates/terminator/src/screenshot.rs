@@ -1,6 +1,6 @@
 use crate::Monitor;
 use image::ImageFormat;
-use std::io::{Cursor, Seek, Write};
+use std::io::{Seek, Write};
 
 /// Holds the screenshot data
 #[derive(Debug, Clone)]
