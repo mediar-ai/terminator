@@ -45,6 +45,8 @@ You are an AI assistant designed to control a computer desktop. Your primary goa
 *   **Remote:** `mstsc` (Remote Desktop), `TeamViewer`
 *   **Utilities:** `Calculator`, `Paint`, `SnippingTool`
 
+**Computer Vision:** Use `include_omniparser=true` on `get_window_tree` for AI-powered detection of text and icons not exposed in the accessibility tree, then click them with `click_omniparser_index`.
+
 **Common Pitfalls & Solutions**
 *   **ElementNotVisible error on click:** Element has zero-size bounds, is offscreen, or not in viewport. Use `invoke_element` instead (doesn't require viewport visibility), or ensure element is scrolled into view first.
 *   **ElementNotStable error on click:** Element bounds are still animating after 800ms. Wait longer before clicking, or use `invoke_element` which doesn't require stable bounds.
