@@ -7,13 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.23] - 2025-11-26
+
 ### Added
 - MCP: Add unified click_cv_index tool with vision_type parameter (ocr/omniparser) replacing separate click tools
 - MCP: Add click_type parameter (left/double/right) to click_cv_index for different click actions
+- MCP: Add omniparser support via Replicate API integration
+- MCP: Support nested execute_sequence calls in dispatch_tool
 - UI Automation: Add click_at_coordinates_with_type method supporting left, double, and right clicks
+
+### Fixed
+- Telemetry: Propagate tracing spans to spawned tasks for proper trace correlation
+- Telemetry: Include execution_id and trace_id in log body for ClickHouse filtering
+- Telemetry: Downgrade expected failures from error! to warn!/debug!
+- Code: Address clippy warnings (format strings, needless borrow)
 
 ### Changed
 - MCP: Replace click_ocr_index and click_omniparser_index with unified click_cv_index tool
+- Config: Add files.eol setting to enforce LF line endings
 
 ## [0.23.21] - 2025-11-25
 
