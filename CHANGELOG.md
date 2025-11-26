@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.26] - 2025-11-26
+
+### Added
+- MCP Agent: Add telemetry to TypeScript workflow execution
+
 ## [0.23.25] - 2025-11-26
 
 ### Added
