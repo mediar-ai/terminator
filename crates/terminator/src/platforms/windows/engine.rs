@@ -3581,6 +3581,94 @@ impl AccessibilityEngine for WindowsEngine {
         Ok(())
     }
 
+    fn click_at_coordinates_with_type(&self, x: f64, y: f64, click_type: crate::ClickType) -> Result<(), AutomationError> {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN,
+            MOUSEEVENTF_LEFTUP, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_MOVE, MOUSEINPUT,
+        };
+        use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+
+        // Convert screen coordinates to absolute input coordinates (0-65535 range)
+        let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+        let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+        let abs_x = ((x / screen_w as f64) * 65535.0).round() as i32;
+        let abs_y = ((y / screen_h as f64) * 65535.0).round() as i32;
+
+        // Move mouse to position
+        let move_input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx: abs_x,
+                    dy: abs_y,
+                    mouseData: 0,
+                    dwFlags: MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+
+        unsafe {
+            SendInput(&[move_input], std::mem::size_of::<INPUT>() as i32);
+        }
+
+        // Determine button flags based on click type
+        let (down_flag, up_flag) = match click_type {
+            crate::ClickType::Left | crate::ClickType::Double => {
+                (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP)
+            }
+            crate::ClickType::Right => {
+                (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP)
+            }
+        };
+
+        // Create button down input
+        let down_input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx: 0,
+                    dy: 0,
+                    mouseData: 0,
+                    dwFlags: down_flag,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+
+        // Create button up input
+        let up_input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx: 0,
+                    dy: 0,
+                    mouseData: 0,
+                    dwFlags: up_flag,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+
+        // Send click(s)
+        unsafe {
+            SendInput(&[down_input], std::mem::size_of::<INPUT>() as i32);
+            SendInput(&[up_input], std::mem::size_of::<INPUT>() as i32);
+
+            // For double-click, send another click sequence
+            if click_type == crate::ClickType::Double {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                SendInput(&[down_input], std::mem::size_of::<INPUT>() as i32);
+                SendInput(&[up_input], std::mem::size_of::<INPUT>() as i32);
+            }
+        }
+
+        Ok(())
+    }
+
     fn activate_browser_window_by_title(&self, title: &str) -> Result<(), AutomationError> {
         info!(
             "Attempting to activate browser window containing title: {}",
