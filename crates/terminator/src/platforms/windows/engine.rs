@@ -703,7 +703,7 @@ impl WindowsEngine {
         window_x: f64,
         window_y: f64,
     ) -> Result<OcrElement, AutomationError> {
-        use windows::Graphics::Imaging::{SoftwareBitmap, BitmapPixelFormat};
+        use windows::Graphics::Imaging::{BitmapPixelFormat, SoftwareBitmap};
         use windows::Storage::Streams::DataWriter;
 
         // Windows OCR expects BGRA format, but our screenshot is RGBA
@@ -714,13 +714,16 @@ impl WindowsEngine {
         }
 
         // Create an IBuffer from the pixel data using DataWriter
-        let writer = DataWriter::new()
-            .map_err(|e| AutomationError::PlatformError(format!("Failed to create DataWriter: {e}")))?;
+        let writer = DataWriter::new().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to create DataWriter: {e}"))
+        })?;
 
-        writer.WriteBytes(&bgra_data)
+        writer
+            .WriteBytes(&bgra_data)
             .map_err(|e| AutomationError::PlatformError(format!("Failed to write bytes: {e}")))?;
 
-        let buffer = writer.DetachBuffer()
+        let buffer = writer
+            .DetachBuffer()
             .map_err(|e| AutomationError::PlatformError(format!("Failed to detach buffer: {e}")))?;
 
         // Create SoftwareBitmap directly from raw pixel buffer
@@ -730,11 +733,14 @@ impl WindowsEngine {
             screenshot.width as i32,
             screenshot.height as i32,
         )
-        .map_err(|e| AutomationError::PlatformError(format!("Failed to create SoftwareBitmap: {e}")))?;
+        .map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to create SoftwareBitmap: {e}"))
+        })?;
 
         // Create OCR engine from user profile languages
-        let ocr_engine = WinOcrEngine::TryCreateFromUserProfileLanguages()
-            .map_err(|e| AutomationError::PlatformError(format!("Failed to create Windows OCR engine: {e}")))?;
+        let ocr_engine = WinOcrEngine::TryCreateFromUserProfileLanguages().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to create Windows OCR engine: {e}"))
+        })?;
 
         // Perform OCR recognition (blocking)
         let result = ocr_engine
@@ -747,22 +753,16 @@ impl WindowsEngine {
         let text_angle = result.TextAngle().ok().and_then(|opt| opt.Value().ok());
 
         // Get full text
-        let full_text = result
-            .Text()
-            .map(|s| s.to_string())
-            .unwrap_or_default();
+        let full_text = result.Text().map(|s| s.to_string()).unwrap_or_default();
 
         // Build OcrElement tree from lines and words
-        let lines = result.Lines().map_err(|e| {
-            AutomationError::PlatformError(format!("Failed to get OCR lines: {e}"))
-        })?;
+        let lines = result
+            .Lines()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to get OCR lines: {e}")))?;
 
         let mut ocr_lines = Vec::new();
         for line in lines {
-            let line_text = line
-                .Text()
-                .map(|s| s.to_string())
-                .unwrap_or_default();
+            let line_text = line.Text().map(|s| s.to_string()).unwrap_or_default();
 
             // Get words for this line
             let words = line.Words().map_err(|e| {
@@ -773,10 +773,7 @@ impl WindowsEngine {
             let mut line_bounds: Option<(f64, f64, f64, f64)> = None;
 
             for word in words {
-                let word_text = word
-                    .Text()
-                    .map(|s| s.to_string())
-                    .unwrap_or_default();
+                let word_text = word.Text().map(|s| s.to_string()).unwrap_or_default();
 
                 // Get bounding rectangle and convert to absolute screen coordinates
                 let rect = word.BoundingRect().map_err(|e| {

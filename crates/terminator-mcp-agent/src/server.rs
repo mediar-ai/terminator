@@ -1056,7 +1056,8 @@ impl DesktopWrapper {
                         crate::mcp_types::TreeOutputFormat::CompactYaml => {
                             let ocr_formatting_result =
                                 crate::tree_formatter::format_ocr_tree_as_compact_yaml(
-                                    &ocr_result, 0
+                                    &ocr_result,
+                                    0,
                                 );
                             // Store the index-to-bounds mapping for click_ocr_index
                             if let Ok(mut bounds) = self.ocr_bounds.lock() {
@@ -4001,10 +4002,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         // Look up the bounds for this index
         let bounds_result = {
             let bounds = self.ocr_bounds.lock().map_err(|e| {
-                McpError::internal_error(
-                    format!("Failed to lock OCR bounds: {e}"),
-                    None,
-                )
+                McpError::internal_error(format!("Failed to lock OCR bounds: {e}"), None)
             })?;
             bounds.get(&args.index).cloned()
         };
@@ -4055,7 +4053,10 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 span.end();
 
                 Err(McpError::internal_error(
-                    format!("Failed to click OCR index {} (\"{}\"): {e}", args.index, text),
+                    format!(
+                        "Failed to click OCR index {} (\"{}\"): {e}",
+                        args.index, text
+                    ),
                     Some(json!({
                         "index": args.index,
                         "text": text,
@@ -4796,7 +4797,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         ))
     }
 
-    #[tool(description = "Opens an application by name (uses SDK's built-in app launcher). Requires verify_element_exists and verify_element_not_exists parameters (use empty string \"\" to skip verification).")]
+    #[tool(
+        description = "Opens an application by name (uses SDK's built-in app launcher). Requires verify_element_exists and verify_element_not_exists parameters (use empty string \"\" to skip verification)."
+    )]
     pub async fn open_application(
         &self,
         Parameters(args): Parameters<OpenApplicationArgs>,

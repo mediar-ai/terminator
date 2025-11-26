@@ -682,7 +682,9 @@ pub struct MouseDragArgs {
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ClickOcrIndexArgs {
-    #[schemars(description = "The 1-based index of the OCR word to click (from get_window_tree with include_ocr=true)")]
+    #[schemars(
+        description = "The 1-based index of the OCR word to click (from get_window_tree with include_ocr=true)"
+    )]
     pub index: u32,
 
     #[serde(flatten)]
@@ -1212,7 +1214,7 @@ pub struct ExecuteSequenceArgs {
     )]
     pub execute_jumps_at_end: Option<bool>,
     #[schemars(
-        description = "Optional base path for resolving script files. When script_file is used in run_command or execute_browser_script, relative paths will first be searched in this directory, then fallback to workflow directory or current directory. Useful for mounting external file sources like S3 via rclone."
+        description = "Optional base path for resolving script files. When script_file is used in run_command or execute_browser_script, relative paths will first be searched in this directory, then fallback to workflow directory or current directory."
     )]
     pub scripts_base_path: Option<String>,
     #[schemars(

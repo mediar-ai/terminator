@@ -2402,7 +2402,9 @@ impl WindowsRecorder {
                                     typing_duration_ms: typing_duration.as_millis() as u64,
                                     input_method: crate::TextInputMethod::Suggestion,
                                     focus_method: text_input.focus_method.clone(),
-                                    process_name: Self::get_process_name_from_element(&text_input.element),
+                                    process_name: Self::get_process_name_from_element(
+                                        &text_input.element,
+                                    ),
                                     metadata: EventMetadata::with_ui_element_and_timestamp(Some(
                                         text_input.element.clone(),
                                     )),
@@ -2463,7 +2465,9 @@ impl WindowsRecorder {
                                     typing_duration_ms: typing_duration.as_millis() as u64,
                                     input_method: crate::TextInputMethod::Suggestion,
                                     focus_method: temp_tracker.focus_method.clone(),
-                                    process_name: Self::get_process_name_from_element(&temp_tracker.element),
+                                    process_name: Self::get_process_name_from_element(
+                                        &temp_tracker.element,
+                                    ),
                                     metadata: EventMetadata::with_ui_element_and_timestamp(Some(
                                         temp_tracker.element.clone(),
                                     )),

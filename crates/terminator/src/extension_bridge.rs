@@ -482,7 +482,9 @@ impl ExtensionBridge {
                                 };
                                 if let Ok(payload) = serde_json::to_string(&health_req) {
                                     if tx.send(Message::Text(payload)).is_err() {
-                                        tracing::warn!("Failed to send health request to extension");
+                                        tracing::warn!(
+                                            "Failed to send health request to extension"
+                                        );
                                     }
                                 }
                             }
@@ -496,9 +498,12 @@ impl ExtensionBridge {
                             })) => {
                                 let ext_id = extension_id.unwrap_or_else(|| "unknown".to_string());
                                 let ver = version.unwrap_or_else(|| "unknown".to_string());
-                                let heartbeat = last_heartbeat.unwrap_or_else(|| "never".to_string());
-                                let reason = install_reason.unwrap_or_else(|| "unknown".to_string());
-                                let prev_ver = previous_version.unwrap_or_else(|| "none".to_string());
+                                let heartbeat =
+                                    last_heartbeat.unwrap_or_else(|| "never".to_string());
+                                let reason =
+                                    install_reason.unwrap_or_else(|| "unknown".to_string());
+                                let prev_ver =
+                                    previous_version.unwrap_or_else(|| "none".to_string());
                                 let log_count = recent_logs.as_ref().map(|l| l.len()).unwrap_or(0);
 
                                 tracing::info!(

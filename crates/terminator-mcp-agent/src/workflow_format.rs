@@ -131,7 +131,11 @@ mod tests {
         fs::create_dir(&project_dir).unwrap();
         fs::create_dir(project_dir.join("src")).unwrap();
         fs::write(project_dir.join("package.json"), "{}").unwrap();
-        fs::write(project_dir.join("src").join("terminator.ts"), "export default {};").unwrap();
+        fs::write(
+            project_dir.join("src").join("terminator.ts"),
+            "export default {};",
+        )
+        .unwrap();
 
         let url = format!("file://{}", project_dir.display());
         assert_eq!(detect_workflow_format(&url), WorkflowFormat::TypeScript);
@@ -144,7 +148,11 @@ mod tests {
         fs::create_dir(&project_dir).unwrap();
         fs::create_dir(project_dir.join("src")).unwrap();
         fs::write(project_dir.join("package.json"), "{}").unwrap();
-        fs::write(project_dir.join("src").join("workflow.ts"), "export default {};").unwrap();
+        fs::write(
+            project_dir.join("src").join("workflow.ts"),
+            "export default {};",
+        )
+        .unwrap();
 
         let url = format!("file://{}", project_dir.display());
         assert_eq!(detect_workflow_format(&url), WorkflowFormat::TypeScript);
@@ -157,7 +165,11 @@ mod tests {
         fs::create_dir(&project_dir).unwrap();
         fs::create_dir(project_dir.join("src")).unwrap();
         fs::write(project_dir.join("package.json"), "{}").unwrap();
-        fs::write(project_dir.join("src").join("index.ts"), "export default {};").unwrap();
+        fs::write(
+            project_dir.join("src").join("index.ts"),
+            "export default {};",
+        )
+        .unwrap();
 
         let url = format!("file://{}", project_dir.display());
         assert_eq!(detect_workflow_format(&url), WorkflowFormat::TypeScript);

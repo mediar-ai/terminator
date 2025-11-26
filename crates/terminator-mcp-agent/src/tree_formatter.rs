@@ -171,7 +171,13 @@ pub fn format_ocr_tree_as_compact_yaml(tree: &OcrElement, indent: usize) -> OcrF
     let mut output = String::new();
     let mut index_to_bounds = std::collections::HashMap::new();
     let mut next_index = 1u32;
-    format_ocr_node(tree, indent, &mut output, &mut index_to_bounds, &mut next_index);
+    format_ocr_node(
+        tree,
+        indent,
+        &mut output,
+        &mut index_to_bounds,
+        &mut next_index,
+    );
     OcrFormattingResult {
         formatted: output,
         index_to_bounds,

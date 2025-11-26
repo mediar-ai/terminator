@@ -429,7 +429,10 @@ mod with_telemetry {
     /// Returns None if telemetry is disabled or OTEL endpoint is not configured
     pub fn create_otel_logs_layer<S>() -> Option<impl tracing_subscriber::Layer<S> + Send + Sync>
     where
-        S: tracing::Subscriber + for<'span> tracing_subscriber::registry::LookupSpan<'span> + Send + Sync,
+        S: tracing::Subscriber
+            + for<'span> tracing_subscriber::registry::LookupSpan<'span>
+            + Send
+            + Sync,
     {
         // Check if telemetry is disabled
         if std::env::var("OTEL_SDK_DISABLED").unwrap_or_default() == "true" {
@@ -549,7 +552,9 @@ mod with_telemetry {
         // Create the logs layer
         let logs_layer = OpenTelemetryTracingBridge::new(&logger_provider);
 
-        eprintln!("✓ OpenTelemetry combined layer enabled (traces + logs with TraceId propagation)");
+        eprintln!(
+            "✓ OpenTelemetry combined layer enabled (traces + logs with TraceId propagation)"
+        );
         eprintln!("  Logs: {}/v1/logs", otlp_endpoint);
         eprintln!("  Traces: {}/v1/traces", otlp_endpoint);
 

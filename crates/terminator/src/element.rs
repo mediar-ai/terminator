@@ -272,7 +272,11 @@ impl OcrElement {
     }
 
     /// Create a new OcrLine
-    pub fn new_line(text: String, bounds: Option<(f64, f64, f64, f64)>, words: Vec<OcrElement>) -> Self {
+    pub fn new_line(
+        text: String,
+        bounds: Option<(f64, f64, f64, f64)>,
+        words: Vec<OcrElement>,
+    ) -> Self {
         Self {
             role: "OcrLine".to_string(),
             text: Some(text),
