@@ -8306,7 +8306,8 @@ console.info = function(...args) {
             {
                 Ok(((result, element), selector)) => Ok(((result, element), selector)),
                 Err(e) => {
-                    tracing::error!(
+                    // Use warn! since browser script failures are often expected (extension not installed, user script errors)
+                    tracing::warn!(
                         "[execute_browser_script] failed selector='{}' alt='{:?}' fallback='{:?}' error={}",
                         args.selector.selector,
                         args.selector.alternative_selectors,
