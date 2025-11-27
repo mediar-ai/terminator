@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.27] - 2025-11-27
+
+### Added
+- MCP Agent: Add configurable timeout for run_command execution
+- MCP Agent: Optimize OmniParser image processing for faster inference
+
+### Fixed
+- CLI: Fix authentication on remote MCP
+
 ## [0.23.26] - 2025-11-26
 
 ### Added
