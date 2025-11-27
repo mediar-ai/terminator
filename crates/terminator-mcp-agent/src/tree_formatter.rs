@@ -189,6 +189,17 @@ pub struct OcrFormattingResult {
     pub index_to_bounds: std::collections::HashMap<u32, (String, (f64, f64, f64, f64))>,
 }
 
+/// Result of browser DOM formatting - includes both the formatted string and bounds mapping
+#[derive(Debug, Clone)]
+pub struct DomFormattingResult {
+    /// The formatted YAML string
+    pub formatted: String,
+    /// Mapping of index to (tag, identifier, bounds) for click targeting
+    /// Key is 1-based index, value is (tag, id_or_classes, (x, y, width, height))
+    /// Bounds are viewport-relative and need window offset added for screen coords
+    pub index_to_bounds: HashMap<u32, (String, String, (f64, f64, f64, f64))>,
+}
+
 /// Format an OCR tree as compact YAML with indexed words for click targeting
 ///
 /// Output format:
@@ -337,15 +348,18 @@ pub fn format_omniparser_tree_as_compact_yaml(
     (output, cache)
 }
 
-/// Format browser DOM elements as compact YAML
+/// Format browser DOM elements as compact YAML with indexed elements for click targeting
 ///
 /// Output format:
-/// - [tag] [.class1.class2] name (bounds: [x,y,w,h])
+/// - [tag] #1 [.class1.class2] name #element_id (bounds: [x,y,w,h])
 ///
 /// Name is resolved from: text → aria_label → value → placeholder
 /// Null/empty attributes are omitted
-pub fn format_browser_dom_as_compact_yaml(elements: &[serde_json::Value]) -> String {
+/// Returns both the formatted string and a mapping of index → bounds for click_index with vision_type='dom'
+pub fn format_browser_dom_as_compact_yaml(elements: &[serde_json::Value]) -> DomFormattingResult {
     let mut output = String::new();
+    let mut index_to_bounds = HashMap::new();
+    let mut next_index = 1u32;
 
     for elem in elements {
         // Get tag (required)
@@ -354,19 +368,38 @@ pub fn format_browser_dom_as_compact_yaml(elements: &[serde_json::Value]) -> Str
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
 
+        // Get bounds first - only include elements with valid bounds
+        let x = elem.get("x").and_then(|v| v.as_f64());
+        let y = elem.get("y").and_then(|v| v.as_f64());
+        let w = elem.get("width").and_then(|v| v.as_f64());
+        let h = elem.get("height").and_then(|v| v.as_f64());
+
+        let has_bounds = matches!((x, y, w, h), (Some(_), Some(_), Some(w), Some(h)) if w > 0.0 && h > 0.0);
+
         output.push_str(&format!("- [{}]", tag));
 
+        // Add index if element has valid bounds
+        if has_bounds {
+            output.push_str(&format!(" #{}", next_index));
+        }
+
         // Get classes if any
-        if let Some(classes) = elem.get("classes").and_then(|v| v.as_array()) {
+        let classes_str = if let Some(classes) = elem.get("classes").and_then(|v| v.as_array()) {
             let class_strs: Vec<&str> = classes
                 .iter()
                 .filter_map(|c| c.as_str())
                 .filter(|s| !s.is_empty())
                 .collect();
             if !class_strs.is_empty() {
-                output.push_str(&format!(" [.{}]", class_strs.join(".")));
+                let classes_joined = class_strs.join(".");
+                output.push_str(&format!(" [.{}]", classes_joined));
+                Some(classes_joined)
+            } else {
+                None
             }
-        }
+        } else {
+            None
+        };
 
         // Get name: text → aria_label → value → placeholder
         let name = elem
@@ -400,27 +433,36 @@ pub fn format_browser_dom_as_compact_yaml(elements: &[serde_json::Value]) -> Str
             output.push_str(&format!(" {}", truncated));
         }
 
-        // Add id if present
-        if let Some(id) = elem.get("id").and_then(|v| v.as_str()) {
-            if !id.is_empty() {
-                output.push_str(&format!(" #{}", id));
-            }
+        // Add element id if present
+        let elem_id = elem.get("id").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+        if let Some(id) = elem_id {
+            output.push_str(&format!(" #{}", id));
         }
 
-        // Add bounds
-        let x = elem.get("x").and_then(|v| v.as_i64());
-        let y = elem.get("y").and_then(|v| v.as_i64());
-        let w = elem.get("width").and_then(|v| v.as_i64());
-        let h = elem.get("height").and_then(|v| v.as_i64());
-
+        // Add bounds and store in cache
         if let (Some(x), Some(y), Some(w), Some(h)) = (x, y, w, h) {
-            output.push_str(&format!(" (bounds: [{},{},{},{}])", x, y, w, h));
+            if w > 0.0 && h > 0.0 {
+                output.push_str(&format!(" (bounds: [{},{},{},{}])", x as i64, y as i64, w as i64, h as i64));
+
+                // Build identifier for error messages: prefer id, then classes, then empty
+                let identifier = elem_id
+                    .map(|s| s.to_string())
+                    .or(classes_str)
+                    .unwrap_or_default();
+
+                // Store bounds in cache (viewport-relative)
+                index_to_bounds.insert(next_index, (tag.to_string(), identifier, (x, y, w, h)));
+                next_index += 1;
+            }
         }
 
         output.push('\n');
     }
 
-    output
+    DomFormattingResult {
+        formatted: output,
+        index_to_bounds,
+    }
 }
 
 #[cfg(test)]

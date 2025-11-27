@@ -760,6 +760,7 @@ impl DesktopWrapper {
             ocr_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             omniparser_items: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             uia_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            dom_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             #[cfg(target_os = "windows")]
             inspect_overlay_handle: Arc::new(std::sync::Mutex::new(None)),
         })
@@ -769,7 +770,7 @@ impl DesktopWrapper {
     fn detect_browser_by_pid(pid: u32) -> bool {
         const KNOWN_BROWSER_PROCESS_NAMES: &[&str] = &[
             "chrome", "firefox", "msedge", "edge", "iexplore", "opera", "brave", "vivaldi",
-            "browser", "arc", "explorer",
+            "browser", "arc",
         ];
 
         #[cfg(target_os = "windows")]
@@ -847,10 +848,11 @@ impl DesktopWrapper {
     }
 
     /// Capture all visible DOM elements from the current browser tab
+    /// Returns (elements, viewport_offset_x, viewport_offset_y) for screen coordinate conversion
     async fn capture_browser_dom_elements(
         &self,
         max_elements: u32,
-    ) -> Result<Vec<serde_json::Value>, String> {
+    ) -> Result<(Vec<serde_json::Value>, f64, f64), String> {
         // Script to extract ALL visible elements using TreeWalker
         let script = format!(
             r#"
@@ -912,11 +914,20 @@ impl DesktopWrapper {
         });
     }
 
+    // Calculate viewport-to-screen offset for coordinate conversion
+    // Browser chrome (toolbars, tabs) is typically at the top
+    const chromeHeight = window.outerHeight - window.innerHeight;
+    const chromeWidth = window.outerWidth - window.innerWidth;
+    const viewportOffsetX = window.screenX + Math.floor(chromeWidth / 2);
+    const viewportOffsetY = window.screenY + chromeHeight;
+
     return JSON.stringify({
         elements: elements,
         total_found: elements.length,
         page_url: window.location.href,
-        page_title: document.title
+        page_title: document.title,
+        viewport_offset_x: viewportOffsetX,
+        viewport_offset_y: viewportOffsetY
     });
 })()
 "#;
@@ -924,11 +935,20 @@ impl DesktopWrapper {
         match self.desktop.execute_browser_script(&script).await {
             Ok(result_str) => match serde_json::from_str::<serde_json::Value>(&result_str) {
                 Ok(result) => {
-                    if let Some(elements) = result.get("elements").and_then(|v| v.as_array()) {
-                        Ok(elements.clone())
-                    } else {
-                        Ok(vec![])
-                    }
+                    let elements = result
+                        .get("elements")
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    let offset_x = result
+                        .get("viewport_offset_x")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0);
+                    let offset_y = result
+                        .get("viewport_offset_y")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0);
+                    Ok((elements, offset_x, offset_y))
                 }
                 Err(e) => Err(format!("Failed to parse DOM elements: {e}")),
             },
@@ -1202,7 +1222,7 @@ impl DesktopWrapper {
             // Try to capture DOM elements from browser
             let max_dom_elements = args.browser_dom_max_elements.unwrap_or(200);
             match self.capture_browser_dom_elements(max_dom_elements).await {
-                Ok(dom_elements) if !dom_elements.is_empty() => {
+                Ok((dom_elements, viewport_offset_x, viewport_offset_y)) if !dom_elements.is_empty() => {
                     // Format based on tree_output_format
                     let format = args
                         .tree
@@ -1211,11 +1231,23 @@ impl DesktopWrapper {
 
                     match format {
                         crate::mcp_types::TreeOutputFormat::CompactYaml => {
-                            let formatted =
+                            let dom_result =
                                 crate::tree_formatter::format_browser_dom_as_compact_yaml(
                                     &dom_elements,
                                 );
-                            result_json["browser_dom"] = json!(formatted);
+                            result_json["browser_dom"] = json!(dom_result.formatted);
+
+                            // Store DOM bounds with screen coordinates applied
+                            if let Ok(mut cache) = self.dom_bounds.lock() {
+                                cache.clear();
+                                for (index, (tag, identifier, (x, y, w, h))) in dom_result.index_to_bounds {
+                                    // Convert viewport-relative to screen coordinates
+                                    let screen_x = x + viewport_offset_x;
+                                    let screen_y = y + viewport_offset_y;
+                                    cache.insert(index, (tag, identifier, (screen_x, screen_y, w, h)));
+                                }
+                                info!("Stored {} DOM element bounds for click_index", cache.len());
+                            }
                         }
                         crate::mcp_types::TreeOutputFormat::VerboseJson => {
                             result_json["browser_dom"] = json!(dom_elements);
@@ -1226,9 +1258,11 @@ impl DesktopWrapper {
                 }
                 Ok(_) => {
                     info!("Browser detected but no DOM elements captured (extension may not be available)");
+                    result_json["browser_dom_error"] = json!("No DOM elements captured - Chrome extension may not be installed or active");
                 }
                 Err(e) => {
                     warn!("Failed to capture browser DOM: {}", e);
+                    result_json["browser_dom_error"] = json!(e.to_string());
                 }
             }
         }
@@ -4470,7 +4504,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
     }
 
     #[tool(
-        description = "Clicks on an indexed item by its index number. First call get_window_tree to get indexed UI elements (shown as #1, #2, etc. in the tree output). By default clicks UI tree elements (vision_type='ui_tree'). Also supports 'ocr' (include_ocr=true) and 'omniparser' (include_omniparser=true) indices. Supports click types: 'left' (default), 'double', or 'right'."
+        description = "Clicks on an indexed item by its index number. First call get_window_tree to get indexed UI elements (shown as #1, #2, etc. in the tree output). By default clicks UI tree elements (vision_type='ui_tree'). Also supports 'ocr' (include_ocr=true), 'omniparser' (include_omniparser=true), and 'dom' (browser_dom field in browser windows) indices. Supports click types: 'left' (default), 'double', or 'right'."
     )]
     async fn click_index(
         &self,
@@ -4564,6 +4598,31 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
                 (item.label, (x, y, width, height))
             }
+            crate::utils::VisionType::Dom => {
+                // Look up the DOM bounds
+                let bounds_result = {
+                    let bounds = self.dom_bounds.lock().map_err(|e| {
+                        McpError::internal_error(format!("Failed to lock DOM bounds: {e}"), None)
+                    })?;
+                    bounds.get(&args.index).cloned()
+                };
+
+                let Some((tag, identifier, (x, y, width, height))) = bounds_result else {
+                    span.set_status(false, Some("DOM index not found"));
+                    span.end();
+                    return Err(McpError::internal_error(
+                        format!("DOM index {} not found. Call get_window_tree on a browser first to get indexed DOM elements.", args.index),
+                        Some(json!({ "index": args.index, "vision_type": "dom" })),
+                    ));
+                };
+
+                let label = if identifier.is_empty() {
+                    tag
+                } else {
+                    format!("{tag}: {identifier}")
+                };
+                (label, (x, y, width, height))
+            }
         };
 
         // Calculate center of the bounds
@@ -4591,6 +4650,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     crate::utils::VisionType::UiTree => "ui_tree",
                     crate::utils::VisionType::Ocr => "ocr",
                     crate::utils::VisionType::Omniparser => "omniparser",
+                    crate::utils::VisionType::Dom => "dom",
                 };
                 let click_type_str = match args.click_type {
                     crate::utils::ClickType::Left => "left",
@@ -8911,7 +8971,7 @@ console.info = function(...args) {
                         e
                     );
 
-                    // Check if this is a JavaScript execution error
+                    // Check if this is a JavaScript execution error or extension bridge error
                     if let Some(AutomationError::PlatformError(msg)) =
                         e.downcast_ref::<AutomationError>()
                     {
@@ -8931,6 +8991,19 @@ console.info = function(...args) {
                                         args.selector.build_fallback_selectors().as_deref(),
                                     ),
                                     "suggestion": "Check the browser console for JavaScript errors. The script may have timed out or encountered an error."
+                                })),
+                            ));
+                        }
+                        // Check for extension bridge connection errors
+                        if msg.contains("extension") || msg.contains("bridge") || msg.contains("port") || msg.contains("bind") || msg.contains("client") {
+                            self.restore_window_management(should_restore).await;
+                            return Err(McpError::invalid_params(
+                                "Browser extension connection failed",
+                                Some(json!({
+                                    "error_type": "extension_connection_failure",
+                                    "message": msg.clone(),
+                                    "selector": args.selector.selector,
+                                    "suggestion": "The Chrome extension bridge failed to connect. Try: 1) Kill all terminator-mcp-agent processes, 2) Refresh the browser tab, 3) Check if Terminator Bridge extension is installed and active."
                                 })),
                             ));
                         }
