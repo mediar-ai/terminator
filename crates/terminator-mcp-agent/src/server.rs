@@ -789,12 +789,19 @@ impl DesktopWrapper {
     }
 
     /// Capture all visible DOM elements from the current browser tab
-    async fn capture_browser_dom_elements(&self) -> Result<Vec<serde_json::Value>, String> {
+    async fn capture_browser_dom_elements(
+        &self,
+        max_elements: u32,
+    ) -> Result<Vec<serde_json::Value>, String> {
         // Script to extract ALL visible elements using TreeWalker
-        let script = r#"
-(function() {
+        let script = format!(
+            r#"
+(function() {{
     const elements = [];
-    const maxElements = 100; // Limit to prevent huge responses
+    const maxElements = {}; // Configurable limit"#,
+            max_elements
+        )
+        + r#"
 
     // Use TreeWalker to traverse ALL elements in the DOM
     const walker = document.createTreeWalker(
@@ -856,7 +863,7 @@ impl DesktopWrapper {
 })()
 "#;
 
-        match self.desktop.execute_browser_script(script).await {
+        match self.desktop.execute_browser_script(&script).await {
             Ok(result_str) => match serde_json::from_str::<serde_json::Value>(&result_str) {
                 Ok(result) => {
                     if let Some(elements) = result.get("elements").and_then(|v| v.as_array()) {
@@ -1135,9 +1142,27 @@ impl DesktopWrapper {
             info!("Browser window detected for PID {}", pid);
 
             // Try to capture DOM elements from browser
-            match self.capture_browser_dom_elements().await {
+            let max_dom_elements = args.browser_dom_max_elements.unwrap_or(200);
+            match self.capture_browser_dom_elements(max_dom_elements).await {
                 Ok(dom_elements) if !dom_elements.is_empty() => {
-                    result_json["browser_dom_elements"] = json!(dom_elements);
+                    // Format based on tree_output_format
+                    let format = args
+                        .tree
+                        .tree_output_format
+                        .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
+
+                    match format {
+                        crate::mcp_types::TreeOutputFormat::CompactYaml => {
+                            let formatted =
+                                crate::tree_formatter::format_browser_dom_as_compact_yaml(
+                                    &dom_elements,
+                                );
+                            result_json["browser_dom"] = json!(formatted);
+                        }
+                        crate::mcp_types::TreeOutputFormat::VerboseJson => {
+                            result_json["browser_dom"] = json!(dom_elements);
+                        }
+                    }
                     result_json["browser_dom_count"] = json!(dom_elements.len());
                     info!("Captured {} DOM elements from browser", dom_elements.len());
                 }
@@ -1206,25 +1231,46 @@ impl DesktopWrapper {
         if args.include_omniparser {
             match self.perform_omniparser_for_process(pid).await {
                 Ok(items) => {
-                    let mut omniparser_tree = Vec::new();
-                    let mut cache = HashMap::new();
+                    // Format Omniparser tree based on tree_output_format (same as UI tree)
+                    let format = args
+                        .tree
+                        .tree_output_format
+                        .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
 
-                    for (i, item) in items.iter().enumerate() {
-                        let index = (i + 1) as u32;
-                        cache.insert(index, item.clone());
+                    match format {
+                        crate::mcp_types::TreeOutputFormat::CompactYaml => {
+                            let (formatted, cache) =
+                                crate::tree_formatter::format_omniparser_tree_as_compact_yaml(
+                                    &items,
+                                );
+                            if let Ok(mut locked_cache) = self.omniparser_items.lock() {
+                                *locked_cache = cache;
+                            }
+                            result_json["omniparser_tree"] = json!(formatted);
+                        }
+                        crate::mcp_types::TreeOutputFormat::VerboseJson => {
+                            let mut omniparser_tree = Vec::new();
+                            let mut cache = HashMap::new();
 
-                        omniparser_tree.push(json!({
-                            "index": index,
-                            "label": item.label,
-                            "content": item.content,
-                        }));
+                            for (i, item) in items.iter().enumerate() {
+                                let index = (i + 1) as u32;
+                                cache.insert(index, item.clone());
+
+                                omniparser_tree.push(json!({
+                                    "index": index,
+                                    "label": item.label,
+                                    "content": item.content,
+                                    "bounds": item.box_2d,
+                                }));
+                            }
+
+                            if let Ok(mut locked_cache) = self.omniparser_items.lock() {
+                                *locked_cache = cache;
+                            }
+
+                            result_json["omniparser_tree"] = json!(omniparser_tree);
+                        }
                     }
-
-                    if let Ok(mut locked_cache) = self.omniparser_items.lock() {
-                        *locked_cache = cache;
-                    }
-
-                    result_json["omniparser_tree"] = json!(omniparser_tree);
                     info!("Omniparser completed for PID {}", pid);
                 }
                 Err(e) => {

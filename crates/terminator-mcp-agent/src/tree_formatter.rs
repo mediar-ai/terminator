@@ -1,3 +1,5 @@
+use crate::omniparser::OmniparserItem;
+use std::collections::HashMap;
 use terminator::element::SerializableUIElement;
 use terminator::OcrElement;
 use terminator::UINode;
@@ -262,6 +264,134 @@ fn format_ocr_node(
             format_ocr_node(child, indent + 1, output, index_to_bounds, next_index);
         }
     }
+}
+
+/// Format omniparser items as compact YAML with - [label] #index "content" format
+///
+/// Output format:
+/// - [text] #1 "detected text" (bounds: [x,y,w,h])
+/// - [icon] #2 "icon description" (bounds: [x,y,w,h])
+///
+/// Returns tuple of (formatted string, cache for click_cv_index)
+pub fn format_omniparser_tree_as_compact_yaml(
+    items: &[OmniparserItem],
+) -> (String, HashMap<u32, OmniparserItem>) {
+    let mut output = String::new();
+    let mut cache = HashMap::new();
+
+    for (i, item) in items.iter().enumerate() {
+        let index = (i + 1) as u32;
+        cache.insert(index, item.clone());
+
+        // Format: - [label] #index "content" (bounds: [x,y,w,h])
+        output.push_str(&format!("- [{}] #{}", item.label, index));
+
+        if let Some(ref content) = item.content {
+            if !content.is_empty() {
+                output.push_str(&format!(" \"{}\"", content));
+            }
+        }
+
+        if let Some(box_2d) = item.box_2d {
+            // Convert [x_min, y_min, x_max, y_max] to [x, y, width, height]
+            let w = box_2d[2] - box_2d[0];
+            let h = box_2d[3] - box_2d[1];
+            output.push_str(&format!(
+                " (bounds: [{:.0},{:.0},{:.0},{:.0}])",
+                box_2d[0], box_2d[1], w, h
+            ));
+        }
+
+        output.push('\n');
+    }
+
+    (output, cache)
+}
+
+/// Format browser DOM elements as compact YAML
+///
+/// Output format:
+/// - [tag] [.class1.class2] name (bounds: [x,y,w,h])
+///
+/// Name is resolved from: text → aria_label → value → placeholder
+/// Null/empty attributes are omitted
+pub fn format_browser_dom_as_compact_yaml(elements: &[serde_json::Value]) -> String {
+    let mut output = String::new();
+
+    for elem in elements {
+        // Get tag (required)
+        let tag = elem
+            .get("tag")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+
+        output.push_str(&format!("- [{}]", tag));
+
+        // Get classes if any
+        if let Some(classes) = elem.get("classes").and_then(|v| v.as_array()) {
+            let class_strs: Vec<&str> = classes
+                .iter()
+                .filter_map(|c| c.as_str())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if !class_strs.is_empty() {
+                output.push_str(&format!(" [.{}]", class_strs.join(".")));
+            }
+        }
+
+        // Get name: text → aria_label → value → placeholder
+        let name = elem
+            .get("text")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .or_else(|| {
+                elem.get("aria_label")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+            })
+            .or_else(|| {
+                elem.get("value")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+            })
+            .or_else(|| {
+                elem.get("placeholder")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+            });
+
+        if let Some(name) = name {
+            // Truncate long names and escape newlines
+            let clean_name = name.replace('\n', " ").replace('\r', "");
+            let truncated = if clean_name.len() > 60 {
+                format!("{}...", &clean_name[..57])
+            } else {
+                clean_name
+            };
+            output.push_str(&format!(" {}", truncated));
+        }
+
+        // Add id if present
+        if let Some(id) = elem.get("id").and_then(|v| v.as_str()) {
+            if !id.is_empty() {
+                output.push_str(&format!(" #{}", id));
+            }
+        }
+
+        // Add bounds
+        let x = elem.get("x").and_then(|v| v.as_i64());
+        let y = elem.get("y").and_then(|v| v.as_i64());
+        let w = elem.get("width").and_then(|v| v.as_i64());
+        let h = elem.get("height").and_then(|v| v.as_i64());
+
+        if let (Some(x), Some(y), Some(w), Some(h)) = (x, y, w, h) {
+            output.push_str(&format!(" (bounds: [{},{},{},{}])", x, y, w, h));
+        }
+
+        output.push('\n');
+    }
+
+    output
 }
 
 #[cfg(test)]
