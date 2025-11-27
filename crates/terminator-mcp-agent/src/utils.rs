@@ -757,7 +757,7 @@ pub struct ClickIndexArgs {
     pub index: u32,
 
     #[schemars(
-        description = "Source of the indexed item: 'ui_tree' for UIA accessibility tree elements (default), 'ocr' for OCR-detected text, 'omniparser' for Omniparser-detected UI elements"
+        description = "Source of the indexed item: 'ui_tree' for UIA accessibility tree elements (default), 'ocr' for OCR-detected text, 'omniparser' for Omniparser-detected UI elements, 'dom' for browser DOM elements"
     )]
     #[serde(default = "default_vision_type")]
     pub vision_type: VisionType,
