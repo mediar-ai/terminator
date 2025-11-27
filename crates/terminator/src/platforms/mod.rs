@@ -15,6 +15,8 @@ pub struct TreeBuildConfig {
     pub batch_size: Option<usize>,
     /// Optional maximum depth to traverse (None = unlimited)
     pub max_depth: Option<usize>,
+    /// Include bounds for all elements (not just focusable). Used for inspect overlay.
+    pub include_all_bounds: bool,
 }
 
 /// Defines how much element property data to load
@@ -36,6 +38,7 @@ impl Default for TreeBuildConfig {
             yield_every_n_elements: Some(50),
             batch_size: Some(50),
             max_depth: None, // No limit by default
+            include_all_bounds: false,
         }
     }
 }

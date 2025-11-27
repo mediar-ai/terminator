@@ -760,6 +760,8 @@ impl DesktopWrapper {
             ocr_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             omniparser_items: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             uia_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            #[cfg(target_os = "windows")]
+            inspect_overlay_handle: Arc::new(std::sync::Mutex::new(None)),
         })
     }
 
@@ -787,6 +789,61 @@ impl DesktopWrapper {
         }
 
         false
+    }
+
+    /// Collect UI tree elements with bounds for overlay rendering
+    #[cfg(target_os = "windows")]
+    fn collect_ui_tree_elements_for_overlay(
+        &self,
+        tree_json: &serde_json::Value,
+    ) -> Vec<terminator::InspectElement> {
+        let mut elements = Vec::new();
+        let mut index = 1u32;
+        self.collect_tree_elements_recursive(tree_json, &mut elements, &mut index);
+        elements
+    }
+
+    #[cfg(target_os = "windows")]
+    fn collect_tree_elements_recursive(
+        &self,
+        node: &serde_json::Value,
+        elements: &mut Vec<terminator::InspectElement>,
+        index: &mut u32,
+    ) {
+        // Extract bounds if available
+        if let Some(bounds) = node.get("bounds") {
+            if let (Some(x), Some(y), Some(w), Some(h)) = (
+                bounds.get(0).and_then(|v| v.as_f64()),
+                bounds.get(1).and_then(|v| v.as_f64()),
+                bounds.get(2).and_then(|v| v.as_f64()),
+                bounds.get(3).and_then(|v| v.as_f64()),
+            ) {
+                // Only include elements with valid bounds
+                if w > 0.0 && h > 0.0 {
+                    let role = node
+                        .get("role")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Unknown")
+                        .to_string();
+
+                    elements.push(terminator::InspectElement {
+                        index: *index,
+                        role,
+                        bounds: (x, y, w, h),
+                    });
+                    *index += 1;
+                }
+            }
+        }
+
+        // Recurse into children
+        if let Some(children) = node.get("children") {
+            if let Some(children_arr) = children.as_array() {
+                for child in children_arr {
+                    self.collect_tree_elements_recursive(child, elements, index);
+                }
+            }
+        }
     }
 
     /// Capture all visible DOM elements from the current browser tab
@@ -1038,7 +1095,7 @@ impl DesktopWrapper {
     }
 
     #[tool(
-        description = "Get the complete UI tree for an application by process name (e.g., 'chrome', 'msedge', 'notepad'). Returns tree for the first matching process found. Returns detailed element information (role, name, id, enabled state, bounds, children). This is your primary tool for understanding the application's current state. Supports tree optimization: tree_max_depth (e.g., 30) to limit tree depth when you only need shallow inspection, tree_from_selector to get subtrees starting from a specific element, include_detailed_attributes to control verbosity (defaults to true). Use `include_ocr: true` to perform OCR and get indexed words (e.g., [OcrWord] #1 \"Submit\") for click targeting with `click_ocr_index`. This is a read-only operation."
+        description = "Get the complete UI tree for an application by process name (e.g., 'chrome', 'msedge', 'notepad'). Returns tree for the first matching process found. Returns detailed element information (role, name, id, enabled state, bounds, children). This is your primary tool for understanding the application's current state. Supports tree optimization: tree_max_depth (e.g., 30) to limit tree depth when you only need shallow inspection, tree_from_selector to get subtrees starting from a specific element, include_detailed_attributes to control verbosity (defaults to true). Use `include_ocr: true` to perform OCR and get indexed words (e.g., [OcrWord] #1 \"Submit\") for click targeting with `click_ocr_index`. For browser windows (chrome, msedge, firefox), automatically captures HTML DOM elements via Chrome extension and returns them in `browser_dom` field. Use `browser_dom_max_elements` to control how many DOM elements to capture (default: 200). The DOM format follows `tree_output_format` (compact YAML by default). This is a read-only operation."
     )]
     pub async fn get_window_tree(
         &self,
@@ -1283,6 +1340,143 @@ impl DesktopWrapper {
                 Err(e) => {
                     warn!("Omniparser failed for PID {}: {}", pid, e);
                     result_json["omniparser_error"] = json!(e.to_string());
+                }
+            }
+        }
+
+        // Handle show_overlay request
+        #[cfg(target_os = "windows")]
+        if let Some(ref overlay_type) = args.show_overlay {
+            match overlay_type.as_str() {
+                "ui_tree" => {
+                    // Collect elements with bounds from the UI tree
+                    if let Some(tree_json) = result_json.get("tree") {
+                        let elements = self.collect_ui_tree_elements_for_overlay(tree_json);
+                        if !elements.is_empty() {
+                            // Get window bounds for the overlay
+                            if let Ok(apps) = self.desktop.applications() {
+                                if let Some(app) = apps.iter().find(|a| a.process_id().ok() == Some(pid)) {
+                                    if let Ok((x, y, w, h)) = app.bounds() {
+                                        // Close any existing overlay
+                                        if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
+                                            *handle = None;
+                                        }
+                                        terminator::hide_inspect_overlay();
+
+                                        // Show new overlay
+                                        match terminator::show_inspect_overlay(
+                                            elements,
+                                            (x as i32, y as i32, w as i32, h as i32),
+                                        ) {
+                                            Ok(new_handle) => {
+                                                if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
+                                                    *handle = Some(new_handle);
+                                                }
+                                                result_json["overlay_shown"] = json!("ui_tree");
+                                                info!("Inspect overlay shown for ui_tree");
+                                            }
+                                            Err(e) => {
+                                                warn!("Failed to show inspect overlay: {}", e);
+                                                result_json["overlay_error"] = json!(e.to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                "ocr" => {
+                    // Use OCR bounds from ocr_bounds cache
+                    if let Ok(ocr_bounds) = self.ocr_bounds.lock() {
+                        let elements: Vec<terminator::InspectElement> = ocr_bounds
+                            .iter()
+                            .map(|(idx, (text, bounds))| terminator::InspectElement {
+                                index: *idx,
+                                role: format!("OCR:{}", text.chars().take(10).collect::<String>()),
+                                bounds: *bounds,
+                            })
+                            .collect();
+
+                        if !elements.is_empty() {
+                            if let Ok(apps) = self.desktop.applications() {
+                                if let Some(app) = apps.iter().find(|a| a.process_id().ok() == Some(pid)) {
+                                    if let Ok((x, y, w, h)) = app.bounds() {
+                                        if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
+                                            *handle = None;
+                                        }
+                                        terminator::hide_inspect_overlay();
+
+                                        match terminator::show_inspect_overlay(
+                                            elements,
+                                            (x as i32, y as i32, w as i32, h as i32),
+                                        ) {
+                                            Ok(new_handle) => {
+                                                if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
+                                                    *handle = Some(new_handle);
+                                                }
+                                                result_json["overlay_shown"] = json!("ocr");
+                                            }
+                                            Err(e) => {
+                                                result_json["overlay_error"] = json!(e.to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                "omniparser" => {
+                    // Use omniparser items from cache
+                    if let Ok(omni_items) = self.omniparser_items.lock() {
+                        let elements: Vec<terminator::InspectElement> = omni_items
+                            .iter()
+                            .filter_map(|(idx, item)| {
+                                // Convert box_2d [x_min, y_min, x_max, y_max] to (x, y, width, height)
+                                item.box_2d.map(|b| terminator::InspectElement {
+                                    index: *idx,
+                                    role: item.label.clone(),
+                                    bounds: (b[0], b[1], b[2] - b[0], b[3] - b[1]),
+                                })
+                            })
+                            .collect();
+
+                        if !elements.is_empty() {
+                            if let Ok(apps) = self.desktop.applications() {
+                                if let Some(app) = apps.iter().find(|a| a.process_id().ok() == Some(pid)) {
+                                    if let Ok((x, y, w, h)) = app.bounds() {
+                                        if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
+                                            *handle = None;
+                                        }
+                                        terminator::hide_inspect_overlay();
+
+                                        match terminator::show_inspect_overlay(
+                                            elements,
+                                            (x as i32, y as i32, w as i32, h as i32),
+                                        ) {
+                                            Ok(new_handle) => {
+                                                if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
+                                                    *handle = Some(new_handle);
+                                                }
+                                                result_json["overlay_shown"] = json!("omniparser");
+                                            }
+                                            Err(e) => {
+                                                result_json["overlay_error"] = json!(e.to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                "dom" => {
+                    // DOM overlay - TODO: implement when browser extension provides bounds
+                    result_json["overlay_error"] = json!("DOM overlay not yet implemented");
+                }
+                _ => {
+                    result_json["overlay_error"] = json!(format!("Unknown overlay type: {}", overlay_type));
                 }
             }
         }
@@ -4766,6 +4960,26 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             )
             .await,
         ))
+    }
+
+    #[tool(description = "Hide any active inspect overlay that was shown via get_window_tree with show_overlay parameter.")]
+    async fn hide_inspect_overlay(&self) -> Result<CallToolResult, McpError> {
+        #[cfg(target_os = "windows")]
+        {
+            // Hide any active overlay
+            terminator::hide_inspect_overlay();
+
+            // Clear stored overlay handle
+            if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
+                *handle = None;
+            }
+        }
+
+        Ok(CallToolResult::success(vec![Content::json(json!({
+            "action": "hide_inspect_overlay",
+            "status": "success",
+            "message": "Inspect overlay hidden"
+        }))?]))
     }
 
     #[tool(

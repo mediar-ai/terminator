@@ -9,6 +9,7 @@ pub mod engine;
 pub mod health;
 pub mod highlighting;
 pub mod input;
+pub mod inspect_overlay;
 pub mod tree_builder;
 pub mod types;
 pub mod utils;
@@ -27,6 +28,9 @@ pub use applications::get_process_name_by_pid;
 
 // Re-export highlighting control functions
 pub use highlighting::set_recording_mode;
+
+// Re-export inspect overlay functions
+pub use inspect_overlay::{hide_inspect_overlay, show_inspect_overlay, InspectElement, InspectOverlayHandle};
 
 // Re-export virtual display support
 pub use virtual_display::{

@@ -427,6 +427,7 @@ pub async fn maybe_attach_tree(
         yield_every_n_elements: Some(25),
         batch_size: Some(25),
         max_depth: tree_max_depth,
+        include_all_bounds: false,
     };
 
     // Determine output format (default to CompactYaml)
@@ -587,6 +588,7 @@ where
         yield_every_n_elements: Some(25),
         batch_size: Some(25),
         max_depth: tree_max_depth,
+        include_all_bounds: false,
     };
 
     // Capture BEFORE tree
@@ -735,6 +737,7 @@ where
                         yield_every_n_elements: Some(25),
                         batch_size: Some(25),
                         max_depth: tree_max_depth,
+                        include_all_bounds: false,
                     };
 
                     // Capture BEFORE tree

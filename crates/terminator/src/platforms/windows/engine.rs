@@ -4056,6 +4056,7 @@ impl AccessibilityEngine for WindowsEngine {
             fallback_calls: 0,
             errors_encountered: 0,
             application_name, // Cache application name for all nodes in tree
+            include_all_bounds: config.include_all_bounds,
         };
 
         let result = build_ui_node_tree_configurable(&window_element_wrapper, 0, &mut context)?;

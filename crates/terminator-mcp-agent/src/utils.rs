@@ -349,6 +349,10 @@ pub struct DesktopWrapper {
     /// Key is 1-based index, value is (role, name, (x, y, width, height))
     #[serde(skip)]
     pub uia_bounds: Arc<Mutex<std::collections::HashMap<u32, (String, String, (f64, f64, f64, f64))>>>,
+    /// Stores the active inspect overlay handle for cleanup
+    #[cfg(target_os = "windows")]
+    #[serde(skip)]
+    pub inspect_overlay_handle: Arc<Mutex<Option<terminator::InspectOverlayHandle>>>,
 }
 
 impl Default for DesktopWrapper {
@@ -412,6 +416,11 @@ pub struct GetWindowTreeArgs {
         description = "Maximum number of browser DOM elements to capture. Only applies to browser windows. Defaults to 200."
     )]
     pub browser_dom_max_elements: Option<u32>,
+
+    #[schemars(
+        description = "Show visual overlay with indexed elements. Valid values: 'ui_tree', 'dom', 'ocr', 'omniparser'. Shows element bounds with [index:role] labels. Only one type can be shown at a time."
+    )]
+    pub show_overlay: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]

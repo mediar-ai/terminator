@@ -57,7 +57,8 @@ pub enum ClickType {
 
 #[cfg(target_os = "windows")]
 pub use platforms::windows::{
-    convert_uiautomation_element_to_terminator, get_process_name_by_pid, set_recording_mode,
+    convert_uiautomation_element_to_terminator, get_process_name_by_pid, hide_inspect_overlay,
+    set_recording_mode, show_inspect_overlay, InspectElement, InspectOverlayHandle,
 };
 
 // Define a new struct to hold click result information - move to module level
