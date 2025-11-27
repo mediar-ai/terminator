@@ -316,6 +316,7 @@ impl TypeScriptWorkflow {
         start_from_step: Option<&str>,
         end_at_step: Option<&str>,
         restored_state: Option<Value>,
+        execution_id: Option<&str>,
     ) -> Result<TypeScriptWorkflowResult, McpError> {
         use std::env;
 
@@ -422,8 +423,9 @@ impl TypeScriptWorkflow {
         };
 
         // Take stderr and spawn a task to stream logs through tracing
-        // This preserves trace_id/execution_id context via .in_current_span()
+        // Include execution_id in each log message for ClickHouse filtering
         let stderr = child.stderr.take();
+        let exec_id_for_logs = execution_id.map(|s| s.to_string());
         if let Some(stderr) = stderr {
             tokio::spawn(
                 async move {
@@ -431,18 +433,24 @@ impl TypeScriptWorkflow {
                     let mut lines = reader.lines();
                     while let Ok(Some(line)) = lines.next_line().await {
                         let parsed = parse_log_line(&line);
+                        // Include execution_id in message body for ClickHouse filtering
+                        let msg = if let Some(ref exec_id) = exec_id_for_logs {
+                            format!("[execution_id={}] {}", exec_id, parsed.message)
+                        } else {
+                            parsed.message
+                        };
                         match parsed.level {
                             LogLevel::Error => {
-                                error!(target: "workflow.typescript", "{}", parsed.message)
+                                error!(target: "workflow.typescript", "{}", msg)
                             }
                             LogLevel::Warn => {
-                                warn!(target: "workflow.typescript", "{}", parsed.message)
+                                warn!(target: "workflow.typescript", "{}", msg)
                             }
                             LogLevel::Debug => {
-                                debug!(target: "workflow.typescript", "{}", parsed.message)
+                                debug!(target: "workflow.typescript", "{}", msg)
                             }
                             LogLevel::Info => {
-                                info!(target: "workflow.typescript", "{}", parsed.message)
+                                info!(target: "workflow.typescript", "{}", msg)
                             }
                         }
                     }
@@ -531,6 +539,7 @@ impl TypeScriptWorkflow {
         start_from_step: Option<&str>,
         end_at_step: Option<&str>,
         restored_state: Option<Value>,
+        execution_id: Option<&str>,
     ) -> Result<String, McpError> {
         // Convert Windows path to forward slashes for file:// URL
         let workflow_path_str = execution_dir.display().to_string();

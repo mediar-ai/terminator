@@ -2,6 +2,15 @@
 name = "terminator-cli"
 version.workspace = true
 edition.workspace = true
+description = "CLI for AI-native desktop automation - control any app with MCP"
+authors = ["Mediar AI"]
+repository = "https://github.com/mediar-ai/terminator"
+homepage = "https://mediar.ai"
+documentation = "https://github.com/mediar-ai/terminator"
+readme = "../../README.md"
+keywords = ["automation", "gui", "desktop", "mcp", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+license-file.workspace = true
 
 [[bin]]
 name = "terminator"

@@ -2620,6 +2620,7 @@ impl DesktopWrapper {
                     args.start_from_step.as_deref(),
                     args.end_at_step.as_deref(),
                     restored_state,
+                    Some(&execution_id_val),
                 )
                 .await?;
 

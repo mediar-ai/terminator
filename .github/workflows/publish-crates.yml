@@ -61,3 +61,11 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
         run: |
           cargo publish --package terminator-workflow-recorder
+          echo "Waiting for crates.io to index..."
+          sleep 30
+
+      - name: Publish terminator-cli crate
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: |
+          cargo publish --package terminator-cli
