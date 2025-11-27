@@ -759,6 +759,7 @@ impl DesktopWrapper {
             in_sequence: Arc::new(std::sync::Mutex::new(false)),
             ocr_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             omniparser_items: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            uia_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         })
     }
 
@@ -1176,7 +1177,8 @@ impl DesktopWrapper {
         }
 
         // Use maybe_attach_tree to handle tree extraction with from_selector support
-        crate::helpers::maybe_attach_tree(
+        // Store the returned bounds cache for click_index tool
+        if let Some(bounds_cache) = crate::helpers::maybe_attach_tree(
             &self.desktop,
             args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
@@ -1187,7 +1189,12 @@ impl DesktopWrapper {
             &mut result_json,
             None, // No found element for window tree
         )
-        .await;
+        .await
+        {
+            if let Ok(mut cache) = self.uia_bounds.lock() {
+                *cache = bounds_cache;
+            }
+        }
 
         // Perform OCR if requested
         if args.include_ocr {
@@ -4269,20 +4276,45 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
     }
 
     #[tool(
-        description = "Clicks on a computer vision-detected item by its index number. First call get_window_tree with include_ocr=true or include_omniparser=true to get indexed items. Then use this tool with the index number and vision type to click that item. Supports different click types: 'left' (default), 'double', or 'right'. This action does not require an element selector."
+        description = "Clicks on an indexed item by its index number. First call get_window_tree to get indexed UI elements (shown as #1, #2, etc. in the tree output). By default clicks UI tree elements (vision_type='ui_tree'). Also supports 'ocr' (include_ocr=true) and 'omniparser' (include_omniparser=true) indices. Supports click types: 'left' (default), 'double', or 'right'."
     )]
-    async fn click_cv_index(
+    async fn click_index(
         &self,
-        Parameters(args): Parameters<crate::utils::ClickCvIndexArgs>,
+        Parameters(args): Parameters<crate::utils::ClickIndexArgs>,
     ) -> Result<CallToolResult, McpError> {
         // Start telemetry span
-        let mut span = StepSpan::new("click_cv_index", None);
+        let mut span = StepSpan::new("click_index", None);
         span.set_attribute("index", args.index.to_string());
         span.set_attribute("vision_type", format!("{:?}", args.vision_type));
         span.set_attribute("click_type", format!("{:?}", args.click_type));
 
         // Get bounds based on vision type
         let (item_label, bounds) = match args.vision_type {
+            crate::utils::VisionType::UiTree => {
+                // Look up the UIA bounds
+                let bounds_result = {
+                    let bounds = self.uia_bounds.lock().map_err(|e| {
+                        McpError::internal_error(format!("Failed to lock UIA bounds: {e}"), None)
+                    })?;
+                    bounds.get(&args.index).cloned()
+                };
+
+                let Some((role, name, (x, y, width, height))) = bounds_result else {
+                    span.set_status(false, Some("UIA index not found"));
+                    span.end();
+                    return Err(McpError::internal_error(
+                        format!("UI tree index {} not found. Call get_window_tree first to get indexed UI elements.", args.index),
+                        Some(json!({ "index": args.index, "vision_type": "ui_tree" })),
+                    ));
+                };
+
+                let label = if name.is_empty() {
+                    role
+                } else {
+                    format!("{role}: {name}")
+                };
+                (label, (x, y, width, height))
+            }
             crate::utils::VisionType::Ocr => {
                 // Look up the OCR bounds
                 let bounds_result = {
@@ -4362,6 +4394,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         {
             Ok(()) => {
                 let vision_type_str = match args.vision_type {
+                    crate::utils::VisionType::UiTree => "ui_tree",
                     crate::utils::VisionType::Ocr => "ocr",
                     crate::utils::VisionType::Omniparser => "omniparser",
                 };
@@ -4371,7 +4404,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     crate::utils::ClickType::Right => "right",
                 };
                 let result_json = json!({
-                    "action": "click_cv_index",
+                    "action": "click_index",
                     "status": "success",
                     "index": args.index,
                     "vision_type": vision_type_str,
@@ -9100,11 +9133,11 @@ impl DesktopWrapper {
                     Some(json!({"error": e.to_string()})),
                 )),
             },
-            "click_cv_index" => {
-                match serde_json::from_value::<crate::utils::ClickCvIndexArgs>(arguments.clone()) {
-                    Ok(args) => self.click_cv_index(Parameters(args)).await,
+            "click_index" | "click_cv_index" => {
+                match serde_json::from_value::<crate::utils::ClickIndexArgs>(arguments.clone()) {
+                    Ok(args) => self.click_index(Parameters(args)).await,
                     Err(e) => Err(McpError::invalid_params(
-                        "Invalid arguments for click_cv_index",
+                        "Invalid arguments for click_index",
                         Some(json!({"error": e.to_string()})),
                     )),
                 }

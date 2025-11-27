@@ -35,29 +35,39 @@ fn ui_node_to_serializable(node: &UINode) -> SerializableUIElement {
     }
 }
 
-/// Format a UI tree as compact YAML with - [ROLE] name format
+/// Format a UI tree as compact YAML with - [ROLE] #index name format
 ///
 /// Output format:
-/// - [ROLE] name (additional context)
-///   - [ROLE] name
+/// - [ROLE] #1 name (bounds: [x,y,w,h], additional context)
+///   - [ROLE] #2 name (bounds: [x,y,w,h])
 ///     - ...
 ///
-/// Note: Element IDs are intentionally hidden in compact view to discourage their use
-/// in selectors. IDs are non-deterministic across machines and break workflow portability.
-/// Use role:Type|name:Name patterns instead. IDs are still available in VerboseJson format.
-pub fn format_tree_as_compact_yaml(tree: &SerializableUIElement, indent: usize) -> String {
+/// Elements with bounds get a clickable index. Elements without bounds are shown without index.
+/// Returns both the formatted string and a mapping of index → (role, name, bounds) for click_index.
+pub fn format_tree_as_compact_yaml(tree: &SerializableUIElement, indent: usize) -> UiaFormattingResult {
     let mut output = String::new();
-    format_node(tree, indent, &mut output);
-    output
+    let mut index_to_bounds = HashMap::new();
+    let mut next_index = 1u32;
+    format_node(tree, indent, &mut output, &mut index_to_bounds, &mut next_index);
+    UiaFormattingResult {
+        formatted: output,
+        index_to_bounds,
+    }
 }
 
 /// Format a UINode tree as compact YAML by converting to SerializableUIElement first
-pub fn format_ui_node_as_compact_yaml(tree: &UINode, indent: usize) -> String {
+pub fn format_ui_node_as_compact_yaml(tree: &UINode, indent: usize) -> UiaFormattingResult {
     let serializable = ui_node_to_serializable(tree);
     format_tree_as_compact_yaml(&serializable, indent)
 }
 
-fn format_node(node: &SerializableUIElement, indent: usize, output: &mut String) {
+fn format_node(
+    node: &SerializableUIElement,
+    indent: usize,
+    output: &mut String,
+    index_to_bounds: &mut HashMap<u32, (String, String, (f64, f64, f64, f64))>,
+    next_index: &mut u32,
+) {
     // Build the indent string
     let indent_str = if indent > 0 {
         "  ".repeat(indent)
@@ -69,8 +79,19 @@ fn format_node(node: &SerializableUIElement, indent: usize, output: &mut String)
     output.push_str(&indent_str);
     output.push_str("- ");
 
-    // Format: [ROLE] name
+    // Format: [ROLE]
     output.push_str(&format!("[{}]", node.role));
+
+    // Add index if element has bounds (clickable)
+    if let Some((x, y, w, h)) = node.bounds {
+        let idx = *next_index;
+        *next_index += 1;
+        output.push_str(&format!(" #{idx}"));
+
+        // Store in cache: index → (role, name, bounds)
+        let name = node.name.clone().unwrap_or_default();
+        index_to_bounds.insert(idx, (node.role.clone(), name, (x, y, w, h)));
+    }
 
     // Add name if present
     if let Some(ref name) = node.name {
@@ -78,8 +99,6 @@ fn format_node(node: &SerializableUIElement, indent: usize, output: &mut String)
             output.push_str(&format!(" {name}"));
         }
     }
-
-    // Note: ID is intentionally omitted in compact view to discourage non-portable selectors
 
     // Add additional context in parentheses
     let mut context_parts = Vec::new();
@@ -145,9 +164,19 @@ fn format_node(node: &SerializableUIElement, indent: usize, output: &mut String)
     // Recursively format children
     if let Some(ref children) = node.children {
         for child in children {
-            format_node(child, indent + 1, output);
+            format_node(child, indent + 1, output, index_to_bounds, next_index);
         }
     }
+}
+
+/// Result of UIA tree formatting - includes both the formatted string and bounds mapping
+#[derive(Debug, Clone)]
+pub struct UiaFormattingResult {
+    /// The formatted YAML string
+    pub formatted: String,
+    /// Mapping of index to (role, name, bounds) for click targeting
+    /// Key is 1-based index, value is (role, name, (x, y, width, height))
+    pub index_to_bounds: HashMap<u32, (String, String, (f64, f64, f64, f64))>,
 }
 
 /// Result of OCR tree formatting - includes both the formatted string and bounds mapping

@@ -345,6 +345,10 @@ pub struct DesktopWrapper {
     #[serde(skip)]
     pub omniparser_items:
         Arc<Mutex<std::collections::HashMap<u32, crate::omniparser::OmniparserItem>>>,
+    /// Stores UIA tree index-to-bounds mapping from the last get_window_tree
+    /// Key is 1-based index, value is (role, name, (x, y, width, height))
+    #[serde(skip)]
+    pub uia_bounds: Arc<Mutex<std::collections::HashMap<u32, (String, String, (f64, f64, f64, f64))>>>,
 }
 
 impl Default for DesktopWrapper {
@@ -714,18 +718,21 @@ pub enum ClickType {
 pub enum VisionType {
     Ocr,
     Omniparser,
+    #[serde(alias = "ui_tree")]
+    UiTree,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct ClickCvIndexArgs {
+pub struct ClickIndexArgs {
     #[schemars(
-        description = "The 1-based index of the vision-detected item to click (from get_window_tree with include_ocr=true or include_omniparser=true)"
+        description = "The 1-based index of the item to click (from get_window_tree output). UI tree elements with bounds get indices like #1, #2, etc."
     )]
     pub index: u32,
 
     #[schemars(
-        description = "Vision system that detected the item: 'ocr' for OCR-detected text, 'omniparser' for Omniparser-detected UI elements"
+        description = "Source of the indexed item: 'ui_tree' for UIA accessibility tree elements (default), 'ocr' for OCR-detected text, 'omniparser' for Omniparser-detected UI elements"
     )]
+    #[serde(default = "default_vision_type")]
     pub vision_type: VisionType,
 
     #[schemars(
@@ -739,6 +746,10 @@ pub struct ClickCvIndexArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+}
+
+fn default_vision_type() -> VisionType {
+    VisionType::UiTree
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
