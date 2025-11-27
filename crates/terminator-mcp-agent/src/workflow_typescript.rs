@@ -365,6 +365,7 @@ impl TypeScriptWorkflow {
             start_from_step,
             end_at_step,
             restored_state,
+            execution_id,
         )?;
 
         debug!(
@@ -539,7 +540,7 @@ impl TypeScriptWorkflow {
         start_from_step: Option<&str>,
         end_at_step: Option<&str>,
         restored_state: Option<Value>,
-        execution_id: Option<&str>,
+        _execution_id: Option<&str>,
     ) -> Result<String, McpError> {
         // Convert Windows path to forward slashes for file:// URL
         let workflow_path_str = execution_dir.display().to_string();
