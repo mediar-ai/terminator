@@ -431,6 +431,11 @@ pub struct GetWindowTreeArgs {
         description = "Show visual overlay with indexed elements. Valid values: 'ui_tree', 'dom', 'ocr', 'omniparser'. Shows element bounds with [index:role] labels. Only one type can be shown at a time."
     )]
     pub show_overlay: Option<String>,
+
+    #[schemars(
+        description = "Display mode for overlay labels when show_overlay is set. Valid values: 'rectangles' (no labels), 'index', 'role', 'index_role', 'name', 'index_name', 'full' (index:role:name). Defaults to 'index'."
+    )]
+    pub overlay_display_mode: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]

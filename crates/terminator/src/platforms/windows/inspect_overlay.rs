@@ -12,9 +12,29 @@ use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HWND, RECT};
 use windows::Win32::Graphics::Gdi::{
     CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW,
-    FillRect, GetDC, Rectangle, ReleaseDC, SelectObject, SetBkMode, SetTextColor, DT_SINGLELINE,
-    DT_VCENTER, HBRUSH, HGDIOBJ, PS_SOLID, TRANSPARENT,
+    FillRect, GetDC, LineTo, MoveToEx, Rectangle, ReleaseDC, SelectObject, SetBkMode, SetTextColor,
+    DT_SINGLELINE, DT_VCENTER, HBRUSH, HGDIOBJ, PS_SOLID, TRANSPARENT,
 };
+
+/// Display mode for overlay labels
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OverlayDisplayMode {
+    /// Just rectangles, no labels
+    Rectangles,
+    /// [index] only
+    #[default]
+    Index,
+    /// [role] only
+    Role,
+    /// [index:role]
+    IndexRole,
+    /// [name] only
+    Name,
+    /// [index:name]
+    IndexName,
+    /// [index:role:name]
+    Full,
+}
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, LoadCursorW,
@@ -30,6 +50,7 @@ const OVERLAY_CLASS_NAME: PCWSTR = w!("TerminatorInspectOverlay");
 pub struct InspectElement {
     pub index: u32,
     pub role: String,
+    pub name: Option<String>,
     pub bounds: (f64, f64, f64, f64), // x, y, width, height
 }
 
@@ -69,6 +90,7 @@ thread_local! {
 // Global storage for elements to render (shared between threads)
 static INSPECT_ELEMENTS: std::sync::OnceLock<std::sync::Mutex<Vec<InspectElement>>> = std::sync::OnceLock::new();
 static WINDOW_OFFSET: std::sync::OnceLock<std::sync::Mutex<(i32, i32)>> = std::sync::OnceLock::new();
+static DISPLAY_MODE: std::sync::OnceLock<std::sync::Mutex<OverlayDisplayMode>> = std::sync::OnceLock::new();
 
 fn get_elements_storage() -> &'static std::sync::Mutex<Vec<InspectElement>> {
     INSPECT_ELEMENTS.get_or_init(|| std::sync::Mutex::new(Vec::new()))
@@ -78,24 +100,35 @@ fn get_offset_storage() -> &'static std::sync::Mutex<(i32, i32)> {
     WINDOW_OFFSET.get_or_init(|| std::sync::Mutex::new((0, 0)))
 }
 
+fn get_display_mode_storage() -> &'static std::sync::Mutex<OverlayDisplayMode> {
+    DISPLAY_MODE.get_or_init(|| std::sync::Mutex::new(OverlayDisplayMode::default()))
+}
+
 /// Show inspect overlay for the given elements within window bounds
 pub fn show_inspect_overlay(
     elements: Vec<InspectElement>,
     window_bounds: (i32, i32, i32, i32), // x, y, width, height
+    display_mode: OverlayDisplayMode,
 ) -> Result<InspectOverlayHandle, AutomationError> {
     let (win_x, win_y, win_w, win_h) = window_bounds;
 
     info!(
-        "show_inspect_overlay: {} elements, window bounds: ({}, {}, {}, {})",
-        elements.len(), win_x, win_y, win_w, win_h
+        "show_inspect_overlay: {} elements, window bounds: ({}, {}, {}, {}), mode: {:?}",
+        elements.len(), win_x, win_y, win_w, win_h, display_mode
     );
 
-    // Store elements and offset for the paint callback
+    // Store elements, offset, and display mode for the paint callback
     {
         let mut stored = get_elements_storage().lock().map_err(|e| {
             AutomationError::PlatformError(format!("Failed to lock elements storage: {}", e))
         })?;
         *stored = elements;
+    }
+    {
+        let mut mode = get_display_mode_storage().lock().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to lock display mode storage: {}", e))
+        })?;
+        *mode = display_mode;
     }
     {
         let mut offset = get_offset_storage().lock().map_err(|e| {
@@ -226,6 +259,45 @@ fn create_inspect_overlay_window(
     Ok(())
 }
 
+/// Helper to format label based on display mode
+fn format_label(elem: &InspectElement, mode: OverlayDisplayMode) -> Option<String> {
+    match mode {
+        OverlayDisplayMode::Rectangles => None,
+        OverlayDisplayMode::Index => Some(format!("[{}]", elem.index)),
+        OverlayDisplayMode::Role => Some(format!("[{}]", elem.role)),
+        OverlayDisplayMode::IndexRole => Some(format!("[{}:{}]", elem.index, elem.role)),
+        OverlayDisplayMode::Name => {
+            if let Some(ref name) = elem.name {
+                let truncated = if name.len() > 15 { format!("{}...", &name[..12]) } else { name.clone() };
+                Some(format!("[{}]", truncated))
+            } else {
+                Some(format!("[{}]", elem.index))
+            }
+        }
+        OverlayDisplayMode::IndexName => {
+            if let Some(ref name) = elem.name {
+                let truncated = if name.len() > 15 { format!("{}...", &name[..12]) } else { name.clone() };
+                Some(format!("[{}:{}]", elem.index, truncated))
+            } else {
+                Some(format!("[{}]", elem.index))
+            }
+        }
+        OverlayDisplayMode::Full => {
+            if let Some(ref name) = elem.name {
+                let truncated = if name.len() > 12 { format!("{}...", &name[..9]) } else { name.clone() };
+                Some(format!("[{}:{}:{}]", elem.index, elem.role, truncated))
+            } else {
+                Some(format!("[{}:{}]", elem.index, elem.role))
+            }
+        }
+    }
+}
+
+/// Check if two rectangles overlap
+fn rects_overlap(r1: &RECT, r2: &RECT) -> bool {
+    !(r1.right < r2.left || r1.left > r2.right || r1.bottom < r2.top || r1.top > r2.bottom)
+}
+
 /// Draw overlay content directly using GetDC (not via WM_PAINT)
 fn draw_inspect_overlay(hwnd: HWND) {
     unsafe {
@@ -243,16 +315,19 @@ fn draw_inspect_overlay(hwnd: HWND) {
         FillRect(hdc, &rect, black_brush);
         let _ = DeleteObject(black_brush.into());
 
-        // Get stored elements and offset
+        // Get stored elements, offset, and display mode
         let elements = get_elements_storage().lock().ok();
         let offset = get_offset_storage().lock().ok();
+        let display_mode = get_display_mode_storage().lock().ok();
 
-        if let (Some(elements), Some(offset)) = (elements, offset) {
+        if let (Some(elements), Some(offset), Some(display_mode)) = (elements, offset, display_mode) {
             let (offset_x, offset_y) = *offset;
+            let mode = *display_mode;
 
-            // Create pen for borders (green) - no fill
-            let pen = CreatePen(PS_SOLID, 2, COLORREF(0x00FF00)); // Green in BGR
-            let old_pen = SelectObject(hdc, HGDIOBJ(pen.0));
+            // Create pen for borders (green, 2px) and connector lines (green, 1px)
+            let border_pen = CreatePen(PS_SOLID, 2, COLORREF(0x00FF00));
+            let connector_pen = CreatePen(PS_SOLID, 1, COLORREF(0x00FF00));
+            let old_pen = SelectObject(hdc, HGDIOBJ(border_pen.0));
 
             // Select null brush for transparent fill on rectangles
             let null_brush = windows::Win32::Graphics::Gdi::GetStockObject(
@@ -260,11 +335,11 @@ fn draw_inspect_overlay(hwnd: HWND) {
             );
             let old_brush = SelectObject(hdc, null_brush);
 
-            // Create font for labels (smaller: 11 instead of 14)
+            // Create font for labels (8px, not bold)
             let font = CreateFontW(
-                11, // Height - 3 increments smaller
+                8, // Height - smaller
                 0, 0, 0,
-                700, // Bold
+                400, // Normal weight (not bold)
                 0, 0, 0,
                 windows::Win32::Graphics::Gdi::FONT_CHARSET(1),
                 windows::Win32::Graphics::Gdi::FONT_OUTPUT_PRECISION(0),
@@ -279,66 +354,116 @@ fn draw_inspect_overlay(hwnd: HWND) {
             SetTextColor(hdc, COLORREF(0xFFFFFF)); // White text
             SetBkMode(hdc, TRANSPARENT);
 
-            let label_height = 13; // Adjusted for smaller font
+            let label_height = 9;
+            let diagonal_offset = 12; // How far to offset diagonally when collision
 
+            // Track used label positions for collision detection
+            let mut used_rects: Vec<RECT> = Vec::new();
+
+            // First pass: draw all element rectangles
             for elem in elements.iter() {
                 let (ex, ey, ew, eh) = elem.bounds;
-
-                // Convert to overlay-relative coordinates
                 let rel_x = (ex as i32) - offset_x;
                 let rel_y = (ey as i32) - offset_y;
                 let rel_w = ew as i32;
                 let rel_h = eh as i32;
 
-                // Skip if outside visible area or too small
                 if rel_w < 5 || rel_h < 5 {
                     continue;
                 }
 
-                // Draw border rectangle (transparent fill due to null brush)
+                // Draw border rectangle
                 let _ = Rectangle(hdc, rel_x, rel_y, rel_x + rel_w, rel_y + rel_h);
-
-                // Draw label ABOVE the green box - just show index number
-                let label = format!("[{}]", elem.index);
-                let label_width = (label.len() * 6) as i32 + 4; // Width for index only
-
-                // Position label above the box (rel_y - label_height)
-                let label_top = if rel_y > label_height { rel_y - label_height } else { rel_y };
-
-                let label_rect = RECT {
-                    left: rel_x,
-                    top: label_top,
-                    right: rel_x + label_width,
-                    bottom: label_top + label_height,
-                };
-
-                // Fill label background with dark color (not pure black to avoid transparency)
-                let label_bg = CreateSolidBrush(COLORREF(0x333333)); // Dark gray
-                FillRect(hdc, &label_rect, label_bg);
-                let _ = DeleteObject(label_bg.into());
-
-                // Draw text
-                let mut wide_text: Vec<u16> = label.encode_utf16().collect();
-                wide_text.push(0);
-
-                let mut text_rect = RECT {
-                    left: rel_x + 1,
-                    top: label_top,
-                    right: rel_x + label_width,
-                    bottom: label_top + label_height,
-                };
-
-                let _ = DrawTextW(hdc, &mut wide_text, &mut text_rect, DT_SINGLELINE | DT_VCENTER);
             }
 
-            // Restore old brush
-            SelectObject(hdc, old_brush);
+            // Second pass: draw labels with collision detection (if not rectangles-only mode)
+            if mode != OverlayDisplayMode::Rectangles {
+                for elem in elements.iter() {
+                    let (ex, ey, ew, eh) = elem.bounds;
+                    let rel_x = (ex as i32) - offset_x;
+                    let rel_y = (ey as i32) - offset_y;
+                    let rel_w = ew as i32;
+                    let rel_h = eh as i32;
 
-            // Cleanup
+                    if rel_w < 5 || rel_h < 5 {
+                        continue;
+                    }
+
+                    // Format label based on display mode
+                    let label = match format_label(elem, mode) {
+                        Some(l) => l,
+                        None => continue,
+                    };
+                    let label_width = (label.len() * 5) as i32 + 4; // 5px per char for smaller font
+
+                    // Initial label position (above element)
+                    let mut label_left = rel_x;
+                    let mut label_top = if rel_y > label_height + 2 { rel_y - label_height - 2 } else { rel_y };
+
+                    let mut label_rect = RECT {
+                        left: label_left,
+                        top: label_top,
+                        right: label_left + label_width,
+                        bottom: label_top + label_height,
+                    };
+
+                    // Check for collisions and offset diagonally
+                    let mut attempts = 0;
+                    let max_attempts = 10;
+                    while attempts < max_attempts && used_rects.iter().any(|r| rects_overlap(&label_rect, r)) {
+                        // Offset diagonally (up-right)
+                        label_left += diagonal_offset;
+                        label_top -= diagonal_offset;
+                        label_rect = RECT {
+                            left: label_left,
+                            top: label_top,
+                            right: label_left + label_width,
+                            bottom: label_top + label_height,
+                        };
+                        attempts += 1;
+                    }
+
+                    // Check if label was offset (needs connector line)
+                    let was_offset = label_left != rel_x || label_top != (if rel_y > label_height + 2 { rel_y - label_height - 2 } else { rel_y });
+
+                    // Draw connector line if label was offset
+                    if was_offset {
+                        SelectObject(hdc, HGDIOBJ(connector_pen.0));
+                        let _ = MoveToEx(hdc, label_left, label_top + label_height, None);
+                        let _ = LineTo(hdc, rel_x, rel_y);
+                        SelectObject(hdc, HGDIOBJ(border_pen.0));
+                    }
+
+                    // Fill label background
+                    let label_bg = CreateSolidBrush(COLORREF(0x333333));
+                    FillRect(hdc, &label_rect, label_bg);
+                    let _ = DeleteObject(label_bg.into());
+
+                    // Draw text
+                    let mut wide_text: Vec<u16> = label.encode_utf16().collect();
+                    wide_text.push(0);
+
+                    let mut text_rect = RECT {
+                        left: label_left + 1,
+                        top: label_top,
+                        right: label_left + label_width,
+                        bottom: label_top + label_height,
+                    };
+
+                    let _ = DrawTextW(hdc, &mut wide_text, &mut text_rect, DT_SINGLELINE | DT_VCENTER);
+
+                    // Track this label's position
+                    used_rects.push(label_rect);
+                }
+            }
+
+            // Restore and cleanup
+            SelectObject(hdc, old_brush);
             SelectObject(hdc, old_font);
             SelectObject(hdc, old_pen);
             let _ = DeleteObject(HGDIOBJ(font.0));
-            let _ = DeleteObject(pen.into());
+            let _ = DeleteObject(border_pen.into());
+            let _ = DeleteObject(connector_pen.into());
         }
 
         let _ = ReleaseDC(Some(hwnd), hdc);

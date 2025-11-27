@@ -1333,15 +1333,31 @@ impl DesktopWrapper {
         // Handle show_overlay request
         #[cfg(target_os = "windows")]
         if let Some(ref overlay_type) = args.show_overlay {
+            // Parse display mode from args
+            let display_mode = match args.overlay_display_mode.as_deref() {
+                Some("rectangles") => terminator::OverlayDisplayMode::Rectangles,
+                Some("index") | None => terminator::OverlayDisplayMode::Index,
+                Some("role") => terminator::OverlayDisplayMode::Role,
+                Some("index_role") => terminator::OverlayDisplayMode::IndexRole,
+                Some("name") => terminator::OverlayDisplayMode::Name,
+                Some("index_name") => terminator::OverlayDisplayMode::IndexName,
+                Some("full") => terminator::OverlayDisplayMode::Full,
+                Some(other) => {
+                    result_json["overlay_error"] = json!(format!("Unknown overlay_display_mode: '{}'. Valid options: rectangles, index, role, index_role, name, index_name, full", other));
+                    terminator::OverlayDisplayMode::Index // fallback to default
+                }
+            };
+
             match overlay_type.as_str() {
                 "ui_tree" => {
                     // Use UIA bounds from uia_bounds cache (like OCR/DOM do)
                     if let Ok(uia_bounds) = self.uia_bounds.lock() {
                         let elements: Vec<terminator::InspectElement> = uia_bounds
                             .iter()
-                            .map(|(idx, (role, _name, bounds))| terminator::InspectElement {
+                            .map(|(idx, (role, name, bounds))| terminator::InspectElement {
                                 index: *idx,
                                 role: role.clone(),
+                                name: if name.is_empty() { None } else { Some(name.clone()) },
                                 bounds: *bounds,
                             })
                             .collect();
@@ -1358,6 +1374,7 @@ impl DesktopWrapper {
                                         match terminator::show_inspect_overlay(
                                             elements,
                                             (x as i32, y as i32, w as i32, h as i32),
+                                            display_mode,
                                         ) {
                                             Ok(new_handle) => {
                                                 if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
@@ -1386,7 +1403,8 @@ impl DesktopWrapper {
                             .iter()
                             .map(|(idx, (text, bounds))| terminator::InspectElement {
                                 index: *idx,
-                                role: format!("OCR:{}", text.chars().take(10).collect::<String>()),
+                                role: "OCR".to_string(),
+                                name: Some(text.clone()),
                                 bounds: *bounds,
                             })
                             .collect();
@@ -1403,6 +1421,7 @@ impl DesktopWrapper {
                                         match terminator::show_inspect_overlay(
                                             elements,
                                             (x as i32, y as i32, w as i32, h as i32),
+                                            display_mode,
                                         ) {
                                             Ok(new_handle) => {
                                                 if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
@@ -1430,6 +1449,7 @@ impl DesktopWrapper {
                                 item.box_2d.map(|b| terminator::InspectElement {
                                     index: *idx,
                                     role: item.label.clone(),
+                                    name: item.content.clone(),
                                     bounds: (b[0], b[1], b[2] - b[0], b[3] - b[1]),
                                 })
                             })
@@ -1447,6 +1467,7 @@ impl DesktopWrapper {
                                         match terminator::show_inspect_overlay(
                                             elements,
                                             (x as i32, y as i32, w as i32, h as i32),
+                                            display_mode,
                                         ) {
                                             Ok(new_handle) => {
                                                 if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
@@ -1469,9 +1490,10 @@ impl DesktopWrapper {
                     if let Ok(dom_bounds) = self.dom_bounds.lock() {
                         let elements: Vec<terminator::InspectElement> = dom_bounds
                             .iter()
-                            .map(|(idx, (tag, _identifier, bounds))| terminator::InspectElement {
+                            .map(|(idx, (tag, identifier, bounds))| terminator::InspectElement {
                                 index: *idx,
-                                role: tag.clone(), // Tag name (won't be shown since label is just [index])
+                                role: tag.clone(),
+                                name: if identifier.is_empty() { None } else { Some(identifier.clone()) },
                                 bounds: *bounds,
                             })
                             .collect();
@@ -1488,6 +1510,7 @@ impl DesktopWrapper {
                                         match terminator::show_inspect_overlay(
                                             elements,
                                             (x as i32, y as i32, w as i32, h as i32),
+                                            display_mode,
                                         ) {
                                             Ok(new_handle) => {
                                                 if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
