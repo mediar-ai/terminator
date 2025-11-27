@@ -103,7 +103,7 @@ terminator mcp exec --url "http://<IP>:8080/mcp" run_command '{
 | `run_command` | Execute shell/JS/Python | `{"run": "...", "engine": "javascript", "timeout_seconds": N}` |
 | `get_desktop_elements` | Get UI tree | `{"selector": "...", "depth": N}` |
 | `take_screenshot` | Capture screen | `{"selector": "..."}` (optional) |
-| `click_element` | Click UI element | `{"selector": "process:App\|role:Button\|name:OK"}` |
+| `click_element` | Click UI element | `{"selector": "process:App >> role:Button && name:OK"}` |
 | `type_text` | Type into element | `{"selector": "...", "text": "..."}` |
 | `press_key` | Press keyboard key | `{"key": "enter"}` or `{"key": "ctrl+a"}` |
 | `wait_for_element` | Wait for element | `{"selector": "...", "timeout_seconds": N}` |
@@ -126,19 +126,41 @@ terminator mcp exec --url "http://<IP>:8080/mcp" run_command '{
 
 ## Selector Syntax
 
-**CRITICAL**: Always use `process:` prefix for click/type actions!
+**Operators:**
+- `>>` - Chain/descendant (scope into process, then find element)
+- `&&` - AND (element must match ALL conditions)
+- `||` - OR (element matches ANY condition)
+- `!` - NOT (element must NOT match)
+- `()` - Grouping
 
+**Examples:**
 ```
-process:chrome|role:Button|name:Submit
-process:explorer|role:Edit|name:Search
-process:notepad|role:Window|name:Untitled
+# Scope to process, then find button with specific name
+process:chrome >> role:Button && name:Submit
+
+# Window matching both role AND name
+role:Window && name:Settings
+
+# Multiple conditions
+process:notepad >> role:Edit && visible:true
+
+# OR conditions
+role:Button && (name:OK || name:Cancel)
+
+# Complex chain
+process:explorer >> role:Window && name:Downloads >> role:ListItem
 ```
 
-**Components:**
-- `process:NAME` - Target specific application (REQUIRED for actions)
-- `role:TYPE` - UI Automation role (Button, Edit, Window, Text)
+**Selector Types:**
+- `process:NAME` - Target specific application (use as chain start)
+- `role:TYPE` - UI Automation role (Button, Edit, Window, Text, ListItem)
 - `name:TEXT` - Element name (supports wildcards: `name:*partial*`)
-- `id:ID` - Automation ID
+- `nativeid:ID` - Native automation ID
+- `classname:CLASS` - Window class name
+- `visible:true/false` - Filter by visibility
+- `nth:N` - Select nth match (0-indexed)
+
+**CRITICAL**: For actions (click, type), always scope with `process:` first!
 
 ---
 
@@ -179,8 +201,11 @@ terminator mcp exec --url "$MCP_URL" take_screenshot '{}'
 terminator mcp exec --url "$MCP_URL" open_application '{"path": "notepad.exe"}'
 
 # 5. Wait for window
-terminator mcp exec --url "$MCP_URL" wait_for_element '{"selector": "process:notepad|role:Window", "timeout_seconds": 10}'
+terminator mcp exec --url "$MCP_URL" wait_for_element '{"selector": "process:notepad >> role:Window", "timeout_seconds": 10}'
 
 # 6. Type text
-terminator mcp exec --url "$MCP_URL" type_text '{"selector": "process:notepad|role:Edit", "text": "Hello from remote!"}'
+terminator mcp exec --url "$MCP_URL" type_text '{"selector": "process:notepad >> role:Edit", "text": "Hello from remote!"}'
+
+# 7. Click a button
+terminator mcp exec --url "$MCP_URL" click_element '{"selector": "process:notepad >> role:MenuItem && name:File"}'
 ```
