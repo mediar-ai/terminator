@@ -16,6 +16,7 @@ struct BackendElement {
     #[serde(rename = "type")]
     element_type: String,
     bbox: [f64; 4], // normalized 0-1 [x1, y1, x2, y2]
+    #[allow(dead_code)]
     interactivity: bool,
     content: String,
 }

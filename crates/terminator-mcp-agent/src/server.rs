@@ -911,34 +911,33 @@ impl DesktopWrapper {
 
         // Apply resize if needed (max 1920px to match Replicate's imgsz limit)
         const MAX_DIM: u32 = 1920;
-        let (final_width, final_height, final_rgba_data, scale_factor) =
-            if original_width > MAX_DIM || original_height > MAX_DIM {
-                // Calculate new dimensions maintaining aspect ratio
-                let scale =
-                    (MAX_DIM as f32 / original_width.max(original_height) as f32).min(1.0);
-                let new_width = (original_width as f32 * scale).round() as u32;
-                let new_height = (original_height as f32 * scale).round() as u32;
+        let (final_width, final_height, final_rgba_data, scale_factor) = if original_width > MAX_DIM
+            || original_height > MAX_DIM
+        {
+            // Calculate new dimensions maintaining aspect ratio
+            let scale = (MAX_DIM as f32 / original_width.max(original_height) as f32).min(1.0);
+            let new_width = (original_width as f32 * scale).round() as u32;
+            let new_height = (original_height as f32 * scale).round() as u32;
 
-                // Create ImageBuffer from RGBA data and resize
-                let img = ImageBuffer::<Rgba<u8>, _>::from_raw(
-                    original_width,
-                    original_height,
-                    rgba_data,
-                )
-                .ok_or_else(|| "Failed to create image buffer from screenshot data".to_string())?;
+            // Create ImageBuffer from RGBA data and resize
+            let img =
+                ImageBuffer::<Rgba<u8>, _>::from_raw(original_width, original_height, rgba_data)
+                    .ok_or_else(|| {
+                        "Failed to create image buffer from screenshot data".to_string()
+                    })?;
 
-                let resized =
-                    image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
+            let resized =
+                image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
 
-                info!(
-                    "OmniParser: Resized screenshot from {}x{} to {}x{} (scale: {:.2})",
-                    original_width, original_height, new_width, new_height, scale
-                );
+            info!(
+                "OmniParser: Resized screenshot from {}x{} to {}x{} (scale: {:.2})",
+                original_width, original_height, new_width, new_height, scale
+            );
 
-                (new_width, new_height, resized.into_raw(), scale as f64)
-            } else {
-                (original_width, original_height, rgba_data, 1.0)
-            };
+            (new_width, new_height, resized.into_raw(), scale as f64)
+        } else {
+            (original_width, original_height, rgba_data, 1.0)
+        };
 
         // Encode to PNG
         let mut png_data = Vec::new();
@@ -3788,11 +3787,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             command_future.await
         } else {
             // Apply timeout
-            match tokio::time::timeout(
-                std::time::Duration::from_millis(timeout_ms),
-                command_future,
-            )
-            .await
+            match tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), command_future)
+                .await
             {
                 Ok(result) => result,
                 Err(_) => {

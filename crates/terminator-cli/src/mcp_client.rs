@@ -1023,7 +1023,7 @@ pub async fn execute_command_with_progress_and_retry(
                     client_info: Implementation {
                         name: "terminator-cli".to_string(),
                         version: env!("CARGO_PKG_VERSION").to_string(),
-                    ..Default::default()
+                        ..Default::default()
                     },
                 };
 

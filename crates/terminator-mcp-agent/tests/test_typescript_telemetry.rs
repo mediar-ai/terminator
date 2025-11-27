@@ -94,8 +94,8 @@ mod typescript_telemetry_tests {
 
         fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
             match field.name() {
-                "execution_id" => self.0.execution_id = Some(format!("{:?}", value)),
-                "trace_id" => self.0.trace_id = Some(format!("{:?}", value)),
+                "execution_id" => self.0.execution_id = Some(format!("{value:?}")),
+                "trace_id" => self.0.trace_id = Some(format!("{value:?}")),
                 _ => {}
             }
         }
@@ -112,7 +112,7 @@ mod typescript_telemetry_tests {
 
         fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
             if field.name() == "message" {
-                *self.0 = format!("{:?}", value);
+                *self.0 = format!("{value:?}");
             }
         }
     }
