@@ -417,6 +417,12 @@ pub struct GetWindowTreeArgs {
     pub include_omniparser: bool,
 
     #[schemars(
+        description = "Whether to capture browser DOM elements. Returns a 'browser_dom' field with indexed DOM elements for click targeting. Defaults to true for browser processes."
+    )]
+    #[serde(default = "default_true")]
+    pub include_browser_dom: bool,
+
+    #[schemars(
         description = "Maximum number of browser DOM elements to capture. Only applies to browser windows. Defaults to 200."
     )]
     pub browser_dom_max_elements: Option<u32>,
