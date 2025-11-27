@@ -301,9 +301,9 @@ unsafe extern "system" fn inspect_overlay_window_proc(
                     // Draw border rectangle (transparent fill due to null brush)
                     let _ = Rectangle(hdc, rel_x, rel_y, rel_x + rel_w, rel_y + rel_h);
 
-                    // Draw label ABOVE the green box
-                    let label = format!("[{}:{}]", elem.index, &elem.role);
-                    let label_width = (label.len() * 5) as i32 + 2; // Tighter width calculation
+                    // Draw label ABOVE the green box - just show index number
+                    let label = format!("[{}]", elem.index);
+                    let label_width = (label.len() * 6) as i32 + 4; // Width for index only
 
                     // Position label above the box (rel_y - label_height)
                     let label_top = if rel_y > label_height { rel_y - label_height } else { rel_y };
