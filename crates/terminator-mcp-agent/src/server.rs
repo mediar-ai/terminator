@@ -849,10 +849,27 @@ impl DesktopWrapper {
 
     /// Capture all visible DOM elements from the current browser tab
     /// Returns (elements, viewport_offset_x, viewport_offset_y) for screen coordinate conversion
+    /// The viewport offset is derived from the UIA Document element's screen bounds
     async fn capture_browser_dom_elements(
         &self,
         max_elements: u32,
     ) -> Result<(Vec<serde_json::Value>, f64, f64), String> {
+        // First, find the Document element to get viewport screen position
+        // This is more reliable than JavaScript window properties (which break with DPI scaling)
+        let viewport_offset = match self
+            .desktop
+            .locator("role:Document")
+            .first(Some(Duration::from_millis(2000)))
+            .await
+        {
+            Ok(doc_element) => {
+                match doc_element.bounds() {
+                    Ok((x, y, _w, _h)) => (x, y),
+                    Err(_) => (0.0, 0.0), // Fallback
+                }
+            }
+            Err(_) => (0.0, 0.0), // Fallback
+        };
         // Script to extract ALL visible elements using TreeWalker
         let script = format!(
             r#"
@@ -907,27 +924,20 @@ impl DesktopWrapper {
             placeholder: node.placeholder || null,
             aria_label: node.getAttribute('aria-label'),
             role: node.getAttribute('role'),
-            x: Math.round(rect.x),
-            y: Math.round(rect.y),
-            width: Math.round(rect.width),
-            height: Math.round(rect.height)
+            // Scale by devicePixelRatio to convert CSS pixels to physical pixels
+            x: Math.round(rect.x * window.devicePixelRatio),
+            y: Math.round(rect.y * window.devicePixelRatio),
+            width: Math.round(rect.width * window.devicePixelRatio),
+            height: Math.round(rect.height * window.devicePixelRatio)
         });
     }
-
-    // Calculate viewport-to-screen offset for coordinate conversion
-    // Browser chrome (toolbars, tabs) is typically at the top
-    const chromeHeight = window.outerHeight - window.innerHeight;
-    const chromeWidth = window.outerWidth - window.innerWidth;
-    const viewportOffsetX = window.screenX + Math.floor(chromeWidth / 2);
-    const viewportOffsetY = window.screenY + chromeHeight;
 
     return JSON.stringify({
         elements: elements,
         total_found: elements.length,
         page_url: window.location.href,
         page_title: document.title,
-        viewport_offset_x: viewportOffsetX,
-        viewport_offset_y: viewportOffsetY
+        devicePixelRatio: window.devicePixelRatio
     });
 })()
 "#;
@@ -940,15 +950,8 @@ impl DesktopWrapper {
                         .and_then(|v| v.as_array())
                         .cloned()
                         .unwrap_or_default();
-                    let offset_x = result
-                        .get("viewport_offset_x")
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0);
-                    let offset_y = result
-                        .get("viewport_offset_y")
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0);
-                    Ok((elements, offset_x, offset_y))
+                    // Use UIA-based viewport offset (more reliable than JS due to DPI scaling)
+                    Ok((elements, viewport_offset.0, viewport_offset.1))
                 }
                 Err(e) => Err(format!("Failed to parse DOM elements: {e}")),
             },
@@ -1219,9 +1222,10 @@ impl DesktopWrapper {
             result_json["is_browser"] = json!(true);
             info!("Browser window detected for PID {}", pid);
 
-            // Try to capture DOM elements from browser
-            let max_dom_elements = args.browser_dom_max_elements.unwrap_or(200);
-            match self.capture_browser_dom_elements(max_dom_elements).await {
+            // Try to capture DOM elements from browser (if enabled)
+            if args.include_browser_dom {
+                let max_dom_elements = args.browser_dom_max_elements.unwrap_or(200);
+                match self.capture_browser_dom_elements(max_dom_elements).await {
                 Ok((dom_elements, viewport_offset_x, viewport_offset_y)) if !dom_elements.is_empty() => {
                     // Format based on tree_output_format
                     let format = args
@@ -1263,6 +1267,7 @@ impl DesktopWrapper {
                 Err(e) => {
                     warn!("Failed to capture browser DOM: {}", e);
                     result_json["browser_dom_error"] = json!(e.to_string());
+                }
                 }
             }
         }
@@ -1384,7 +1389,7 @@ impl DesktopWrapper {
             match overlay_type.as_str() {
                 "ui_tree" => {
                     // Collect elements with bounds from the UI tree
-                    if let Some(tree_json) = result_json.get("tree") {
+                    if let Some(tree_json) = result_json.get("ui_tree") {
                         let elements = self.collect_ui_tree_elements_for_overlay(tree_json);
                         if !elements.is_empty() {
                             // Get window bounds for the overlay
@@ -1506,8 +1511,48 @@ impl DesktopWrapper {
                     }
                 }
                 "dom" => {
-                    // DOM overlay - TODO: implement when browser extension provides bounds
-                    result_json["overlay_error"] = json!("DOM overlay not yet implemented");
+                    // Use DOM bounds from dom_bounds cache (populated by include_browser_dom)
+                    if let Ok(dom_bounds) = self.dom_bounds.lock() {
+                        let elements: Vec<terminator::InspectElement> = dom_bounds
+                            .iter()
+                            .map(|(idx, (tag, _identifier, bounds))| terminator::InspectElement {
+                                index: *idx,
+                                role: tag.clone(), // Tag name (won't be shown since label is just [index])
+                                bounds: *bounds,
+                            })
+                            .collect();
+
+                        if !elements.is_empty() {
+                            if let Ok(apps) = self.desktop.applications() {
+                                if let Some(app) = apps.iter().find(|a| a.process_id().ok() == Some(pid)) {
+                                    if let Ok((x, y, w, h)) = app.bounds() {
+                                        if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
+                                            *handle = None;
+                                        }
+                                        terminator::hide_inspect_overlay();
+
+                                        match terminator::show_inspect_overlay(
+                                            elements,
+                                            (x as i32, y as i32, w as i32, h as i32),
+                                        ) {
+                                            Ok(new_handle) => {
+                                                if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
+                                                    *handle = Some(new_handle);
+                                                }
+                                                result_json["overlay_shown"] = json!("dom");
+                                                info!("Inspect overlay shown for DOM elements");
+                                            }
+                                            Err(e) => {
+                                                result_json["overlay_error"] = json!(e.to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            result_json["overlay_error"] = json!("No DOM elements in cache - ensure include_browser_dom is true and browser extension is active");
+                        }
+                    }
                 }
                 _ => {
                     result_json["overlay_error"] = json!(format!("Unknown overlay type: {}", overlay_type));
