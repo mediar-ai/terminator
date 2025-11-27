@@ -25,7 +25,7 @@ tokio = { version = "1", features = [
 ] }
 anyhow = "1.0"
 
-rmcp = { version = "=0.6.3", features = [
+rmcp = { version = "0.9", features = [
     "transport-child-process",
     "client",
     "transport-streamable-http-client-reqwest",

@@ -116,6 +116,7 @@ pub async fn interactive_chat(transport: Transport) -> Result<()> {
                 client_info: Implementation {
                     name: "terminator-cli".to_string(),
                     version: env!("CARGO_PKG_VERSION").to_string(),
+                    ..Default::default()
                 },
             };
             let service = client_info.serve(transport).await?;
@@ -457,6 +458,7 @@ pub async fn execute_command(
                 client_info: Implementation {
                     name: "terminator-cli".to_string(),
                     version: env!("CARGO_PKG_VERSION").to_string(),
+                    ..Default::default()
                 },
             };
             let service = client_info.serve(transport).await?;
@@ -724,6 +726,7 @@ pub async fn natural_language_chat(transport: Transport) -> Result<()> {
                 client_info: Implementation {
                     name: "terminator-cli-ai".to_string(),
                     version: env!("CARGO_PKG_VERSION").to_string(),
+                    ..Default::default()
                 },
             };
             client_info.serve(transport).await?
@@ -748,6 +751,7 @@ pub async fn natural_language_chat(transport: Transport) -> Result<()> {
                 client_info: Implementation {
                     name: "terminator-cli-ai".to_string(),
                     version: env!("CARGO_PKG_VERSION").to_string(),
+                    ..Default::default()
                 },
             };
             client_info.serve(transport).await?
@@ -1019,6 +1023,7 @@ pub async fn execute_command_with_progress_and_retry(
                     client_info: Implementation {
                         name: "terminator-cli".to_string(),
                         version: env!("CARGO_PKG_VERSION").to_string(),
+                    ..Default::default()
                     },
                 };
 
