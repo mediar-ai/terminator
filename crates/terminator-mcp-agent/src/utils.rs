@@ -403,6 +403,11 @@ pub struct GetWindowTreeArgs {
     )]
     #[serde(default)]
     pub include_omniparser: bool,
+
+    #[schemars(
+        description = "Maximum number of browser DOM elements to capture. Only applies to browser windows. Defaults to 200."
+    )]
+    pub browser_dom_max_elements: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
