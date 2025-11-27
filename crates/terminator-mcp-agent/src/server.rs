@@ -792,61 +792,6 @@ impl DesktopWrapper {
         false
     }
 
-    /// Collect UI tree elements with bounds for overlay rendering
-    #[cfg(target_os = "windows")]
-    fn collect_ui_tree_elements_for_overlay(
-        &self,
-        tree_json: &serde_json::Value,
-    ) -> Vec<terminator::InspectElement> {
-        let mut elements = Vec::new();
-        let mut index = 1u32;
-        self.collect_tree_elements_recursive(tree_json, &mut elements, &mut index);
-        elements
-    }
-
-    #[cfg(target_os = "windows")]
-    fn collect_tree_elements_recursive(
-        &self,
-        node: &serde_json::Value,
-        elements: &mut Vec<terminator::InspectElement>,
-        index: &mut u32,
-    ) {
-        // Extract bounds if available
-        if let Some(bounds) = node.get("bounds") {
-            if let (Some(x), Some(y), Some(w), Some(h)) = (
-                bounds.get(0).and_then(|v| v.as_f64()),
-                bounds.get(1).and_then(|v| v.as_f64()),
-                bounds.get(2).and_then(|v| v.as_f64()),
-                bounds.get(3).and_then(|v| v.as_f64()),
-            ) {
-                // Only include elements with valid bounds
-                if w > 0.0 && h > 0.0 {
-                    let role = node
-                        .get("role")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("Unknown")
-                        .to_string();
-
-                    elements.push(terminator::InspectElement {
-                        index: *index,
-                        role,
-                        bounds: (x, y, w, h),
-                    });
-                    *index += 1;
-                }
-            }
-        }
-
-        // Recurse into children
-        if let Some(children) = node.get("children") {
-            if let Some(children_arr) = children.as_array() {
-                for child in children_arr {
-                    self.collect_tree_elements_recursive(child, elements, index);
-                }
-            }
-        }
-    }
-
     /// Capture all visible DOM elements from the current browser tab
     /// Returns (elements, viewport_offset_x, viewport_offset_y) for screen coordinate conversion
     /// The viewport offset is derived from the UIA Document element's screen bounds
@@ -1274,6 +1219,8 @@ impl DesktopWrapper {
 
         // Use maybe_attach_tree to handle tree extraction with from_selector support
         // Store the returned bounds cache for click_index tool
+        // Enable include_all_bounds when showing ui_tree overlay (need bounds for all elements)
+        let include_all_bounds = args.show_overlay.as_ref().map(|s| s == "ui_tree").unwrap_or(false);
         if let Some(bounds_cache) = crate::helpers::maybe_attach_tree(
             &self.desktop,
             args.tree.include_tree_after_action,
@@ -1284,6 +1231,7 @@ impl DesktopWrapper {
             Some(pid),
             &mut result_json,
             None, // No found element for window tree
+            include_all_bounds,
         )
         .await
         {
@@ -1320,7 +1268,6 @@ impl DesktopWrapper {
                                 serde_json::to_value(&ocr_result).unwrap_or_default();
                         }
                     }
-                    result_json["ocr_text"] = json!(ocr_result.text);
                     info!("OCR completed for PID {}", pid);
                 }
                 Err(e) => {
@@ -1388,21 +1335,26 @@ impl DesktopWrapper {
         if let Some(ref overlay_type) = args.show_overlay {
             match overlay_type.as_str() {
                 "ui_tree" => {
-                    // Collect elements with bounds from the UI tree
-                    if let Some(tree_json) = result_json.get("ui_tree") {
-                        let elements = self.collect_ui_tree_elements_for_overlay(tree_json);
+                    // Use UIA bounds from uia_bounds cache (like OCR/DOM do)
+                    if let Ok(uia_bounds) = self.uia_bounds.lock() {
+                        let elements: Vec<terminator::InspectElement> = uia_bounds
+                            .iter()
+                            .map(|(idx, (role, _name, bounds))| terminator::InspectElement {
+                                index: *idx,
+                                role: role.clone(),
+                                bounds: *bounds,
+                            })
+                            .collect();
+
                         if !elements.is_empty() {
-                            // Get window bounds for the overlay
                             if let Ok(apps) = self.desktop.applications() {
                                 if let Some(app) = apps.iter().find(|a| a.process_id().ok() == Some(pid)) {
                                     if let Ok((x, y, w, h)) = app.bounds() {
-                                        // Close any existing overlay
                                         if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
                                             *handle = None;
                                         }
                                         terminator::hide_inspect_overlay();
 
-                                        // Show new overlay
                                         match terminator::show_inspect_overlay(
                                             elements,
                                             (x as i32, y as i32, w as i32, h as i32),
@@ -1422,6 +1374,8 @@ impl DesktopWrapper {
                                     }
                                 }
                             }
+                        } else {
+                            result_json["overlay_error"] = json!("No UI elements with bounds in cache - ensure include_tree_after_action is true");
                         }
                     }
                 }
@@ -2287,6 +2241,7 @@ impl DesktopWrapper {
                 Some(element.process_id().unwrap_or(0)),
                 &mut result_json,
                 Some(&element),
+                false,
             )
             .await;
         }
@@ -2593,6 +2548,7 @@ impl DesktopWrapper {
                 Some(element.process_id().unwrap_or(0)),
                 &mut result_json,
                 Some(&element),
+                false,
             )
             .await;
         }
@@ -2857,6 +2813,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
                 element.process_id().ok(),
                 &mut result_json,
                 Some(&element),
+                false,
             )
             .await;
         }
@@ -3056,6 +3013,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
             element.process_id().ok(),
             &mut result_json,
             Some(&element),
+            false,
         )
         .await;
 
@@ -4319,6 +4277,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             Some(element.process_id().unwrap_or(0)),
             &mut result_json,
             Some(&element),
+            false,
         )
         .await;
 
@@ -4530,6 +4489,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             element.process_id().ok(),
             &mut result_json,
             Some(&element),
+            false,
         )
         .await;
 
@@ -4834,6 +4794,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     element.process_id().ok(),
                     &mut result_json,
                     Some(&element),
+                    false,
                 )
                 .await;
 
@@ -5049,6 +5010,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             element.process_id().ok(),
             &mut result_json,
             Some(&element),
+            false,
         )
         .await;
 
@@ -5168,6 +5130,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                         element.process_id().ok(),
                         &mut result_json,
                         Some(&element),
+                        false,
                     )
                     .await;
 
@@ -5321,6 +5284,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                             element.process_id().ok(),
                             &mut result_json,
                             Some(&element),
+                            false,
                         )
                         .await;
 
@@ -5419,6 +5383,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             ui_element.process_id().ok(),
             &mut result_json,
             Some(&ui_element),
+            false,
         )
         .await;
 
@@ -5951,6 +5916,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 element.process_id().ok(),
                 &mut result_json,
                 Some(&element),
+                false,
             )
             .await;
         }
@@ -6099,6 +6065,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 element.process_id().ok(),
                 &mut result_json,
                 Some(&element),
+                false,
             )
             .await;
         }
@@ -6210,6 +6177,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             element.process_id().ok(),
             &mut result_json,
             Some(&element),
+            false,
         )
         .await;
 
@@ -6468,6 +6436,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 Some(element.process_id().unwrap_or(0)),
                 &mut result_json,
                 Some(&element),
+                false,
             )
             .await;
         }
@@ -6719,6 +6688,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 Some(element.process_id().unwrap_or(0)),
                 &mut result_json,
                 Some(&element),
+                false,
             )
             .await;
         }
@@ -6969,6 +6939,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 Some(element.process_id().unwrap_or(0)),
                 &mut result_json,
                 Some(&element),
+                false,
             )
             .await;
         }
@@ -7075,6 +7046,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             element.process_id().ok(),
             &mut result_json,
             Some(&element),
+            false,
         )
         .await;
 
@@ -7181,6 +7153,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             element.process_id().ok(),
             &mut result_json,
             Some(&element),
+            false,
         )
         .await;
 
@@ -7287,6 +7260,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             element.process_id().ok(),
             &mut result_json,
             Some(&element),
+            false,
         )
         .await;
 
@@ -7672,6 +7646,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 element.process_id().ok(),
                 &mut result_json,
                 Some(&element),
+                false,
             )
             .await;
         }
@@ -7831,6 +7806,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             element.process_id().ok(),
             &mut result_json,
             Some(&element),
+            false,
         )
         .await;
 
@@ -7927,6 +7903,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             element.process_id().ok(),
             &mut result_json,
             Some(&element),
+            false,
         )
         .await;
 
@@ -7995,6 +7972,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             None, // No specific element for zoom operation
             &mut result_json,
             None, // No element available for zoom
+            false,
         )
         .await;
 
@@ -8220,6 +8198,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 Some(element.process_id().unwrap_or(0)),
                 &mut result_json,
                 Some(&element),
+                false,
             )
             .await;
         }
@@ -9140,6 +9119,7 @@ console.info = function(...args) {
             None, // Don't filter by process since this could apply to any browser
             &mut result_json,
             None, // No specific element
+            false,
         )
         .await;
 

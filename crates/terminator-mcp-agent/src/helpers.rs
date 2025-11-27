@@ -395,6 +395,7 @@ pub async fn maybe_attach_tree(
     pid_opt: Option<u32>,
     result_json: &mut Value,
     found_element: Option<&terminator::UIElement>,
+    include_all_bounds: bool,
 ) -> Option<UiaBoundsCache> {
     use std::time::Duration;
     use terminator::Selector;
@@ -427,7 +428,7 @@ pub async fn maybe_attach_tree(
         yield_every_n_elements: Some(25),
         batch_size: Some(25),
         max_depth: tree_max_depth,
-        include_all_bounds: false,
+        include_all_bounds,
     };
 
     // Determine output format (default to CompactYaml)

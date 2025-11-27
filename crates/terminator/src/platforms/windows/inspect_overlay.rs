@@ -5,20 +5,21 @@ use crate::AutomationError;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
 use tracing::{debug, error, info};
 
 use windows::core::{w, PCWSTR};
-use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Foundation::{COLORREF, HWND, RECT};
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint,
-    FillRect, Rectangle, SelectObject, SetBkMode, SetTextColor, DT_SINGLELINE,
-    DT_VCENTER, HBRUSH, HGDIOBJ, PAINTSTRUCT, PS_SOLID, TRANSPARENT,
+    CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW,
+    FillRect, GetDC, Rectangle, ReleaseDC, SelectObject, SetBkMode, SetTextColor, DT_SINGLELINE,
+    DT_VCENTER, HBRUSH, HGDIOBJ, PS_SOLID, TRANSPARENT,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetMessageW, LoadCursorW, PostMessageW,
-    RegisterClassExW, SetLayeredWindowAttributes, ShowWindow, TranslateMessage, DispatchMessageW,
-    HICON, IDC_ARROW, LWA_COLORKEY, MSG, SW_SHOWNOACTIVATE, WM_CLOSE, WM_DESTROY, WM_PAINT,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, LoadCursorW,
+    RegisterClassExW, SetLayeredWindowAttributes, ShowWindow,
+    HICON, IDC_ARROW, LWA_COLORKEY, SW_SHOWNOACTIVATE,
     WNDCLASSEXW, WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 
@@ -118,14 +119,19 @@ pub fn show_inspect_overlay(
     })
 }
 
-/// Hide any active inspect overlay
+/// Hide any active inspect overlay (called from same thread)
 pub fn hide_inspect_overlay() {
+    cleanup_overlay_window();
+}
+
+/// Cleans up the overlay window stored in thread-local storage
+fn cleanup_overlay_window() {
     INSPECT_OVERLAY_HWND.with(|cell| {
         if let Some(hwnd) = cell.borrow_mut().take() {
             unsafe {
-                let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+                let _ = DestroyWindow(hwnd);
             }
-            info!("Posted WM_CLOSE to inspect overlay");
+            debug!("Destroyed inspect overlay window");
         }
     });
 }
@@ -138,6 +144,9 @@ fn create_inspect_overlay_window(
     should_close: Arc<AtomicBool>,
 ) -> Result<(), AutomationError> {
     unsafe {
+        // Clean up any previous overlay
+        cleanup_overlay_window();
+
         let instance = GetModuleHandleW(None)
             .map_err(|e| AutomationError::PlatformError(format!("GetModuleHandleW failed: {}", e)))?;
 
@@ -190,32 +199,26 @@ fn create_inspect_overlay_window(
             AutomationError::PlatformError(format!("SetLayeredWindowAttributes failed: {}", e))
         })?;
 
-        // Store HWND
+        // Show without activating
+        let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+
+        // Draw overlay content directly (not via WM_PAINT)
+        draw_inspect_overlay(hwnd);
+
+        // Store HWND for cleanup
         INSPECT_OVERLAY_HWND.with(|cell| {
             *cell.borrow_mut() = Some(hwnd);
         });
 
-        // Show without activating
-        let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        info!("Inspect overlay window created and drawn");
 
-        info!("Inspect overlay window created");
-
-        // Message loop
-        let mut msg = MSG::default();
+        // Polling loop - check should_close every 50ms (like highlighting.rs)
         while !should_close.load(Ordering::Relaxed) {
-            if GetMessageW(&mut msg, None, 0, 0).as_bool() {
-                TranslateMessage(&msg);
-                DispatchMessageW(&msg);
-            } else {
-                break;
-            }
+            thread::sleep(Duration::from_millis(50));
         }
 
         // Cleanup
-        let _ = DestroyWindow(hwnd);
-        INSPECT_OVERLAY_HWND.with(|cell| {
-            *cell.borrow_mut() = None;
-        });
+        cleanup_overlay_window();
 
         info!("Inspect overlay window destroyed");
     }
@@ -223,134 +226,133 @@ fn create_inspect_overlay_window(
     Ok(())
 }
 
+/// Draw overlay content directly using GetDC (not via WM_PAINT)
+fn draw_inspect_overlay(hwnd: HWND) {
+    unsafe {
+        let hdc = GetDC(Some(hwnd));
+        if hdc.is_invalid() {
+            return;
+        }
+
+        // Get window rect
+        let mut rect = RECT::default();
+        let _ = GetClientRect(hwnd, &mut rect);
+
+        // Fill background with black (will be transparent due to color key)
+        let black_brush = CreateSolidBrush(COLORREF(0x000000));
+        FillRect(hdc, &rect, black_brush);
+        let _ = DeleteObject(black_brush.into());
+
+        // Get stored elements and offset
+        let elements = get_elements_storage().lock().ok();
+        let offset = get_offset_storage().lock().ok();
+
+        if let (Some(elements), Some(offset)) = (elements, offset) {
+            let (offset_x, offset_y) = *offset;
+
+            // Create pen for borders (green) - no fill
+            let pen = CreatePen(PS_SOLID, 2, COLORREF(0x00FF00)); // Green in BGR
+            let old_pen = SelectObject(hdc, HGDIOBJ(pen.0));
+
+            // Select null brush for transparent fill on rectangles
+            let null_brush = windows::Win32::Graphics::Gdi::GetStockObject(
+                windows::Win32::Graphics::Gdi::NULL_BRUSH,
+            );
+            let old_brush = SelectObject(hdc, null_brush);
+
+            // Create font for labels (smaller: 11 instead of 14)
+            let font = CreateFontW(
+                11, // Height - 3 increments smaller
+                0, 0, 0,
+                700, // Bold
+                0, 0, 0,
+                windows::Win32::Graphics::Gdi::FONT_CHARSET(1),
+                windows::Win32::Graphics::Gdi::FONT_OUTPUT_PRECISION(0),
+                windows::Win32::Graphics::Gdi::FONT_CLIP_PRECISION(0),
+                windows::Win32::Graphics::Gdi::FONT_QUALITY(0),
+                0,
+                PCWSTR::null(),
+            );
+            let old_font = SelectObject(hdc, HGDIOBJ(font.0));
+
+            // Set text properties
+            SetTextColor(hdc, COLORREF(0xFFFFFF)); // White text
+            SetBkMode(hdc, TRANSPARENT);
+
+            let label_height = 13; // Adjusted for smaller font
+
+            for elem in elements.iter() {
+                let (ex, ey, ew, eh) = elem.bounds;
+
+                // Convert to overlay-relative coordinates
+                let rel_x = (ex as i32) - offset_x;
+                let rel_y = (ey as i32) - offset_y;
+                let rel_w = ew as i32;
+                let rel_h = eh as i32;
+
+                // Skip if outside visible area or too small
+                if rel_w < 5 || rel_h < 5 {
+                    continue;
+                }
+
+                // Draw border rectangle (transparent fill due to null brush)
+                let _ = Rectangle(hdc, rel_x, rel_y, rel_x + rel_w, rel_y + rel_h);
+
+                // Draw label ABOVE the green box - just show index number
+                let label = format!("[{}]", elem.index);
+                let label_width = (label.len() * 6) as i32 + 4; // Width for index only
+
+                // Position label above the box (rel_y - label_height)
+                let label_top = if rel_y > label_height { rel_y - label_height } else { rel_y };
+
+                let label_rect = RECT {
+                    left: rel_x,
+                    top: label_top,
+                    right: rel_x + label_width,
+                    bottom: label_top + label_height,
+                };
+
+                // Fill label background with dark color (not pure black to avoid transparency)
+                let label_bg = CreateSolidBrush(COLORREF(0x333333)); // Dark gray
+                FillRect(hdc, &label_rect, label_bg);
+                let _ = DeleteObject(label_bg.into());
+
+                // Draw text
+                let mut wide_text: Vec<u16> = label.encode_utf16().collect();
+                wide_text.push(0);
+
+                let mut text_rect = RECT {
+                    left: rel_x + 1,
+                    top: label_top,
+                    right: rel_x + label_width,
+                    bottom: label_top + label_height,
+                };
+
+                let _ = DrawTextW(hdc, &mut wide_text, &mut text_rect, DT_SINGLELINE | DT_VCENTER);
+            }
+
+            // Restore old brush
+            SelectObject(hdc, old_brush);
+
+            // Cleanup
+            SelectObject(hdc, old_font);
+            SelectObject(hdc, old_pen);
+            let _ = DeleteObject(HGDIOBJ(font.0));
+            let _ = DeleteObject(pen.into());
+        }
+
+        let _ = ReleaseDC(Some(hwnd), hdc);
+    }
+}
+
+use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
+
 unsafe extern "system" fn inspect_overlay_window_proc(
     hwnd: HWND,
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    match msg {
-        WM_DESTROY => {
-            LRESULT(0)
-        }
-        WM_PAINT => {
-            let mut ps = PAINTSTRUCT::default();
-            let hdc = BeginPaint(hwnd, &mut ps);
-
-            // Get window rect
-            let mut rect = RECT::default();
-            let _ = GetClientRect(hwnd, &mut rect);
-
-            // Fill background with black (will be transparent due to color key)
-            let black_brush = CreateSolidBrush(COLORREF(0x000000));
-            FillRect(hdc, &rect, black_brush);
-            let _ = DeleteObject(black_brush.into());
-
-            // Get stored elements and offset
-            let elements = get_elements_storage().lock().ok();
-            let offset = get_offset_storage().lock().ok();
-
-            if let (Some(elements), Some(offset)) = (elements, offset) {
-                let (offset_x, offset_y) = *offset;
-
-                // Create pen for borders (green) - no fill
-                let pen = CreatePen(PS_SOLID, 2, COLORREF(0x00FF00)); // Green in BGR
-                let old_pen = SelectObject(hdc, HGDIOBJ(pen.0));
-
-                // Select null brush for transparent fill on rectangles
-                let null_brush = windows::Win32::Graphics::Gdi::GetStockObject(
-                    windows::Win32::Graphics::Gdi::NULL_BRUSH,
-                );
-                let old_brush = SelectObject(hdc, null_brush);
-
-                // Create font for labels (smaller: 11 instead of 14)
-                let font = CreateFontW(
-                    11, // Height - 3 increments smaller
-                    0, 0, 0,
-                    700, // Bold
-                    0, 0, 0,
-                    windows::Win32::Graphics::Gdi::FONT_CHARSET(1),
-                    windows::Win32::Graphics::Gdi::FONT_OUTPUT_PRECISION(0),
-                    windows::Win32::Graphics::Gdi::FONT_CLIP_PRECISION(0),
-                    windows::Win32::Graphics::Gdi::FONT_QUALITY(0),
-                    0,
-                    PCWSTR::null(),
-                );
-                let old_font = SelectObject(hdc, HGDIOBJ(font.0));
-
-                // Set text properties
-                SetTextColor(hdc, COLORREF(0xFFFFFF)); // White text
-                SetBkMode(hdc, TRANSPARENT);
-
-                let label_height = 13; // Adjusted for smaller font
-
-                for elem in elements.iter() {
-                    let (ex, ey, ew, eh) = elem.bounds;
-
-                    // Convert to overlay-relative coordinates
-                    let rel_x = (ex as i32) - offset_x;
-                    let rel_y = (ey as i32) - offset_y;
-                    let rel_w = ew as i32;
-                    let rel_h = eh as i32;
-
-                    // Skip if outside visible area or too small
-                    if rel_w < 5 || rel_h < 5 {
-                        continue;
-                    }
-
-                    // Draw border rectangle (transparent fill due to null brush)
-                    let _ = Rectangle(hdc, rel_x, rel_y, rel_x + rel_w, rel_y + rel_h);
-
-                    // Draw label ABOVE the green box - just show index number
-                    let label = format!("[{}]", elem.index);
-                    let label_width = (label.len() * 6) as i32 + 4; // Width for index only
-
-                    // Position label above the box (rel_y - label_height)
-                    let label_top = if rel_y > label_height { rel_y - label_height } else { rel_y };
-
-                    let label_rect = RECT {
-                        left: rel_x,
-                        top: label_top,
-                        right: rel_x + label_width,
-                        bottom: label_top + label_height,
-                    };
-
-                    // Fill label background with dark color (not pure black to avoid transparency)
-                    let label_bg = CreateSolidBrush(COLORREF(0x333333)); // Dark gray
-                    FillRect(hdc, &label_rect, label_bg);
-                    let _ = DeleteObject(label_bg.into());
-
-                    // Draw text
-                    let mut wide_text: Vec<u16> = label.encode_utf16().collect();
-                    wide_text.push(0);
-
-                    let mut text_rect = RECT {
-                        left: rel_x + 1,
-                        top: label_top,
-                        right: rel_x + label_width,
-                        bottom: label_top + label_height,
-                    };
-
-                    let _ = DrawTextW(hdc, &mut wide_text, &mut text_rect, DT_SINGLELINE | DT_VCENTER);
-                }
-
-                // Restore old brush
-                SelectObject(hdc, old_brush);
-
-                // Cleanup
-                SelectObject(hdc, old_font);
-                SelectObject(hdc, old_pen);
-                let _ = DeleteObject(HGDIOBJ(font.0));
-                let _ = DeleteObject(pen.into());
-            }
-
-            EndPaint(hwnd, &ps);
-            LRESULT(0)
-        }
-        WM_CLOSE => {
-            let _ = DestroyWindow(hwnd);
-            LRESULT(0)
-        }
-        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
-    }
+    // Minimal window proc - we draw directly, not via WM_PAINT
+    DefWindowProcW(hwnd, msg, wparam, lparam)
 }
