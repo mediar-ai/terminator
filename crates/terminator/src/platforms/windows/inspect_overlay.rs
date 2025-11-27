@@ -253,13 +253,19 @@ unsafe extern "system" fn inspect_overlay_window_proc(
             if let (Some(elements), Some(offset)) = (elements, offset) {
                 let (offset_x, offset_y) = *offset;
 
-                // Create pen for borders (green)
+                // Create pen for borders (green) - no fill
                 let pen = CreatePen(PS_SOLID, 2, COLORREF(0x00FF00)); // Green in BGR
                 let old_pen = SelectObject(hdc, HGDIOBJ(pen.0));
 
-                // Create font for labels
+                // Select null brush for transparent fill on rectangles
+                let null_brush = windows::Win32::Graphics::Gdi::GetStockObject(
+                    windows::Win32::Graphics::Gdi::NULL_BRUSH,
+                );
+                let old_brush = SelectObject(hdc, null_brush);
+
+                // Create font for labels (smaller: 11 instead of 14)
                 let font = CreateFontW(
-                    14, // Height
+                    11, // Height - 3 increments smaller
                     0, 0, 0,
                     700, // Bold
                     0, 0, 0,
@@ -276,6 +282,8 @@ unsafe extern "system" fn inspect_overlay_window_proc(
                 SetTextColor(hdc, COLORREF(0xFFFFFF)); // White text
                 SetBkMode(hdc, TRANSPARENT);
 
+                let label_height = 13; // Adjusted for smaller font
+
                 for elem in elements.iter() {
                     let (ex, ey, ew, eh) = elem.bounds;
 
@@ -290,19 +298,21 @@ unsafe extern "system" fn inspect_overlay_window_proc(
                         continue;
                     }
 
-                    // Draw border rectangle
+                    // Draw border rectangle (transparent fill due to null brush)
                     let _ = Rectangle(hdc, rel_x, rel_y, rel_x + rel_w, rel_y + rel_h);
 
-                    // Draw label background (black filled rect for text)
+                    // Draw label ABOVE the green box
                     let label = format!("[{}:{}]", elem.index, &elem.role);
-                    let label_width = (label.len() * 7) as i32; // Approximate width
-                    let label_height = 16;
+                    let label_width = (label.len() * 5) as i32 + 2; // Tighter width calculation
+
+                    // Position label above the box (rel_y - label_height)
+                    let label_top = if rel_y > label_height { rel_y - label_height } else { rel_y };
 
                     let label_rect = RECT {
-                        left: rel_x + 2,
-                        top: rel_y + 2,
-                        right: rel_x + 2 + label_width + 4,
-                        bottom: rel_y + 2 + label_height,
+                        left: rel_x,
+                        top: label_top,
+                        right: rel_x + label_width,
+                        bottom: label_top + label_height,
                     };
 
                     // Fill label background with dark color (not pure black to avoid transparency)
@@ -315,14 +325,17 @@ unsafe extern "system" fn inspect_overlay_window_proc(
                     wide_text.push(0);
 
                     let mut text_rect = RECT {
-                        left: rel_x + 4,
-                        top: rel_y + 2,
-                        right: rel_x + 2 + label_width + 4,
-                        bottom: rel_y + 2 + label_height,
+                        left: rel_x + 1,
+                        top: label_top,
+                        right: rel_x + label_width,
+                        bottom: label_top + label_height,
                     };
 
                     let _ = DrawTextW(hdc, &mut wide_text, &mut text_rect, DT_SINGLELINE | DT_VCENTER);
                 }
+
+                // Restore old brush
+                SelectObject(hdc, old_brush);
 
                 // Cleanup
                 SelectObject(hdc, old_font);

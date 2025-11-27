@@ -5026,12 +5026,12 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
     async fn hide_inspect_overlay(&self) -> Result<CallToolResult, McpError> {
         #[cfg(target_os = "windows")]
         {
-            // Hide any active overlay
-            terminator::hide_inspect_overlay();
-
-            // Clear stored overlay handle
+            // Use the stored handle to close the overlay (thread-safe via atomic flag)
             if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
-                *handle = None;
+                if let Some(h) = handle.take() {
+                    h.close();
+                    info!("Closed inspect overlay via handle");
+                }
             }
         }
 
