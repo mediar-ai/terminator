@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.28] - 2025-11-27
+
+### Added
+- CI: Publish terminator-cli to crates.io on release (`cargo install terminator-cli`)
+- Docs: Add remote-mcp skill for controlling remote machines via MCP
+
+### Fixed
+- Code: Resolve clippy warnings (dead_code, format strings)
+
 ## [0.23.27] - 2025-11-27
 
 ### Added
