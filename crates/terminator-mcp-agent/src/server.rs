@@ -924,7 +924,7 @@ impl DesktopWrapper {
         let bounds = window_element
             .bounds()
             .map_err(|e| format!("Failed to get window bounds: {e}"))?;
-        let (window_x, window_y, _width, _height) = bounds;
+        let (window_x, window_y, win_w, win_h) = bounds;
 
         // Capture screenshot of the window
         let screenshot = window_element
@@ -934,6 +934,14 @@ impl DesktopWrapper {
         // Get original screenshot dimensions
         let original_width = screenshot.width;
         let original_height = screenshot.height;
+
+        // DPI DEBUG: Compare logical window bounds vs physical screenshot size
+        let dpi_scale_w = original_width as f64 / win_w;
+        let dpi_scale_h = original_height as f64 / win_h;
+        info!(
+            "OMNIPARSER DPI DEBUG: window_bounds(logical)=({:.0},{:.0},{:.0},{:.0}), screenshot(physical)={}x{}, dpi_scale=({:.3},{:.3})",
+            window_x, window_y, win_w, win_h, original_width, original_height, dpi_scale_w, dpi_scale_h
+        );
 
         // Convert BGRA to RGBA (xcap returns BGRA format)
         let rgba_data: Vec<u8> = screenshot
@@ -1044,12 +1052,20 @@ impl DesktopWrapper {
             .bounds()
             .map_err(|e| format!("Failed to get window bounds: {e}"))?;
 
-        let (window_x, window_y, _width, _height) = bounds;
+        let (window_x, window_y, win_w, win_h) = bounds;
 
         // Capture screenshot of the window
         let screenshot = window_element
             .capture()
             .map_err(|e| format!("Failed to capture window screenshot: {e}"))?;
+
+        // DPI DEBUG: Compare logical window bounds vs physical screenshot size
+        let scale_ratio_w = screenshot.width as f64 / win_w;
+        let scale_ratio_h = screenshot.height as f64 / win_h;
+        info!(
+            "OCR DPI DEBUG: window_bounds(logical)=({:.0},{:.0},{:.0},{:.0}), screenshot(physical)={}x{}, scale_ratio=({:.3},{:.3})",
+            window_x, window_y, win_w, win_h, screenshot.width, screenshot.height, scale_ratio_w, scale_ratio_h
+        );
 
         // Perform OCR with bounding boxes using Desktop's method
         self.desktop
@@ -1189,10 +1205,19 @@ impl DesktopWrapper {
                             // Store DOM bounds with screen coordinates applied
                             if let Ok(mut cache) = self.dom_bounds.lock() {
                                 cache.clear();
+                                let mut first_logged = false;
                                 for (index, (tag, identifier, (x, y, w, h))) in dom_result.index_to_bounds {
                                     // Convert viewport-relative to screen coordinates
                                     let screen_x = x + viewport_offset_x;
                                     let screen_y = y + viewport_offset_y;
+                                    // DPI DEBUG: Log first element conversion
+                                    if !first_logged {
+                                        info!(
+                                            "DOM DPI DEBUG: viewport_offset=({:.0},{:.0}), first_elem viewport_rel=({:.0},{:.0}), screen=({:.0},{:.0})",
+                                            viewport_offset_x, viewport_offset_y, x, y, screen_x, screen_y
+                                        );
+                                        first_logged = true;
+                                    }
                                     cache.insert(index, (tag, identifier, (screen_x, screen_y, w, h)));
                                 }
                                 info!("Stored {} DOM element bounds for click_index", cache.len());
@@ -1410,9 +1435,20 @@ impl DesktopWrapper {
                             .collect();
 
                         if !elements.is_empty() {
+                            // DPI DEBUG: Log sample element bounds for OCR
+                            if let Some(first) = elements.first() {
+                                info!(
+                                    "OCR OVERLAY DEBUG: first_element bounds=({:.0},{:.0},{:.0},{:.0})",
+                                    first.bounds.0, first.bounds.1, first.bounds.2, first.bounds.3
+                                );
+                            }
                             if let Ok(apps) = self.desktop.applications() {
                                 if let Some(app) = apps.iter().find(|a| a.process_id().ok() == Some(pid)) {
                                     if let Ok((x, y, w, h)) = app.bounds() {
+                                        info!(
+                                            "OCR OVERLAY DEBUG: window_bounds for overlay=({:.0},{:.0},{:.0},{:.0})",
+                                            x, y, w, h
+                                        );
                                         if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
                                             *handle = None;
                                         }
@@ -1456,9 +1492,20 @@ impl DesktopWrapper {
                             .collect();
 
                         if !elements.is_empty() {
+                            // DPI DEBUG: Log sample element bounds for omniparser
+                            if let Some(first) = elements.first() {
+                                info!(
+                                    "OMNIPARSER OVERLAY DEBUG: first_element bounds=({:.0},{:.0},{:.0},{:.0})",
+                                    first.bounds.0, first.bounds.1, first.bounds.2, first.bounds.3
+                                );
+                            }
                             if let Ok(apps) = self.desktop.applications() {
                                 if let Some(app) = apps.iter().find(|a| a.process_id().ok() == Some(pid)) {
                                     if let Ok((x, y, w, h)) = app.bounds() {
+                                        info!(
+                                            "OMNIPARSER OVERLAY DEBUG: window_bounds for overlay=({:.0},{:.0},{:.0},{:.0})",
+                                            x, y, w, h
+                                        );
                                         if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
                                             *handle = None;
                                         }
@@ -1499,9 +1546,20 @@ impl DesktopWrapper {
                             .collect();
 
                         if !elements.is_empty() {
+                            // DPI DEBUG: Log sample element bounds for DOM
+                            if let Some(first) = elements.first() {
+                                info!(
+                                    "DOM OVERLAY DEBUG: first_element bounds=({:.0},{:.0},{:.0},{:.0})",
+                                    first.bounds.0, first.bounds.1, first.bounds.2, first.bounds.3
+                                );
+                            }
                             if let Ok(apps) = self.desktop.applications() {
                                 if let Some(app) = apps.iter().find(|a| a.process_id().ok() == Some(pid)) {
                                     if let Ok((x, y, w, h)) = app.bounds() {
+                                        info!(
+                                            "DOM OVERLAY DEBUG: window_bounds for overlay=({:.0},{:.0},{:.0},{:.0})",
+                                            x, y, w, h
+                                        );
                                         if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
                                             *handle = None;
                                         }
