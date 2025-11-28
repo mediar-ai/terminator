@@ -15,7 +15,18 @@ import {
  *
  * @example
  * ```typescript
- * // Basic step
+ * // Basic step with automatic retries (recommended for simple cases)
+ * const clickButton = createStep({
+ *   id: 'click_submit',
+ *   name: 'Click Submit Button',
+ *   retries: 3,        // Retry up to 3 times on failure
+ *   retryDelayMs: 1000, // Start with 1s delay (doubles each retry)
+ *   execute: async ({ desktop }) => {
+ *     await desktop.locator('role:button[name="Submit"]').click();
+ *   }
+ * });
+ *
+ * // Step with custom error handling (for complex recovery logic)
  * const login = createStep({
  *   id: 'login',
  *   name: 'Login to Application',
@@ -23,10 +34,12 @@ import {
  *     await desktop.locator('role:textbox').fill(input.username);
  *     await desktop.locator('role:button').click();
  *   },
- *   onError: async ({ error, retry }) => {
+ *   onError: async ({ error, retry, logger }) => {
  *     if (error.message.includes('Session conflict')) {
+ *       logger.info('Session conflict detected, retrying...');
  *       return retry();
  *     }
+ *     return { recoverable: false, reason: error.message };
  *   }
  * });
  *
@@ -154,6 +167,40 @@ export function createStep<
           };
         }
 
+        // Track attempt count for retries
+        const currentAttempt = (error._retryAttempt as number) || 0;
+
+        // Handle automatic retries (sugar for onError + retry pattern)
+        if (config.retries && config.retries > 0 && !config.onError) {
+          if (currentAttempt < config.retries) {
+            const delayMs = (config.retryDelayMs || 1000) * Math.pow(2, currentAttempt);
+            logger.info(`🔄 Retry ${currentAttempt + 1}/${config.retries} for ${config.name} (waiting ${delayMs}ms)...`);
+            
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+            
+            // Mark attempt count for next iteration
+            const retryError = new Error(error.message);
+            (retryError as any)._retryAttempt = currentAttempt + 1;
+            Object.assign(retryError, error);
+            
+            // Re-run the step
+            try {
+              return await this.run(context);
+            } catch (retryErr: any) {
+              // If retry also fails, propagate with updated attempt count
+              if (!retryErr._retryAttempt) {
+                retryErr._retryAttempt = currentAttempt + 1;
+              }
+              throw retryErr;
+            }
+          } else {
+            logger.error(`❌ Max retries (${config.retries}) exceeded for ${config.name}`);
+            error.recoverable = false;
+            error.code = 'MAX_RETRIES_EXCEEDED';
+            throw error;
+          }
+        }
+
         // Try error recovery if handler provided
         if (config.onError) {
           const errorContext: ErrorContext<TInput, TOutput, TStateIn> = {
@@ -162,7 +209,7 @@ export function createStep<
             input: context.input,
             context: context.context,
             logger: context.logger,
-            attempt: 0,
+            attempt: currentAttempt,
             retry: async () => {
               logger.info(`🔄 Retrying step: ${config.name}...`);
               const result = await this.run(context);

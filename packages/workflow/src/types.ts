@@ -45,17 +45,54 @@ export interface StepContext<TInput = any, TState = Record<string, any>> {
 }
 
 /**
- * Error recovery context
+ * Error recovery context for handling step failures
+ *
+ * ## Retry Model
+ *
+ * There are two levels of retry in Mediar workflows:
+ *
+ * 1. **Infrastructure Retry** (automatic, handled by executor):
+ *    - MCP server unreachable, VM down, network timeouts
+ *    - Handled automatically by the Rust executor with exponential backoff
+ *    - You don't need to handle these in your workflow code
+ *
+ * 2. **Business Logic Retry** (manual, handled in `onError`):
+ *    - Application errors: element not found, validation failed, unexpected state
+ *    - Use `retry()` to re-execute the step after recovery actions
+ *    - You control the retry logic, max attempts, and recovery strategy
+ *
  * @template TInput - Type of workflow input
  * @template TOutput - Type of step output
  * @template TState - Type of accumulated state from previous steps
+ *
+ * @example
+ * ```typescript
+ * createStep({
+ *   id: 'submit_form',
+ *   name: 'Submit Form',
+ *   execute: async ({ desktop }) => {
+ *     await desktop.locator('role:button[name="Submit"]').click();
+ *   },
+ *   onError: async ({ error, retry, desktop, logger }) => {
+ *     if (error.message.includes('Session expired')) {
+ *       logger.info('Session expired, re-authenticating...');
+ *       await desktop.locator('role:button[name="Login"]').click();
+ *       return retry();
+ *     }
+ *     return { recoverable: false, reason: error.message };
+ *   }
+ * })
+ * ```
  */
 export interface ErrorContext<TInput = any, TOutput = any, TState = Record<string, any>> {
   /** The error that occurred */
   error: Error;
   /** Desktop instance for recovery actions */
   desktop: import('@mediar-ai/terminator').Desktop;
-  /** Retry the step execution */
+  /**
+   * Retry the step execution after performing recovery actions.
+   * Call this to re-execute the step's `execute()` function.
+   */
   retry: () => Promise<TOutput>;
   /** Current attempt number (0-indexed) */
   attempt: number;
@@ -226,13 +263,72 @@ export interface StepConfig<
     context: ExpectationContext<TInput, TOutput, TStateIn>
   ) => Promise<ExpectationResult>;
 
-  /** Error recovery function */
+  /**
+   * Error recovery handler for business logic failures.
+   *
+   * Use this to handle application-level errors like:
+   * - Element not found / UI state issues
+   * - Validation failures
+   * - Business rule violations
+   * - Session timeouts
+   *
+   * **Note:** Infrastructure errors (MCP unreachable, VM down, network issues)
+   * are automatically retried by the executor - you don't need to handle them here.
+   *
+   * @example
+   * ```typescript
+   * onError: async ({ error, retry, attempt, logger }) => {
+   *   if (attempt >= 3) {
+   *     return { recoverable: false, reason: 'Max retries exceeded' };
+   *   }
+   *   if (error.message.includes('Element not found')) {
+   *     logger.info(`Retry attempt ${attempt + 1}/3`);
+   *     await new Promise(r => setTimeout(r, 1000));
+   *     return retry();
+   *   }
+   *   return { recoverable: false, reason: error.message };
+   * }
+   * ```
+   */
   onError?: (
     context: ErrorContext<TInput, TOutput, TStateIn>
   ) => Promise<ErrorRecoveryResult | void>;
 
   /** Step timeout in milliseconds */
   timeout?: number;
+
+  /**
+   * Number of automatic retries on failure (sugar for onError + retry pattern).
+   *
+   * When set, automatically retries the step up to this many times with
+   * exponential backoff. Cannot be used together with `onError`.
+   *
+   * **Note:** This is for business logic retries only. Infrastructure errors
+   * are handled automatically by the executor.
+   *
+   * @default undefined (no automatic retries)
+   *
+   * @example
+   * ```typescript
+   * createStep({
+   *   id: 'flaky_step',
+   *   name: 'Flaky Operation',
+   *   retries: 3,
+   *   retryDelayMs: 1000,
+   *   execute: async ({ desktop }) => {
+   *     await desktop.locator('role:button').click();
+   *   }
+   * })
+   * ```
+   */
+  retries?: number;
+
+  /**
+   * Initial delay in milliseconds between retries (default: 1000ms).
+   * Uses exponential backoff: delay doubles after each retry.
+   * Only used when `retries` is set.
+   */
+  retryDelayMs?: number;
 
   /** Condition to determine if step should run */
   condition?: (context: { input: TInput; context: WorkflowContext<TInput, TStateIn> }) => boolean;
