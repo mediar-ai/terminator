@@ -30,7 +30,10 @@ pub use applications::get_process_name_by_pid;
 pub use highlighting::set_recording_mode;
 
 // Re-export inspect overlay functions
-pub use inspect_overlay::{hide_inspect_overlay, show_inspect_overlay, InspectElement, InspectOverlayHandle, OverlayDisplayMode};
+pub use inspect_overlay::{
+    hide_inspect_overlay, show_inspect_overlay, InspectElement, InspectOverlayHandle,
+    OverlayDisplayMode,
+};
 
 // Re-export virtual display support
 pub use virtual_display::{

@@ -11,9 +11,9 @@ use tracing::{debug, error, info};
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HWND, RECT};
 use windows::Win32::Graphics::Gdi::{
-    CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW,
-    FillRect, GetDC, LineTo, MoveToEx, Rectangle, ReleaseDC, SelectObject, SetBkMode, SetTextColor,
-    DT_SINGLELINE, DT_VCENTER, HBRUSH, HGDIOBJ, PS_SOLID, TRANSPARENT,
+    CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW, FillRect, GetDC, LineTo,
+    MoveToEx, Rectangle, ReleaseDC, SelectObject, SetBkMode, SetTextColor, DT_SINGLELINE,
+    DT_VCENTER, HBRUSH, HGDIOBJ, PS_SOLID, TRANSPARENT,
 };
 
 /// Display mode for overlay labels
@@ -37,9 +37,8 @@ pub enum OverlayDisplayMode {
 }
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, LoadCursorW,
-    RegisterClassExW, SetLayeredWindowAttributes, ShowWindow,
-    HICON, IDC_ARROW, LWA_COLORKEY, SW_SHOWNOACTIVATE,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, LoadCursorW, RegisterClassExW,
+    SetLayeredWindowAttributes, ShowWindow, HICON, IDC_ARROW, LWA_COLORKEY, SW_SHOWNOACTIVATE,
     WNDCLASSEXW, WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 
@@ -88,9 +87,12 @@ thread_local! {
 }
 
 // Global storage for elements to render (shared between threads)
-static INSPECT_ELEMENTS: std::sync::OnceLock<std::sync::Mutex<Vec<InspectElement>>> = std::sync::OnceLock::new();
-static WINDOW_OFFSET: std::sync::OnceLock<std::sync::Mutex<(i32, i32)>> = std::sync::OnceLock::new();
-static DISPLAY_MODE: std::sync::OnceLock<std::sync::Mutex<OverlayDisplayMode>> = std::sync::OnceLock::new();
+static INSPECT_ELEMENTS: std::sync::OnceLock<std::sync::Mutex<Vec<InspectElement>>> =
+    std::sync::OnceLock::new();
+static WINDOW_OFFSET: std::sync::OnceLock<std::sync::Mutex<(i32, i32)>> =
+    std::sync::OnceLock::new();
+static DISPLAY_MODE: std::sync::OnceLock<std::sync::Mutex<OverlayDisplayMode>> =
+    std::sync::OnceLock::new();
 
 fn get_elements_storage() -> &'static std::sync::Mutex<Vec<InspectElement>> {
     INSPECT_ELEMENTS.get_or_init(|| std::sync::Mutex::new(Vec::new()))
@@ -114,25 +116,30 @@ pub fn show_inspect_overlay(
 
     info!(
         "show_inspect_overlay: {} elements, window bounds: ({}, {}, {}, {}), mode: {:?}",
-        elements.len(), win_x, win_y, win_w, win_h, display_mode
+        elements.len(),
+        win_x,
+        win_y,
+        win_w,
+        win_h,
+        display_mode
     );
 
     // Store elements, offset, and display mode for the paint callback
     {
         let mut stored = get_elements_storage().lock().map_err(|e| {
-            AutomationError::PlatformError(format!("Failed to lock elements storage: {}", e))
+            AutomationError::PlatformError(format!("Failed to lock elements storage: {e}"))
         })?;
         *stored = elements;
     }
     {
         let mut mode = get_display_mode_storage().lock().map_err(|e| {
-            AutomationError::PlatformError(format!("Failed to lock display mode storage: {}", e))
+            AutomationError::PlatformError(format!("Failed to lock display mode storage: {e}"))
         })?;
         *mode = display_mode;
     }
     {
         let mut offset = get_offset_storage().lock().map_err(|e| {
-            AutomationError::PlatformError(format!("Failed to lock offset storage: {}", e))
+            AutomationError::PlatformError(format!("Failed to lock offset storage: {e}"))
         })?;
         *offset = (win_x, win_y);
     }
@@ -141,7 +148,9 @@ pub fn show_inspect_overlay(
     let should_close_clone = should_close.clone();
 
     let handle = thread::spawn(move || {
-        if let Err(e) = create_inspect_overlay_window(win_x, win_y, win_w, win_h, should_close_clone) {
+        if let Err(e) =
+            create_inspect_overlay_window(win_x, win_y, win_w, win_h, should_close_clone)
+        {
             error!("Failed to create inspect overlay: {}", e);
         }
     });
@@ -181,7 +190,7 @@ fn create_inspect_overlay_window(
         cleanup_overlay_window();
 
         let instance = GetModuleHandleW(None)
-            .map_err(|e| AutomationError::PlatformError(format!("GetModuleHandleW failed: {}", e)))?;
+            .map_err(|e| AutomationError::PlatformError(format!("GetModuleHandleW failed: {e}")))?;
 
         // Register window class
         let wc = WNDCLASSEXW {
@@ -219,7 +228,7 @@ fn create_inspect_overlay_window(
             Some(instance.into()),
             None,
         )
-        .map_err(|e| AutomationError::PlatformError(format!("CreateWindowExW failed: {}", e)))?;
+        .map_err(|e| AutomationError::PlatformError(format!("CreateWindowExW failed: {e}")))?;
 
         if hwnd.is_invalid() {
             return Err(AutomationError::PlatformError(
@@ -229,7 +238,7 @@ fn create_inspect_overlay_window(
 
         // Make black transparent (color key)
         SetLayeredWindowAttributes(hwnd, COLORREF(0x000000), 255, LWA_COLORKEY).map_err(|e| {
-            AutomationError::PlatformError(format!("SetLayeredWindowAttributes failed: {}", e))
+            AutomationError::PlatformError(format!("SetLayeredWindowAttributes failed: {e}"))
         })?;
 
         // Show without activating
@@ -268,15 +277,23 @@ fn format_label(elem: &InspectElement, mode: OverlayDisplayMode) -> Option<Strin
         OverlayDisplayMode::IndexRole => Some(format!("[{}:{}]", elem.index, elem.role)),
         OverlayDisplayMode::Name => {
             if let Some(ref name) = elem.name {
-                let truncated = if name.len() > 15 { format!("{}...", &name[..12]) } else { name.clone() };
-                Some(format!("[{}]", truncated))
+                let truncated = if name.len() > 15 {
+                    format!("{}...", &name[..12])
+                } else {
+                    name.clone()
+                };
+                Some(format!("[{truncated}]"))
             } else {
                 Some(format!("[{}]", elem.index))
             }
         }
         OverlayDisplayMode::IndexName => {
             if let Some(ref name) = elem.name {
-                let truncated = if name.len() > 15 { format!("{}...", &name[..12]) } else { name.clone() };
+                let truncated = if name.len() > 15 {
+                    format!("{}...", &name[..12])
+                } else {
+                    name.clone()
+                };
                 Some(format!("[{}:{}]", elem.index, truncated))
             } else {
                 Some(format!("[{}]", elem.index))
@@ -284,7 +301,11 @@ fn format_label(elem: &InspectElement, mode: OverlayDisplayMode) -> Option<Strin
         }
         OverlayDisplayMode::Full => {
             if let Some(ref name) = elem.name {
-                let truncated = if name.len() > 12 { format!("{}...", &name[..9]) } else { name.clone() };
+                let truncated = if name.len() > 12 {
+                    format!("{}...", &name[..9])
+                } else {
+                    name.clone()
+                };
                 Some(format!("[{}:{}:{}]", elem.index, elem.role, truncated))
             } else {
                 Some(format!("[{}:{}]", elem.index, elem.role))
@@ -320,7 +341,8 @@ fn draw_inspect_overlay(hwnd: HWND) {
         let offset = get_offset_storage().lock().ok();
         let display_mode = get_display_mode_storage().lock().ok();
 
-        if let (Some(elements), Some(offset), Some(display_mode)) = (elements, offset, display_mode) {
+        if let (Some(elements), Some(offset), Some(display_mode)) = (elements, offset, display_mode)
+        {
             let (offset_x, offset_y) = *offset;
             let mode = *display_mode;
 
@@ -338,9 +360,13 @@ fn draw_inspect_overlay(hwnd: HWND) {
             // Create font for labels (11px, bold)
             let font = CreateFontW(
                 11, // Height
-                0, 0, 0,
+                0,
+                0,
+                0,
                 700, // Bold weight
-                0, 0, 0,
+                0,
+                0,
+                0,
                 windows::Win32::Graphics::Gdi::FONT_CHARSET(1),
                 windows::Win32::Graphics::Gdi::FONT_OUTPUT_PRECISION(0),
                 windows::Win32::Graphics::Gdi::FONT_CLIP_PRECISION(0),
@@ -398,7 +424,11 @@ fn draw_inspect_overlay(hwnd: HWND) {
 
                     // Initial label position (above element)
                     let mut label_left = rel_x;
-                    let mut label_top = if rel_y > label_height + 2 { rel_y - label_height - 2 } else { rel_y };
+                    let mut label_top = if rel_y > label_height + 2 {
+                        rel_y - label_height - 2
+                    } else {
+                        rel_y
+                    };
 
                     let mut label_rect = RECT {
                         left: label_left,
@@ -410,7 +440,9 @@ fn draw_inspect_overlay(hwnd: HWND) {
                     // Check for collisions and offset diagonally
                     let mut attempts = 0;
                     let max_attempts = 10;
-                    while attempts < max_attempts && used_rects.iter().any(|r| rects_overlap(&label_rect, r)) {
+                    while attempts < max_attempts
+                        && used_rects.iter().any(|r| rects_overlap(&label_rect, r))
+                    {
                         // Offset diagonally (up-right)
                         label_left += diagonal_offset;
                         label_top -= diagonal_offset;
@@ -424,7 +456,13 @@ fn draw_inspect_overlay(hwnd: HWND) {
                     }
 
                     // Check if label was offset (needs connector line)
-                    let was_offset = label_left != rel_x || label_top != (if rel_y > label_height + 2 { rel_y - label_height - 2 } else { rel_y });
+                    let was_offset = label_left != rel_x
+                        || label_top
+                            != (if rel_y > label_height + 2 {
+                                rel_y - label_height - 2
+                            } else {
+                                rel_y
+                            });
 
                     // Draw connector line if label was offset
                     if was_offset {
@@ -445,7 +483,12 @@ fn draw_inspect_overlay(hwnd: HWND) {
                         bottom: label_top + label_height,
                     };
 
-                    let _ = DrawTextW(hdc, &mut wide_text, &mut text_rect, DT_SINGLELINE | DT_VCENTER);
+                    let _ = DrawTextW(
+                        hdc,
+                        &mut wide_text,
+                        &mut text_rect,
+                        DT_SINGLELINE | DT_VCENTER,
+                    );
 
                     // Track this label's position
                     used_rects.push(label_rect);

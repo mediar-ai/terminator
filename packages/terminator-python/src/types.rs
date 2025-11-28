@@ -470,6 +470,7 @@ impl From<TreeBuildConfig> for ::terminator_core::platforms::TreeBuildConfig {
             yield_every_n_elements: config.yield_every_n_elements,
             batch_size: config.batch_size,
             max_depth: None, // Not exposed in Python bindings yet
+            include_all_bounds: false,
         }
     }
 }

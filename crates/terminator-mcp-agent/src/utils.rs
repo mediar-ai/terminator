@@ -348,11 +348,13 @@ pub struct DesktopWrapper {
     /// Stores UIA tree index-to-bounds mapping from the last get_window_tree
     /// Key is 1-based index, value is (role, name, (x, y, width, height))
     #[serde(skip)]
-    pub uia_bounds: Arc<Mutex<std::collections::HashMap<u32, (String, String, (f64, f64, f64, f64))>>>,
+    pub uia_bounds:
+        Arc<Mutex<std::collections::HashMap<u32, (String, String, (f64, f64, f64, f64))>>>,
     /// Stores browser DOM index-to-bounds mapping from the last get_window_tree
     /// Key is 1-based index, value is (tag, identifier, (x, y, width, height)) in screen coordinates
     #[serde(skip)]
-    pub dom_bounds: Arc<Mutex<std::collections::HashMap<u32, (String, String, (f64, f64, f64, f64))>>>,
+    pub dom_bounds:
+        Arc<Mutex<std::collections::HashMap<u32, (String, String, (f64, f64, f64, f64))>>>,
     /// Stores the active inspect overlay handle for cleanup
     #[cfg(target_os = "windows")]
     #[serde(skip)]

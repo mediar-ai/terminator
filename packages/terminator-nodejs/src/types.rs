@@ -272,6 +272,7 @@ impl From<TreeBuildConfig> for terminator::platforms::TreeBuildConfig {
             yield_every_n_elements: config.yield_every_n_elements.map(|x| x as usize),
             batch_size: config.batch_size.map(|x| x as usize),
             max_depth: None, // Not exposed in nodejs bindings yet
+            include_all_bounds: false,
         }
     }
 }

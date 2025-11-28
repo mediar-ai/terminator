@@ -192,6 +192,7 @@ mod performance_benchmarks {
                 yield_every_n_elements: Some(50),
                 batch_size: Some(50),
                 max_depth: None,
+                include_all_bounds: false,
             };
 
             match engine.get_window_tree(pid, Some(&window_title), config) {

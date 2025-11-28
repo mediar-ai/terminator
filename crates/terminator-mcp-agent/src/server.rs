@@ -820,10 +820,8 @@ impl DesktopWrapper {
             r#"
 (function() {{
     const elements = [];
-    const maxElements = {}; // Configurable limit"#,
-            max_elements
-        )
-        + r#"
+    const maxElements = {max_elements}; // Configurable limit"#
+        ) + r#"
 
     // Use TreeWalker to traverse ALL elements in the DOM
     const walker = document.createTreeWalker(
@@ -1187,57 +1185,67 @@ impl DesktopWrapper {
             if args.include_browser_dom {
                 let max_dom_elements = args.browser_dom_max_elements.unwrap_or(200);
                 match self.capture_browser_dom_elements(max_dom_elements).await {
-                Ok((dom_elements, viewport_offset_x, viewport_offset_y)) if !dom_elements.is_empty() => {
-                    // Format based on tree_output_format
-                    let format = args
-                        .tree
-                        .tree_output_format
-                        .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
+                    Ok((dom_elements, viewport_offset_x, viewport_offset_y))
+                        if !dom_elements.is_empty() =>
+                    {
+                        // Format based on tree_output_format
+                        let format = args
+                            .tree
+                            .tree_output_format
+                            .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
 
-                    match format {
-                        crate::mcp_types::TreeOutputFormat::CompactYaml => {
-                            let dom_result =
-                                crate::tree_formatter::format_browser_dom_as_compact_yaml(
-                                    &dom_elements,
-                                );
-                            result_json["browser_dom"] = json!(dom_result.formatted);
+                        match format {
+                            crate::mcp_types::TreeOutputFormat::CompactYaml => {
+                                let dom_result =
+                                    crate::tree_formatter::format_browser_dom_as_compact_yaml(
+                                        &dom_elements,
+                                    );
+                                result_json["browser_dom"] = json!(dom_result.formatted);
 
-                            // Store DOM bounds with screen coordinates applied
-                            if let Ok(mut cache) = self.dom_bounds.lock() {
-                                cache.clear();
-                                let mut first_logged = false;
-                                for (index, (tag, identifier, (x, y, w, h))) in dom_result.index_to_bounds {
-                                    // Convert viewport-relative to screen coordinates
-                                    let screen_x = x + viewport_offset_x;
-                                    let screen_y = y + viewport_offset_y;
-                                    // DPI DEBUG: Log first element conversion
-                                    if !first_logged {
-                                        info!(
+                                // Store DOM bounds with screen coordinates applied
+                                if let Ok(mut cache) = self.dom_bounds.lock() {
+                                    cache.clear();
+                                    let mut first_logged = false;
+                                    for (index, (tag, identifier, (x, y, w, h))) in
+                                        dom_result.index_to_bounds
+                                    {
+                                        // Convert viewport-relative to screen coordinates
+                                        let screen_x = x + viewport_offset_x;
+                                        let screen_y = y + viewport_offset_y;
+                                        // DPI DEBUG: Log first element conversion
+                                        if !first_logged {
+                                            info!(
                                             "DOM DPI DEBUG: viewport_offset=({:.0},{:.0}), first_elem viewport_rel=({:.0},{:.0}), screen=({:.0},{:.0})",
                                             viewport_offset_x, viewport_offset_y, x, y, screen_x, screen_y
                                         );
-                                        first_logged = true;
+                                            first_logged = true;
+                                        }
+                                        cache.insert(
+                                            index,
+                                            (tag, identifier, (screen_x, screen_y, w, h)),
+                                        );
                                     }
-                                    cache.insert(index, (tag, identifier, (screen_x, screen_y, w, h)));
+                                    info!(
+                                        "Stored {} DOM element bounds for click_index",
+                                        cache.len()
+                                    );
                                 }
-                                info!("Stored {} DOM element bounds for click_index", cache.len());
+                            }
+                            crate::mcp_types::TreeOutputFormat::VerboseJson => {
+                                result_json["browser_dom"] = json!(dom_elements);
                             }
                         }
-                        crate::mcp_types::TreeOutputFormat::VerboseJson => {
-                            result_json["browser_dom"] = json!(dom_elements);
-                        }
+                        result_json["browser_dom_count"] = json!(dom_elements.len());
+                        info!("Captured {} DOM elements from browser", dom_elements.len());
                     }
-                    result_json["browser_dom_count"] = json!(dom_elements.len());
-                    info!("Captured {} DOM elements from browser", dom_elements.len());
-                }
-                Ok(_) => {
-                    info!("Browser detected but no DOM elements captured (extension may not be available)");
-                    result_json["browser_dom_error"] = json!("No DOM elements captured - Chrome extension may not be installed or active");
-                }
-                Err(e) => {
-                    warn!("Failed to capture browser DOM: {}", e);
-                    result_json["browser_dom_error"] = json!(e.to_string());
-                }
+                    Ok(_) => {
+                        info!("Browser detected but no DOM elements captured (extension may not be available)");
+                        result_json["browser_dom_error"] = json!("No DOM elements captured - Chrome extension may not be installed or active");
+                    }
+                    Err(e) => {
+                        warn!("Failed to capture browser DOM: {}", e);
+                        result_json["browser_dom_error"] = json!(e.to_string());
+                    }
                 }
             }
         }
@@ -1245,7 +1253,11 @@ impl DesktopWrapper {
         // Use maybe_attach_tree to handle tree extraction with from_selector support
         // Store the returned bounds cache for click_index tool
         // Enable include_all_bounds when showing ui_tree overlay (need bounds for all elements)
-        let include_all_bounds = args.show_overlay.as_ref().map(|s| s == "ui_tree").unwrap_or(false);
+        let include_all_bounds = args
+            .show_overlay
+            .as_ref()
+            .map(|s| s == "ui_tree")
+            .unwrap_or(false);
         if let Some(bounds_cache) = crate::helpers::maybe_attach_tree(
             &self.desktop,
             args.tree.include_tree_after_action,
@@ -1382,14 +1394,20 @@ impl DesktopWrapper {
                             .map(|(idx, (role, name, bounds))| terminator::InspectElement {
                                 index: *idx,
                                 role: role.clone(),
-                                name: if name.is_empty() { None } else { Some(name.clone()) },
+                                name: if name.is_empty() {
+                                    None
+                                } else {
+                                    Some(name.clone())
+                                },
                                 bounds: *bounds,
                             })
                             .collect();
 
                         if !elements.is_empty() {
                             if let Ok(apps) = self.desktop.applications() {
-                                if let Some(app) = apps.iter().find(|a| a.process_id().ok() == Some(pid)) {
+                                if let Some(app) =
+                                    apps.iter().find(|a| a.process_id().ok() == Some(pid))
+                                {
                                     if let Ok((x, y, w, h)) = app.bounds() {
                                         if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
                                             *handle = None;
@@ -1402,7 +1420,9 @@ impl DesktopWrapper {
                                             display_mode,
                                         ) {
                                             Ok(new_handle) => {
-                                                if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
+                                                if let Ok(mut handle) =
+                                                    self.inspect_overlay_handle.lock()
+                                                {
                                                     *handle = Some(new_handle);
                                                 }
                                                 result_json["overlay_shown"] = json!("ui_tree");
@@ -1443,7 +1463,9 @@ impl DesktopWrapper {
                                 );
                             }
                             if let Ok(apps) = self.desktop.applications() {
-                                if let Some(app) = apps.iter().find(|a| a.process_id().ok() == Some(pid)) {
+                                if let Some(app) =
+                                    apps.iter().find(|a| a.process_id().ok() == Some(pid))
+                                {
                                     if let Ok((x, y, w, h)) = app.bounds() {
                                         info!(
                                             "OCR OVERLAY DEBUG: window_bounds for overlay=({:.0},{:.0},{:.0},{:.0})",
@@ -1460,7 +1482,9 @@ impl DesktopWrapper {
                                             display_mode,
                                         ) {
                                             Ok(new_handle) => {
-                                                if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
+                                                if let Ok(mut handle) =
+                                                    self.inspect_overlay_handle.lock()
+                                                {
                                                     *handle = Some(new_handle);
                                                 }
                                                 result_json["overlay_shown"] = json!("ocr");
@@ -1500,7 +1524,9 @@ impl DesktopWrapper {
                                 );
                             }
                             if let Ok(apps) = self.desktop.applications() {
-                                if let Some(app) = apps.iter().find(|a| a.process_id().ok() == Some(pid)) {
+                                if let Some(app) =
+                                    apps.iter().find(|a| a.process_id().ok() == Some(pid))
+                                {
                                     if let Ok((x, y, w, h)) = app.bounds() {
                                         info!(
                                             "OMNIPARSER OVERLAY DEBUG: window_bounds for overlay=({:.0},{:.0},{:.0},{:.0})",
@@ -1517,7 +1543,9 @@ impl DesktopWrapper {
                                             display_mode,
                                         ) {
                                             Ok(new_handle) => {
-                                                if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
+                                                if let Ok(mut handle) =
+                                                    self.inspect_overlay_handle.lock()
+                                                {
                                                     *handle = Some(new_handle);
                                                 }
                                                 result_json["overlay_shown"] = json!("omniparser");
@@ -1537,12 +1565,18 @@ impl DesktopWrapper {
                     if let Ok(dom_bounds) = self.dom_bounds.lock() {
                         let elements: Vec<terminator::InspectElement> = dom_bounds
                             .iter()
-                            .map(|(idx, (tag, identifier, bounds))| terminator::InspectElement {
-                                index: *idx,
-                                role: tag.clone(),
-                                name: if identifier.is_empty() { None } else { Some(identifier.clone()) },
-                                bounds: *bounds,
-                            })
+                            .map(
+                                |(idx, (tag, identifier, bounds))| terminator::InspectElement {
+                                    index: *idx,
+                                    role: tag.clone(),
+                                    name: if identifier.is_empty() {
+                                        None
+                                    } else {
+                                        Some(identifier.clone())
+                                    },
+                                    bounds: *bounds,
+                                },
+                            )
                             .collect();
 
                         if !elements.is_empty() {
@@ -1554,7 +1588,9 @@ impl DesktopWrapper {
                                 );
                             }
                             if let Ok(apps) = self.desktop.applications() {
-                                if let Some(app) = apps.iter().find(|a| a.process_id().ok() == Some(pid)) {
+                                if let Some(app) =
+                                    apps.iter().find(|a| a.process_id().ok() == Some(pid))
+                                {
                                     if let Ok((x, y, w, h)) = app.bounds() {
                                         info!(
                                             "DOM OVERLAY DEBUG: window_bounds for overlay=({:.0},{:.0},{:.0},{:.0})",
@@ -1571,7 +1607,9 @@ impl DesktopWrapper {
                                             display_mode,
                                         ) {
                                             Ok(new_handle) => {
-                                                if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
+                                                if let Ok(mut handle) =
+                                                    self.inspect_overlay_handle.lock()
+                                                {
                                                     *handle = Some(new_handle);
                                                 }
                                                 result_json["overlay_shown"] = json!("dom");
@@ -1590,7 +1628,8 @@ impl DesktopWrapper {
                     }
                 }
                 _ => {
-                    result_json["overlay_error"] = json!(format!("Unknown overlay type: {}", overlay_type));
+                    result_json["overlay_error"] =
+                        json!(format!("Unknown overlay type: {}", overlay_type));
                 }
             }
         }
@@ -5110,7 +5149,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         ))
     }
 
-    #[tool(description = "Hide any active inspect overlay that was shown via get_window_tree with show_overlay parameter.")]
+    #[tool(
+        description = "Hide any active inspect overlay that was shown via get_window_tree with show_overlay parameter."
+    )]
     async fn hide_inspect_overlay(&self) -> Result<CallToolResult, McpError> {
         #[cfg(target_os = "windows")]
         {
@@ -9100,7 +9141,12 @@ console.info = function(...args) {
                             ));
                         }
                         // Check for extension bridge connection errors
-                        if msg.contains("extension") || msg.contains("bridge") || msg.contains("port") || msg.contains("bind") || msg.contains("client") {
+                        if msg.contains("extension")
+                            || msg.contains("bridge")
+                            || msg.contains("port")
+                            || msg.contains("bind")
+                            || msg.contains("client")
+                        {
                             self.restore_window_management(should_restore).await;
                             return Err(McpError::invalid_params(
                                 "Browser extension connection failed",

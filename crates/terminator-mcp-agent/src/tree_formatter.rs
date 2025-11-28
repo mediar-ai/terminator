@@ -44,11 +44,20 @@ fn ui_node_to_serializable(node: &UINode) -> SerializableUIElement {
 ///
 /// Elements with bounds get a clickable index. Elements without bounds are shown without index.
 /// Returns both the formatted string and a mapping of index → (role, name, bounds) for click_index.
-pub fn format_tree_as_compact_yaml(tree: &SerializableUIElement, indent: usize) -> UiaFormattingResult {
+pub fn format_tree_as_compact_yaml(
+    tree: &SerializableUIElement,
+    indent: usize,
+) -> UiaFormattingResult {
     let mut output = String::new();
     let mut index_to_bounds = HashMap::new();
     let mut next_index = 1u32;
-    format_node(tree, indent, &mut output, &mut index_to_bounds, &mut next_index);
+    format_node(
+        tree,
+        indent,
+        &mut output,
+        &mut index_to_bounds,
+        &mut next_index,
+    );
     UiaFormattingResult {
         formatted: output,
         index_to_bounds,
@@ -328,7 +337,7 @@ pub fn format_omniparser_tree_as_compact_yaml(
 
         if let Some(ref content) = item.content {
             if !content.is_empty() {
-                output.push_str(&format!(" \"{}\"", content));
+                output.push_str(&format!(" \"{content}\""));
             }
         }
 
@@ -374,13 +383,14 @@ pub fn format_browser_dom_as_compact_yaml(elements: &[serde_json::Value]) -> Dom
         let w = elem.get("width").and_then(|v| v.as_f64());
         let h = elem.get("height").and_then(|v| v.as_f64());
 
-        let has_bounds = matches!((x, y, w, h), (Some(_), Some(_), Some(w), Some(h)) if w > 0.0 && h > 0.0);
+        let has_bounds =
+            matches!((x, y, w, h), (Some(_), Some(_), Some(w), Some(h)) if w > 0.0 && h > 0.0);
 
-        output.push_str(&format!("- [{}]", tag));
+        output.push_str(&format!("- [{tag}]"));
 
         // Add index if element has valid bounds
         if has_bounds {
-            output.push_str(&format!(" #{}", next_index));
+            output.push_str(&format!(" #{next_index}"));
         }
 
         // Get classes if any
@@ -392,7 +402,7 @@ pub fn format_browser_dom_as_compact_yaml(elements: &[serde_json::Value]) -> Dom
                 .collect();
             if !class_strs.is_empty() {
                 let classes_joined = class_strs.join(".");
-                output.push_str(&format!(" [.{}]", classes_joined));
+                output.push_str(&format!(" [.{classes_joined}]"));
                 Some(classes_joined)
             } else {
                 None
@@ -430,26 +440,36 @@ pub fn format_browser_dom_as_compact_yaml(elements: &[serde_json::Value]) -> Dom
             } else {
                 clean_name
             };
-            output.push_str(&format!(" {}", truncated));
+            output.push_str(&format!(" {truncated}"));
         }
 
         // Add element id if present
-        let elem_id = elem.get("id").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+        let elem_id = elem
+            .get("id")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty());
         if let Some(id) = elem_id {
-            output.push_str(&format!(" #{}", id));
+            output.push_str(&format!(" #{id}"));
         }
 
         // Add bounds and store in cache
         if let (Some(x), Some(y), Some(w), Some(h)) = (x, y, w, h) {
             if w > 0.0 && h > 0.0 {
-                output.push_str(&format!(" (bounds: [{},{},{},{}])", x as i64, y as i64, w as i64, h as i64));
+                output.push_str(&format!(
+                    " (bounds: [{},{},{},{}])",
+                    x as i64, y as i64, w as i64, h as i64
+                ));
 
                 // Build identifier for overlay: prefer text content, then id, then classes, then empty
                 let identifier = name
                     .map(|s| {
                         // Truncate for overlay display
                         let clean = s.replace('\n', " ").replace('\r', "");
-                        if clean.len() > 30 { format!("{}...", &clean[..27]) } else { clean }
+                        if clean.len() > 30 {
+                            format!("{}...", &clean[..27])
+                        } else {
+                            clean
+                        }
                     })
                     .or_else(|| elem_id.map(|s| s.to_string()))
                     .or(classes_str.clone())
@@ -501,10 +521,10 @@ mod tests {
         };
 
         let result = format_tree_as_compact_yaml(&node, 0);
-        assert!(result.contains("[Button] Submit"));
-        assert!(!result.contains("#123")); // IDs should not appear in compact view
-        assert!(result.contains("bounds: [10,20,100,50]"));
-        assert!(result.contains("focusable"));
+        assert!(result.formatted.contains("[Button] Submit"));
+        assert!(!result.formatted.contains("#123")); // IDs should not appear in compact view
+        assert!(result.formatted.contains("bounds: [10,20,100,50]"));
+        assert!(result.formatted.contains("focusable"));
     }
 
     #[test]
@@ -558,9 +578,9 @@ mod tests {
         };
 
         let result = format_tree_as_compact_yaml(&parent, 0);
-        assert!(result.contains("- [Window] Main"));
-        assert!(result.contains("  - [Text] Label"));
-        assert!(!result.contains("#123")); // IDs should not appear in compact view
-        assert!(!result.contains("#456")); // IDs should not appear in compact view
+        assert!(result.formatted.contains("- [Window] Main"));
+        assert!(result.formatted.contains("  - [Text] Label"));
+        assert!(!result.formatted.contains("#123")); // IDs should not appear in compact view
+        assert!(!result.formatted.contains("#456")); // IDs should not appear in compact view
     }
 }
