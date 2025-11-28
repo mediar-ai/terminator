@@ -444,10 +444,15 @@ pub fn format_browser_dom_as_compact_yaml(elements: &[serde_json::Value]) -> Dom
             if w > 0.0 && h > 0.0 {
                 output.push_str(&format!(" (bounds: [{},{},{},{}])", x as i64, y as i64, w as i64, h as i64));
 
-                // Build identifier for error messages: prefer id, then classes, then empty
-                let identifier = elem_id
-                    .map(|s| s.to_string())
-                    .or(classes_str)
+                // Build identifier for overlay: prefer text content, then id, then classes, then empty
+                let identifier = name
+                    .map(|s| {
+                        // Truncate for overlay display
+                        let clean = s.replace('\n', " ").replace('\r', "");
+                        if clean.len() > 30 { format!("{}...", &clean[..27]) } else { clean }
+                    })
+                    .or_else(|| elem_id.map(|s| s.to_string()))
+                    .or(classes_str.clone())
                     .unwrap_or_default();
 
                 // Store bounds in cache (viewport-relative)
