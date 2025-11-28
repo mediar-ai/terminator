@@ -602,8 +602,8 @@ where
     // Execute action
     let result = action().await?;
 
-    // Small delay for UI to settle (150ms similar to mediar-app)
-    tokio::time::sleep(Duration::from_millis(150)).await;
+    // Delay for UI to settle (1500ms - same as maybe_attach_tree and find_and_execute_with_ui_diff)
+    tokio::time::sleep(Duration::from_millis(1500)).await;
 
     // Capture AFTER tree
     tracing::debug!("Capturing UI tree after action (PID: {})", pid);
@@ -889,7 +889,6 @@ pub fn should_add_focus_check(tool_calls: &[ToolCall], current_index: usize) -> 
         prev_tool.as_str(),
         "navigate_browser"
             | "open_application"
-            | "close_element"
             | "get_window_tree"
             | "get_applications_and_windows_list"
             | "activate_element"

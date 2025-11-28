@@ -4,8 +4,8 @@ use crate::telemetry::StepSpan;
 use crate::utils::find_and_execute_with_retry_with_fallback;
 pub use crate::utils::DesktopWrapper;
 use crate::utils::{
-    get_timeout, ActivateElementArgs, CaptureElementScreenshotArgs, ClickElementArgs,
-    CloseElementArgs, DelayArgs, ExecuteBrowserScriptArgs, ExecuteSequenceArgs,
+    get_timeout, ActivateElementArgs, CaptureElementScreenshotArgs, ClickElementArgs, DelayArgs,
+    ExecuteBrowserScriptArgs, ExecuteSequenceArgs,
     GetApplicationsArgs, GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs, LocatorArgs,
     MaximizeWindowArgs, MinimizeWindowArgs, MouseDragArgs, NavigateBrowserArgs,
     OpenApplicationArgs, PressKeyArgs, RunCommandArgs, ScrollElementArgs, SelectOptionArgs,
@@ -1173,7 +1173,7 @@ impl DesktopWrapper {
             "title": args.title,
             "detailed_attributes": args.tree.include_detailed_attributes.unwrap_or(true),
             "timestamp": chrono::Utc::now().to_rfc3339(),
-            "recommendation": "Prefer role|name selectors (e.g., 'button|Submit'). Use the element ID (e.g., '#12345') as a fallback if the name is missing or generic. For large trees, use tree_max_depth: 30 to limit depth or tree_from_selector: \"role:Dialog\" to focus on specific UI regions."
+            "recommendation": "Prefer role|name selectors (e.g., 'button|Submit'). For large trees, use tree_from_selector: \"role:Dialog\" to focus on specific UI regions."
         });
 
         // Add browser detection metadata
@@ -5495,21 +5495,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
 
-        maybe_attach_tree(
-            &self.desktop,
-            args.tree.include_tree_after_action,
-            args.tree.tree_max_depth,
-            args.tree.tree_from_selector.as_deref(),
-            args.tree.include_detailed_attributes,
-            None,
-            ui_element.process_id().ok(),
-            &mut result_json,
-            Some(&ui_element),
-            false,
-        )
-        .await;
-
-        // POST-ACTION VERIFICATION
+        // POST-ACTION VERIFICATION (must happen BEFORE tree capture so page content is loaded)
         if !args.verify_element_exists.is_empty() || !args.verify_element_not_exists.is_empty() {
             let verify_exists_opt = if args.verify_element_exists.is_empty() {
                 None
@@ -5569,6 +5555,21 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 }
             }
         }
+
+        // Capture tree AFTER verification passes (page content should be loaded now)
+        maybe_attach_tree(
+            &self.desktop,
+            args.tree.include_tree_after_action,
+            args.tree.tree_max_depth,
+            args.tree.tree_from_selector.as_deref(),
+            args.tree.include_detailed_attributes,
+            None,
+            ui_element.process_id().ok(),
+            &mut result_json,
+            Some(&ui_element),
+            false,
+        )
+        .await;
 
         self.restore_window_management(should_restore).await;
 
@@ -5647,8 +5648,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": "success",
             "app_name": args.app_name,
             "application": element_info,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-            "recommendation": "Application opened successfully. Use get_window_tree with tree_from_selector using the process name (e.g., 'process:chrome') to get the full UI structure for reliable element targeting."
+            "timestamp": chrono::Utc::now().to_rfc3339()
         });
 
         // Always attach the full UI tree for newly opened applications
@@ -5740,87 +5740,6 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             )
             .await,
         ))
-    }
-
-    #[tool(
-        description = "Closes a UI element (window, application, dialog, etc.) if it's closable."
-    )]
-    pub async fn close_element(
-        &self,
-        Parameters(args): Parameters<CloseElementArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        // Start telemetry span
-        let mut span = StepSpan::new("close_element", None);
-
-        // Add comprehensive telemetry attributes
-        span.set_attribute("selector", args.selector.selector.clone());
-        if let Some(retries) = args.action.retries {
-            span.set_attribute("retry.max_attempts", retries.to_string());
-        }
-
-        // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            !*in_sequence
-        };
-
-        if should_restore {
-            tracing::info!(
-                "[close_element] Direct MCP call detected - performing window management"
-            );
-            let _ = self
-                .prepare_window_management(
-                    &args.selector.process,
-                    None,
-                    None,
-                    None,
-                    &args.window_mgmt,
-                )
-                .await;
-        } else {
-            tracing::debug!("[close_element] In sequence - skipping window management (dispatch_tool handles it)");
-        }
-
-        let ((_result, element), successful_selector) =
-            match find_and_execute_with_retry_with_fallback(
-                &self.desktop,
-                &args.selector.build_full_selector(),
-                args.selector.build_alternative_selectors().as_deref(),
-                args.selector.build_fallback_selectors().as_deref(),
-                args.action.timeout_ms,
-                args.action.retries,
-                |element| async move { element.close() },
-            )
-            .await
-            {
-                Ok(((result, element), selector)) => Ok(((result, element), selector)),
-                Err(e) => {
-                    // Restore windows before returning error
-                    self.restore_window_management(should_restore).await;
-                    Err(build_element_not_found_error(
-                        &args.selector.build_full_selector(),
-                        args.selector.build_alternative_selectors().as_deref(),
-                        args.selector.build_fallback_selectors().as_deref(),
-                        e,
-                    ))
-                }
-            }?;
-
-        let element_info = build_element_info(&element);
-
-        self.restore_window_management(should_restore).await;
-
-        span.set_status(true, None);
-        span.end();
-
-        Ok(CallToolResult::success(append_monitor_screenshots_if_enabled(&self.desktop, vec![Content::json(json!({
-            "action": "close_element",
-            "status": "success",
-            "element": element_info,
-            "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
-            "timestamp": chrono::Utc::now().to_rfc3339()
-        }))?], None).await))
     }
 
     #[tool(description = "Scrolls a UI element in the specified direction by the given amount.")]
@@ -9586,15 +9505,6 @@ impl DesktopWrapper {
                     Ok(args) => self.highlight_element(Parameters(args)).await,
                     Err(e) => Err(McpError::invalid_params(
                         "Invalid arguments for highlight_element",
-                        Some(json!({"error": e.to_string()})),
-                    )),
-                }
-            }
-            "close_element" => {
-                match serde_json::from_value::<CloseElementArgs>(arguments.clone()) {
-                    Ok(args) => self.close_element(Parameters(args)).await,
-                    Err(e) => Err(McpError::invalid_params(
-                        "Invalid arguments for close_element",
                         Some(json!({"error": e.to_string()})),
                     )),
                 }

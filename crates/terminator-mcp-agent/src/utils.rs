@@ -1384,25 +1384,6 @@ pub enum SequenceItem {
     Group { tool_group: ToolGroup },
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct CloseElementArgs {
-    #[serde(flatten)]
-    pub selector: SelectorOptions,
-
-    #[serde(flatten)]
-    pub action: ActionOptions,
-
-    #[serde(flatten)]
-    pub tree: TreeOptions,
-
-    #[serde(flatten)]
-    pub monitor: MonitorScreenshotOptions,
-
-    #[serde(flatten)]
-    pub window_mgmt: WindowManagementOptions,
-}
-
 #[derive(Deserialize, JsonSchema, Debug, Clone)]
 pub struct ZoomArgs {
     pub level: u32,
