@@ -7,7 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.29] - 2025-11-28
+
+### Added
+- Workflow SDK: Add `retries` option to createStep with configurable delay
+- MCP Agent: Add `include_browser_dom` parameter to get_window_tree
+- MCP Agent: Add index-based clicking for browser DOM elements (`click_index` with `vision_type: 'dom'`)
+- MCP Agent: Add index-based clicking for UI tree elements (`click_index` with `vision_type: 'uia'`)
+- MCP Agent: Add `show_overlay` parameter for visual UI debugging
+- MCP Agent: Add `browser_dom_max_elements` parameter to get_window_tree
+- MCP Agent: Add compact YAML format for omniparser output
+- Inspect Overlay: Add display modes, collision detection, and smaller font
+- Inspect Overlay: Show text content in DOM overlay labels
+
+### Fixed
+- Code: Add missing `include_all_bounds` field and fix clippy warnings
+- Inspect Overlay: Use non-blocking polling loop and cache-based UI tree overlay
+- Inspect Overlay: Fix DPI scaling for browser DOM
+- Inspect Overlay: Improve visual appearance and fix hide functionality
+- Inspect Overlay: Simplify label to show only index number
+
+### Changed
+- Docs: Update selector syntax to use `&&` instead of legacy pipe `|`
+
 ## [0.23.28] - 2025-11-27
+
 
 ### Added
 - CI: Publish terminator-cli to crates.io on release (`cargo install terminator-cli`)
