@@ -584,21 +584,22 @@ impl WindowsEngine {
                     return Ok(false);
                 }
 
-                // Check name if specified
+                // Check name if specified (case-insensitive partial match)
                 if let Some(expected_name) = name {
                     let element_name = win_element.get_name().unwrap_or_default();
-                    Ok(element_name.contains(expected_name))
+                    Ok(element_name.to_lowercase().contains(&expected_name.to_lowercase()))
                 } else {
                     Ok(true)
                 }
             }
             Selector::Name(expected_name) => {
+                // name: is case-insensitive partial match
                 let element_name = win_element.get_name().unwrap_or_default();
-                Ok(element_name.contains(expected_name))
+                Ok(element_name.to_lowercase().contains(&expected_name.to_lowercase()))
             }
             Selector::Text(expected_text) => {
+                // text: is case-sensitive partial match
                 let element_name = win_element.get_name().unwrap_or_default();
-                // Value property might not exist for all elements, check if it's a text-like element
                 Ok(element_name.contains(expected_text))
             }
             Selector::ClassName(expected_class) => {
@@ -1269,13 +1270,18 @@ impl AccessibilityEngine for WindowsEngine {
             }
             Selector::Name(name) => {
                 debug!("searching element by name: {}", name);
-
+                // name: selector is case-insensitive partial match
+                let filter = NameFilter {
+                    value: String::from(name),
+                    casesensitive: false,
+                    partial: true,
+                };
                 let matcher = self
                     .automation
                     .0
                     .create_matcher()
                     .from_ref(root_ele)
-                    .contains_name(name)
+                    .filter(Box::new(filter))
                     .depth(depth.unwrap_or(50) as u32)
                     .timeout(timeout_ms as u64);
 
@@ -1294,24 +1300,19 @@ impl AccessibilityEngine for WindowsEngine {
                     .collect())
             }
             Selector::Text(text) => {
-                let filter = OrFilter {
-                    left: Box::new(NameFilter {
-                        value: String::from(text),
-                        casesensitive: false,
-                        partial: true,
-                    }),
-                    right: Box::new(ControlTypeFilter {
-                        control_type: ControlType::Text,
-                    }),
+                // text: selector is case-sensitive partial match + bypasses boolean parser
+                let filter = NameFilter {
+                    value: String::from(text),
+                    casesensitive: true,
+                    partial: true,
                 };
-                // Create a matcher that uses contains_name which is more reliable for text searching
                 let matcher = self
                     .automation
                     .0
                     .create_matcher()
                     .from_ref(root_ele)
-                    .filter(Box::new(filter)) // This is the key improvement from the example
-                    .depth(depth.unwrap_or(50) as u32) // Search deep enough to find most elements
+                    .filter(Box::new(filter))
+                    .depth(depth.unwrap_or(50) as u32)
                     .timeout(timeout_ms as u64); // Allow enough time for search
 
                 // Get the first matching element
@@ -2012,16 +2013,19 @@ impl AccessibilityEngine for WindowsEngine {
                 })))
             }
             Selector::Name(name) => {
-                // find use create matcher api
-
                 debug!("searching element by name: {}", name);
-
+                // name: selector is case-insensitive partial match
+                let filter = NameFilter {
+                    value: String::from(name),
+                    casesensitive: false,
+                    partial: true,
+                };
                 let matcher = self
                     .automation
                     .0
                     .create_matcher()
                     .from_ref(root_ele)
-                    .contains_name(name)
+                    .filter(Box::new(filter))
                     .depth(50)
                     .timeout(timeout_ms as u64);
 
@@ -2036,27 +2040,21 @@ impl AccessibilityEngine for WindowsEngine {
                 })))
             }
             Selector::Text(text) => {
-                let filter = OrFilter {
-                    left: Box::new(NameFilter {
-                        value: String::from(text),
-                        casesensitive: false,
-                        partial: true,
-                    }),
-                    right: Box::new(ControlTypeFilter {
-                        control_type: ControlType::Text,
-                    }),
+                // text: selector is case-sensitive partial match + bypasses boolean parser
+                let filter = NameFilter {
+                    value: String::from(text),
+                    casesensitive: true,
+                    partial: true,
                 };
-                // Create a matcher that uses contains_name which is more reliable for text searching
                 let matcher = self
                     .automation
                     .0
                     .create_matcher()
                     .from_ref(root_ele)
-                    .filter(Box::new(filter)) // This is the key improvement from the example
-                    .depth(50) // Search deep enough to find most elements
-                    .timeout(timeout_ms as u64); // Allow enough time for search
+                    .filter(Box::new(filter))
+                    .depth(50)
+                    .timeout(timeout_ms as u64);
 
-                // Get the first matching element
                 let element = matcher.find_first().map_err(|e| {
                     AutomationError::ElementNotFound(format!(
                         "Text: '{text}', Root: {root:?}, Err: {e}"
