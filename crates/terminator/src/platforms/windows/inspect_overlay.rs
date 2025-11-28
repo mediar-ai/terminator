@@ -335,11 +335,11 @@ fn draw_inspect_overlay(hwnd: HWND) {
             );
             let old_brush = SelectObject(hdc, null_brush);
 
-            // Create font for labels (8px, not bold)
+            // Create font for labels (11px, bold)
             let font = CreateFontW(
-                8, // Height - smaller
+                11, // Height
                 0, 0, 0,
-                400, // Normal weight (not bold)
+                700, // Bold weight
                 0, 0, 0,
                 windows::Win32::Graphics::Gdi::FONT_CHARSET(1),
                 windows::Win32::Graphics::Gdi::FONT_OUTPUT_PRECISION(0),
@@ -351,10 +351,10 @@ fn draw_inspect_overlay(hwnd: HWND) {
             let old_font = SelectObject(hdc, HGDIOBJ(font.0));
 
             // Set text properties
-            SetTextColor(hdc, COLORREF(0xFFFFFF)); // White text
+            SetTextColor(hdc, COLORREF(0x000000)); // Black text
             SetBkMode(hdc, TRANSPARENT);
 
-            let label_height = 9;
+            let label_height = 12;
             let diagonal_offset = 12; // How far to offset diagonally when collision
 
             // Track used label positions for collision detection
@@ -434,12 +434,7 @@ fn draw_inspect_overlay(hwnd: HWND) {
                         SelectObject(hdc, HGDIOBJ(border_pen.0));
                     }
 
-                    // Fill label background
-                    let label_bg = CreateSolidBrush(COLORREF(0x333333));
-                    FillRect(hdc, &label_rect, label_bg);
-                    let _ = DeleteObject(label_bg.into());
-
-                    // Draw text
+                    // Draw text (no background fill)
                     let mut wide_text: Vec<u16> = label.encode_utf16().collect();
                     wide_text.push(0);
 
