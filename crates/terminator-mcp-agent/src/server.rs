@@ -762,7 +762,6 @@ impl DesktopWrapper {
             vision_items: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             uia_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             dom_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-            clustered_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             #[cfg(target_os = "windows")]
             inspect_overlay_handle: Arc::new(std::sync::Mutex::new(None)),
         })
@@ -1372,7 +1371,7 @@ impl DesktopWrapper {
 
                             match format {
                                 crate::mcp_types::TreeOutputFormat::CompactYaml
-                                | crate::mcp_types::TreeOutputFormat::ClusteredYaml => {
+                                => {
                                     let dom_result =
                                         crate::tree_formatter::format_browser_dom_as_compact_yaml(
                                             &dom_elements,
@@ -1459,7 +1458,7 @@ impl DesktopWrapper {
 
                     match format {
                         crate::mcp_types::TreeOutputFormat::CompactYaml
-                        | crate::mcp_types::TreeOutputFormat::ClusteredYaml => {
+                        => {
                             let ocr_formatting_result =
                                 crate::tree_formatter::format_ocr_tree_as_compact_yaml(
                                     &ocr_result,
@@ -1497,7 +1496,7 @@ impl DesktopWrapper {
 
                     match format {
                         crate::mcp_types::TreeOutputFormat::CompactYaml
-                        | crate::mcp_types::TreeOutputFormat::ClusteredYaml => {
+                        => {
                             let (formatted, cache) =
                                 crate::tree_formatter::format_omniparser_tree_as_compact_yaml(
                                     &items,
@@ -1551,7 +1550,7 @@ impl DesktopWrapper {
 
                     match format {
                         crate::mcp_types::TreeOutputFormat::CompactYaml
-                        | crate::mcp_types::TreeOutputFormat::ClusteredYaml => {
+                        => {
                             let (formatted, cache) =
                                 crate::tree_formatter::format_vision_tree_as_compact_yaml(
                                     &items,
@@ -1594,60 +1593,6 @@ impl DesktopWrapper {
                     result_json["vision_error"] = json!(e.to_string());
                 }
             }
-        }
-
-        // Generate clustered output if requested
-        if args
-            .tree
-            .tree_output_format
-            .map(|f| matches!(f, crate::mcp_types::TreeOutputFormat::ClusteredYaml))
-            .unwrap_or(false)
-        {
-            // Gather cached bounds from each source
-            let uia_bounds_snapshot = self
-                .uia_bounds
-                .lock()
-                .map(|g| g.clone())
-                .unwrap_or_default();
-            let dom_bounds_snapshot = self
-                .dom_bounds
-                .lock()
-                .map(|g| g.clone())
-                .unwrap_or_default();
-            let ocr_bounds_snapshot = self
-                .ocr_bounds
-                .lock()
-                .map(|g| g.clone())
-                .unwrap_or_default();
-            let omniparser_snapshot = self
-                .omniparser_items
-                .lock()
-                .map(|g| g.clone())
-                .unwrap_or_default();
-            let vision_snapshot = self
-                .vision_items
-                .lock()
-                .map(|g| g.clone())
-                .unwrap_or_default();
-
-            // Cluster and format all elements from all sources
-            let clustered_result = crate::tree_formatter::format_clustered_tree_from_caches(
-                &uia_bounds_snapshot,
-                &dom_bounds_snapshot,
-                &ocr_bounds_snapshot,
-                &omniparser_snapshot,
-                &vision_snapshot,
-            );
-
-            result_json["clustered_tree"] = json!(clustered_result.formatted);
-
-            // Store the clustered bounds cache
-            let element_count = clustered_result.index_to_source_and_bounds.len();
-            if let Ok(mut cache) = self.clustered_bounds.lock() {
-                *cache = clustered_result.index_to_source_and_bounds;
-            }
-
-            info!("Clustered tree generated with {} elements", element_count);
         }
 
         // Handle show_overlay request

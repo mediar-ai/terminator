@@ -351,17 +351,6 @@ pub struct DesktopWrapper {
     #[serde(skip)]
     pub dom_bounds:
         Arc<Mutex<std::collections::HashMap<u32, (String, String, (f64, f64, f64, f64))>>>,
-    /// Stores clustered index-to-bounds mapping from the last get_window_tree with clustered_yaml format
-    /// Key is prefixed index (e.g., "u1", "d2", "o3", "p4", "g5"), value is (source, original_index, bounds)
-    #[serde(skip)]
-    pub clustered_bounds: Arc<
-        Mutex<
-            std::collections::HashMap<
-                String,
-                (crate::tree_formatter::ElementSource, u32, (f64, f64, f64, f64)),
-            >,
-        >,
-    >,
     /// Stores the active inspect overlay handle for cleanup
     #[cfg(target_os = "windows")]
     #[serde(skip)]
