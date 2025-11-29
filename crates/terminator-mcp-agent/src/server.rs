@@ -4,7 +4,7 @@ use crate::telemetry::StepSpan;
 use crate::utils::find_and_execute_with_retry_with_fallback;
 pub use crate::utils::DesktopWrapper;
 use crate::utils::{
-    get_timeout, ActivateElementArgs, CaptureElementScreenshotArgs, ClickElementArgs, DelayArgs,
+    get_timeout, ActivateElementArgs, CaptureScreenshotArgs, ClickElementArgs, DelayArgs,
     ExecuteBrowserScriptArgs, ExecuteSequenceArgs,
     GetApplicationsArgs, GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs, InvokeElementArgs,
     MouseDragArgs, NavigateBrowserArgs,
@@ -762,6 +762,7 @@ impl DesktopWrapper {
             vision_items: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             uia_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             dom_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            clustered_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             #[cfg(target_os = "windows")]
             inspect_overlay_handle: Arc::new(std::sync::Mutex::new(None)),
         })
@@ -1228,7 +1229,7 @@ impl DesktopWrapper {
     }
 
     #[tool(
-        description = "Get the complete UI tree for an application by process name (e.g., 'chrome', 'msedge', 'notepad'). Returns tree for the first matching process found. Returns detailed element information (role, name, id, enabled state, bounds, children). This is your primary tool for understanding the application's current state. Supports tree optimization: tree_max_depth (e.g., 30) to limit tree depth when you only need shallow inspection, tree_from_selector to get subtrees starting from a specific element, include_detailed_attributes to control verbosity (defaults to true). Use `include_ocr: true` to perform OCR and get indexed words (e.g., [OcrWord] #1 \"Submit\") for click targeting with `click_ocr_index`. For browser windows (chrome, msedge, firefox), automatically captures HTML DOM elements via Chrome extension and returns them in `browser_dom` field. Use `browser_dom_max_elements` to control how many DOM elements to capture (default: 200). The DOM format follows `tree_output_format` (compact YAML by default). This is a read-only operation."
+        description = "Get the complete UI tree for an application by process name (e.g., 'chrome', 'msedge', 'notepad'). Returns tree for the first matching process found. Returns detailed element information (role, name, id, enabled state, bounds, children). This is your primary tool for understanding the application's current state. Supports tree optimization: tree_max_depth (e.g., 30) to limit tree depth when you only need shallow inspection, tree_from_selector to get subtrees starting from a specific element, include_detailed_attributes to control verbosity (defaults to true). Use `include_ocr: true` to perform OCR and get indexed words (e.g., [OcrWord] #1 \"Submit\") for click targeting with `click_ocr_index`. For browser windows (chrome, msedge, firefox), use `include_browser_dom: true` to capture HTML DOM elements via Chrome extension (returned in `browser_dom` field). Use `browser_dom_max_elements` to control how many DOM elements to capture (default: 200). The DOM format follows `tree_output_format` (compact YAML by default). This is a read-only operation."
     )]
     pub async fn get_window_tree(
         &self,
@@ -1370,7 +1371,8 @@ impl DesktopWrapper {
                                 .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
 
                             match format {
-                                crate::mcp_types::TreeOutputFormat::CompactYaml => {
+                                crate::mcp_types::TreeOutputFormat::CompactYaml
+                                | crate::mcp_types::TreeOutputFormat::ClusteredYaml => {
                                     let dom_result =
                                         crate::tree_formatter::format_browser_dom_as_compact_yaml(
                                             &dom_elements,
@@ -1456,7 +1458,8 @@ impl DesktopWrapper {
                         .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
 
                     match format {
-                        crate::mcp_types::TreeOutputFormat::CompactYaml => {
+                        crate::mcp_types::TreeOutputFormat::CompactYaml
+                        | crate::mcp_types::TreeOutputFormat::ClusteredYaml => {
                             let ocr_formatting_result =
                                 crate::tree_formatter::format_ocr_tree_as_compact_yaml(
                                     &ocr_result,
@@ -1493,7 +1496,8 @@ impl DesktopWrapper {
                         .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
 
                     match format {
-                        crate::mcp_types::TreeOutputFormat::CompactYaml => {
+                        crate::mcp_types::TreeOutputFormat::CompactYaml
+                        | crate::mcp_types::TreeOutputFormat::ClusteredYaml => {
                             let (formatted, cache) =
                                 crate::tree_formatter::format_omniparser_tree_as_compact_yaml(
                                     &items,
@@ -1546,7 +1550,8 @@ impl DesktopWrapper {
                         .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
 
                     match format {
-                        crate::mcp_types::TreeOutputFormat::CompactYaml => {
+                        crate::mcp_types::TreeOutputFormat::CompactYaml
+                        | crate::mcp_types::TreeOutputFormat::ClusteredYaml => {
                             let (formatted, cache) =
                                 crate::tree_formatter::format_vision_tree_as_compact_yaml(
                                     &items,
@@ -1589,6 +1594,60 @@ impl DesktopWrapper {
                     result_json["vision_error"] = json!(e.to_string());
                 }
             }
+        }
+
+        // Generate clustered output if requested
+        if args
+            .tree
+            .tree_output_format
+            .map(|f| matches!(f, crate::mcp_types::TreeOutputFormat::ClusteredYaml))
+            .unwrap_or(false)
+        {
+            // Gather cached bounds from each source
+            let uia_bounds_snapshot = self
+                .uia_bounds
+                .lock()
+                .map(|g| g.clone())
+                .unwrap_or_default();
+            let dom_bounds_snapshot = self
+                .dom_bounds
+                .lock()
+                .map(|g| g.clone())
+                .unwrap_or_default();
+            let ocr_bounds_snapshot = self
+                .ocr_bounds
+                .lock()
+                .map(|g| g.clone())
+                .unwrap_or_default();
+            let omniparser_snapshot = self
+                .omniparser_items
+                .lock()
+                .map(|g| g.clone())
+                .unwrap_or_default();
+            let vision_snapshot = self
+                .vision_items
+                .lock()
+                .map(|g| g.clone())
+                .unwrap_or_default();
+
+            // Cluster and format all elements from all sources
+            let clustered_result = crate::tree_formatter::format_clustered_tree_from_caches(
+                &uia_bounds_snapshot,
+                &dom_bounds_snapshot,
+                &ocr_bounds_snapshot,
+                &omniparser_snapshot,
+                &vision_snapshot,
+            );
+
+            result_json["clustered_tree"] = json!(clustered_result.formatted);
+
+            // Store the clustered bounds cache
+            let element_count = clustered_result.index_to_source_and_bounds.len();
+            if let Ok(mut cache) = self.clustered_bounds.lock() {
+                *cache = clustered_result.index_to_source_and_bounds;
+            }
+
+            info!("Clustered tree generated with {} elements", element_count);
         }
 
         // Handle show_overlay request
@@ -2656,294 +2715,330 @@ impl DesktopWrapper {
     }
 
     #[tool(
-        description = "Clicks a UI element using Playwright-style actionability validation. Performs comprehensive pre-action checks: element must be visible (non-zero bounds), enabled, in viewport, and have stable bounds (3 consecutive checks at 16ms intervals, max ~800ms wait). Returns success with 'validated=true' in click_result.details when all checks pass. Fails explicitly with specific errors: ElementNotVisible (zero-size bounds/offscreen/not in viewport), ElementNotEnabled (disabled/grayed out), ElementNotStable (bounds still animating after 800ms), ElementDetached (no longer in UI tree), ElementObscured (covered by another element), or ScrollFailed (could not scroll into view). For buttons, prefer invoke_element (uses UI Automation's native invoke pattern, doesn't require viewport visibility). Use click_element for links, hover-sensitive elements, or UI requiring actual mouse interaction. REQUIRED: click_position parameter - use x_percentage: 50, y_percentage: 50 for center click (most common). This action requires the application to be focused and may change the UI."
+        description = "Unified click tool with three modes:
+
+**Mode 1 - Selector** (process + selector): Find element by selector and click.
+  Example: {\"process\": \"notepad\", \"selector\": \"role:Button|name:Save\", \"click_type\": \"left\"}
+
+**Mode 2 - Index** (index + vision_type): Click indexed item from get_window_tree.
+  Example: {\"index\": 5, \"vision_type\": \"ui_tree\", \"click_type\": \"double\"}
+
+**Mode 3 - Coordinates** (x + y): Click at absolute screen coordinates.
+  Example: {\"x\": 500, \"y\": 300, \"click_type\": \"right\"}
+
+Click types: 'left' (default), 'double', 'right'. Selector mode uses actionability validation. Index mode requires get_window_tree first."
     )]
     pub async fn click_element(
         &self,
         Parameters(args): Parameters<ClickElementArgs>,
     ) -> Result<CallToolResult, McpError> {
-        // Start telemetry span
+        use crate::utils::ClickMode;
+
         let mut span = StepSpan::new("click_element", None);
-        span.set_attribute("selector", args.selector.selector.clone());
 
-        tracing::info!(
-            "[click_element] Called with selector: '{}'",
-            args.selector.selector
-        );
-
-        // Record retry configuration
-        if let Some(retries) = args.action.retries {
-            span.set_attribute("retry.max_attempts", retries.to_string());
-        }
-
-        span.set_attribute(
-            "click.position_x",
-            args.click_position.x_percentage.to_string(),
-        );
-        span.set_attribute(
-            "click.position_y",
-            args.click_position.y_percentage.to_string(),
-        );
-        tracing::info!(
-            "[click_element] Click position: {}%, {}%",
-            args.click_position.x_percentage,
-            args.click_position.y_percentage
-        );
-
-        // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            let flag_value = *in_sequence;
-            let should_restore_value = !flag_value;
-            tracing::info!(
-                "[click_element] Flag check: in_sequence={}, should_restore={}",
-                flag_value,
-                should_restore_value
-            );
-            should_restore_value
+        let mode = match args.determine_mode() {
+            Ok(m) => m,
+            Err(e) => {
+                span.set_status(false, Some(&e));
+                span.end();
+                return Err(McpError::invalid_params(e, None));
+            }
         };
 
-        if should_restore {
-            tracing::info!(
-                "[click_element] Direct MCP call detected - performing window management"
-            );
-            let _ = self
-                .prepare_window_management(
-                    &args.selector.process,
-                    None,
-                    None,
-                    None,
-                    &args.window_mgmt,
+        span.set_attribute("mode", format!("{:?}", mode));
+        span.set_attribute("click_type", format!("{:?}", args.click_type));
+        tracing::info!("[click_element] Mode: {:?}, click_type: {:?}", mode, args.click_type);
+
+        let terminator_click_type = match args.click_type {
+            crate::utils::ClickType::Left => terminator::ClickType::Left,
+            crate::utils::ClickType::Double => terminator::ClickType::Double,
+            crate::utils::ClickType::Right => terminator::ClickType::Right,
+        };
+
+        match mode {
+            ClickMode::Coordinates => {
+                let x = args.x.unwrap();
+                let y = args.y.unwrap();
+                span.set_attribute("click_x", x.to_string());
+                span.set_attribute("click_y", y.to_string());
+                tracing::info!("[click_element] Coordinate mode: ({}, {})", x, y);
+
+                match self.desktop.click_at_coordinates_with_type(x, y, terminator_click_type) {
+                    Ok(()) => {
+                        let ct_str = match args.click_type { crate::utils::ClickType::Left => "left", crate::utils::ClickType::Double => "double", crate::utils::ClickType::Right => "right" };
+                        let result_json = json!({
+                            "action": "click", "mode": "coordinates", "status": "success",
+                            "click_type": ct_str,
+                            "clicked_at": { "x": x, "y": y },
+                            "timestamp": chrono::Utc::now().to_rfc3339()
+                        });
+                        span.set_status(true, None);
+                        span.end();
+                        return Ok(CallToolResult::success(
+                            append_monitor_screenshots_if_enabled(&self.desktop, vec![Content::json(result_json)?], args.monitor.include_monitor_screenshots).await,
+                        ));
+                    }
+                    Err(e) => {
+                        span.set_status(false, Some(&e.to_string()));
+                        span.end();
+                        return Err(McpError::internal_error(format!("Failed to click at ({}, {}): {}", x, y, e), Some(json!({ "x": x, "y": y }))));
+                    }
+                }
+            }
+
+            ClickMode::Index => {
+                let index = args.index.unwrap();
+                let vision_type = args.get_vision_type();
+                span.set_attribute("index", index.to_string());
+                span.set_attribute("vision_type", format!("{:?}", vision_type));
+                tracing::info!("[click_element] Index mode: {}, {:?}", index, vision_type);
+
+                let (item_label, bounds) = match vision_type {
+                    crate::utils::VisionType::UiTree => {
+                        let r = self.uia_bounds.lock().map_err(|e| McpError::internal_error(format!("Lock error: {e}"), None))?.get(&index).cloned();
+                        let Some((role, name, b)) = r else {
+                            span.set_status(false, Some("UIA index not found")); span.end();
+                            return Err(McpError::internal_error(format!("UI tree index {} not found. Call get_window_tree first.", index), Some(json!({ "index": index }))));
+                        };
+                        (if name.is_empty() { role } else { format!("{role}: {name}") }, b)
+                    }
+                    crate::utils::VisionType::Ocr => {
+                        let r = self.ocr_bounds.lock().map_err(|e| McpError::internal_error(format!("Lock error: {e}"), None))?.get(&index).cloned();
+                        let Some((text, b)) = r else {
+                            span.set_status(false, Some("OCR index not found")); span.end();
+                            return Err(McpError::internal_error(format!("OCR index {} not found.", index), Some(json!({ "index": index }))));
+                        };
+                        (text, b)
+                    }
+                    crate::utils::VisionType::Omniparser => {
+                        let r = self.omniparser_items.lock().map_err(|e| McpError::internal_error(format!("Lock error: {e}"), None))?.get(&index).cloned();
+                        let Some(item) = r else {
+                            span.set_status(false, Some("Omniparser index not found")); span.end();
+                            return Err(McpError::internal_error(format!("Omniparser index {} not found.", index), Some(json!({ "index": index }))));
+                        };
+                        let b = item.box_2d.ok_or_else(|| McpError::internal_error("No bounds", None))?;
+                        (item.label, (b[0], b[1], b[2] - b[0], b[3] - b[1]))
+                    }
+                    crate::utils::VisionType::Gemini => {
+                        let r = self.vision_items.lock().map_err(|e| McpError::internal_error(format!("Lock error: {e}"), None))?.get(&index).cloned();
+                        let Some(item) = r else {
+                            span.set_status(false, Some("Gemini index not found")); span.end();
+                            return Err(McpError::internal_error(format!("Gemini index {} not found.", index), Some(json!({ "index": index }))));
+                        };
+                        let b = item.box_2d.ok_or_else(|| McpError::internal_error("No bounds", None))?;
+                        (item.element_type, (b[0], b[1], b[2] - b[0], b[3] - b[1]))
+                    }
+                    crate::utils::VisionType::Dom => {
+                        let r = self.dom_bounds.lock().map_err(|e| McpError::internal_error(format!("Lock error: {e}"), None))?.get(&index).cloned();
+                        let Some((tag, id, b)) = r else {
+                            span.set_status(false, Some("DOM index not found")); span.end();
+                            return Err(McpError::internal_error(format!("DOM index {} not found.", index), Some(json!({ "index": index }))));
+                        };
+                        (if id.is_empty() { tag } else { format!("{tag}: {id}") }, b)
+                    }
+                };
+
+                let click_x = bounds.0 + bounds.2 / 2.0;
+                let click_y = bounds.1 + bounds.3 / 2.0;
+                span.set_attribute("label", item_label.clone());
+
+                match self.desktop.click_at_coordinates_with_type(click_x, click_y, terminator_click_type) {
+                    Ok(()) => {
+                        let vt_str = format!("{:?}", vision_type).to_lowercase();
+                        let ct_str = match args.click_type { crate::utils::ClickType::Left => "left", crate::utils::ClickType::Double => "double", crate::utils::ClickType::Right => "right" };
+                        let result_json = json!({
+                            "action": "click", "mode": "index", "status": "success",
+                            "index": index, "vision_type": vt_str, "click_type": ct_str, "label": item_label,
+                            "clicked_at": { "x": click_x, "y": click_y },
+                            "bounds": { "x": bounds.0, "y": bounds.1, "width": bounds.2, "height": bounds.3 },
+                            "timestamp": chrono::Utc::now().to_rfc3339()
+                        });
+                        span.set_status(true, None);
+                        span.end();
+                        return Ok(CallToolResult::success(
+                            append_monitor_screenshots_if_enabled(&self.desktop, vec![Content::json(result_json)?], args.monitor.include_monitor_screenshots).await,
+                        ));
+                    }
+                    Err(e) => {
+                        span.set_status(false, Some(&e.to_string())); span.end();
+                        return Err(McpError::internal_error(format!("Failed to click index {}: {e}", index), Some(json!({ "index": index, "label": item_label }))));
+                    }
+                }
+            }
+
+            ClickMode::Selector => {
+                let full_selector = args.build_full_selector();
+                let click_position = args.get_click_position();
+                span.set_attribute("selector", full_selector.clone());
+                span.set_attribute("click.position_x", click_position.x_percentage.to_string());
+                span.set_attribute("click.position_y", click_position.y_percentage.to_string());
+                tracing::info!("[click_element] Selector mode: '{}', position: {}%, {}%", full_selector, click_position.x_percentage, click_position.y_percentage);
+
+                if let Some(retries) = args.action.retries {
+                    span.set_attribute("retry.max_attempts", retries.to_string());
+                }
+
+                let should_restore = {
+                    let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+                    !*in_sequence
+                };
+
+                if should_restore {
+                    if let Some(ref process) = args.process {
+                        let _ = self.prepare_window_management(process, None, None, None, &args.window_mgmt).await;
+                    }
+                }
+
+                let highlight_before = args.highlight.highlight_before_action;
+                let click_type = args.click_type;
+                let action = {
+                    let click_position = click_position.clone();
+                    move |element: UIElement| {
+                        let click_position = click_position.clone();
+                        async move {
+                            if highlight_before {
+                                Self::ensure_visible_and_apply_highlight(&element, "click");
+                            }
+                            match element.bounds() {
+                                Ok(bounds) => {
+                                    let x = bounds.0 + (bounds.2 * click_position.x_percentage as f64 / 100.0);
+                                    let y = bounds.1 + (bounds.3 * click_position.y_percentage as f64 / 100.0);
+                                    tracing::debug!("[click_element] Clicking at ({}, {})", x, y);
+
+                                    match click_type {
+                                        crate::utils::ClickType::Left => {
+                                            element.mouse_click_and_hold(x, y)?;
+                                            element.mouse_release()?;
+                                        }
+                                        crate::utils::ClickType::Double => {
+                                            element.mouse_click_and_hold(x, y)?;
+                                            element.mouse_release()?;
+                                            element.mouse_click_and_hold(x, y)?;
+                                            element.mouse_release()?;
+                                        }
+                                        crate::utils::ClickType::Right => {
+                                            element.mouse_move(x, y)?;
+                                            element.right_click()?;
+                                        }
+                                    }
+
+                                    use terminator::ClickResult;
+                                    Ok(ClickResult {
+                                        coordinates: Some((x, y)),
+                                        method: "Position Click".to_string(),
+                                        details: format!("Clicked at {}%, {}%", click_position.x_percentage, click_position.y_percentage),
+                                    })
+                                }
+                                Err(e) => {
+                                    tracing::warn!("[click_element] Failed to get bounds: {}. Falling back.", e);
+                                    element.click()
+                                }
+                            }
+                        }
+                    }
+                };
+
+                let operation_start = std::time::Instant::now();
+                let tree_output_format = args.tree.tree_output_format.unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
+
+                let result = crate::helpers::find_and_execute_with_ui_diff(
+                    &self.desktop,
+                    &full_selector,
+                    args.build_alternative_selectors().as_deref(),
+                    args.build_fallback_selectors().as_deref(),
+                    args.action.timeout_ms,
+                    args.action.retries,
+                    action,
+                    args.tree.ui_diff_before_after,
+                    args.tree.tree_max_depth,
+                    args.tree.include_detailed_attributes,
+                    tree_output_format,
                 )
                 .await;
-        } else {
-            tracing::debug!("[click_element] In sequence - skipping window management (dispatch_tool handles it)");
-        }
 
-        let highlight_before = args.highlight.highlight_before_action;
-        let action = {
-            let click_position = args.click_position.clone();
-            move |element: UIElement| {
-                let click_position = click_position.clone();
-                async move {
-                    // Ensure element is visible and apply highlighting if enabled
-                    if highlight_before {
-                        Self::ensure_visible_and_apply_highlight(&element, "click");
+                let operation_time_ms = operation_start.elapsed().as_millis() as i64;
+                span.set_attribute("operation.duration_ms", operation_time_ms.to_string());
+
+                let ((click_result, element), successful_selector, ui_diff) = match result {
+                    Ok(((result, element), selector, diff)) => {
+                        span.set_attribute("selector.used", selector.clone());
+                        span.set_attribute("element.found", "true".to_string());
+                        if diff.is_some() {
+                            span.set_attribute("ui_diff.captured", "true".to_string());
+                        }
+                        ((result, element), selector, diff)
                     }
+                    Err(e) => {
+                        span.set_attribute("element.found", "false".to_string());
+                        span.set_status(false, Some(&e.to_string()));
+                        span.end();
+                        return Err(build_element_not_found_error(
+                            &full_selector,
+                            args.build_alternative_selectors().as_deref(),
+                            args.build_fallback_selectors().as_deref(),
+                            e,
+                        ));
+                    }
+                };
 
-                    // Click at specified position
-                    // Get element bounds to calculate absolute position
-                    match element.bounds() {
-                        Ok(bounds) => {
-                            // Calculate absolute coordinates from percentages
-                            let x =
-                                bounds.0 + (bounds.2 * click_position.x_percentage as f64 / 100.0);
-                            let y =
-                                bounds.1 + (bounds.3 * click_position.y_percentage as f64 / 100.0);
+                span.set_attribute("element.role", element.role());
+                if let Some(name) = element.name() {
+                    span.set_attribute("element.name", name);
+                }
 
-                            tracing::debug!(
-                                "[click_element] Clicking at absolute position ({}, {}) within bounds ({}, {}, {}, {})",
-                                x, y, bounds.0, bounds.1, bounds.2, bounds.3
-                            );
+                let element_info = build_element_info(&element);
+                let ct_str = match args.click_type { crate::utils::ClickType::Left => "left", crate::utils::ClickType::Double => "double", crate::utils::ClickType::Right => "right" };
 
-                            // Perform click at specific position
-                            element.mouse_click_and_hold(x, y)?;
-                            element.mouse_release()?;
+                let mut result_json = json!({
+                    "action": "click", "mode": "selector", "status": "success",
+                    "selector_used": successful_selector,
+                    "click_type": ct_str,
+                    "click_result": { "method": click_result.method, "coordinates": click_result.coordinates, "details": click_result.details },
+                    "element": element_info,
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                });
 
-                            // Return a ClickResult
-                            use terminator::ClickResult;
-                            Ok(ClickResult {
-                                coordinates: Some((x, y)),
-                                method: "Position Click".to_string(),
-                                details: format!(
-                                    "Clicked at {}%, {}%",
-                                    click_position.x_percentage, click_position.y_percentage
-                                ),
-                            })
+                if !args.action.verify_element_exists.is_empty() || !args.action.verify_element_not_exists.is_empty() {
+                    let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
+                    let verify_exists_opt = if args.action.verify_element_exists.is_empty() { None } else { Some(args.action.verify_element_exists.as_str()) };
+                    let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() { None } else { Some(args.action.verify_element_not_exists.as_str()) };
+
+                    match crate::helpers::verify_post_action(&self.desktop, &element, verify_exists_opt, verify_not_exists_opt, verify_timeout_ms, &successful_selector).await {
+                        Ok(verification_result) => {
+                            span.set_attribute("verification.passed", "true".to_string());
+                            let verification_json = json!({ "passed": verification_result.passed, "method": verification_result.method, "details": verification_result.details, "elapsed_ms": verification_result.elapsed_ms });
+                            if let Some(obj) = result_json.as_object_mut() {
+                                obj.insert("verification".to_string(), verification_json);
+                            }
                         }
                         Err(e) => {
-                            tracing::warn!("[click_element] Failed to get bounds for position click: {}. Falling back to center click.", e);
-                            element.click()
+                            span.set_status(false, Some("Verification failed"));
+                            span.end();
+                            return Err(McpError::internal_error(format!("Post-action verification failed: {e}"), Some(json!({ "selector_used": successful_selector }))));
                         }
                     }
                 }
-            }
-        };
 
-        // Track search and action time
-        let operation_start = std::time::Instant::now();
-
-        // Store tree config to avoid move issues (Option<TreeOutputFormat> is Copy since TreeOutputFormat is Copy)
-        let tree_output_format = args
-            .tree
-            .tree_output_format
-            .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
-
-        // Use new wrapper that supports UI diff capture
-        let result = crate::helpers::find_and_execute_with_ui_diff(
-            &self.desktop,
-            &args.selector.build_full_selector(),
-            args.selector.build_alternative_selectors().as_deref(),
-            args.selector.build_fallback_selectors().as_deref(),
-            args.action.timeout_ms,
-            args.action.retries,
-            action,
-            args.tree.ui_diff_before_after,
-            args.tree.tree_max_depth,
-            args.tree.include_detailed_attributes,
-            tree_output_format,
-        )
-        .await;
-
-        let operation_time_ms = operation_start.elapsed().as_millis() as i64;
-        span.set_attribute("operation.duration_ms", operation_time_ms.to_string());
-
-        let ((click_result, element), successful_selector, ui_diff) = match result {
-            Ok(((result, element), selector, diff)) => {
-                span.set_attribute("selector.used", selector.clone());
-                span.set_attribute("element.found", "true".to_string());
-                if diff.is_some() {
-                    span.set_attribute("ui_diff.captured", "true".to_string());
-                }
-                ((result, element), selector, diff)
-            }
-            Err(e) => {
-                span.set_attribute("element.found", "false".to_string());
-                span.set_status(false, Some(&e.to_string()));
-                span.end();
-                return Err(build_element_not_found_error(
-                    &args.selector.build_full_selector(),
-                    args.selector.build_alternative_selectors().as_deref(),
-                    args.selector.build_fallback_selectors().as_deref(),
-                    e,
-                ));
-            }
-        };
-
-        // Track element metadata in telemetry
-        span.set_attribute("element.role", element.role());
-        if let Some(name) = element.name() {
-            span.set_attribute("element.name", name);
-        }
-        let window_title = element.window_title();
-        if !window_title.is_empty() {
-            span.set_attribute("element.window_title", window_title.clone());
-        }
-
-        let element_info = build_element_info(&element);
-
-        let mut result_json = json!({
-            "action": "click",
-            "status": "success",
-            "selector_used": successful_selector,
-            "click_result": {
-                "method": click_result.method,
-                "coordinates": click_result.coordinates,
-                "details": click_result.details,
-            },
-            "element": element_info,
-            "timestamp": chrono::Utc::now().to_rfc3339()
-        });
-
-        // POST-ACTION VERIFICATION
-        if !args.action.verify_element_exists.is_empty()
-            || !args.action.verify_element_not_exists.is_empty()
-        {
-            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
-
-            let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
-                None
-            } else {
-                Some(args.action.verify_element_exists.as_str())
-            };
-            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() {
-                None
-            } else {
-                Some(args.action.verify_element_not_exists.as_str())
-            };
-
-            match crate::helpers::verify_post_action(
-                &self.desktop,
-                &element,
-                verify_exists_opt,
-                verify_not_exists_opt,
-                verify_timeout_ms,
-                &successful_selector,
-            )
-            .await
-            {
-                Ok(verification_result) => {
-                    tracing::info!(
-                        "[click_element] Verification passed: method={}, details={}",
-                        verification_result.method,
-                        verification_result.details
-                    );
-                    span.set_attribute("verification.passed", "true".to_string());
-                    span.set_attribute("verification.method", verification_result.method.clone());
-                    span.set_attribute(
-                        "verification.elapsed_ms",
-                        verification_result.elapsed_ms.to_string(),
-                    );
-
-                    let verification_json = json!({
-                        "passed": verification_result.passed,
-                        "method": verification_result.method,
-                        "details": verification_result.details,
-                        "elapsed_ms": verification_result.elapsed_ms,
-                        "timestamp": chrono::Utc::now().to_rfc3339(),
-                    });
-
-                    if let Some(obj) = result_json.as_object_mut() {
-                        obj.insert("verification".to_string(), verification_json);
+                if let Some(diff_result) = ui_diff {
+                    span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
+                    result_json["ui_diff"] = json!(diff_result.diff);
+                    result_json["has_ui_changes"] = json!(diff_result.has_changes);
+                    if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
+                        result_json["tree_before"] = json!(diff_result.tree_before);
+                        result_json["tree_after"] = json!(diff_result.tree_after);
                     }
                 }
-                Err(e) => {
-                    tracing::error!("[click_element] Verification failed: {}", e);
-                    span.set_attribute("verification.passed", "false".to_string());
-                    span.set_status(false, Some("Verification failed"));
-                    span.end();
-                    return Err(McpError::internal_error(
-                        format!("Post-action verification failed: {e}"),
-                        Some(json!({
-                            "selector_used": successful_selector,
-                            "verify_exists": args.action.verify_element_exists,
-                            "verify_not_exists": args.action.verify_element_not_exists,
-                            "timeout_ms": verify_timeout_ms,
-                        })),
-                    ));
-                }
+
+                self.restore_window_management(should_restore).await;
+                span.set_status(true, None);
+                span.end();
+
+                Ok(CallToolResult::success(
+                    append_monitor_screenshots_if_enabled(&self.desktop, vec![Content::json(result_json)?], args.monitor.include_monitor_screenshots).await,
+                ))
             }
         }
-
-        // Attach UI diff if captured (action tools only support diff, not standalone tree)
-        if let Some(diff_result) = ui_diff {
-            tracing::debug!(
-                "[click_element] Attaching UI diff to result (has_changes: {})",
-                diff_result.has_changes
-            );
-            span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
-
-            result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["has_ui_changes"] = json!(diff_result.has_changes);
-            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
-                result_json["tree_before"] = json!(diff_result.tree_before);
-                result_json["tree_after"] = json!(diff_result.tree_after);
-            }
-        }
-
-        // Restore windows if this was a direct MCP call
-        self.restore_window_management(should_restore).await;
-
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                args.monitor.include_monitor_screenshots,
-            )
-            .await,
-        ))
     }
-
     #[tool(
         description = "Sends a key press to a UI element. Use curly brace format: '{Ctrl}c', '{Alt}{F4}', '{Enter}', '{PageDown}', '{Tab}', etc. This action requires the application to be focused and may change the UI.
 
@@ -4851,239 +4946,6 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
     }
 
     #[tool(
-        name = "click_element_by_index",
-        description = "Clicks on an indexed item by its index number. First call get_window_tree to get indexed UI elements (shown as #1, #2, etc. in the tree output). By default clicks UI tree elements (vision_type='ui_tree'). Also supports 'ocr' (include_ocr=true), 'omniparser' (include_omniparser=true), and 'dom' (browser_dom field in browser windows) indices. Supports click types: 'left' (default), 'double', or 'right'."
-    )]
-    async fn click_element_by_index(
-        &self,
-        Parameters(args): Parameters<crate::utils::ClickIndexArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        // Start telemetry span
-        let mut span = StepSpan::new("click_index", None);
-        span.set_attribute("index", args.index.to_string());
-        span.set_attribute("vision_type", format!("{:?}", args.vision_type));
-        span.set_attribute("click_type", format!("{:?}", args.click_type));
-
-        // Get bounds based on vision type
-        let (item_label, bounds) = match args.vision_type {
-            crate::utils::VisionType::UiTree => {
-                // Look up the UIA bounds
-                let bounds_result = {
-                    let bounds = self.uia_bounds.lock().map_err(|e| {
-                        McpError::internal_error(format!("Failed to lock UIA bounds: {e}"), None)
-                    })?;
-                    bounds.get(&args.index).cloned()
-                };
-
-                let Some((role, name, (x, y, width, height))) = bounds_result else {
-                    span.set_status(false, Some("UIA index not found"));
-                    span.end();
-                    return Err(McpError::internal_error(
-                        format!("UI tree index {} not found. Call get_window_tree first to get indexed UI elements.", args.index),
-                        Some(json!({ "index": args.index, "vision_type": "ui_tree" })),
-                    ));
-                };
-
-                let label = if name.is_empty() {
-                    role
-                } else {
-                    format!("{role}: {name}")
-                };
-                (label, (x, y, width, height))
-            }
-            crate::utils::VisionType::Ocr => {
-                // Look up the OCR bounds
-                let bounds_result = {
-                    let bounds = self.ocr_bounds.lock().map_err(|e| {
-                        McpError::internal_error(format!("Failed to lock OCR bounds: {e}"), None)
-                    })?;
-                    bounds.get(&args.index).cloned()
-                };
-
-                let Some((text, (x, y, width, height))) = bounds_result else {
-                    span.set_status(false, Some("OCR index not found"));
-                    span.end();
-                    return Err(McpError::internal_error(
-                        format!("OCR index {} not found. Call get_window_tree with include_ocr=true first to get indexed OCR words.", args.index),
-                        Some(json!({ "index": args.index, "vision_type": "ocr" })),
-                    ));
-                };
-
-                (text, (x, y, width, height))
-            }
-            crate::utils::VisionType::Omniparser => {
-                // Look up the Omniparser item
-                let item_result = {
-                    let items = self.omniparser_items.lock().map_err(|e| {
-                        McpError::internal_error(
-                            format!("Failed to lock Omniparser items: {e}"),
-                            None,
-                        )
-                    })?;
-                    items.get(&args.index).cloned()
-                };
-
-                let Some(item) = item_result else {
-                    span.set_status(false, Some("Omniparser index not found"));
-                    span.end();
-                    return Err(McpError::internal_error(
-                        format!(
-                            "Omniparser index {} not found. Call get_window_tree with include_omniparser=true first to get indexed items.",
-                            args.index
-                        ),
-                        Some(json!({ "index": args.index, "vision_type": "omniparser" })),
-                    ));
-                };
-
-                let bounds = item
-                    .box_2d
-                    .ok_or_else(|| McpError::internal_error("Item has no bounds", None))?;
-
-                let x = bounds[0];
-                let y = bounds[1];
-                let width = bounds[2] - bounds[0];
-                let height = bounds[3] - bounds[1];
-
-                (item.label, (x, y, width, height))
-            }
-            crate::utils::VisionType::Gemini => {
-                // Look up the Gemini vision item
-                let item_result = {
-                    let items = self.vision_items.lock().map_err(|e| {
-                        McpError::internal_error(
-                            format!("Failed to lock Vision items: {e}"),
-                            None,
-                        )
-                    })?;
-                    items.get(&args.index).cloned()
-                };
-
-                let Some(item) = item_result else {
-                    span.set_status(false, Some("Vision index not found"));
-                    span.end();
-                    return Err(McpError::internal_error(
-                        format!(
-                            "Gemini index {} not found. Call get_window_tree with include_gemini_vision=true first to get indexed items.",
-                            args.index
-                        ),
-                        Some(json!({ "index": args.index, "vision_type": "gemini" })),
-                    ));
-                };
-
-                let bounds = item
-                    .box_2d
-                    .ok_or_else(|| McpError::internal_error("Item has no bounds", None))?;
-
-                let x = bounds[0];
-                let y = bounds[1];
-                let width = bounds[2] - bounds[0];
-                let height = bounds[3] - bounds[1];
-
-                (item.element_type, (x, y, width, height))
-            }
-            crate::utils::VisionType::Dom => {
-                // Look up the DOM bounds
-                let bounds_result = {
-                    let bounds = self.dom_bounds.lock().map_err(|e| {
-                        McpError::internal_error(format!("Failed to lock DOM bounds: {e}"), None)
-                    })?;
-                    bounds.get(&args.index).cloned()
-                };
-
-                let Some((tag, identifier, (x, y, width, height))) = bounds_result else {
-                    span.set_status(false, Some("DOM index not found"));
-                    span.end();
-                    return Err(McpError::internal_error(
-                        format!("DOM index {} not found. Call get_window_tree on a browser first to get indexed DOM elements.", args.index),
-                        Some(json!({ "index": args.index, "vision_type": "dom" })),
-                    ));
-                };
-
-                let label = if identifier.is_empty() {
-                    tag
-                } else {
-                    format!("{tag}: {identifier}")
-                };
-                (label, (x, y, width, height))
-            }
-        };
-
-        // Calculate center of the bounds
-        let click_x = bounds.0 + bounds.2 / 2.0;
-        let click_y = bounds.1 + bounds.3 / 2.0;
-
-        span.set_attribute("label", item_label.clone());
-        span.set_attribute("click_x", click_x.to_string());
-        span.set_attribute("click_y", click_y.to_string());
-
-        // Convert ClickType to terminator's ClickType
-        let terminator_click_type = match args.click_type {
-            crate::utils::ClickType::Left => terminator::ClickType::Left,
-            crate::utils::ClickType::Double => terminator::ClickType::Double,
-            crate::utils::ClickType::Right => terminator::ClickType::Right,
-        };
-
-        // Perform the click
-        match self
-            .desktop
-            .click_at_coordinates_with_type(click_x, click_y, terminator_click_type)
-        {
-            Ok(()) => {
-                let vision_type_str = match args.vision_type {
-                    crate::utils::VisionType::UiTree => "ui_tree",
-                    crate::utils::VisionType::Ocr => "ocr",
-                    crate::utils::VisionType::Omniparser => "omniparser",
-                    crate::utils::VisionType::Gemini => "gemini",
-                    crate::utils::VisionType::Dom => "dom",
-                };
-                let click_type_str = match args.click_type {
-                    crate::utils::ClickType::Left => "left",
-                    crate::utils::ClickType::Double => "double",
-                    crate::utils::ClickType::Right => "right",
-                };
-                let result_json = json!({
-                    "action": "click_index",
-                    "status": "success",
-                    "index": args.index,
-                    "vision_type": vision_type_str,
-                    "click_type": click_type_str,
-                    "label": item_label,
-                    "clicked_at": { "x": click_x, "y": click_y },
-                    "bounds": { "x": bounds.0, "y": bounds.1, "width": bounds.2, "height": bounds.3 },
-                });
-
-                span.set_status(true, None);
-                span.end();
-
-                Ok(CallToolResult::success(
-                    append_monitor_screenshots_if_enabled(
-                        &self.desktop,
-                        vec![Content::json(result_json)?],
-                        args.monitor.include_monitor_screenshots,
-                    )
-                    .await,
-                ))
-            }
-            Err(e) => {
-                span.set_status(false, Some(&e.to_string()));
-                span.end();
-
-                Err(McpError::internal_error(
-                    format!(
-                        "Failed to click index {} (\"{}\"): {e}",
-                        args.index, item_label
-                    ),
-                    Some(json!({
-                        "index": args.index,
-                        "vision_type": format!("{:?}", args.vision_type).to_lowercase(),
-                        "label": item_label,
-                    })),
-                ))
-            }
-        }
-    }
-
-    #[tool(
         description = "Validates that an element exists and provides detailed information about it. This is a read-only operation that NEVER throws errors. Returns status='success' with exists=true when found, or status='failed' with exists=false when not found. Use {step_id}_status or {step_id}_result.exists for conditional logic. This is the preferred tool for checking optional/conditional UI elements."
     )]
     pub async fn validate_element(
@@ -6587,17 +6449,28 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
     }
 
     #[tool(
-        description = "Captures a screenshot of a specific UI element. Automatically resizes to max 1920px (customizable via max_dimension parameter) while maintaining aspect ratio. Uses process-scoped selector for reliable element capture."
+        description = "Captures a screenshot. Three modes: (1) Element - provide process + selector to capture specific element, (2) Window - provide process only to capture entire window, (3) Monitor - provide process + entire_monitor=true to capture the monitor where the window is located. Automatically resizes to max 1920px (customizable via max_dimension parameter) while maintaining aspect ratio."
     )]
-    async fn capture_element_screenshot(
+    async fn capture_screenshot(
         &self,
-        Parameters(args): Parameters<CaptureElementScreenshotArgs>,
+        Parameters(args): Parameters<CaptureScreenshotArgs>,
     ) -> Result<CallToolResult, McpError> {
         // Start telemetry span
-        let mut span = StepSpan::new("capture_element_screenshot", None);
+        let mut span = StepSpan::new("capture_screenshot", None);
 
-        // Add telemetry attributes
-        span.set_attribute("selector", args.selector.selector.clone());
+        // Determine capture mode for telemetry
+        let capture_mode = if args.entire_monitor {
+            "monitor"
+        } else if args.selector.selector.is_empty() {
+            "window"
+        } else {
+            "element"
+        };
+        span.set_attribute("capture_mode", capture_mode.to_string());
+        span.set_attribute("process", args.selector.process.clone());
+        if !args.selector.selector.is_empty() {
+            span.set_attribute("selector", args.selector.selector.clone());
+        }
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
@@ -6609,7 +6482,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         };
 
         if should_restore {
-            tracing::info!("[capture_element_screenshot] Direct MCP call detected - performing window management");
+            tracing::info!("[capture_screenshot] Direct MCP call detected - performing window management");
             let _ = self
                 .prepare_window_management(
                     &args.selector.process,
@@ -6620,12 +6493,57 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 )
                 .await;
         } else {
-            tracing::debug!("[capture_element_screenshot] In sequence - skipping window management (dispatch_tool handles it)");
+            tracing::debug!("[capture_screenshot] In sequence - skipping window management (dispatch_tool handles it)");
         }
 
-        // Capture screenshot using process-scoped selector
-        let ((screenshot_result, element), successful_selector) =
-            match find_and_execute_with_retry_with_fallback(
+        // Capture screenshot based on mode
+        let (screenshot_result, element_info, successful_selector) = if args.entire_monitor {
+            // Monitor mode: find window, get its monitor, capture the monitor
+            let ((element, _), selector) = find_and_execute_with_retry_with_fallback(
+                &self.desktop,
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
+                args.action.timeout_ms,
+                args.action.retries,
+                |element| async move { Ok(element) },
+            )
+            .await
+            .map_err(|e| {
+                build_element_not_found_error(
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
+                    e,
+                )
+            })?;
+
+            // Get the monitor containing this window
+            let monitor = element.monitor().map_err(|e| {
+                McpError::internal_error(
+                    "Failed to get monitor for window",
+                    Some(json!({ "reason": e.to_string() })),
+                )
+            })?;
+
+            // Capture the monitor
+            let screenshot = monitor.capture(&self.desktop).await.map_err(|e| {
+                McpError::internal_error(
+                    "Failed to capture monitor screenshot",
+                    Some(json!({ "reason": e.to_string() })),
+                )
+            })?;
+
+            let info = json!({
+                "type": "monitor",
+                "monitor_name": monitor.name,
+                "monitor_id": monitor.id,
+                "window_process": args.selector.process,
+            });
+            (screenshot, info, selector)
+        } else {
+            // Element/Window mode: capture element directly
+            let ((result, element), selector) = find_and_execute_with_retry_with_fallback(
                 &self.desktop,
                 &args.selector.build_full_selector(),
                 args.selector.build_alternative_selectors().as_deref(),
@@ -6635,15 +6553,18 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 |element| async move { element.capture() },
             )
             .await
-            {
-                Ok(((result, element), selector)) => Ok(((result, element), selector)),
-                Err(e) => Err(build_element_not_found_error(
+            .map_err(|e| {
+                build_element_not_found_error(
                     &args.selector.build_full_selector(),
                     args.selector.build_alternative_selectors().as_deref(),
                     args.selector.build_fallback_selectors().as_deref(),
                     e,
-                )),
-            }?;
+                )
+            })?;
+
+            let info = build_element_info(&element);
+            (result, info, selector)
+        };
 
         // Store original dimensions for metadata
         let original_width = screenshot_result.width;
@@ -6706,16 +6627,15 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
         let base64_image = general_purpose::STANDARD.encode(&png_data);
 
-        let element_info = build_element_info(&element);
-
         span.set_status(true, None);
         span.end();
 
         // Build metadata with resize information
         let metadata = json!({
-            "action": "capture_element_screenshot",
+            "action": "capture_screenshot",
             "status": "success",
-            "element": element_info,
+            "capture_mode": capture_mode,
+            "target": element_info,
             "selector_used": successful_selector,
             "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "image_format": "png",
@@ -8454,15 +8374,6 @@ impl DesktopWrapper {
                     Some(json!({"error": e.to_string()})),
                 )),
             },
-            "click_element_by_index" | "click_index" | "click_cv_index" => {
-                match serde_json::from_value::<crate::utils::ClickIndexArgs>(arguments.clone()) {
-                    Ok(args) => self.click_element_by_index(Parameters(args)).await,
-                    Err(e) => Err(McpError::invalid_params(
-                        "Invalid arguments for click_element_by_index",
-                        Some(json!({"error": e.to_string()})),
-                    )),
-                }
-            }
             "highlight_element" => {
                 match serde_json::from_value::<HighlightElementArgs>(arguments.clone()) {
                     Ok(args) => self.highlight_element(Parameters(args)).await,
@@ -8488,11 +8399,11 @@ impl DesktopWrapper {
                     Some(json!({"error": e.to_string()})),
                 )),
             },
-            "capture_element_screenshot" => {
-                match serde_json::from_value::<CaptureElementScreenshotArgs>(arguments.clone()) {
-                    Ok(args) => self.capture_element_screenshot(Parameters(args)).await,
+            "capture_screenshot" | "capture_element_screenshot" => {
+                match serde_json::from_value::<CaptureScreenshotArgs>(arguments.clone()) {
+                    Ok(args) => self.capture_screenshot(Parameters(args)).await,
                     Err(e) => Err(McpError::invalid_params(
-                        "Invalid arguments for capture_element_screenshot",
+                        "Invalid arguments for capture_screenshot",
                         Some(json!({"error": e.to_string()})),
                     )),
                 }

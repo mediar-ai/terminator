@@ -123,8 +123,9 @@ pub struct SelectorOptions {
     pub window_selector: Option<String>,
 
     #[schemars(
-        description = "A string selector to locate the element within the scoped process/window. Can be chained with ` >> `."
+        description = "A string selector to locate the element within the scoped process/window. Can be chained with ` >> `. If omitted, targets the window root element."
     )]
+    #[serde(default)]
     pub selector: String,
 
     #[schemars(
@@ -141,7 +142,14 @@ pub struct SelectorOptions {
 impl SelectorOptions {
     /// Build the full selector by combining process (and optionally window_selector) with the main selector
     pub fn build_full_selector(&self) -> String {
-        if let Some(window_sel) = &self.window_selector {
+        if self.selector.is_empty() {
+            // No selector = target window root
+            if let Some(window_sel) = &self.window_selector {
+                format!("process:{} >> {}", self.process, window_sel)
+            } else {
+                format!("process:{}", self.process)
+            }
+        } else if let Some(window_sel) = &self.window_selector {
             // Chain: process -> window -> element
             format!(
                 "process:{} >> {} >> {}",
@@ -343,6 +351,17 @@ pub struct DesktopWrapper {
     #[serde(skip)]
     pub dom_bounds:
         Arc<Mutex<std::collections::HashMap<u32, (String, String, (f64, f64, f64, f64))>>>,
+    /// Stores clustered index-to-bounds mapping from the last get_window_tree with clustered_yaml format
+    /// Key is prefixed index (e.g., "u1", "d2", "o3", "p4", "g5"), value is (source, original_index, bounds)
+    #[serde(skip)]
+    pub clustered_bounds: Arc<
+        Mutex<
+            std::collections::HashMap<
+                String,
+                (crate::tree_formatter::ElementSource, u32, (f64, f64, f64, f64)),
+            >,
+        >,
+    >,
     /// Stores the active inspect overlay handle for cleanup
     #[cfg(target_os = "windows")]
     #[serde(skip)]
@@ -413,9 +432,9 @@ pub struct GetWindowTreeArgs {
     pub include_gemini_vision: bool,
 
     #[schemars(
-        description = "Whether to capture browser DOM elements. Returns a 'browser_dom' field with indexed DOM elements for click targeting. Defaults to true for browser processes."
+        description = "Whether to capture browser DOM elements. Returns a 'browser_dom' field with indexed DOM elements for click targeting. Defaults to false."
     )]
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub include_browser_dom: bool,
 
     #[schemars(
@@ -547,14 +566,67 @@ impl<'de> Deserialize<'de> for ClickPosition {
     }
 }
 
+/// Unified click tool supporting three modes:
+/// 1. Selector mode: provide `process` + `selector` to find and click an element
+/// 2. Index mode: provide `index` (+ optional `vision_type`) to click an indexed item from get_window_tree
+/// 3. Coordinate mode: provide `x` + `y` to click at absolute screen coordinates
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ClickElementArgs {
+    // === MODE 1: Selector-based clicking ===
     #[schemars(
-        description = "REQUIRED: Click position as percentage within element bounds. Use x_percentage: 50, y_percentage: 50 for center click (most common)."
+        description = "Process name to scope the search (e.g., 'chrome', 'notepad'). Required for selector mode."
     )]
-    pub click_position: ClickPosition,
-    #[serde(flatten)]
-    pub selector: SelectorOptions,
+    pub process: Option<String>,
+
+    #[schemars(
+        description = "A string selector to locate the element (e.g., 'role:Button|name:Submit'). Used with process for selector mode."
+    )]
+    pub selector: Option<String>,
+
+    #[schemars(
+        description = "Optional window selector for additional filtering within the process."
+    )]
+    pub window_selector: Option<String>,
+
+    #[schemars(
+        description = "Optional alternative selectors to try in parallel."
+    )]
+    pub alternative_selectors: Option<String>,
+
+    #[schemars(
+        description = "Optional fallback selectors to try sequentially if primary fails."
+    )]
+    pub fallback_selectors: Option<String>,
+
+    #[schemars(
+        description = "Click position as percentage within element bounds (selector mode only). Defaults to center (50, 50)."
+    )]
+    pub click_position: Option<ClickPosition>,
+
+    // === MODE 2: Index-based clicking ===
+    #[schemars(
+        description = "The 1-based index of the item to click (from get_window_tree output, e.g., #1, #2). Used for index mode."
+    )]
+    pub index: Option<u32>,
+
+    #[schemars(
+        description = "Source of the indexed item: 'ui_tree' (default), 'ocr', 'omniparser', 'gemini', or 'dom'. Used with index."
+    )]
+    pub vision_type: Option<VisionType>,
+
+    // === MODE 3: Coordinate-based clicking ===
+    #[schemars(description = "Absolute screen X coordinate. Used with y for coordinate mode.")]
+    pub x: Option<f64>,
+
+    #[schemars(description = "Absolute screen Y coordinate. Used with x for coordinate mode.")]
+    pub y: Option<f64>,
+
+    // === Common options ===
+    #[schemars(
+        description = "Type of click: 'left' (default), 'double', or 'right'."
+    )]
+    #[serde(default)]
+    pub click_type: ClickType,
 
     #[serde(flatten)]
     pub action: ActionOptions,
@@ -570,6 +642,118 @@ pub struct ClickElementArgs {
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
+}
+
+/// Click mode determined from provided arguments
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ClickMode {
+    /// Click element by selector (process + selector)
+    Selector,
+    /// Click by index from get_window_tree
+    Index,
+    /// Click at absolute screen coordinates
+    Coordinates,
+}
+
+impl ClickElementArgs {
+    /// Determine which click mode based on provided arguments
+    pub fn determine_mode(&self) -> Result<ClickMode, String> {
+        let has_selector = self.process.is_some();
+        let has_index = self.index.is_some();
+        let has_coords = self.x.is_some() && self.y.is_some();
+        let has_partial_coords = self.x.is_some() || self.y.is_some();
+
+        // Validate: exactly one mode must be specified
+        let mode_count = [has_selector, has_index, has_coords]
+            .iter()
+            .filter(|&&x| x)
+            .count();
+
+        if mode_count == 0 {
+            // Check for partial coordinates
+            if has_partial_coords {
+                return Err("Coordinate mode requires both 'x' and 'y' parameters".to_string());
+            }
+            return Err(
+                "Must specify one of: (process + selector), (index), or (x + y coordinates)"
+                    .to_string(),
+            );
+        }
+
+        if mode_count > 1 {
+            return Err(
+                "Cannot mix modes: specify only one of (process + selector), (index), or (x + y)"
+                    .to_string(),
+            );
+        }
+
+        if has_selector {
+            Ok(ClickMode::Selector)
+        } else if has_index {
+            Ok(ClickMode::Index)
+        } else {
+            Ok(ClickMode::Coordinates)
+        }
+    }
+
+    /// Build the full selector string (for selector mode)
+    pub fn build_full_selector(&self) -> String {
+        let process = self.process.as_deref().unwrap_or("");
+        let selector = self.selector.as_deref().unwrap_or("");
+
+        if selector.is_empty() {
+            if let Some(window_sel) = &self.window_selector {
+                format!("process:{} >> {}", process, window_sel)
+            } else {
+                format!("process:{}", process)
+            }
+        } else if let Some(window_sel) = &self.window_selector {
+            format!("process:{} >> {} >> {}", process, window_sel, selector)
+        } else {
+            format!("process:{} >> {}", process, selector)
+        }
+    }
+
+    /// Build alternative selectors string (for selector mode)
+    pub fn build_alternative_selectors(&self) -> Option<String> {
+        let process = self.process.as_deref()?;
+        let alternatives = self.alternative_selectors.as_ref()?;
+
+        Some(
+            alternatives
+                .split(',')
+                .map(|s| format!("process:{} >> {}", process, s.trim()))
+                .collect::<Vec<_>>()
+                .join(","),
+        )
+    }
+
+    /// Build fallback selectors string (for selector mode)
+    pub fn build_fallback_selectors(&self) -> Option<String> {
+        let process = self.process.as_deref()?;
+        let fallbacks = self.fallback_selectors.as_ref()?;
+
+        Some(
+            fallbacks
+                .split(',')
+                .map(|s| format!("process:{} >> {}", process, s.trim()))
+                .collect::<Vec<_>>()
+                .join(","),
+        )
+    }
+
+    /// Get click position, defaulting to center (50, 50)
+    pub fn get_click_position(&self) -> ClickPosition {
+        self.click_position.clone().unwrap_or(ClickPosition {
+            x_percentage: 50,
+            y_percentage: 50,
+        })
+    }
+
+    /// Get vision type, defaulting to UiTree
+    pub fn get_vision_type(&self) -> VisionType {
+        self.vision_type.unwrap_or(VisionType::UiTree)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -769,36 +953,6 @@ pub enum VisionType {
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct ClickIndexArgs {
-    #[schemars(
-        description = "The 1-based index of the item to click (from get_window_tree output). UI tree elements with bounds get indices like #1, #2, etc."
-    )]
-    pub index: u32,
-
-    #[schemars(
-        description = "Source of the indexed item: 'ui_tree' for UIA accessibility tree elements (default), 'ocr' for OCR-detected text, 'omniparser' for Omniparser-detected UI elements, 'dom' for browser DOM elements"
-    )]
-    #[serde(default = "default_vision_type")]
-    pub vision_type: VisionType,
-
-    #[schemars(
-        description = "Type of click to perform: 'left' (default, single left click), 'double' (double left click), or 'right' (right click)"
-    )]
-    #[serde(default)]
-    pub click_type: ClickType,
-
-    #[serde(flatten)]
-    pub tree: DiffTreeOptions,
-
-    #[serde(flatten)]
-    pub monitor: MonitorScreenshotOptions,
-}
-
-fn default_vision_type() -> VisionType {
-    VisionType::UiTree
-}
-
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ValidateElementArgs {
     #[serde(flatten)]
     pub selector: SelectorOptions,
@@ -824,7 +978,7 @@ pub struct ValidateElementArgs {
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct CaptureElementScreenshotArgs {
+pub struct CaptureScreenshotArgs {
     #[serde(flatten)]
     pub selector: SelectorOptions,
 
@@ -843,6 +997,12 @@ pub struct CaptureElementScreenshotArgs {
         description = "Maximum dimension (width or height) for the screenshot. Screenshots larger than this will be resized while maintaining aspect ratio. Default: 1920px"
     )]
     pub max_dimension: Option<u32>,
+
+    #[schemars(
+        description = "If true, captures the entire monitor where the target window is located instead of the window/element. Defaults to false."
+    )]
+    #[serde(default)]
+    pub entire_monitor: bool,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
