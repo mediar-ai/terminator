@@ -8,7 +8,7 @@ use crate::utils::{
     ExecuteBrowserScriptArgs, ExecuteSequenceArgs,
     GetApplicationsArgs, GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs, InvokeElementArgs,
     LocatorArgs, MaximizeWindowArgs, MinimizeWindowArgs, MouseDragArgs, NavigateBrowserArgs,
-    OpenApplicationArgs, PressKeyArgs, RunCommandArgs, ScrollElementArgs,
+    OpenApplicationArgs, PressKeyArgs, RunCommandArgs, ScrollElementArgs, SelectOptionArgs,
     SetRangeValueArgs, SetSelectedArgs, SetToggledArgs, SetValueArgs, SetZoomArgs,
     StopHighlightingArgs, TypeIntoElementArgs, ValidateElementArgs, WaitForElementArgs,
 };
@@ -5892,7 +5892,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
     #[tool(description = "Selects an option in a dropdown or combobox by its visible text.")]
     async fn select_option(
         &self,
-        Parameters(args): Parameters<crate::utils::SelectOptionArgs>,
+        Parameters(args): Parameters<SelectOptionArgs>,
     ) -> Result<CallToolResult, McpError> {
         // Start telemetry span
         let mut span = StepSpan::new("select_option", None);
@@ -6010,118 +6010,6 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             }
         }
 
-        self.restore_window_management(should_restore).await;
-
-        span.set_status(true, None);
-        span.end();
-
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                None,
-            )
-            .await,
-        ))
-    }
-
-    #[tool(
-        description = "Lists all available option strings from a dropdown, list box, or similar control. This is a read-only operation."
-    )]
-    async fn list_options(
-        &self,
-        Parameters(args): Parameters<LocatorArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        // Start telemetry span
-        let mut span = StepSpan::new("list_options", None);
-
-        // Add comprehensive telemetry attributes
-        span.set_attribute("selector", args.selector.selector.clone());
-        if let Some(retries) = args.action.retries {
-            span.set_attribute("retry.max_attempts", retries.to_string());
-        }
-
-        // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            let flag_value = *in_sequence;
-            let should_restore_value = !flag_value;
-            tracing::info!(
-                "[list_options] Flag check: in_sequence={}, should_restore={}",
-                flag_value,
-                should_restore_value
-            );
-            should_restore_value
-        };
-
-        if should_restore {
-            tracing::info!(
-                "[list_options] Direct MCP call detected - performing window management"
-            );
-            let _ = self
-                .prepare_window_management(
-                    &args.selector.process,
-                    None,
-                    None,
-                    None,
-                    &args.window_mgmt,
-                )
-                .await;
-        } else {
-            tracing::debug!("[list_options] In sequence - skipping window management (dispatch_tool handles it)");
-        }
-
-        let ((options, element), successful_selector) =
-            match find_and_execute_with_retry_with_fallback(
-                &self.desktop,
-                &args.selector.build_full_selector(),
-                args.selector.build_alternative_selectors().as_deref(),
-                args.selector.build_fallback_selectors().as_deref(),
-                args.action.timeout_ms,
-                args.action.retries,
-                |element| async move { element.list_options() },
-            )
-            .await
-            {
-                Ok(((result, element), selector)) => Ok(((result, element), selector)),
-                Err(e) => {
-                    // Restore windows before returning error
-                    self.restore_window_management(should_restore).await;
-                    Err(build_element_not_found_error(
-                        &args.selector.build_full_selector(),
-                        args.selector.build_alternative_selectors().as_deref(),
-                        args.selector.build_fallback_selectors().as_deref(),
-                        e,
-                    ))
-                }
-            }?;
-
-        let element_info = build_element_info(&element);
-
-        let mut result_json = json!({
-            "action": "list_options",
-            "status": "success",
-            "element": element_info,
-            "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
-            "options": options,
-            "count": options.len(),
-        });
-        maybe_attach_tree(
-            &self.desktop,
-            args.tree.include_tree_after_action,
-            args.tree.tree_max_depth,
-            args.tree.tree_from_selector.as_deref(),
-            args.tree.include_detailed_attributes,
-            None,
-            element.process_id().ok(),
-            &mut result_json,
-            Some(&element),
-            false,
-        )
-        .await;
-
-        // Restore windows after listing options
         self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
@@ -9307,7 +9195,7 @@ impl DesktopWrapper {
                 }
             }
             "select_option" => {
-                match serde_json::from_value::<crate::utils::SelectOptionArgs>(arguments.clone()) {
+                match serde_json::from_value::<SelectOptionArgs>(arguments.clone()) {
                     Ok(args) => self.select_option(Parameters(args)).await,
                     Err(e) => Err(McpError::invalid_params(
                         "Invalid arguments for select_option",
@@ -9315,13 +9203,6 @@ impl DesktopWrapper {
                     )),
                 }
             }
-            "list_options" => match serde_json::from_value::<LocatorArgs>(arguments.clone()) {
-                Ok(args) => self.list_options(Parameters(args)).await,
-                Err(e) => Err(McpError::invalid_params(
-                    "Invalid arguments for list_options",
-                    Some(json!({"error": e.to_string()})),
-                )),
-            },
             "set_toggled" => match serde_json::from_value::<SetToggledArgs>(arguments.clone()) {
                 Ok(args) => self.set_toggled(Parameters(args)).await,
                 Err(e) => Err(McpError::invalid_params(

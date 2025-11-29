@@ -325,6 +325,12 @@ pub fn generate_step_description(tool_name: &str, args: &Value) -> String {
             "Navigate to {}",
             args.get("url").and_then(|v| v.as_str()).unwrap_or("URL")
         ),
+        "select_option" => format!(
+            "Select '{}' from dropdown",
+            args.get("option_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("option")
+        ),
         _ => format!("Execute {tool_name}"),
     }
 }
@@ -365,6 +371,7 @@ pub fn infer_expected_outcomes(tool_calls: &[ToolCall]) -> Vec<String> {
             {
                 outcomes.push("Form submitted successfully".to_string())
             }
+            "select_option" => outcomes.push("Option selected in dropdown".to_string()),
             _ => {}
         }
     }
@@ -893,6 +900,7 @@ pub fn is_state_changing_action(tool_name: &str) -> bool {
         tool_name,
         "click_element"
             | "type_into_element"
+            | "select_option"
             | "set_toggled"
             | "set_selected"
             | "set_range_value"
