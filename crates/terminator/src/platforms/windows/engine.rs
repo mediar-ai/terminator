@@ -697,8 +697,10 @@ impl WindowsEngine {
     ///
     /// # Arguments
     /// * `screenshot` - The screenshot to perform OCR on
-    /// * `window_x` - X offset of the window on screen (to convert to absolute coords)
-    /// * `window_y` - Y offset of the window on screen (to convert to absolute coords)
+    /// * `window_x` - X offset of the window on screen in logical coordinates
+    /// * `window_y` - Y offset of the window on screen in logical coordinates
+    /// * `dpi_scale_x` - DPI scale factor for X (screenshot_width / window_logical_width)
+    /// * `dpi_scale_y` - DPI scale factor for Y (screenshot_height / window_logical_height)
     ///
     /// # Returns
     /// An OcrElement tree with bounds in absolute screen coordinates
@@ -707,6 +709,8 @@ impl WindowsEngine {
         screenshot: &ScreenshotResult,
         window_x: f64,
         window_y: f64,
+        dpi_scale_x: f64,
+        dpi_scale_y: f64,
     ) -> Result<OcrElement, AutomationError> {
         use windows::Graphics::Imaging::{BitmapPixelFormat, SoftwareBitmap};
         use windows::Storage::Streams::DataWriter;
@@ -781,15 +785,17 @@ impl WindowsEngine {
                 let word_text = word.Text().map(|s| s.to_string()).unwrap_or_default();
 
                 // Get bounding rectangle and convert to absolute screen coordinates
+                // OCR returns physical pixel coords in screenshot space
+                // We need to convert to logical screen coords: physical/dpi_scale + window_logical_offset
                 let rect = word.BoundingRect().map_err(|e| {
                     AutomationError::PlatformError(format!("Failed to get word bounds: {e}"))
                 })?;
 
                 let word_bounds = (
-                    window_x + rect.X as f64,
-                    window_y + rect.Y as f64,
-                    rect.Width as f64,
-                    rect.Height as f64,
+                    window_x + (rect.X as f64 / dpi_scale_x),
+                    window_y + (rect.Y as f64 / dpi_scale_y),
+                    rect.Width as f64 / dpi_scale_x,
+                    rect.Height as f64 / dpi_scale_y,
                 );
 
                 // Update line bounds to encompass all words
@@ -3510,9 +3516,11 @@ impl AccessibilityEngine for WindowsEngine {
         screenshot: &ScreenshotResult,
         window_x: f64,
         window_y: f64,
+        dpi_scale_x: f64,
+        dpi_scale_y: f64,
     ) -> Result<OcrElement, AutomationError> {
         // Delegate to the implementation in impl WindowsEngine
-        WindowsEngine::ocr_screenshot_with_bounds(self, screenshot, window_x, window_y)
+        WindowsEngine::ocr_screenshot_with_bounds(self, screenshot, window_x, window_y, dpi_scale_x, dpi_scale_y)
     }
 
     fn click_at_coordinates(&self, x: f64, y: f64) -> Result<(), AutomationError> {

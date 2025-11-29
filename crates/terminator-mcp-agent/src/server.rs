@@ -1034,18 +1034,21 @@ impl DesktopWrapper {
 
         // Convert coordinates to absolute screen coordinates
         // If image was resized, scale coordinates back to original size first
+        // Then apply DPI scaling to convert from physical to logical coordinates
         let mut absolute_items = Vec::new();
         for item in items {
             let mut new_item = item.clone();
             if let Some(box_2d) = new_item.box_2d {
                 // box_2d is [x_min, y_min, x_max, y_max] relative to the (possibly resized) screenshot
-                // Scale back to original size if image was resized, then add window offset
+                // 1. Scale back to original screenshot size if image was resized (inv_scale)
+                // 2. Convert from physical to logical coords (divide by dpi_scale)
+                // 3. Add logical window offset
                 let inv_scale = 1.0 / scale_factor;
                 new_item.box_2d = Some([
-                    (box_2d[0] * inv_scale) + window_x,
-                    (box_2d[1] * inv_scale) + window_y,
-                    (box_2d[2] * inv_scale) + window_x,
-                    (box_2d[3] * inv_scale) + window_y,
+                    window_x + (box_2d[0] * inv_scale / dpi_scale_w),
+                    window_y + (box_2d[1] * inv_scale / dpi_scale_h),
+                    window_x + (box_2d[2] * inv_scale / dpi_scale_w),
+                    window_y + (box_2d[3] * inv_scale / dpi_scale_h),
                 ]);
             }
             absolute_items.push(new_item);
@@ -1159,18 +1162,21 @@ impl DesktopWrapper {
 
         // Convert coordinates to absolute screen coordinates
         // If image was resized, scale coordinates back to original size first
+        // Then apply DPI scaling to convert from physical to logical coordinates
         let mut absolute_items = Vec::new();
         for item in items {
             let mut new_item = item.clone();
             if let Some(box_2d) = new_item.box_2d {
                 // box_2d is [x_min, y_min, x_max, y_max] relative to the (possibly resized) screenshot
-                // Scale back to original size if image was resized, then add window offset
+                // 1. Scale back to original screenshot size if image was resized (inv_scale)
+                // 2. Convert from physical to logical coords (divide by dpi_scale)
+                // 3. Add logical window offset
                 let inv_scale = 1.0 / scale_factor;
                 new_item.box_2d = Some([
-                    (box_2d[0] * inv_scale) + window_x,
-                    (box_2d[1] * inv_scale) + window_y,
-                    (box_2d[2] * inv_scale) + window_x,
-                    (box_2d[3] * inv_scale) + window_y,
+                    window_x + (box_2d[0] * inv_scale / dpi_scale_w),
+                    window_y + (box_2d[1] * inv_scale / dpi_scale_h),
+                    window_x + (box_2d[2] * inv_scale / dpi_scale_w),
+                    window_y + (box_2d[3] * inv_scale / dpi_scale_h),
                 ]);
             }
             absolute_items.push(new_item);
@@ -1205,17 +1211,18 @@ impl DesktopWrapper {
             .capture()
             .map_err(|e| format!("Failed to capture window screenshot: {e}"))?;
 
-        // DPI DEBUG: Compare logical window bounds vs physical screenshot size
-        let scale_ratio_w = screenshot.width as f64 / win_w;
-        let scale_ratio_h = screenshot.height as f64 / win_h;
+        // Calculate DPI scale factors (physical screenshot pixels / logical window size)
+        let dpi_scale_w = screenshot.width as f64 / win_w;
+        let dpi_scale_h = screenshot.height as f64 / win_h;
         info!(
-            "OCR DPI DEBUG: window_bounds(logical)=({:.0},{:.0},{:.0},{:.0}), screenshot(physical)={}x{}, scale_ratio=({:.3},{:.3})",
-            window_x, window_y, win_w, win_h, screenshot.width, screenshot.height, scale_ratio_w, scale_ratio_h
+            "OCR DPI: window_bounds(logical)=({:.0},{:.0},{:.0},{:.0}), screenshot(physical)={}x{}, dpi_scale=({:.3},{:.3})",
+            window_x, window_y, win_w, win_h, screenshot.width, screenshot.height, dpi_scale_w, dpi_scale_h
         );
 
         // Perform OCR with bounding boxes using Desktop's method
+        // Pass DPI scale factors to convert physical OCR coords to logical screen coords
         self.desktop
-            .ocr_screenshot_with_bounds(&screenshot, window_x, window_y)
+            .ocr_screenshot_with_bounds(&screenshot, window_x, window_y, dpi_scale_w, dpi_scale_h)
             .map_err(|e| format!("OCR failed: {e}"))
     }
 

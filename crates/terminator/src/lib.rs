@@ -581,15 +581,24 @@ impl Desktop {
 
     /// OCR on screenshot with bounding boxes - returns structured OCR elements with absolute screen coordinates
     /// Window coordinates are used to convert OCR bounding boxes to absolute screen positions
+    ///
+    /// # Arguments
+    /// * `screenshot` - The screenshot to perform OCR on
+    /// * `window_x` - X offset of the window on screen in logical coordinates
+    /// * `window_y` - Y offset of the window on screen in logical coordinates
+    /// * `dpi_scale_x` - DPI scale factor for X (screenshot_width / window_logical_width)
+    /// * `dpi_scale_y` - DPI scale factor for Y (screenshot_height / window_logical_height)
     #[instrument(skip(self, screenshot))]
     pub fn ocr_screenshot_with_bounds(
         &self,
         screenshot: &ScreenshotResult,
         window_x: f64,
         window_y: f64,
+        dpi_scale_x: f64,
+        dpi_scale_y: f64,
     ) -> Result<OcrElement, AutomationError> {
         self.engine
-            .ocr_screenshot_with_bounds(screenshot, window_x, window_y)
+            .ocr_screenshot_with_bounds(screenshot, window_x, window_y, dpi_scale_x, dpi_scale_y)
     }
 
     /// Click at absolute screen coordinates

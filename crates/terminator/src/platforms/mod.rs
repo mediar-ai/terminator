@@ -173,11 +173,20 @@ pub trait AccessibilityEngine: Send + Sync {
 
     /// OCR on screenshot with bounding boxes - returns structured OCR elements with absolute screen coordinates
     /// Default implementation returns UnsupportedOperation - override in platform-specific engines
+    ///
+    /// # Arguments
+    /// * `screenshot` - The screenshot to perform OCR on
+    /// * `window_x` - X offset of the window on screen in logical coordinates
+    /// * `window_y` - Y offset of the window on screen in logical coordinates
+    /// * `dpi_scale_x` - DPI scale factor for X (screenshot_width / window_logical_width)
+    /// * `dpi_scale_y` - DPI scale factor for Y (screenshot_height / window_logical_height)
     fn ocr_screenshot_with_bounds(
         &self,
         _screenshot: &crate::ScreenshotResult,
         _window_x: f64,
         _window_y: f64,
+        _dpi_scale_x: f64,
+        _dpi_scale_y: f64,
     ) -> Result<OcrElement, AutomationError> {
         Err(AutomationError::UnsupportedOperation(
             "OCR with bounding boxes not supported on this platform".to_string(),
