@@ -1052,26 +1052,6 @@ pub struct MinimizeWindowArgs {
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct SetRangeValueArgs {
-    #[schemars(description = "The numerical value to set.")]
-    pub value: f64,
-    #[serde(flatten)]
-    pub selector: SelectorOptions,
-
-    #[serde(flatten)]
-    pub action: ActionOptions,
-
-    #[serde(flatten)]
-    pub tree: DiffTreeOptions,
-
-    #[serde(flatten)]
-    pub monitor: MonitorScreenshotOptions,
-
-    #[serde(flatten)]
-    pub window_mgmt: WindowManagementOptions,
-}
-
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SetValueArgs {
     #[schemars(description = "The text value to set.")]
     pub value: String,

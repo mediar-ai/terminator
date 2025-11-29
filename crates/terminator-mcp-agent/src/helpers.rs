@@ -903,7 +903,6 @@ pub fn is_state_changing_action(tool_name: &str) -> bool {
             | "select_option"
             | "set_toggled"
             | "set_selected"
-            | "set_range_value"
             | "invoke_element"
             | "press_key"
             | "mouse_drag"
