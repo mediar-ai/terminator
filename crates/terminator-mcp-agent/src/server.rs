@@ -7,7 +7,7 @@ use crate::utils::{
     get_timeout, ActivateElementArgs, CaptureElementScreenshotArgs, ClickElementArgs, DelayArgs,
     ExecuteBrowserScriptArgs, ExecuteSequenceArgs,
     GetApplicationsArgs, GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs, InvokeElementArgs,
-    MaximizeWindowArgs, MinimizeWindowArgs, MouseDragArgs, NavigateBrowserArgs,
+    MaximizeWindowArgs, MouseDragArgs, NavigateBrowserArgs,
     OpenApplicationArgs, PressKeyArgs, RunCommandArgs, ScrollElementArgs, SelectOptionArgs,
     SetSelectedArgs, SetToggledArgs, SetValueArgs, SetZoomArgs,
     StopHighlightingArgs, TypeIntoElementArgs, ValidateElementArgs, WaitForElementArgs,
@@ -7029,91 +7029,6 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         ))
     }
 
-    #[tool(description = "Minimizes a window.")]
-    async fn minimize_window(
-        &self,
-        Parameters(args): Parameters<MinimizeWindowArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        // Start telemetry span
-        let mut span = StepSpan::new("minimize_window", None);
-
-        // Add comprehensive telemetry attributes
-        span.set_attribute("selector", args.selector.selector.clone());
-        if let Some(retries) = args.action.retries {
-            span.set_attribute("retry.max_attempts", retries.to_string());
-        }
-
-        // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            !*in_sequence
-        };
-
-        if should_restore {
-            tracing::info!(
-                "[minimize_window] Direct MCP call detected - performing window management"
-            );
-            let _ = self
-                .prepare_window_management(
-                    &args.selector.process,
-                    None,
-                    None,
-                    None,
-                    &args.window_mgmt,
-                )
-                .await;
-        } else {
-            tracing::debug!("[minimize_window] In sequence - skipping window management (dispatch_tool handles it)");
-        }
-
-        let ((_result, element), successful_selector) =
-            match find_and_execute_with_retry_with_fallback(
-                &self.desktop,
-                &args.selector.build_full_selector(),
-                args.selector.build_alternative_selectors().as_deref(),
-                args.selector.build_fallback_selectors().as_deref(),
-                args.action.timeout_ms,
-                args.action.retries,
-                |element| async move { element.minimize_window() },
-            )
-            .await
-            {
-                Ok(((result, element), selector)) => Ok(((result, element), selector)),
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.build_full_selector(),
-                    args.selector.build_alternative_selectors().as_deref(),
-                    args.selector.build_fallback_selectors().as_deref(),
-                    e,
-                )),
-            }?;
-
-        let element_info = build_element_info(&element);
-
-        let result_json = json!({
-            "action": "minimize_window",
-            "status": "success",
-            "element": element_info,
-            "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        });
-        // Action tools only support UI diff, not standalone tree attachment
-
-        self.restore_window_management(should_restore).await;
-
-        span.set_status(true, None);
-        span.end();
-
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                None,
-            )
-            .await,
-        ))
-    }
-
     #[tool(
         description = "Sets the zoom level to a specific percentage (e.g., 100 for 100%, 150 for 150%, 50 for 50%)."
     )]
@@ -8680,15 +8595,6 @@ impl DesktopWrapper {
                     Ok(args) => self.maximize_window(Parameters(args)).await,
                     Err(e) => Err(McpError::invalid_params(
                         "Invalid arguments for maximize_window",
-                        Some(json!({"error": e.to_string()})),
-                    )),
-                }
-            }
-            "minimize_window" => {
-                match serde_json::from_value::<MinimizeWindowArgs>(arguments.clone()) {
-                    Ok(args) => self.minimize_window(Parameters(args)).await,
-                    Err(e) => Err(McpError::invalid_params(
-                        "Invalid arguments for minimize_window",
                         Some(json!({"error": e.to_string()})),
                     )),
                 }

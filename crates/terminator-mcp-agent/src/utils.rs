@@ -1033,24 +1033,6 @@ pub struct MaximizeWindowArgs {
     pub window_mgmt: WindowManagementOptions,
 }
 
-#[derive(Debug, serde::Deserialize, JsonSchema)]
-pub struct MinimizeWindowArgs {
-    #[serde(flatten)]
-    pub selector: SelectorOptions,
-
-    #[serde(flatten)]
-    pub action: ActionOptions,
-
-    #[serde(flatten)]
-    pub tree: SimpleTreeOptions,
-
-    #[serde(flatten)]
-    pub monitor: MonitorScreenshotOptions,
-
-    #[serde(flatten)]
-    pub window_mgmt: WindowManagementOptions,
-}
-
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SetValueArgs {
     #[schemars(description = "The text value to set.")]
