@@ -6,8 +6,8 @@ pub use crate::utils::DesktopWrapper;
 use crate::utils::{
     get_timeout, ActivateElementArgs, CaptureElementScreenshotArgs, ClickElementArgs, DelayArgs,
     ExecuteBrowserScriptArgs, ExecuteSequenceArgs,
-    GetApplicationsArgs, GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs, LocatorArgs,
-    MaximizeWindowArgs, MinimizeWindowArgs, MouseDragArgs, NavigateBrowserArgs,
+    GetApplicationsArgs, GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs, InvokeElementArgs,
+    LocatorArgs, MaximizeWindowArgs, MinimizeWindowArgs, MouseDragArgs, NavigateBrowserArgs,
     OpenApplicationArgs, PressKeyArgs, RunCommandArgs, ScrollElementArgs, SelectOptionArgs,
     SetRangeValueArgs, SetSelectedArgs, SetToggledArgs, SetValueArgs, SetZoomArgs,
     StopHighlightingArgs, TypeIntoElementArgs, ValidateElementArgs, WaitForElementArgs,
@@ -2337,7 +2337,7 @@ impl DesktopWrapper {
             }
         }
 
-        // Attach UI diff if captured
+        // Attach UI diff if captured (action tools only support diff, not standalone tree)
         if let Some(diff_result) = ui_diff {
             tracing::debug!(
                 "[type_into_element] Attaching UI diff to result (has_changes: {})",
@@ -2349,21 +2349,6 @@ impl DesktopWrapper {
             result_json["tree_before"] = json!(diff_result.tree_before);
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-        } else {
-            // Normal tree attachment when diff not requested
-            maybe_attach_tree(
-                &self.desktop,
-                args.tree.include_tree_after_action,
-                args.tree.tree_max_depth,
-                args.tree.tree_from_selector.as_deref(),
-                args.tree.include_detailed_attributes,
-                Some(tree_output_format),
-                Some(element.process_id().unwrap_or(0)),
-                &mut result_json,
-                Some(&element),
-                false,
-            )
-            .await;
         }
 
         // Restore windows after typing into element
@@ -2641,7 +2626,7 @@ impl DesktopWrapper {
             }
         }
 
-        // Attach UI diff if captured
+        // Attach UI diff if captured (action tools only support diff, not standalone tree)
         if let Some(diff_result) = ui_diff {
             tracing::debug!(
                 "[click_element] Attaching UI diff to result (has_changes: {})",
@@ -2653,24 +2638,6 @@ impl DesktopWrapper {
             result_json["tree_before"] = json!(diff_result.tree_before);
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-
-            // When diff is enabled, we already have the tree, so don't capture again
-            // But respect include_tree if user also wants it attached separately
-        } else {
-            // Normal tree attachment when diff not requested
-            maybe_attach_tree(
-                &self.desktop,
-                args.tree.include_tree_after_action,
-                args.tree.tree_max_depth,
-                args.tree.tree_from_selector.as_deref(),
-                args.tree.include_detailed_attributes,
-                Some(tree_output_format),
-                Some(element.process_id().unwrap_or(0)),
-                &mut result_json,
-                Some(&element),
-                false,
-            )
-            .await;
         }
 
         // Restore windows if this was a direct MCP call
@@ -2909,7 +2876,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
             }
         }
 
-        // Attach UI diff if captured
+        // Attach UI diff if captured (action tools only support diff, not standalone tree)
         if let Some(diff_result) = ui_diff {
             tracing::debug!(
                 "[press_key] Attaching UI diff to result (has_changes: {})",
@@ -2921,21 +2888,6 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
             result_json["tree_before"] = json!(diff_result.tree_before);
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-        } else {
-            // Normal tree attachment when diff not requested
-            maybe_attach_tree(
-                &self.desktop,
-                args.tree.include_tree_after_action,
-                args.tree.tree_max_depth,
-                args.tree.tree_from_selector.as_deref(),
-                args.tree.include_detailed_attributes,
-                Some(tree_output_format),
-                element.process_id().ok(),
-                &mut result_json,
-                Some(&element),
-                false,
-            )
-            .await;
         }
 
         // Restore windows after pressing key
@@ -3123,19 +3075,8 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
             }
         }
 
-        maybe_attach_tree(
-            &self.desktop,
-            args.tree.include_tree_after_action,
-            args.tree.tree_max_depth,
-            args.tree.tree_from_selector.as_deref(),
-            args.tree.include_detailed_attributes,
-            None,
-            element.process_id().ok(),
-            &mut result_json,
-            Some(&element),
-            false,
-        )
-        .await;
+        // Action tools only support UI diff, not standalone tree attachment
+        // (use ui_diff_before_after: true to capture before/after tree)
 
         span.set_status(true, None);
         span.end();
@@ -4599,19 +4540,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             }
         }
 
-        maybe_attach_tree(
-            &self.desktop,
-            args.tree.include_tree_after_action,
-            args.tree.tree_max_depth,
-            args.tree.tree_from_selector.as_deref(),
-            args.tree.include_detailed_attributes,
-            None,
-            element.process_id().ok(),
-            &mut result_json,
-            Some(&element),
-            false,
-        )
-        .await;
+        // Action tools only support UI diff, not standalone tree attachment
 
         self.restore_window_management(should_restore).await;
 
@@ -5120,19 +5049,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             let element_info = build_element_info(&element);
             result_json["element"] = element_info;
         }
-        maybe_attach_tree(
-            &self.desktop,
-            args.tree.include_tree_after_action,
-            args.tree.tree_max_depth,
-            args.tree.tree_from_selector.as_deref(),
-            args.tree.include_detailed_attributes,
-            None,
-            element.process_id().ok(),
-            &mut result_json,
-            Some(&element),
-            false,
-        )
-        .await;
+        // Action tools only support UI diff, not standalone tree attachment
 
         self.restore_window_management(should_restore).await;
 
@@ -5446,7 +5363,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
     }
 
     #[tool(
-        description = "Opens a URL in the specified browser (uses SDK's built-in browser automation). This is the RECOMMENDED method for browser navigation - more reliable than manually manipulating the address bar with keyboard/mouse actions. Handles page loading, waiting, and error recovery automatically. Requires verify_element_exists and verify_element_not_exists parameters (use empty string \"\" to skip verification)."
+        description = "Opens a URL in the specified browser (uses SDK's built-in browser automation). This is the RECOMMENDED method for browser navigation - more reliable than manually manipulating the address bar with keyboard/mouse actions. Handles page loading, waiting, and error recovery automatically. Requires verify_element_exists and verify_element_not_exists parameters (use empty string \"\" to skip verification). Always use include_tree_after_action: true to get the UI tree of elements after navigation."
     )]
     pub async fn navigate_browser(
         &self,
@@ -5608,7 +5525,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         })?;
 
         let process_id = ui_element.process_id().unwrap_or(0);
-        let window_title = ui_element.window_title();
+        let _window_title = ui_element.window_title();
 
         // Check if we need to perform window management (only for direct MCP calls, not sequences)
         let should_restore = {
@@ -5651,19 +5568,20 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "timestamp": chrono::Utc::now().to_rfc3339()
         });
 
-        // Always attach the full UI tree for newly opened applications
-        if process_id > 0 {
-            if let Ok(tree) =
-                self.desktop
-                    .get_window_tree(process_id, Some(window_title.as_str()), None)
-            {
-                if let Ok(tree_val) = serde_json::to_value(tree) {
-                    if let Some(obj) = result_json.as_object_mut() {
-                        obj.insert("ui_tree".to_string(), tree_val);
-                    }
-                }
-            }
-        }
+        // Attach UI tree if requested
+        maybe_attach_tree(
+            &self.desktop,
+            args.tree.include_tree_after_action,
+            args.tree.tree_max_depth,
+            args.tree.tree_from_selector.as_deref(),
+            args.tree.include_detailed_attributes,
+            args.tree.tree_output_format,
+            Some(process_id),
+            &mut result_json,
+            Some(&ui_element),
+            false,
+        )
+        .await;
 
         // POST-ACTION VERIFICATION
         if !args.verify_element_exists.is_empty() || !args.verify_element_not_exists.is_empty() {
@@ -5945,21 +5863,6 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             result_json["tree_before"] = json!(diff_result.tree_before);
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-        } else {
-            // Normal tree attachment when diff not requested
-            maybe_attach_tree(
-                &self.desktop,
-                args.tree.include_tree_after_action,
-                args.tree.tree_max_depth,
-                args.tree.tree_from_selector.as_deref(),
-                args.tree.include_detailed_attributes,
-                Some(tree_output_format),
-                element.process_id().ok(),
-                &mut result_json,
-                Some(&element),
-                false,
-            )
-            .await;
         }
 
         self.restore_window_management(should_restore).await;
@@ -6094,21 +5997,6 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             result_json["tree_before"] = json!(diff_result.tree_before);
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-        } else {
-            // Normal tree attachment when diff not requested
-            maybe_attach_tree(
-                &self.desktop,
-                args.tree.include_tree_after_action,
-                args.tree.tree_max_depth,
-                args.tree.tree_from_selector.as_deref(),
-                args.tree.include_detailed_attributes,
-                Some(tree_output_format),
-                element.process_id().ok(),
-                &mut result_json,
-                Some(&element),
-                false,
-            )
-            .await;
         }
 
         self.restore_window_management(should_restore).await;
@@ -6465,21 +6353,6 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             result_json["tree_before"] = json!(diff_result.tree_before);
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-        } else {
-            // Normal tree attachment when diff not requested
-            maybe_attach_tree(
-                &self.desktop,
-                args.tree.include_tree_after_action,
-                args.tree.tree_max_depth,
-                args.tree.tree_from_selector.as_deref(),
-                args.tree.include_detailed_attributes,
-                Some(tree_output_format),
-                Some(element.process_id().unwrap_or(0)),
-                &mut result_json,
-                Some(&element),
-                false,
-            )
-            .await;
         }
 
         self.restore_window_management(should_restore).await;
@@ -6717,21 +6590,6 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             result_json["tree_before"] = json!(diff_result.tree_before);
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-        } else {
-            // Normal tree attachment when diff not requested
-            maybe_attach_tree(
-                &self.desktop,
-                args.tree.include_tree_after_action,
-                args.tree.tree_max_depth,
-                args.tree.tree_from_selector.as_deref(),
-                args.tree.include_detailed_attributes,
-                Some(tree_output_format),
-                Some(element.process_id().unwrap_or(0)),
-                &mut result_json,
-                Some(&element),
-                false,
-            )
-            .await;
         }
 
         self.restore_window_management(should_restore).await;
@@ -6968,21 +6826,6 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             result_json["tree_before"] = json!(diff_result.tree_before);
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-        } else {
-            // Normal tree attachment when diff not requested
-            maybe_attach_tree(
-                &self.desktop,
-                args.tree.include_tree_after_action,
-                args.tree.tree_max_depth,
-                args.tree.tree_from_selector.as_deref(),
-                args.tree.include_detailed_attributes,
-                Some(tree_output_format),
-                Some(element.process_id().unwrap_or(0)),
-                &mut result_json,
-                Some(&element),
-                false,
-            )
-            .await;
         }
 
         self.restore_window_management(should_restore).await;
@@ -7490,7 +7333,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
     )]
     async fn invoke_element(
         &self,
-        Parameters(args): Parameters<LocatorArgs>,
+        Parameters(args): Parameters<InvokeElementArgs>,
     ) -> Result<CallToolResult, McpError> {
         // Start telemetry span
         let mut span = StepSpan::new("invoke_element", None);
@@ -7663,7 +7506,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             }
         }
 
-        // Attach UI diff if captured
+        // Attach UI diff if captured (action tools only support diff, not standalone tree)
         if let Some(diff_result) = ui_diff {
             tracing::debug!(
                 "[invoke_element] Attaching UI diff to result (has_changes: {})",
@@ -7675,21 +7518,6 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             result_json["tree_before"] = json!(diff_result.tree_before);
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-        } else {
-            // Normal tree attachment when diff not requested
-            maybe_attach_tree(
-                &self.desktop,
-                args.tree.include_tree_after_action,
-                args.tree.tree_max_depth,
-                args.tree.tree_from_selector.as_deref(),
-                args.tree.include_detailed_attributes,
-                Some(tree_output_format),
-                element.process_id().ok(),
-                &mut result_json,
-                Some(&element),
-                false,
-            )
-            .await;
         }
 
         // Restore windows after invoking element
@@ -7829,7 +7657,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
         let element_info = build_element_info(&element);
 
-        let mut result_json = json!({
+        let result_json = json!({
             "action": "maximize_window",
             "status": "success",
             "element": element_info,
@@ -7837,19 +7665,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
-        maybe_attach_tree(
-            &self.desktop,
-            args.tree.include_tree_after_action,
-            args.tree.tree_max_depth,
-            args.tree.tree_from_selector.as_deref(),
-            args.tree.include_detailed_attributes,
-            None,
-            element.process_id().ok(),
-            &mut result_json,
-            Some(&element),
-            false,
-        )
-        .await;
+        // Action tools only support UI diff, not standalone tree attachment
 
         self.restore_window_management(should_restore).await;
 
@@ -7926,7 +7742,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
         let element_info = build_element_info(&element);
 
-        let mut result_json = json!({
+        let result_json = json!({
             "action": "minimize_window",
             "status": "success",
             "element": element_info,
@@ -7934,19 +7750,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
-        maybe_attach_tree(
-            &self.desktop,
-            args.tree.include_tree_after_action,
-            args.tree.tree_max_depth,
-            args.tree.tree_from_selector.as_deref(),
-            args.tree.include_detailed_attributes,
-            None,
-            element.process_id().ok(),
-            &mut result_json,
-            Some(&element),
-            false,
-        )
-        .await;
+        // Action tools only support UI diff, not standalone tree attachment
 
         self.restore_window_management(should_restore).await;
 
@@ -8227,21 +8031,6 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             result_json["tree_before"] = json!(diff_result.tree_before);
             result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-        } else {
-            // Normal tree attachment when diff not requested
-            maybe_attach_tree(
-                &self.desktop,
-                args.tree.include_tree_after_action,
-                args.tree.tree_max_depth,
-                args.tree.tree_from_selector.as_deref(),
-                args.tree.include_detailed_attributes,
-                Some(tree_output_format),
-                Some(element.process_id().unwrap_or(0)),
-                &mut result_json,
-                Some(&element),
-                false,
-            )
-            .await;
         }
 
         self.restore_window_management(should_restore).await;
@@ -9154,20 +8943,7 @@ console.info = function(...args) {
             result_json["logs"] = logs;
         }
 
-        // Always attach tree for better context
-        maybe_attach_tree(
-            &self.desktop,
-            args.tree.include_tree_after_action,
-            args.tree.tree_max_depth,
-            args.tree.tree_from_selector.as_deref(),
-            args.tree.include_detailed_attributes,
-            None,
-            None, // Don't filter by process since this could apply to any browser
-            &mut result_json,
-            None, // No specific element
-            false,
-        )
-        .await;
+        // Note: Tree attachment removed - use ui_diff_before_after for tree context
 
         // Restore windows after executing browser script
         self.restore_window_management(should_restore).await;
@@ -9578,13 +9354,15 @@ impl DesktopWrapper {
                     )),
                 }
             }
-            "invoke_element" => match serde_json::from_value::<LocatorArgs>(arguments.clone()) {
-                Ok(args) => self.invoke_element(Parameters(args)).await,
-                Err(e) => Err(McpError::invalid_params(
-                    "Invalid arguments for invoke_element",
-                    Some(json!({"error": e.to_string()})),
-                )),
-            },
+            "invoke_element" => {
+                match serde_json::from_value::<InvokeElementArgs>(arguments.clone()) {
+                    Ok(args) => self.invoke_element(Parameters(args)).await,
+                    Err(e) => Err(McpError::invalid_params(
+                        "Invalid arguments for invoke_element",
+                        Some(json!({"error": e.to_string()})),
+                    )),
+                }
+            }
             "maximize_window" => {
                 match serde_json::from_value::<MaximizeWindowArgs>(arguments.clone()) {
                     Ok(args) => self.maximize_window(Parameters(args)).await,

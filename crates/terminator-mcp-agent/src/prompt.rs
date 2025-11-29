@@ -13,8 +13,7 @@ pub fn get_server_instructions() -> String {
 You are an AI assistant designed to control a computer desktop. Your primary goal is to understand the user's request and translate it into a sequence of tool calls to automate GUI interactions.
 
 **Tool Behavior & Metadata**
-- Always use ui_diff_before_after: true on ALL action tools unless explicitly asked to skip.
-- Always use include_tree_after_action: true on ALL tools unless explicitly asked to skip.
+- Always use ui_diff_before_after: true where available to get the change in the UI after an action
 - When you know what to expect after action always use verify_element_exists, verify_element_not_exists (use empty strings \"\" to skip), and verify_timeout_ms: 2000. Example: verify_element_exists: \"role:Button|name:Success\" confirms success dialog appeared after action.
 - Always use highlight_before_action (use it unless you run into errors).
 - Never use detailed_attributes unless explicitly asked

@@ -50,9 +50,34 @@ pub struct WindowManagementOptions {
     pub bring_to_front: Option<bool>,
 }
 
-/// Common fields for UI tree inclusion in responses
+/// Tree options for action tools that modify UI - captures diff before/after
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
-pub struct TreeOptions {
+pub struct DiffTreeOptions {
+    #[schemars(
+        description = "REQUIRED: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response."
+    )]
+    pub ui_diff_before_after: bool,
+
+    #[schemars(description = "Maximum depth to traverse when building tree")]
+    pub tree_max_depth: Option<usize>,
+
+    #[schemars(description = "Selector to start tree from instead of window root")]
+    pub tree_from_selector: Option<String>,
+
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.). Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
+
+    #[schemars(
+        description = "Output format for UI tree. Options: 'verbose_json' (full JSON with all fields), 'compact_yaml' (minimal YAML: [ROLE] name #id). Defaults to 'compact_yaml'."
+    )]
+    pub tree_output_format: Option<TreeOutputFormat>,
+}
+
+/// Tree options for navigation/read-only tools - captures tree after action
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+pub struct SimpleTreeOptions {
     #[schemars(
         description = "REQUIRED: Whether to include the UI tree in the response (captured after action execution)."
     )]
@@ -77,11 +102,6 @@ pub struct TreeOptions {
         description = "Output format for UI tree. Options: 'verbose_json' (full JSON with all fields), 'compact_yaml' (minimal YAML: [ROLE] name #id). Defaults to 'compact_yaml'."
     )]
     pub tree_output_format: Option<TreeOutputFormat>,
-
-    #[schemars(
-        description = "REQUIRED: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree_after_action behavior."
-    )]
-    pub ui_diff_before_after: bool,
 }
 
 /// Common fields for element selection with alternatives and fallbacks
@@ -183,47 +203,6 @@ pub struct HighlightOptions {
         description = "REQUIRED: Whether to highlight the element before action. When true, shows a green border with element role as text."
     )]
     pub highlight_before_action: bool,
-}
-
-/// Arguments for tools that select elements
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct ElementArgs {
-    #[serde(flatten)]
-    pub selector: SelectorOptions,
-
-    #[serde(flatten)]
-    pub action: ActionOptions,
-
-    #[serde(flatten)]
-    pub tree: TreeOptions,
-
-    #[serde(flatten)]
-    pub monitor: MonitorScreenshotOptions,
-
-    #[serde(flatten)]
-    pub window_mgmt: WindowManagementOptions,
-}
-
-/// Arguments for tools that perform actions on elements with highlighting
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct ActionElementArgs {
-    #[serde(flatten)]
-    pub selector: SelectorOptions,
-
-    #[serde(flatten)]
-    pub action: ActionOptions,
-
-    #[serde(flatten)]
-    pub highlight: HighlightOptions,
-
-    #[serde(flatten)]
-    pub tree: TreeOptions,
-
-    #[serde(flatten)]
-    pub monitor: MonitorScreenshotOptions,
-
-    #[serde(flatten)]
-    pub window_mgmt: WindowManagementOptions,
 }
 
 // Validation helpers for better type safety
@@ -399,7 +378,7 @@ pub struct GetWindowTreeArgs {
     #[schemars(description = "Optional window title filter")]
     pub title: Option<String>,
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: SimpleTreeOptions,
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
 
@@ -447,6 +426,7 @@ pub struct GetApplicationsArgs {
     // Use capture_screen if you need screenshots
 }
 
+/// Args for read-only locator tools (is_toggled, is_selected, get_range_value, list_options)
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct LocatorArgs {
     #[serde(flatten)]
@@ -456,7 +436,26 @@ pub struct LocatorArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: SimpleTreeOptions,
+
+    #[serde(flatten)]
+    pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
+}
+
+/// Args for invoke_element action tool (modifies UI, needs diff)
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct InvokeElementArgs {
+    #[serde(flatten)]
+    pub selector: SelectorOptions,
+
+    #[serde(flatten)]
+    pub action: ActionOptions,
+
+    #[serde(flatten)]
+    pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -549,7 +548,7 @@ pub struct ClickElementArgs {
     pub highlight: HighlightOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -586,7 +585,7 @@ pub struct TypeIntoElementArgs {
     pub highlight: HighlightOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -619,7 +618,7 @@ pub struct PressKeyArgs {
     pub highlight: HighlightOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -656,7 +655,7 @@ pub struct GlobalKeyArgs {
     pub verify_timeout_ms: Option<u64>,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: DiffTreeOptions,
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
 
@@ -721,7 +720,7 @@ pub struct MouseDragArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -771,7 +770,7 @@ pub struct ClickIndexArgs {
     pub click_type: ClickType,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -790,7 +789,7 @@ pub struct ValidateElementArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: SimpleTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -815,7 +814,7 @@ pub struct CaptureElementScreenshotArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: SimpleTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -854,7 +853,7 @@ pub struct HighlightElementArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: SimpleTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -874,7 +873,7 @@ pub struct WaitForElementArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: SimpleTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -908,7 +907,7 @@ pub struct NavigateBrowserArgs {
     pub verify_timeout_ms: Option<u64>,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: SimpleTreeOptions,
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
 
@@ -932,7 +931,7 @@ pub struct ExecuteBrowserScriptArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -962,6 +961,9 @@ pub struct OpenApplicationArgs {
     pub verify_timeout_ms: Option<u64>,
 
     #[serde(flatten)]
+    pub tree: SimpleTreeOptions,
+
+    #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
 
     #[serde(flatten)]
@@ -979,7 +981,7 @@ pub struct SelectOptionArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -999,7 +1001,7 @@ pub struct SetToggledArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -1017,7 +1019,7 @@ pub struct MaximizeWindowArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: SimpleTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -1035,7 +1037,7 @@ pub struct MinimizeWindowArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: SimpleTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -1055,7 +1057,7 @@ pub struct SetRangeValueArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -1075,7 +1077,7 @@ pub struct SetValueArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -1095,7 +1097,7 @@ pub struct SetSelectedArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -1123,7 +1125,7 @@ pub struct ScrollElementArgs {
     pub highlight: HighlightOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -1141,7 +1143,7 @@ pub struct ActivateElementArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: SimpleTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -1400,7 +1402,7 @@ pub struct SetZoomArgs {
     )]
     pub percentage: u32,
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: SimpleTreeOptions,
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
 
