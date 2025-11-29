@@ -8,7 +8,7 @@ use crate::utils::{
     ExecuteBrowserScriptArgs, ExecuteSequenceArgs,
     GetApplicationsArgs, GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs, InvokeElementArgs,
     LocatorArgs, MaximizeWindowArgs, MinimizeWindowArgs, MouseDragArgs, NavigateBrowserArgs,
-    OpenApplicationArgs, PressKeyArgs, RunCommandArgs, ScrollElementArgs, SelectOptionArgs,
+    OpenApplicationArgs, PressKeyArgs, RunCommandArgs, ScrollElementArgs,
     SetRangeValueArgs, SetSelectedArgs, SetToggledArgs, SetValueArgs, SetZoomArgs,
     StopHighlightingArgs, TypeIntoElementArgs, ValidateElementArgs, WaitForElementArgs,
 };
@@ -4564,9 +4564,10 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
     }
 
     #[tool(
+        name = "click_element_by_index",
         description = "Clicks on an indexed item by its index number. First call get_window_tree to get indexed UI elements (shown as #1, #2, etc. in the tree output). By default clicks UI tree elements (vision_type='ui_tree'). Also supports 'ocr' (include_ocr=true), 'omniparser' (include_omniparser=true), and 'dom' (browser_dom field in browser windows) indices. Supports click types: 'left' (default), 'double', or 'right'."
     )]
-    async fn click_index(
+    async fn click_element_by_index(
         &self,
         Parameters(args): Parameters<crate::utils::ClickIndexArgs>,
     ) -> Result<CallToolResult, McpError> {
@@ -5891,7 +5892,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
     #[tool(description = "Selects an option in a dropdown or combobox by its visible text.")]
     async fn select_option(
         &self,
-        Parameters(args): Parameters<SelectOptionArgs>,
+        Parameters(args): Parameters<crate::utils::SelectOptionArgs>,
     ) -> Result<CallToolResult, McpError> {
         // Start telemetry span
         let mut span = StepSpan::new("select_option", None);
@@ -9287,11 +9288,11 @@ impl DesktopWrapper {
                     Some(json!({"error": e.to_string()})),
                 )),
             },
-            "click_index" | "click_cv_index" => {
+            "click_element_by_index" | "click_index" | "click_cv_index" => {
                 match serde_json::from_value::<crate::utils::ClickIndexArgs>(arguments.clone()) {
-                    Ok(args) => self.click_index(Parameters(args)).await,
+                    Ok(args) => self.click_element_by_index(Parameters(args)).await,
                     Err(e) => Err(McpError::invalid_params(
-                        "Invalid arguments for click_index",
+                        "Invalid arguments for click_element_by_index",
                         Some(json!({"error": e.to_string()})),
                     )),
                 }
@@ -9306,7 +9307,7 @@ impl DesktopWrapper {
                 }
             }
             "select_option" => {
-                match serde_json::from_value::<SelectOptionArgs>(arguments.clone()) {
+                match serde_json::from_value::<crate::utils::SelectOptionArgs>(arguments.clone()) {
                     Ok(args) => self.select_option(Parameters(args)).await,
                     Err(e) => Err(McpError::invalid_params(
                         "Invalid arguments for select_option",
