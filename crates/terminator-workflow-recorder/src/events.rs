@@ -624,7 +624,7 @@ pub fn build_parent_hierarchy(element: &UIElement) -> Vec<UIElementInfo> {
 }
 
 /// Build chained selector from parent hierarchy and target element
-/// Returns selector like: role:Window|name:contains:Chrome >> role:Pane >> role:Button|name:contains:Submit
+/// Returns selector like: role:Window|text:Chrome >> role:Pane >> role:Button|text:Submit
 /// Uses only named parents (unnamed parents are already filtered by build_parent_hierarchy)
 pub fn build_chained_selector(
     parent_hierarchy: &[UIElementInfo],
@@ -640,8 +640,8 @@ pub fn build_chained_selector(
     for parent in parent_hierarchy {
         let selector = if let Some(ref name) = parent.name {
             if !name.is_empty() {
-                // Use contains for more flexible matching
-                format!("role:{}|name:contains:{}", parent.role, name)
+                // text: does case-sensitive substring matching by default
+                format!("role:{}|text:{}", parent.role, name)
             } else {
                 format!("role:{}", parent.role)
             }
@@ -656,7 +656,7 @@ pub fn build_chained_selector(
     let target_name = target_element.name().unwrap_or_default();
 
     let target_selector = if !target_name.is_empty() {
-        format!("role:{target_role}|name:contains:{target_name}")
+        format!("role:{target_role}|text:{target_name}")
     } else {
         format!("role:{target_role}")
     };
@@ -673,7 +673,7 @@ pub struct EnhancedUIElement {
     pub ui_element: UIElement,
     /// Generated selector options for MCP tools
     pub suggested_selectors: Vec<String>,
-    /// Chained selector from parent hierarchy to target element (e.g., "role:Window|name:contains:Chrome >> role:Pane >> role:Button|name:contains:Submit")
+    /// Chained selector from parent hierarchy to target element (e.g., "role:Window|text:Chrome >> role:Pane >> role:Button|text:Submit")
     pub chained_selector: Option<String>,
     /// Interaction context analysis
     pub interaction_context: InteractionContext,
