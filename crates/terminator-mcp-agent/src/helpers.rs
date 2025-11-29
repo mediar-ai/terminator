@@ -441,7 +441,9 @@ pub async fn maybe_attach_tree(
     // Returns (json_value, Option<bounds_cache>)
     let format_tree = |tree: terminator::element::SerializableUIElement| -> (Result<Value, String>, Option<UiaBoundsCache>) {
         match format {
-            TreeOutputFormat::CompactYaml => {
+            TreeOutputFormat::CompactYaml | TreeOutputFormat::ClusteredYaml => {
+                // For ClusteredYaml, we still output individual trees in CompactYaml format
+                // The clustering happens later after all trees are collected
                 let result = format_tree_as_compact_yaml(&tree, 0);
                 (Ok(json!(result.formatted)), Some(result.index_to_bounds))
             }
@@ -514,8 +516,9 @@ pub async fn maybe_attach_tree(
     if let Ok(tree) = desktop.get_window_tree(pid, None, Some(tree_config)) {
         // Format UINode based on output format
         let (tree_val_result, cache) = match format {
-            TreeOutputFormat::CompactYaml => {
+            TreeOutputFormat::CompactYaml | TreeOutputFormat::ClusteredYaml => {
                 // Convert UINode to SerializableUIElement and use compact formatter
+                // For ClusteredYaml, we still output individual trees in CompactYaml format
                 let result = format_ui_node_as_compact_yaml(&tree, 0);
                 (Ok(json!(result.formatted)), Some(result.index_to_bounds))
             }
@@ -546,7 +549,9 @@ pub struct UiDiffResult {
 /// Helper to format tree based on output format
 fn format_tree_string(tree: &terminator::UINode, format: TreeOutputFormat) -> String {
     match format {
-        TreeOutputFormat::CompactYaml => format_ui_node_as_compact_yaml(tree, 0).formatted,
+        TreeOutputFormat::CompactYaml | TreeOutputFormat::ClusteredYaml => {
+            format_ui_node_as_compact_yaml(tree, 0).formatted
+        }
         TreeOutputFormat::VerboseJson => {
             serde_json::to_string_pretty(tree).unwrap_or_else(|_| "{}".to_string())
         }
