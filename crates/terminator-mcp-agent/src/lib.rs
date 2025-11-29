@@ -3,6 +3,7 @@ pub mod duration_parser;
 pub mod expression_eval;
 pub mod helpers;
 pub mod mcp_types;
+pub mod tools;
 pub mod omniparser;
 pub mod output_parser;
 pub mod prompt;

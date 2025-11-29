@@ -1,6 +1,9 @@
 use crate::helpers::*;
 use crate::scripting_engine;
 use crate::telemetry::StepSpan;
+use crate::tools::inspection::{show_overlay_for_source, parse_overlay_display_mode, is_browser_pid, OverlaySource};
+use crate::tools::screenshot::{find_window_for_pid, capture_and_prepare_screenshot, MAX_SCREENSHOT_DIM};
+use crate::tools::element::{perform_post_action_verification, VerificationOptions, attach_ui_diff_to_result};
 use crate::utils::find_and_execute_with_retry_with_fallback;
 pub use crate::utils::DesktopWrapper;
 use crate::utils::{
@@ -767,32 +770,6 @@ impl DesktopWrapper {
         })
     }
 
-    /// Detect if a PID belongs to a browser process
-    fn detect_browser_by_pid(pid: u32) -> bool {
-        const KNOWN_BROWSER_PROCESS_NAMES: &[&str] = &[
-            "chrome", "firefox", "msedge", "edge", "iexplore", "opera", "brave", "vivaldi",
-            "browser", "arc",
-        ];
-
-        #[cfg(target_os = "windows")]
-        {
-            use terminator::get_process_name_by_pid;
-            if let Ok(process_name) = get_process_name_by_pid(pid as i32) {
-                let process_name_lower = process_name.to_lowercase();
-                return KNOWN_BROWSER_PROCESS_NAMES
-                    .iter()
-                    .any(|&browser| process_name_lower.contains(browser));
-            }
-        }
-
-        #[cfg(not(target_os = "windows"))]
-        {
-            let _ = pid; // Suppress unused warning
-        }
-
-        false
-    }
-
     /// Capture all visible DOM elements from the current browser tab
     /// Returns (elements, viewport_offset_x, viewport_offset_y) for screen coordinate conversion
     /// The viewport offset is derived from the UIA Document element's screen bounds
@@ -908,128 +885,29 @@ impl DesktopWrapper {
         &self,
         pid: u32,
     ) -> Result<Vec<crate::omniparser::OmniparserItem>, String> {
-        // Find the window element for this process
-        let apps = self
-            .desktop
-            .applications()
-            .map_err(|e| format!("Failed to get applications: {e}"))?;
+        let window_element = find_window_for_pid(&self.desktop, pid)?;
+        let screenshot = capture_and_prepare_screenshot(&window_element, "OMNIPARSER")?;
 
-        let window_element = apps
-            .into_iter()
-            .find(|app| app.process_id().unwrap_or(0) == pid)
-            .ok_or_else(|| format!("No window found for PID {pid}"))?;
-
-        // Get window bounds (absolute screen coordinates)
-        let bounds = window_element
-            .bounds()
-            .map_err(|e| format!("Failed to get window bounds: {e}"))?;
-        let (window_x, window_y, win_w, win_h) = bounds;
-
-        // Capture screenshot of the window
-        let screenshot = window_element
-            .capture()
-            .map_err(|e| format!("Failed to capture window screenshot: {e}"))?;
-
-        // Get original screenshot dimensions
-        let original_width = screenshot.width;
-        let original_height = screenshot.height;
-
-        // DPI DEBUG: Compare logical window bounds vs physical screenshot size
-        let dpi_scale_w = original_width as f64 / win_w;
-        let dpi_scale_h = original_height as f64 / win_h;
-        info!(
-            "OMNIPARSER DPI DEBUG: window_bounds(logical)=({:.0},{:.0},{:.0},{:.0}), screenshot(physical)={}x{}, dpi_scale=({:.3},{:.3})",
-            window_x, window_y, win_w, win_h, original_width, original_height, dpi_scale_w, dpi_scale_h
-        );
-
-        // Convert BGRA to RGBA (xcap returns BGRA format)
-        let rgba_data: Vec<u8> = screenshot
-            .image_data
-            .chunks_exact(4)
-            .flat_map(|bgra| [bgra[2], bgra[1], bgra[0], bgra[3]]) // B,G,R,A -> R,G,B,A
-            .collect();
-
-        // Apply resize if needed (max 1920px to match Replicate's imgsz limit)
-        const MAX_DIM: u32 = 1920;
-        let (final_width, final_height, final_rgba_data, scale_factor) = if original_width > MAX_DIM
-            || original_height > MAX_DIM
-        {
-            // Calculate new dimensions maintaining aspect ratio
-            let scale = (MAX_DIM as f32 / original_width.max(original_height) as f32).min(1.0);
-            let new_width = (original_width as f32 * scale).round() as u32;
-            let new_height = (original_height as f32 * scale).round() as u32;
-
-            // Create ImageBuffer from RGBA data and resize
-            let img =
-                ImageBuffer::<Rgba<u8>, _>::from_raw(original_width, original_height, rgba_data)
-                    .ok_or_else(|| {
-                        "Failed to create image buffer from screenshot data".to_string()
-                    })?;
-
-            let resized =
-                image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
-
-            info!(
-                "OmniParser: Resized screenshot from {}x{} to {}x{} (scale: {:.2})",
-                original_width, original_height, new_width, new_height, scale
-            );
-
-            (new_width, new_height, resized.into_raw(), scale as f64)
-        } else {
-            (original_width, original_height, rgba_data, 1.0)
-        };
-
-        // Encode to PNG
-        let mut png_data = Vec::new();
-        let encoder = PngEncoder::new(Cursor::new(&mut png_data));
-        encoder
-            .write_image(
-                &final_rgba_data,
-                final_width,
-                final_height,
-                ExtendedColorType::Rgba8,
-            )
-            .map_err(|e| format!("Failed to encode screenshot to PNG: {e}"))?;
-
-        let base64_image = general_purpose::STANDARD.encode(&png_data);
-
-        info!(
-            "OmniParser: Sending {}x{} image ({} KB)",
-            final_width,
-            final_height,
-            png_data.len() / 1024
-        );
-
-        // Call OmniParser backend with imgsz=1920 for best detection
+        // Call OmniParser backend
         let (items, _raw_json) = crate::omniparser::parse_image_with_backend(
-            &base64_image,
-            final_width,
-            final_height,
-            Some(MAX_DIM), // Use max imgsz for best detection quality
+            &screenshot.base64_image,
+            screenshot.width,
+            screenshot.height,
+            Some(MAX_SCREENSHOT_DIM),
         )
         .await
         .map_err(|e| format!("Omniparser failed: {e}"))?;
 
         // Convert coordinates to absolute screen coordinates
-        // If image was resized, scale coordinates back to original size first
-        let mut absolute_items = Vec::new();
-        for item in items {
-            let mut new_item = item.clone();
-            if let Some(box_2d) = new_item.box_2d {
-                // box_2d is [x_min, y_min, x_max, y_max] relative to the (possibly resized) screenshot
-                // Scale back to original size if image was resized, then add window offset
-                let inv_scale = 1.0 / scale_factor;
-                new_item.box_2d = Some([
-                    (box_2d[0] * inv_scale) + window_x,
-                    (box_2d[1] * inv_scale) + window_y,
-                    (box_2d[2] * inv_scale) + window_x,
-                    (box_2d[3] * inv_scale) + window_y,
-                ]);
-            }
-            absolute_items.push(new_item);
-        }
-
-        Ok(absolute_items)
+        Ok(items
+            .into_iter()
+            .map(|mut item| {
+                if let Some(box_2d) = item.box_2d {
+                    item.box_2d = Some(screenshot.to_absolute_coords(box_2d));
+                }
+                item
+            })
+            .collect())
     }
 
     /// Perform Gemini Vision detection on a window by its process ID
@@ -1037,164 +915,48 @@ impl DesktopWrapper {
         &self,
         pid: u32,
     ) -> Result<Vec<crate::vision::VisionElement>, String> {
-        // Find the window element for this process
-        let apps = self
-            .desktop
-            .applications()
-            .map_err(|e| format!("Failed to get applications: {e}"))?;
-
-        let window_element = apps
-            .into_iter()
-            .find(|app| app.process_id().unwrap_or(0) == pid)
-            .ok_or_else(|| format!("No window found for PID {pid}"))?;
-
-        // Get window bounds (absolute screen coordinates)
-        let bounds = window_element
-            .bounds()
-            .map_err(|e| format!("Failed to get window bounds: {e}"))?;
-        let (window_x, window_y, win_w, win_h) = bounds;
-
-        // Capture screenshot of the window
-        let screenshot = window_element
-            .capture()
-            .map_err(|e| format!("Failed to capture window screenshot: {e}"))?;
-
-        // Get original screenshot dimensions
-        let original_width = screenshot.width;
-        let original_height = screenshot.height;
-
-        // DPI DEBUG: Compare logical window bounds vs physical screenshot size
-        let dpi_scale_w = original_width as f64 / win_w;
-        let dpi_scale_h = original_height as f64 / win_h;
-        info!(
-            "GEMINI VISION DPI DEBUG: window_bounds(logical)=({:.0},{:.0},{:.0},{:.0}), screenshot(physical)={}x{}, dpi_scale=({:.3},{:.3})",
-            window_x, window_y, win_w, win_h, original_width, original_height, dpi_scale_w, dpi_scale_h
-        );
-
-        // Convert BGRA to RGBA (xcap returns BGRA format)
-        let rgba_data: Vec<u8> = screenshot
-            .image_data
-            .chunks_exact(4)
-            .flat_map(|bgra| [bgra[2], bgra[1], bgra[0], bgra[3]]) // B,G,R,A -> R,G,B,A
-            .collect();
-
-        // Apply resize if needed (max 1920px for reasonable upload size)
-        const MAX_DIM: u32 = 1920;
-        let (final_width, final_height, final_rgba_data, scale_factor) = if original_width > MAX_DIM
-            || original_height > MAX_DIM
-        {
-            // Calculate new dimensions maintaining aspect ratio
-            let scale = (MAX_DIM as f32 / original_width.max(original_height) as f32).min(1.0);
-            let new_width = (original_width as f32 * scale).round() as u32;
-            let new_height = (original_height as f32 * scale).round() as u32;
-
-            // Create ImageBuffer from RGBA data and resize
-            let img =
-                ImageBuffer::<Rgba<u8>, _>::from_raw(original_width, original_height, rgba_data)
-                    .ok_or_else(|| {
-                        "Failed to create image buffer from screenshot data".to_string()
-                    })?;
-
-            let resized =
-                image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
-
-            info!(
-                "Gemini Vision: Resized screenshot from {}x{} to {}x{} (scale: {:.2})",
-                original_width, original_height, new_width, new_height, scale
-            );
-
-            (new_width, new_height, resized.into_raw(), scale as f64)
-        } else {
-            (original_width, original_height, rgba_data, 1.0)
-        };
-
-        // Encode to PNG
-        let mut png_data = Vec::new();
-        let encoder = PngEncoder::new(Cursor::new(&mut png_data));
-        encoder
-            .write_image(
-                &final_rgba_data,
-                final_width,
-                final_height,
-                ExtendedColorType::Rgba8,
-            )
-            .map_err(|e| format!("Failed to encode screenshot to PNG: {e}"))?;
-
-        let base64_image = general_purpose::STANDARD.encode(&png_data);
-
-        info!(
-            "Gemini Vision: Sending {}x{} image ({} KB)",
-            final_width,
-            final_height,
-            png_data.len() / 1024
-        );
+        let window_element = find_window_for_pid(&self.desktop, pid)?;
+        let screenshot = capture_and_prepare_screenshot(&window_element, "GEMINI_VISION")?;
 
         // Call Gemini Vision backend
         let (items, _raw_json) = crate::vision::parse_image_with_gemini(
-            &base64_image,
-            final_width,
-            final_height,
+            &screenshot.base64_image,
+            screenshot.width,
+            screenshot.height,
         )
         .await
         .map_err(|e| format!("Gemini Vision failed: {e}"))?;
 
         // Convert coordinates to absolute screen coordinates
-        // If image was resized, scale coordinates back to original size first
-        let mut absolute_items = Vec::new();
-        for item in items {
-            let mut new_item = item.clone();
-            if let Some(box_2d) = new_item.box_2d {
-                // box_2d is [x_min, y_min, x_max, y_max] relative to the (possibly resized) screenshot
-                // Scale back to original size if image was resized, then add window offset
-                let inv_scale = 1.0 / scale_factor;
-                new_item.box_2d = Some([
-                    (box_2d[0] * inv_scale) + window_x,
-                    (box_2d[1] * inv_scale) + window_y,
-                    (box_2d[2] * inv_scale) + window_x,
-                    (box_2d[3] * inv_scale) + window_y,
-                ]);
-            }
-            absolute_items.push(new_item);
-        }
-
-        Ok(absolute_items)
+        Ok(items
+            .into_iter()
+            .map(|mut item| {
+                if let Some(box_2d) = item.box_2d {
+                    item.box_2d = Some(screenshot.to_absolute_coords(box_2d));
+                }
+                item
+            })
+            .collect())
     }
 
     /// Perform OCR on a window by its process ID and return structured results with bounding boxes
     #[cfg(target_os = "windows")]
     async fn perform_ocr_for_process(&self, pid: u32) -> Result<terminator::OcrElement, String> {
-        // Find the window element for this process
-        let apps = self
-            .desktop
-            .applications()
-            .map_err(|e| format!("Failed to get applications: {e}"))?;
-
-        let window_element = apps
-            .into_iter()
-            .find(|app| app.process_id().unwrap_or(0) == pid)
-            .ok_or_else(|| format!("No window found for PID {pid}"))?;
-
-        // Get window bounds (absolute screen coordinates)
-        let bounds = window_element
+        let window_element = find_window_for_pid(&self.desktop, pid)?;
+        let (window_x, window_y, win_w, win_h) = window_element
             .bounds()
             .map_err(|e| format!("Failed to get window bounds: {e}"))?;
 
-        let (window_x, window_y, win_w, win_h) = bounds;
-
-        // Capture screenshot of the window
         let screenshot = window_element
             .capture()
             .map_err(|e| format!("Failed to capture window screenshot: {e}"))?;
 
-        // DPI DEBUG: Compare logical window bounds vs physical screenshot size
-        let scale_ratio_w = screenshot.width as f64 / win_w;
-        let scale_ratio_h = screenshot.height as f64 / win_h;
         info!(
             "OCR DPI DEBUG: window_bounds(logical)=({:.0},{:.0},{:.0},{:.0}), screenshot(physical)={}x{}, scale_ratio=({:.3},{:.3})",
-            window_x, window_y, win_w, win_h, screenshot.width, screenshot.height, scale_ratio_w, scale_ratio_h
+            window_x, window_y, win_w, win_h, screenshot.width, screenshot.height,
+            screenshot.width as f64 / win_w, screenshot.height as f64 / win_h
         );
 
-        // Perform OCR with bounding boxes using Desktop's method
         self.desktop
             .ocr_screenshot_with_bounds(&screenshot, window_x, window_y)
             .map_err(|e| format!("OCR failed: {e}"))
@@ -1291,7 +1053,7 @@ impl DesktopWrapper {
         span.set_attribute("pid", pid.to_string());
 
         // Detect if this is a browser window
-        let is_browser = Self::detect_browser_by_pid(pid);
+        let is_browser = is_browser_pid(pid);
 
         // Build the base result JSON first
         let mut result_json = json!({
@@ -1555,324 +1317,67 @@ impl DesktopWrapper {
         // Handle show_overlay request
         #[cfg(target_os = "windows")]
         if let Some(ref overlay_type) = args.show_overlay {
-            // Parse display mode from args
-            let display_mode = match args.overlay_display_mode.as_deref() {
-                Some("rectangles") => terminator::OverlayDisplayMode::Rectangles,
-                Some("index") | None => terminator::OverlayDisplayMode::Index,
-                Some("role") => terminator::OverlayDisplayMode::Role,
-                Some("index_role") => terminator::OverlayDisplayMode::IndexRole,
-                Some("name") => terminator::OverlayDisplayMode::Name,
-                Some("index_name") => terminator::OverlayDisplayMode::IndexName,
-                Some("full") => terminator::OverlayDisplayMode::Full,
-                Some(other) => {
-                    result_json["overlay_error"] = json!(format!("Unknown overlay_display_mode: '{}'. Valid options: rectangles, index, role, index_role, name, index_name, full", other));
-                    terminator::OverlayDisplayMode::Index // fallback to default
-                }
-            };
+            let display_mode = parse_overlay_display_mode(args.overlay_display_mode.as_deref(), &mut result_json);
 
             match overlay_type.as_str() {
                 "ui_tree" => {
-                    // Use UIA bounds from uia_bounds cache (like OCR/DOM do)
                     if let Ok(uia_bounds) = self.uia_bounds.lock() {
-                        let elements: Vec<terminator::InspectElement> = uia_bounds
-                            .iter()
-                            .map(|(idx, (role, name, bounds))| terminator::InspectElement {
-                                index: *idx,
-                                role: role.clone(),
-                                name: if name.is_empty() {
-                                    None
-                                } else {
-                                    Some(name.clone())
-                                },
-                                bounds: *bounds,
-                            })
-                            .collect();
-
-                        if !elements.is_empty() {
-                            if let Ok(apps) = self.desktop.applications() {
-                                if let Some(app) =
-                                    apps.iter().find(|a| a.process_id().ok() == Some(pid))
-                                {
-                                    if let Ok((x, y, w, h)) = app.bounds() {
-                                        if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
-                                            *handle = None;
-                                        }
-                                        terminator::hide_inspect_overlay();
-
-                                        match terminator::show_inspect_overlay(
-                                            elements,
-                                            (x as i32, y as i32, w as i32, h as i32),
-                                            display_mode,
-                                        ) {
-                                            Ok(new_handle) => {
-                                                if let Ok(mut handle) =
-                                                    self.inspect_overlay_handle.lock()
-                                                {
-                                                    *handle = Some(new_handle);
-                                                }
-                                                result_json["overlay_shown"] = json!("ui_tree");
-                                                info!("Inspect overlay shown for ui_tree");
-                                            }
-                                            Err(e) => {
-                                                warn!("Failed to show inspect overlay: {}", e);
-                                                result_json["overlay_error"] = json!(e.to_string());
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            result_json["overlay_error"] = json!("No UI elements with bounds in cache - ensure include_tree_after_action is true");
-                        }
+                        show_overlay_for_source(
+                            OverlaySource::UiaTree(&uia_bounds),
+                            &self.desktop,
+                            pid,
+                            display_mode,
+                            &self.inspect_overlay_handle,
+                            &mut result_json,
+                        );
                     }
                 }
                 "ocr" => {
-                    // Use OCR bounds from ocr_bounds cache
                     if let Ok(ocr_bounds) = self.ocr_bounds.lock() {
-                        let elements: Vec<terminator::InspectElement> = ocr_bounds
-                            .iter()
-                            .map(|(idx, (text, bounds))| terminator::InspectElement {
-                                index: *idx,
-                                role: "OCR".to_string(),
-                                name: Some(text.clone()),
-                                bounds: *bounds,
-                            })
-                            .collect();
-
-                        if !elements.is_empty() {
-                            // DPI DEBUG: Log sample element bounds for OCR
-                            if let Some(first) = elements.first() {
-                                info!(
-                                    "OCR OVERLAY DEBUG: first_element bounds=({:.0},{:.0},{:.0},{:.0})",
-                                    first.bounds.0, first.bounds.1, first.bounds.2, first.bounds.3
-                                );
-                            }
-                            if let Ok(apps) = self.desktop.applications() {
-                                if let Some(app) =
-                                    apps.iter().find(|a| a.process_id().ok() == Some(pid))
-                                {
-                                    if let Ok((x, y, w, h)) = app.bounds() {
-                                        info!(
-                                            "OCR OVERLAY DEBUG: window_bounds for overlay=({:.0},{:.0},{:.0},{:.0})",
-                                            x, y, w, h
-                                        );
-                                        if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
-                                            *handle = None;
-                                        }
-                                        terminator::hide_inspect_overlay();
-
-                                        match terminator::show_inspect_overlay(
-                                            elements,
-                                            (x as i32, y as i32, w as i32, h as i32),
-                                            display_mode,
-                                        ) {
-                                            Ok(new_handle) => {
-                                                if let Ok(mut handle) =
-                                                    self.inspect_overlay_handle.lock()
-                                                {
-                                                    *handle = Some(new_handle);
-                                                }
-                                                result_json["overlay_shown"] = json!("ocr");
-                                            }
-                                            Err(e) => {
-                                                result_json["overlay_error"] = json!(e.to_string());
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        show_overlay_for_source(
+                            OverlaySource::Ocr(&ocr_bounds),
+                            &self.desktop,
+                            pid,
+                            display_mode,
+                            &self.inspect_overlay_handle,
+                            &mut result_json,
+                        );
                     }
                 }
                 "omniparser" => {
-                    // Use omniparser items from cache
                     if let Ok(omni_items) = self.omniparser_items.lock() {
-                        let elements: Vec<terminator::InspectElement> = omni_items
-                            .iter()
-                            .filter_map(|(idx, item)| {
-                                // Convert box_2d [x_min, y_min, x_max, y_max] to (x, y, width, height)
-                                item.box_2d.map(|b| terminator::InspectElement {
-                                    index: *idx,
-                                    role: item.label.clone(),
-                                    name: item.content.clone(),
-                                    bounds: (b[0], b[1], b[2] - b[0], b[3] - b[1]),
-                                })
-                            })
-                            .collect();
-
-                        if !elements.is_empty() {
-                            // DPI DEBUG: Log sample element bounds for omniparser
-                            if let Some(first) = elements.first() {
-                                info!(
-                                    "OMNIPARSER OVERLAY DEBUG: first_element bounds=({:.0},{:.0},{:.0},{:.0})",
-                                    first.bounds.0, first.bounds.1, first.bounds.2, first.bounds.3
-                                );
-                            }
-                            if let Ok(apps) = self.desktop.applications() {
-                                if let Some(app) =
-                                    apps.iter().find(|a| a.process_id().ok() == Some(pid))
-                                {
-                                    if let Ok((x, y, w, h)) = app.bounds() {
-                                        info!(
-                                            "OMNIPARSER OVERLAY DEBUG: window_bounds for overlay=({:.0},{:.0},{:.0},{:.0})",
-                                            x, y, w, h
-                                        );
-                                        if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
-                                            *handle = None;
-                                        }
-                                        terminator::hide_inspect_overlay();
-
-                                        match terminator::show_inspect_overlay(
-                                            elements,
-                                            (x as i32, y as i32, w as i32, h as i32),
-                                            display_mode,
-                                        ) {
-                                            Ok(new_handle) => {
-                                                if let Ok(mut handle) =
-                                                    self.inspect_overlay_handle.lock()
-                                                {
-                                                    *handle = Some(new_handle);
-                                                }
-                                                result_json["overlay_shown"] = json!("omniparser");
-                                            }
-                                            Err(e) => {
-                                                result_json["overlay_error"] = json!(e.to_string());
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        show_overlay_for_source(
+                            OverlaySource::Omniparser(&omni_items),
+                            &self.desktop,
+                            pid,
+                            display_mode,
+                            &self.inspect_overlay_handle,
+                            &mut result_json,
+                        );
                     }
                 }
                 "dom" => {
-                    // Use DOM bounds from dom_bounds cache (populated by include_browser_dom)
                     if let Ok(dom_bounds) = self.dom_bounds.lock() {
-                        let elements: Vec<terminator::InspectElement> = dom_bounds
-                            .iter()
-                            .map(
-                                |(idx, (tag, identifier, bounds))| terminator::InspectElement {
-                                    index: *idx,
-                                    role: tag.clone(),
-                                    name: if identifier.is_empty() {
-                                        None
-                                    } else {
-                                        Some(identifier.clone())
-                                    },
-                                    bounds: *bounds,
-                                },
-                            )
-                            .collect();
-
-                        if !elements.is_empty() {
-                            // DPI DEBUG: Log sample element bounds for DOM
-                            if let Some(first) = elements.first() {
-                                info!(
-                                    "DOM OVERLAY DEBUG: first_element bounds=({:.0},{:.0},{:.0},{:.0})",
-                                    first.bounds.0, first.bounds.1, first.bounds.2, first.bounds.3
-                                );
-                            }
-                            if let Ok(apps) = self.desktop.applications() {
-                                if let Some(app) =
-                                    apps.iter().find(|a| a.process_id().ok() == Some(pid))
-                                {
-                                    if let Ok((x, y, w, h)) = app.bounds() {
-                                        info!(
-                                            "DOM OVERLAY DEBUG: window_bounds for overlay=({:.0},{:.0},{:.0},{:.0})",
-                                            x, y, w, h
-                                        );
-                                        if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
-                                            *handle = None;
-                                        }
-                                        terminator::hide_inspect_overlay();
-
-                                        match terminator::show_inspect_overlay(
-                                            elements,
-                                            (x as i32, y as i32, w as i32, h as i32),
-                                            display_mode,
-                                        ) {
-                                            Ok(new_handle) => {
-                                                if let Ok(mut handle) =
-                                                    self.inspect_overlay_handle.lock()
-                                                {
-                                                    *handle = Some(new_handle);
-                                                }
-                                                result_json["overlay_shown"] = json!("dom");
-                                                info!("Inspect overlay shown for DOM elements");
-                                            }
-                                            Err(e) => {
-                                                result_json["overlay_error"] = json!(e.to_string());
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            result_json["overlay_error"] = json!("No DOM elements in cache - ensure include_browser_dom is true and browser extension is active");
-                        }
+                        show_overlay_for_source(
+                            OverlaySource::Dom(&dom_bounds),
+                            &self.desktop,
+                            pid,
+                            display_mode,
+                            &self.inspect_overlay_handle,
+                            &mut result_json,
+                        );
                     }
                 }
                 "vision" => {
-                    // Use vision items from cache
                     if let Ok(vision_items) = self.vision_items.lock() {
-                        let elements: Vec<terminator::InspectElement> = vision_items
-                            .iter()
-                            .filter_map(|(idx, item)| {
-                                // Convert box_2d [x_min, y_min, x_max, y_max] to (x, y, width, height)
-                                item.box_2d.map(|b| terminator::InspectElement {
-                                    index: *idx,
-                                    role: item.element_type.clone(),
-                                    name: item.content.clone(),
-                                    bounds: (b[0], b[1], b[2] - b[0], b[3] - b[1]),
-                                })
-                            })
-                            .collect();
-
-                        if !elements.is_empty() {
-                            // DPI DEBUG: Log sample element bounds for vision
-                            if let Some(first) = elements.first() {
-                                info!(
-                                    "VISION OVERLAY DEBUG: first_element bounds=({:.0},{:.0},{:.0},{:.0})",
-                                    first.bounds.0, first.bounds.1, first.bounds.2, first.bounds.3
-                                );
-                            }
-                            if let Ok(apps) = self.desktop.applications() {
-                                if let Some(app) =
-                                    apps.iter().find(|a| a.process_id().ok() == Some(pid))
-                                {
-                                    if let Ok((x, y, w, h)) = app.bounds() {
-                                        info!(
-                                            "VISION OVERLAY DEBUG: window_bounds for overlay=({:.0},{:.0},{:.0},{:.0})",
-                                            x, y, w, h
-                                        );
-                                        if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
-                                            *handle = None;
-                                        }
-                                        terminator::hide_inspect_overlay();
-
-                                        match terminator::show_inspect_overlay(
-                                            elements,
-                                            (x as i32, y as i32, w as i32, h as i32),
-                                            display_mode,
-                                        ) {
-                                            Ok(new_handle) => {
-                                                if let Ok(mut handle) =
-                                                    self.inspect_overlay_handle.lock()
-                                                {
-                                                    *handle = Some(new_handle);
-                                                }
-                                                result_json["overlay_shown"] = json!("vision");
-                                            }
-                                            Err(e) => {
-                                                result_json["overlay_error"] = json!(e.to_string());
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            result_json["overlay_error"] = json!("No vision elements in cache - use include_gemini_vision=true first");
-                        }
+                        show_overlay_for_source(
+                            OverlaySource::Vision(&vision_items),
+                            &self.desktop,
+                            pid,
+                            display_mode,
+                            &self.inspect_overlay_handle,
+                            &mut result_json,
+                        );
                     }
                 }
                 _ => {
@@ -2585,21 +2090,14 @@ impl DesktopWrapper {
             }
         }
 
-        // Attach UI diff if captured (action tools only support diff, not standalone tree)
-        if let Some(diff_result) = ui_diff {
-            tracing::debug!(
-                "[type_into_element] Attaching UI diff to result (has_changes: {})",
-                diff_result.has_changes
-            );
-            span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
-
-            result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["has_ui_changes"] = json!(diff_result.has_changes);
-            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
-                result_json["tree_before"] = json!(diff_result.tree_before);
-                result_json["tree_after"] = json!(diff_result.tree_after);
-            }
-        }
+        // Attach UI diff if captured
+        attach_ui_diff_to_result(
+            ui_diff,
+            args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false),
+            "type_into_element",
+            &mut result_json,
+            &mut span,
+        );
 
         // Restore windows after typing into element
         self.restore_window_management(should_restore).await;
@@ -2807,90 +2305,33 @@ impl DesktopWrapper {
         });
 
         // POST-ACTION VERIFICATION
-        if !args.action.verify_element_exists.is_empty()
-            || !args.action.verify_element_not_exists.is_empty()
+        if let Err(e) = perform_post_action_verification(
+            &self.desktop,
+            &element,
+            &VerificationOptions {
+                verify_element_exists: &args.action.verify_element_exists,
+                verify_element_not_exists: &args.action.verify_element_not_exists,
+                verify_timeout_ms: args.action.verify_timeout_ms,
+            },
+            &successful_selector,
+            "click_element",
+            &mut result_json,
+            &mut span,
+        )
+        .await
         {
-            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
-
-            let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
-                None
-            } else {
-                Some(args.action.verify_element_exists.as_str())
-            };
-            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() {
-                None
-            } else {
-                Some(args.action.verify_element_not_exists.as_str())
-            };
-
-            match crate::helpers::verify_post_action(
-                &self.desktop,
-                &element,
-                verify_exists_opt,
-                verify_not_exists_opt,
-                verify_timeout_ms,
-                &successful_selector,
-            )
-            .await
-            {
-                Ok(verification_result) => {
-                    tracing::info!(
-                        "[click_element] Verification passed: method={}, details={}",
-                        verification_result.method,
-                        verification_result.details
-                    );
-                    span.set_attribute("verification.passed", "true".to_string());
-                    span.set_attribute("verification.method", verification_result.method.clone());
-                    span.set_attribute(
-                        "verification.elapsed_ms",
-                        verification_result.elapsed_ms.to_string(),
-                    );
-
-                    let verification_json = json!({
-                        "passed": verification_result.passed,
-                        "method": verification_result.method,
-                        "details": verification_result.details,
-                        "elapsed_ms": verification_result.elapsed_ms,
-                        "timestamp": chrono::Utc::now().to_rfc3339(),
-                    });
-
-                    if let Some(obj) = result_json.as_object_mut() {
-                        obj.insert("verification".to_string(), verification_json);
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("[click_element] Verification failed: {}", e);
-                    span.set_attribute("verification.passed", "false".to_string());
-                    span.set_status(false, Some("Verification failed"));
-                    span.end();
-                    return Err(McpError::internal_error(
-                        format!("Post-action verification failed: {e}"),
-                        Some(json!({
-                            "selector_used": successful_selector,
-                            "verify_exists": args.action.verify_element_exists,
-                            "verify_not_exists": args.action.verify_element_not_exists,
-                            "timeout_ms": verify_timeout_ms,
-                        })),
-                    ));
-                }
-            }
+            span.end();
+            return Err(e);
         }
 
-        // Attach UI diff if captured (action tools only support diff, not standalone tree)
-        if let Some(diff_result) = ui_diff {
-            tracing::debug!(
-                "[click_element] Attaching UI diff to result (has_changes: {})",
-                diff_result.has_changes
-            );
-            span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
-
-            result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["has_ui_changes"] = json!(diff_result.has_changes);
-            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
-                result_json["tree_before"] = json!(diff_result.tree_before);
-                result_json["tree_after"] = json!(diff_result.tree_after);
-            }
-        }
+        // Attach UI diff if captured
+        attach_ui_diff_to_result(
+            ui_diff,
+            args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false),
+            "click_element",
+            &mut result_json,
+            &mut span,
+        );
 
         // Restore windows if this was a direct MCP call
         self.restore_window_management(should_restore).await;
@@ -3059,90 +2500,33 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
         });
 
         // POST-ACTION VERIFICATION
-        if !args.action.verify_element_exists.is_empty()
-            || !args.action.verify_element_not_exists.is_empty()
+        if let Err(e) = perform_post_action_verification(
+            &self.desktop,
+            &element,
+            &VerificationOptions {
+                verify_element_exists: &args.action.verify_element_exists,
+                verify_element_not_exists: &args.action.verify_element_not_exists,
+                verify_timeout_ms: args.action.verify_timeout_ms,
+            },
+            &successful_selector,
+            "press_key",
+            &mut result_json,
+            &mut span,
+        )
+        .await
         {
-            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
-
-            let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
-                None
-            } else {
-                Some(args.action.verify_element_exists.as_str())
-            };
-            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() {
-                None
-            } else {
-                Some(args.action.verify_element_not_exists.as_str())
-            };
-
-            match crate::helpers::verify_post_action(
-                &self.desktop,
-                &element,
-                verify_exists_opt,
-                verify_not_exists_opt,
-                verify_timeout_ms,
-                &successful_selector,
-            )
-            .await
-            {
-                Ok(verification_result) => {
-                    tracing::info!(
-                        "[press_key] Verification passed: method={}, details={}",
-                        verification_result.method,
-                        verification_result.details
-                    );
-                    span.set_attribute("verification.passed", "true".to_string());
-                    span.set_attribute("verification.method", verification_result.method.clone());
-                    span.set_attribute(
-                        "verification.elapsed_ms",
-                        verification_result.elapsed_ms.to_string(),
-                    );
-
-                    let verification_json = json!({
-                        "passed": verification_result.passed,
-                        "method": verification_result.method,
-                        "details": verification_result.details,
-                        "elapsed_ms": verification_result.elapsed_ms,
-                        "timestamp": chrono::Utc::now().to_rfc3339(),
-                    });
-
-                    if let Some(obj) = result_json.as_object_mut() {
-                        obj.insert("verification".to_string(), verification_json);
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("[press_key] Verification failed: {}", e);
-                    span.set_attribute("verification.passed", "false".to_string());
-                    span.set_status(false, Some("Verification failed"));
-                    span.end();
-                    return Err(McpError::internal_error(
-                        format!("Post-action verification failed: {e}"),
-                        Some(json!({
-                            "selector_used": successful_selector,
-                            "verify_exists": args.action.verify_element_exists,
-                            "verify_not_exists": args.action.verify_element_not_exists,
-                            "timeout_ms": verify_timeout_ms,
-                        })),
-                    ));
-                }
-            }
+            span.end();
+            return Err(e);
         }
 
-        // Attach UI diff if captured (action tools only support diff, not standalone tree)
-        if let Some(diff_result) = ui_diff {
-            tracing::debug!(
-                "[press_key] Attaching UI diff to result (has_changes: {})",
-                diff_result.has_changes
-            );
-            span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
-
-            result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["has_ui_changes"] = json!(diff_result.has_changes);
-            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
-                result_json["tree_before"] = json!(diff_result.tree_before);
-                result_json["tree_after"] = json!(diff_result.tree_after);
-            }
-        }
+        // Attach UI diff if captured
+        attach_ui_diff_to_result(
+            ui_diff,
+            args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false),
+            "press_key",
+            &mut result_json,
+            &mut span,
+        );
 
         // Restore windows after pressing key
         self.restore_window_management(should_restore).await;
@@ -4725,73 +4109,23 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         });
 
         // POST-ACTION VERIFICATION
-        if !args.action.verify_element_exists.is_empty()
-            || !args.action.verify_element_not_exists.is_empty()
+        if let Err(e) = perform_post_action_verification(
+            &self.desktop,
+            &element,
+            &VerificationOptions {
+                verify_element_exists: &args.action.verify_element_exists,
+                verify_element_not_exists: &args.action.verify_element_not_exists,
+                verify_timeout_ms: args.action.verify_timeout_ms,
+            },
+            &successful_selector,
+            "mouse_drag",
+            &mut result_json,
+            &mut span,
+        )
+        .await
         {
-            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
-
-            let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
-                None
-            } else {
-                Some(args.action.verify_element_exists.as_str())
-            };
-            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() {
-                None
-            } else {
-                Some(args.action.verify_element_not_exists.as_str())
-            };
-
-            match crate::helpers::verify_post_action(
-                &self.desktop,
-                &element,
-                verify_exists_opt,
-                verify_not_exists_opt,
-                verify_timeout_ms,
-                &successful_selector,
-            )
-            .await
-            {
-                Ok(verification_result) => {
-                    tracing::info!(
-                        "[mouse_drag] Verification passed: method={}, details={}",
-                        verification_result.method,
-                        verification_result.details
-                    );
-                    span.set_attribute("verification.passed", "true".to_string());
-                    span.set_attribute("verification.method", verification_result.method.clone());
-                    span.set_attribute(
-                        "verification.elapsed_ms",
-                        verification_result.elapsed_ms.to_string(),
-                    );
-
-                    let verification_json = json!({
-                        "passed": verification_result.passed,
-                        "method": verification_result.method,
-                        "details": verification_result.details,
-                        "elapsed_ms": verification_result.elapsed_ms,
-                        "timestamp": chrono::Utc::now().to_rfc3339(),
-                    });
-
-                    if let Some(obj) = result_json.as_object_mut() {
-                        obj.insert("verification".to_string(), verification_json);
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("[mouse_drag] Verification failed: {}", e);
-                    span.set_attribute("verification.passed", "false".to_string());
-                    span.set_status(false, Some("Verification failed"));
-                    span.end();
-                    return Err(McpError::internal_error(
-                        format!("Post-action verification failed: {e}"),
-                        Some(json!({
-                            "selector_used": successful_selector,
-                            "verify_exists": args.action.verify_element_exists,
-                            "verify_not_exists": args.action.verify_element_not_exists,
-                            "timeout_ms": verify_timeout_ms,
-                        })),
-                    ));
-                }
-            }
+            span.end();
+            return Err(e);
         }
 
         // Action tools only support UI diff, not standalone tree attachment
@@ -6073,90 +5407,33 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         });
 
         // POST-ACTION VERIFICATION
-        if !args.action.verify_element_exists.is_empty()
-            || !args.action.verify_element_not_exists.is_empty()
+        if let Err(e) = perform_post_action_verification(
+            &self.desktop,
+            &element,
+            &VerificationOptions {
+                verify_element_exists: &args.action.verify_element_exists,
+                verify_element_not_exists: &args.action.verify_element_not_exists,
+                verify_timeout_ms: args.action.verify_timeout_ms,
+            },
+            &successful_selector,
+            "scroll_element",
+            &mut result_json,
+            &mut span,
+        )
+        .await
         {
-            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
-
-            let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
-                None
-            } else {
-                Some(args.action.verify_element_exists.as_str())
-            };
-            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() {
-                None
-            } else {
-                Some(args.action.verify_element_not_exists.as_str())
-            };
-
-            match crate::helpers::verify_post_action(
-                &self.desktop,
-                &element,
-                verify_exists_opt,
-                verify_not_exists_opt,
-                verify_timeout_ms,
-                &successful_selector,
-            )
-            .await
-            {
-                Ok(verification_result) => {
-                    tracing::info!(
-                        "[scroll_element] Verification passed: method={}, details={}",
-                        verification_result.method,
-                        verification_result.details
-                    );
-                    span.set_attribute("verification.passed", "true".to_string());
-                    span.set_attribute("verification.method", verification_result.method.clone());
-                    span.set_attribute(
-                        "verification.elapsed_ms",
-                        verification_result.elapsed_ms.to_string(),
-                    );
-
-                    let verification_json = json!({
-                        "passed": verification_result.passed,
-                        "method": verification_result.method,
-                        "details": verification_result.details,
-                        "elapsed_ms": verification_result.elapsed_ms,
-                        "timestamp": chrono::Utc::now().to_rfc3339(),
-                    });
-
-                    if let Some(obj) = result_json.as_object_mut() {
-                        obj.insert("verification".to_string(), verification_json);
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("[scroll_element] Verification failed: {}", e);
-                    span.set_attribute("verification.passed", "false".to_string());
-                    span.set_status(false, Some("Verification failed"));
-                    span.end();
-                    return Err(McpError::internal_error(
-                        format!("Post-action verification failed: {e}"),
-                        Some(json!({
-                            "selector_used": successful_selector,
-                            "verify_exists": args.action.verify_element_exists,
-                            "verify_not_exists": args.action.verify_element_not_exists,
-                            "timeout_ms": verify_timeout_ms,
-                        })),
-                    ));
-                }
-            }
+            span.end();
+            return Err(e);
         }
 
         // Attach UI diff if captured
-        if let Some(diff_result) = ui_diff {
-            tracing::debug!(
-                "[scroll_element] Attaching UI diff to result (has_changes: {})",
-                diff_result.has_changes
-            );
-            span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
-
-            result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["has_ui_changes"] = json!(diff_result.has_changes);
-            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
-                result_json["tree_before"] = json!(diff_result.tree_before);
-                result_json["tree_after"] = json!(diff_result.tree_after);
-            }
-        }
+        attach_ui_diff_to_result(
+            ui_diff,
+            args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false),
+            "scroll_element",
+            &mut result_json,
+            &mut span,
+        );
 
         self.restore_window_management(should_restore).await;
 
@@ -6820,90 +6097,33 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         });
 
         // POST-ACTION VERIFICATION
-        if !args.action.verify_element_exists.is_empty()
-            || !args.action.verify_element_not_exists.is_empty()
+        if let Err(e) = perform_post_action_verification(
+            &self.desktop,
+            &element,
+            &VerificationOptions {
+                verify_element_exists: &args.action.verify_element_exists,
+                verify_element_not_exists: &args.action.verify_element_not_exists,
+                verify_timeout_ms: args.action.verify_timeout_ms,
+            },
+            &successful_selector,
+            "invoke_element",
+            &mut result_json,
+            &mut span,
+        )
+        .await
         {
-            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
-
-            let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
-                None
-            } else {
-                Some(args.action.verify_element_exists.as_str())
-            };
-            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() {
-                None
-            } else {
-                Some(args.action.verify_element_not_exists.as_str())
-            };
-
-            match crate::helpers::verify_post_action(
-                &self.desktop,
-                &element,
-                verify_exists_opt,
-                verify_not_exists_opt,
-                verify_timeout_ms,
-                &successful_selector,
-            )
-            .await
-            {
-                Ok(verification_result) => {
-                    tracing::info!(
-                        "[invoke_element] Verification passed: method={}, details={}",
-                        verification_result.method,
-                        verification_result.details
-                    );
-                    span.set_attribute("verification.passed", "true".to_string());
-                    span.set_attribute("verification.method", verification_result.method.clone());
-                    span.set_attribute(
-                        "verification.elapsed_ms",
-                        verification_result.elapsed_ms.to_string(),
-                    );
-
-                    let verification_json = json!({
-                        "passed": verification_result.passed,
-                        "method": verification_result.method,
-                        "details": verification_result.details,
-                        "elapsed_ms": verification_result.elapsed_ms,
-                        "timestamp": chrono::Utc::now().to_rfc3339(),
-                    });
-
-                    if let Some(obj) = result_json.as_object_mut() {
-                        obj.insert("verification".to_string(), verification_json);
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("[invoke_element] Verification failed: {}", e);
-                    span.set_attribute("verification.passed", "false".to_string());
-                    span.set_status(false, Some("Verification failed"));
-                    span.end();
-                    return Err(McpError::internal_error(
-                        format!("Post-action verification failed: {e}"),
-                        Some(json!({
-                            "selector_used": successful_selector,
-                            "verify_exists": args.action.verify_element_exists,
-                            "verify_not_exists": args.action.verify_element_not_exists,
-                            "timeout_ms": verify_timeout_ms,
-                        })),
-                    ));
-                }
-            }
+            span.end();
+            return Err(e);
         }
 
-        // Attach UI diff if captured (action tools only support diff, not standalone tree)
-        if let Some(diff_result) = ui_diff {
-            tracing::debug!(
-                "[invoke_element] Attaching UI diff to result (has_changes: {})",
-                diff_result.has_changes
-            );
-            span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
-
-            result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["has_ui_changes"] = json!(diff_result.has_changes);
-            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
-                result_json["tree_before"] = json!(diff_result.tree_before);
-                result_json["tree_after"] = json!(diff_result.tree_after);
-            }
-        }
+        // Attach UI diff if captured
+        attach_ui_diff_to_result(
+            ui_diff,
+            args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false),
+            "invoke_element",
+            &mut result_json,
+            &mut span,
+        );
 
         // Restore windows after invoking element
         self.restore_window_management(should_restore).await;
