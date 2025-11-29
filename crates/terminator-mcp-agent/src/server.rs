@@ -1,7 +1,7 @@
 use crate::helpers::*;
 use crate::scripting_engine;
 use crate::telemetry::StepSpan;
-use crate::tools::inspection::{show_overlay_for_source, parse_overlay_display_mode, is_browser_pid, OverlaySource};
+use crate::tools::inspection::{show_overlay_for_source, parse_overlay_display_mode, is_browser_pid, find_pid_for_process, OverlaySource};
 use crate::tools::screenshot::{find_window_for_pid, capture_and_prepare_screenshot, MAX_SCREENSHOT_DIM};
 use crate::tools::element::{perform_post_action_verification, VerificationOptions, attach_ui_diff_to_result};
 use crate::utils::find_and_execute_with_retry_with_fallback;
@@ -1003,49 +1003,7 @@ impl DesktopWrapper {
         }
 
         // Find PID for the process name
-        let apps = self.desktop.applications().map_err(|e| {
-            McpError::resource_not_found(
-                "Failed to get applications",
-                Some(json!({"reason": e.to_string()})),
-            )
-        })?;
-
-        let mut system = System::new();
-        system.refresh_processes(ProcessesToUpdate::All, true);
-
-        // Find first matching process
-        let pid = apps
-            .iter()
-            .filter_map(|app| {
-                let app_pid = app.process_id().unwrap_or(0);
-                if app_pid > 0 {
-                    system
-                        .process(sysinfo::Pid::from_u32(app_pid))
-                        .and_then(|p| {
-                            let process_name = p.name().to_string_lossy().to_string();
-                            if process_name
-                                .to_lowercase()
-                                .contains(&args.process.to_lowercase())
-                            {
-                                Some(app_pid)
-                            } else {
-                                None
-                            }
-                        })
-                } else {
-                    None
-                }
-            })
-            .next()
-            .ok_or_else(|| {
-                McpError::resource_not_found(
-                    format!(
-                        "Process '{}' not found. Use open_application to start it first.",
-                        args.process
-                    ),
-                    Some(json!({"process": args.process})),
-                )
-            })?;
+        let pid = find_pid_for_process(&self.desktop, &args.process)?;
 
         span.set_attribute("pid", pid.to_string());
 
