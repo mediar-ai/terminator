@@ -763,8 +763,9 @@ pub enum VisionType {
     UiTree,
     #[serde(alias = "dom")]
     Dom,
-    /// Vision model elements (Gemini)
-    Vision,
+    /// Gemini vision model elements
+    #[serde(alias = "vision")]
+    Gemini,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]

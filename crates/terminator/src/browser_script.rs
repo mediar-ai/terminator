@@ -158,6 +158,10 @@ pub async fn execute_script(
                 }
 
                 // If no errors detected, return the result as success
+                info!(
+                    "[browser_script] Returning successful result, len={}",
+                    result.len()
+                );
                 return Ok(result);
             }
             Ok(None) => {

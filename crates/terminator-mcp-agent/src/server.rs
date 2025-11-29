@@ -886,20 +886,42 @@ impl DesktopWrapper {
 })()
 "#;
 
-        match self.desktop.execute_browser_script(&script).await {
-            Ok(result_str) => match serde_json::from_str::<serde_json::Value>(&result_str) {
-                Ok(result) => {
-                    let elements = result
-                        .get("elements")
-                        .and_then(|v| v.as_array())
-                        .cloned()
-                        .unwrap_or_default();
-                    // Use UIA-based viewport offset (more reliable than JS due to DPI scaling)
-                    Ok((elements, viewport_offset.0, viewport_offset.1))
+        let script_result = self.desktop.execute_browser_script(&script).await;
+        info!(
+            "[capture_browser_dom] execute_browser_script returned, is_ok={}",
+            script_result.is_ok()
+        );
+        match script_result {
+            Ok(result_str) => {
+                info!(
+                    "[capture_browser_dom] Got result_str, len={}",
+                    result_str.len()
+                );
+                match serde_json::from_str::<serde_json::Value>(&result_str) {
+                    Ok(result) => {
+                        info!("[capture_browser_dom] JSON parsed successfully");
+                        let elements = result
+                            .get("elements")
+                            .and_then(|v| v.as_array())
+                            .cloned()
+                            .unwrap_or_default();
+                        info!(
+                            "[capture_browser_dom] Returning {} elements",
+                            elements.len()
+                        );
+                        // Use UIA-based viewport offset (more reliable than JS due to DPI scaling)
+                        Ok((elements, viewport_offset.0, viewport_offset.1))
+                    }
+                    Err(e) => {
+                        warn!("[capture_browser_dom] JSON parse failed: {e}");
+                        Err(format!("Failed to parse DOM elements: {e}"))
+                    }
                 }
-                Err(e) => Err(format!("Failed to parse DOM elements: {e}")),
-            },
-            Err(e) => Err(format!("Failed to execute browser script: {e}")),
+            }
+            Err(e) => {
+                warn!("[capture_browser_dom] execute_browser_script failed: {e}");
+                Err(format!("Failed to execute browser script: {e}"))
+            }
         }
     }
 
@@ -1812,8 +1834,8 @@ impl DesktopWrapper {
                         }
                     }
                 }
-                "vision" => {
-                    // Use vision items from cache
+                "gemini" => {
+                    // Use Gemini vision items from cache
                     if let Ok(vision_items) = self.vision_items.lock() {
                         let elements: Vec<terminator::InspectElement> = vision_items
                             .iter()
@@ -1861,7 +1883,7 @@ impl DesktopWrapper {
                                                 {
                                                     *handle = Some(new_handle);
                                                 }
-                                                result_json["overlay_shown"] = json!("vision");
+                                                result_json["overlay_shown"] = json!("gemini");
                                             }
                                             Err(e) => {
                                                 result_json["overlay_error"] = json!(e.to_string());
@@ -1871,7 +1893,7 @@ impl DesktopWrapper {
                                 }
                             }
                         } else {
-                            result_json["overlay_error"] = json!("No vision elements in cache - use include_gemini_vision=true first");
+                            result_json["overlay_error"] = json!("No Gemini elements in cache - use include_gemini_vision=true first");
                         }
                     }
                 }
@@ -4907,8 +4929,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
                 (item.label, (x, y, width, height))
             }
-            crate::utils::VisionType::Vision => {
-                // Look up the Vision item
+            crate::utils::VisionType::Gemini => {
+                // Look up the Gemini vision item
                 let item_result = {
                     let items = self.vision_items.lock().map_err(|e| {
                         McpError::internal_error(
@@ -4924,10 +4946,10 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     span.end();
                     return Err(McpError::internal_error(
                         format!(
-                            "Vision index {} not found. Call get_window_tree with include_gemini_vision=true first to get indexed items.",
+                            "Gemini index {} not found. Call get_window_tree with include_gemini_vision=true first to get indexed items.",
                             args.index
                         ),
-                        Some(json!({ "index": args.index, "vision_type": "vision" })),
+                        Some(json!({ "index": args.index, "vision_type": "gemini" })),
                     ));
                 };
 
@@ -4994,7 +5016,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     crate::utils::VisionType::UiTree => "ui_tree",
                     crate::utils::VisionType::Ocr => "ocr",
                     crate::utils::VisionType::Omniparser => "omniparser",
-                    crate::utils::VisionType::Vision => "vision",
+                    crate::utils::VisionType::Gemini => "gemini",
                     crate::utils::VisionType::Dom => "dom",
                 };
                 let click_type_str = match args.click_type {
