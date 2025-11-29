@@ -54,9 +54,14 @@ pub struct WindowManagementOptions {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 pub struct DiffTreeOptions {
     #[schemars(
-        description = "REQUIRED: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response."
+        description = "REQUIRED: Capture UI tree before and after action execution, then compute and return the diff. Returns ui_diff and has_ui_changes fields. Set include_full_trees: true to also get tree_before and tree_after."
     )]
     pub ui_diff_before_after: bool,
+
+    #[schemars(
+        description = "Include full tree_before and tree_after in response. Defaults to false (only ui_diff and has_ui_changes). Set to true for debugging or when you need the complete trees."
+    )]
+    pub ui_diff_include_full_trees_in_response: Option<bool>,
 
     #[schemars(description = "Maximum depth to traverse when building tree")]
     pub tree_max_depth: Option<usize>,

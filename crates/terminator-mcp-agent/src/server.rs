@@ -2346,9 +2346,11 @@ impl DesktopWrapper {
             span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
 
             result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["tree_before"] = json!(diff_result.tree_before);
-            result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
+            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
+                result_json["tree_before"] = json!(diff_result.tree_before);
+                result_json["tree_after"] = json!(diff_result.tree_after);
+            }
         }
 
         // Restore windows after typing into element
@@ -2635,9 +2637,11 @@ impl DesktopWrapper {
             span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
 
             result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["tree_before"] = json!(diff_result.tree_before);
-            result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
+            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
+                result_json["tree_before"] = json!(diff_result.tree_before);
+                result_json["tree_after"] = json!(diff_result.tree_after);
+            }
         }
 
         // Restore windows if this was a direct MCP call
@@ -2885,9 +2889,11 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
             span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
 
             result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["tree_before"] = json!(diff_result.tree_before);
-            result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
+            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
+                result_json["tree_before"] = json!(diff_result.tree_before);
+                result_json["tree_after"] = json!(diff_result.tree_after);
+            }
         }
 
         // Restore windows after pressing key
@@ -5860,9 +5866,11 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
 
             result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["tree_before"] = json!(diff_result.tree_before);
-            result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
+            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
+                result_json["tree_before"] = json!(diff_result.tree_before);
+                result_json["tree_after"] = json!(diff_result.tree_after);
+            }
         }
 
         self.restore_window_management(should_restore).await;
@@ -5994,9 +6002,11 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
 
             result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["tree_before"] = json!(diff_result.tree_before);
-            result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
+            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
+                result_json["tree_before"] = json!(diff_result.tree_before);
+                result_json["tree_after"] = json!(diff_result.tree_after);
+            }
         }
 
         self.restore_window_management(should_restore).await;
@@ -6350,9 +6360,11 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
 
             result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["tree_before"] = json!(diff_result.tree_before);
-            result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
+            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
+                result_json["tree_before"] = json!(diff_result.tree_before);
+                result_json["tree_after"] = json!(diff_result.tree_after);
+            }
         }
 
         self.restore_window_management(should_restore).await;
@@ -6587,9 +6599,11 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
 
             result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["tree_before"] = json!(diff_result.tree_before);
-            result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
+            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
+                result_json["tree_before"] = json!(diff_result.tree_before);
+                result_json["tree_after"] = json!(diff_result.tree_after);
+            }
         }
 
         self.restore_window_management(should_restore).await;
@@ -6823,9 +6837,11 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
 
             result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["tree_before"] = json!(diff_result.tree_before);
-            result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
+            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
+                result_json["tree_before"] = json!(diff_result.tree_before);
+                result_json["tree_after"] = json!(diff_result.tree_after);
+            }
         }
 
         self.restore_window_management(should_restore).await;
@@ -7515,9 +7531,11 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
 
             result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["tree_before"] = json!(diff_result.tree_before);
-            result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
+            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
+                result_json["tree_before"] = json!(diff_result.tree_before);
+                result_json["tree_after"] = json!(diff_result.tree_after);
+            }
         }
 
         // Restore windows after invoking element
@@ -8028,9 +8046,11 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
 
             result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["tree_before"] = json!(diff_result.tree_before);
-            result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
+            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
+                result_json["tree_before"] = json!(diff_result.tree_before);
+                result_json["tree_after"] = json!(diff_result.tree_after);
+            }
         }
 
         self.restore_window_management(should_restore).await;
