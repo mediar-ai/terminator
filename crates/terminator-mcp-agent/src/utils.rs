@@ -329,6 +329,10 @@ pub struct DesktopWrapper {
     #[serde(skip)]
     pub omniparser_items:
         Arc<Mutex<std::collections::HashMap<u32, crate::omniparser::OmniparserItem>>>,
+    /// Stores Vision items from the last get_window_tree with include_gemini_vision
+    /// Key is 1-based index, value is item details
+    #[serde(skip)]
+    pub vision_items: Arc<Mutex<std::collections::HashMap<u32, crate::vision::VisionElement>>>,
     /// Stores UIA tree index-to-bounds mapping from the last get_window_tree
     /// Key is 1-based index, value is (role, name, (x, y, width, height))
     #[serde(skip)]
@@ -403,6 +407,12 @@ pub struct GetWindowTreeArgs {
     pub include_omniparser: bool,
 
     #[schemars(
+        description = "Use Gemini vision model for UI element detection. Returns a 'vision_tree' field with indexed elements. More accurate than omniparser for modern UIs."
+    )]
+    #[serde(default)]
+    pub include_gemini_vision: bool,
+
+    #[schemars(
         description = "Whether to capture browser DOM elements. Returns a 'browser_dom' field with indexed DOM elements for click targeting. Defaults to true for browser processes."
     )]
     #[serde(default = "default_true")]
@@ -414,7 +424,7 @@ pub struct GetWindowTreeArgs {
     pub browser_dom_max_elements: Option<u32>,
 
     #[schemars(
-        description = "Show visual overlay with indexed elements. Valid values: 'ui_tree', 'dom', 'ocr', 'omniparser'. Shows element bounds with [index:role] labels. Only one type can be shown at a time."
+        description = "Show visual overlay with indexed elements. Valid values: 'ui_tree', 'dom', 'ocr', 'omniparser', 'vision'. Shows element bounds with [index:role] labels. Only one type can be shown at a time."
     )]
     pub show_overlay: Option<String>,
 
@@ -753,6 +763,8 @@ pub enum VisionType {
     UiTree,
     #[serde(alias = "dom")]
     Dom,
+    /// Vision model elements (Gemini)
+    Vision,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]

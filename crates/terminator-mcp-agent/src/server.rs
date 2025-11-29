@@ -759,6 +759,7 @@ impl DesktopWrapper {
             in_sequence: Arc::new(std::sync::Mutex::new(false)),
             ocr_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             omniparser_items: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            vision_items: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             uia_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             dom_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             #[cfg(target_os = "windows")]
@@ -1008,6 +1009,134 @@ impl DesktopWrapper {
         )
         .await
         .map_err(|e| format!("Omniparser failed: {e}"))?;
+
+        // Convert coordinates to absolute screen coordinates
+        // If image was resized, scale coordinates back to original size first
+        let mut absolute_items = Vec::new();
+        for item in items {
+            let mut new_item = item.clone();
+            if let Some(box_2d) = new_item.box_2d {
+                // box_2d is [x_min, y_min, x_max, y_max] relative to the (possibly resized) screenshot
+                // Scale back to original size if image was resized, then add window offset
+                let inv_scale = 1.0 / scale_factor;
+                new_item.box_2d = Some([
+                    (box_2d[0] * inv_scale) + window_x,
+                    (box_2d[1] * inv_scale) + window_y,
+                    (box_2d[2] * inv_scale) + window_x,
+                    (box_2d[3] * inv_scale) + window_y,
+                ]);
+            }
+            absolute_items.push(new_item);
+        }
+
+        Ok(absolute_items)
+    }
+
+    /// Perform Gemini Vision detection on a window by its process ID
+    async fn perform_gemini_vision_for_process(
+        &self,
+        pid: u32,
+    ) -> Result<Vec<crate::vision::VisionElement>, String> {
+        // Find the window element for this process
+        let apps = self
+            .desktop
+            .applications()
+            .map_err(|e| format!("Failed to get applications: {e}"))?;
+
+        let window_element = apps
+            .into_iter()
+            .find(|app| app.process_id().unwrap_or(0) == pid)
+            .ok_or_else(|| format!("No window found for PID {pid}"))?;
+
+        // Get window bounds (absolute screen coordinates)
+        let bounds = window_element
+            .bounds()
+            .map_err(|e| format!("Failed to get window bounds: {e}"))?;
+        let (window_x, window_y, win_w, win_h) = bounds;
+
+        // Capture screenshot of the window
+        let screenshot = window_element
+            .capture()
+            .map_err(|e| format!("Failed to capture window screenshot: {e}"))?;
+
+        // Get original screenshot dimensions
+        let original_width = screenshot.width;
+        let original_height = screenshot.height;
+
+        // DPI DEBUG: Compare logical window bounds vs physical screenshot size
+        let dpi_scale_w = original_width as f64 / win_w;
+        let dpi_scale_h = original_height as f64 / win_h;
+        info!(
+            "GEMINI VISION DPI DEBUG: window_bounds(logical)=({:.0},{:.0},{:.0},{:.0}), screenshot(physical)={}x{}, dpi_scale=({:.3},{:.3})",
+            window_x, window_y, win_w, win_h, original_width, original_height, dpi_scale_w, dpi_scale_h
+        );
+
+        // Convert BGRA to RGBA (xcap returns BGRA format)
+        let rgba_data: Vec<u8> = screenshot
+            .image_data
+            .chunks_exact(4)
+            .flat_map(|bgra| [bgra[2], bgra[1], bgra[0], bgra[3]]) // B,G,R,A -> R,G,B,A
+            .collect();
+
+        // Apply resize if needed (max 1920px for reasonable upload size)
+        const MAX_DIM: u32 = 1920;
+        let (final_width, final_height, final_rgba_data, scale_factor) = if original_width > MAX_DIM
+            || original_height > MAX_DIM
+        {
+            // Calculate new dimensions maintaining aspect ratio
+            let scale = (MAX_DIM as f32 / original_width.max(original_height) as f32).min(1.0);
+            let new_width = (original_width as f32 * scale).round() as u32;
+            let new_height = (original_height as f32 * scale).round() as u32;
+
+            // Create ImageBuffer from RGBA data and resize
+            let img =
+                ImageBuffer::<Rgba<u8>, _>::from_raw(original_width, original_height, rgba_data)
+                    .ok_or_else(|| {
+                        "Failed to create image buffer from screenshot data".to_string()
+                    })?;
+
+            let resized =
+                image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
+
+            info!(
+                "Gemini Vision: Resized screenshot from {}x{} to {}x{} (scale: {:.2})",
+                original_width, original_height, new_width, new_height, scale
+            );
+
+            (new_width, new_height, resized.into_raw(), scale as f64)
+        } else {
+            (original_width, original_height, rgba_data, 1.0)
+        };
+
+        // Encode to PNG
+        let mut png_data = Vec::new();
+        let encoder = PngEncoder::new(Cursor::new(&mut png_data));
+        encoder
+            .write_image(
+                &final_rgba_data,
+                final_width,
+                final_height,
+                ExtendedColorType::Rgba8,
+            )
+            .map_err(|e| format!("Failed to encode screenshot to PNG: {e}"))?;
+
+        let base64_image = general_purpose::STANDARD.encode(&png_data);
+
+        info!(
+            "Gemini Vision: Sending {}x{} image ({} KB)",
+            final_width,
+            final_height,
+            png_data.len() / 1024
+        );
+
+        // Call Gemini Vision backend
+        let (items, _raw_json) = crate::vision::parse_image_with_gemini(
+            &base64_image,
+            final_width,
+            final_height,
+        )
+        .await
+        .map_err(|e| format!("Gemini Vision failed: {e}"))?;
 
         // Convert coordinates to absolute screen coordinates
         // If image was resized, scale coordinates back to original size first
@@ -1367,6 +1496,62 @@ impl DesktopWrapper {
             }
         }
 
+        // Perform Gemini Vision if requested
+        if args.include_gemini_vision {
+            match self.perform_gemini_vision_for_process(pid).await {
+                Ok(items) => {
+                    // Format Vision tree based on tree_output_format (same as UI tree)
+                    let format = args
+                        .tree
+                        .tree_output_format
+                        .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
+
+                    match format {
+                        crate::mcp_types::TreeOutputFormat::CompactYaml => {
+                            let (formatted, cache) =
+                                crate::tree_formatter::format_vision_tree_as_compact_yaml(
+                                    &items,
+                                );
+                            if let Ok(mut locked_cache) = self.vision_items.lock() {
+                                *locked_cache = cache;
+                            }
+                            result_json["vision_tree"] = json!(formatted);
+                        }
+                        crate::mcp_types::TreeOutputFormat::VerboseJson => {
+                            let mut vision_tree = Vec::new();
+                            let mut cache = HashMap::new();
+
+                            for (i, item) in items.iter().enumerate() {
+                                let index = (i + 1) as u32;
+                                cache.insert(index, item.clone());
+
+                                vision_tree.push(json!({
+                                    "index": index,
+                                    "type": item.element_type,
+                                    "content": item.content,
+                                    "description": item.description,
+                                    "interactivity": item.interactivity,
+                                    "bounds": item.box_2d,
+                                }));
+                            }
+
+                            if let Ok(mut locked_cache) = self.vision_items.lock() {
+                                *locked_cache = cache;
+                            }
+
+                            result_json["vision_tree"] = json!(vision_tree);
+                        }
+                    }
+                    result_json["include_gemini_vision"] = json!(true);
+                    info!("Gemini Vision completed for PID {}", pid);
+                }
+                Err(e) => {
+                    warn!("Gemini Vision failed for PID {}: {}", pid, e);
+                    result_json["vision_error"] = json!(e.to_string());
+                }
+            }
+        }
+
         // Handle show_overlay request
         #[cfg(target_os = "windows")]
         if let Some(ref overlay_type) = args.show_overlay {
@@ -1624,6 +1809,69 @@ impl DesktopWrapper {
                             }
                         } else {
                             result_json["overlay_error"] = json!("No DOM elements in cache - ensure include_browser_dom is true and browser extension is active");
+                        }
+                    }
+                }
+                "vision" => {
+                    // Use vision items from cache
+                    if let Ok(vision_items) = self.vision_items.lock() {
+                        let elements: Vec<terminator::InspectElement> = vision_items
+                            .iter()
+                            .filter_map(|(idx, item)| {
+                                // Convert box_2d [x_min, y_min, x_max, y_max] to (x, y, width, height)
+                                item.box_2d.map(|b| terminator::InspectElement {
+                                    index: *idx,
+                                    role: item.element_type.clone(),
+                                    name: item.content.clone(),
+                                    bounds: (b[0], b[1], b[2] - b[0], b[3] - b[1]),
+                                })
+                            })
+                            .collect();
+
+                        if !elements.is_empty() {
+                            // DPI DEBUG: Log sample element bounds for vision
+                            if let Some(first) = elements.first() {
+                                info!(
+                                    "VISION OVERLAY DEBUG: first_element bounds=({:.0},{:.0},{:.0},{:.0})",
+                                    first.bounds.0, first.bounds.1, first.bounds.2, first.bounds.3
+                                );
+                            }
+                            if let Ok(apps) = self.desktop.applications() {
+                                if let Some(app) =
+                                    apps.iter().find(|a| a.process_id().ok() == Some(pid))
+                                {
+                                    if let Ok((x, y, w, h)) = app.bounds() {
+                                        info!(
+                                            "VISION OVERLAY DEBUG: window_bounds for overlay=({:.0},{:.0},{:.0},{:.0})",
+                                            x, y, w, h
+                                        );
+                                        if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
+                                            *handle = None;
+                                        }
+                                        terminator::hide_inspect_overlay();
+
+                                        match terminator::show_inspect_overlay(
+                                            elements,
+                                            (x as i32, y as i32, w as i32, h as i32),
+                                            display_mode,
+                                        ) {
+                                            Ok(new_handle) => {
+                                                if let Ok(mut handle) =
+                                                    self.inspect_overlay_handle.lock()
+                                                {
+                                                    *handle = Some(new_handle);
+                                                }
+                                                result_json["overlay_shown"] = json!("vision");
+                                            }
+                                            Err(e) => {
+                                                result_json["overlay_error"] = json!(e.to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            result_json["overlay_error"] = json!("No vision elements in cache - use include_gemini_vision=true first");
                         }
                     }
                 }
@@ -4659,6 +4907,41 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
                 (item.label, (x, y, width, height))
             }
+            crate::utils::VisionType::Vision => {
+                // Look up the Vision item
+                let item_result = {
+                    let items = self.vision_items.lock().map_err(|e| {
+                        McpError::internal_error(
+                            format!("Failed to lock Vision items: {e}"),
+                            None,
+                        )
+                    })?;
+                    items.get(&args.index).cloned()
+                };
+
+                let Some(item) = item_result else {
+                    span.set_status(false, Some("Vision index not found"));
+                    span.end();
+                    return Err(McpError::internal_error(
+                        format!(
+                            "Vision index {} not found. Call get_window_tree with include_gemini_vision=true first to get indexed items.",
+                            args.index
+                        ),
+                        Some(json!({ "index": args.index, "vision_type": "vision" })),
+                    ));
+                };
+
+                let bounds = item
+                    .box_2d
+                    .ok_or_else(|| McpError::internal_error("Item has no bounds", None))?;
+
+                let x = bounds[0];
+                let y = bounds[1];
+                let width = bounds[2] - bounds[0];
+                let height = bounds[3] - bounds[1];
+
+                (item.element_type, (x, y, width, height))
+            }
             crate::utils::VisionType::Dom => {
                 // Look up the DOM bounds
                 let bounds_result = {
@@ -4711,6 +4994,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     crate::utils::VisionType::UiTree => "ui_tree",
                     crate::utils::VisionType::Ocr => "ocr",
                     crate::utils::VisionType::Omniparser => "omniparser",
+                    crate::utils::VisionType::Vision => "vision",
                     crate::utils::VisionType::Dom => "dom",
                 };
                 let click_type_str = match args.click_type {

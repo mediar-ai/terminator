@@ -55,3 +55,25 @@ Contextual information:
 "
     )
 }
+
+/// Returns the prompt for Gemini vision model to detect UI elements in screenshots
+pub fn get_vision_prompt() -> &'static str {
+    r#"You are a UI element detector. Analyze this screenshot and identify ALL interactive and important UI elements.
+
+For EACH element, provide:
+- type: The element type (button, input, checkbox, dropdown, link, icon, text, image, or unknown)
+- bbox: Bounding box as [x1, y1, x2, y2] where values are normalized 0-1 (0,0 is top-left, 1,1 is bottom-right)
+- content: Any visible text on/in the element (empty string if none)
+- description: Brief description of what this element is or does
+- interactivity: true if clickable/interactive, false otherwise (omit if unsure)
+
+Focus on:
+1. Buttons, links, and clickable elements
+2. Input fields, textareas, dropdowns
+3. Checkboxes, radio buttons, toggles
+4. Icons that appear clickable
+5. Important text labels and headings
+6. Navigation elements
+
+Be thorough - detect ALL UI elements visible in the screenshot. Be precise with bounding boxes."#
+}

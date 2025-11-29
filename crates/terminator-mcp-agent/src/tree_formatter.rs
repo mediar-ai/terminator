@@ -1,4 +1,5 @@
 use crate::omniparser::OmniparserItem;
+use crate::vision::VisionElement;
 use std::collections::HashMap;
 use terminator::element::SerializableUIElement;
 use terminator::OcrElement;
@@ -341,6 +342,55 @@ pub fn format_omniparser_tree_as_compact_yaml(
             }
         }
 
+        if let Some(box_2d) = item.box_2d {
+            // Convert [x_min, y_min, x_max, y_max] to [x, y, width, height]
+            let w = box_2d[2] - box_2d[0];
+            let h = box_2d[3] - box_2d[1];
+            output.push_str(&format!(
+                " (bounds: [{:.0},{:.0},{:.0},{:.0}])",
+                box_2d[0], box_2d[1], w, h
+            ));
+        }
+
+        output.push('\n');
+    }
+
+    (output, cache)
+}
+
+/// Format vision elements as compact YAML with - [type] #index "content" - "description" format
+///
+/// Output format:
+/// - [button] #1 "Submit" - "Primary form submission button" (bounds: [x,y,w,h])
+/// - [input] #2 "Email" - "Text input for email address" (bounds: [x,y,w,h])
+/// - [icon] #3 "" - "Settings gear icon" (bounds: [x,y,w,h])
+///
+/// Returns tuple of (formatted string, cache for click_element_by_index)
+pub fn format_vision_tree_as_compact_yaml(
+    items: &[VisionElement],
+) -> (String, HashMap<u32, VisionElement>) {
+    let mut output = String::new();
+    let mut cache = HashMap::new();
+
+    for (i, item) in items.iter().enumerate() {
+        let index = (i + 1) as u32;
+        cache.insert(index, item.clone());
+
+        // Format: - [type] #index "content" - "description" (bounds: [x,y,w,h])
+        output.push_str(&format!("- [{}] #{}", item.element_type, index));
+
+        // Add content (visible text)
+        let content_str = item.content.as_deref().unwrap_or("");
+        output.push_str(&format!(" \"{}\"", content_str));
+
+        // Add description if present
+        if let Some(ref desc) = item.description {
+            if !desc.is_empty() {
+                output.push_str(&format!(" - \"{}\"", desc));
+            }
+        }
+
+        // Add bounds
         if let Some(box_2d) = item.box_2d {
             // Convert [x_min, y_min, x_max, y_max] to [x, y, width, height]
             let w = box_2d[2] - box_2d[0];
