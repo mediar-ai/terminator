@@ -1333,69 +1333,86 @@ impl DesktopWrapper {
             info!("Browser window detected for PID {}", pid);
 
             // Try to capture DOM elements from browser (if enabled)
+            // Use timeout to prevent indefinite hangs (default 15 seconds)
             if args.include_browser_dom {
                 let max_dom_elements = args.browser_dom_max_elements.unwrap_or(200);
-                match self.capture_browser_dom_elements(max_dom_elements).await {
-                    Ok((dom_elements, viewport_offset_x, viewport_offset_y))
-                        if !dom_elements.is_empty() =>
-                    {
-                        // Format based on tree_output_format
-                        let format = args
-                            .tree
-                            .tree_output_format
-                            .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
+                let dom_timeout = std::time::Duration::from_secs(15);
+                let dom_result = tokio::time::timeout(
+                    dom_timeout,
+                    self.capture_browser_dom_elements(max_dom_elements),
+                )
+                .await;
 
-                        match format {
-                            crate::mcp_types::TreeOutputFormat::CompactYaml => {
-                                let dom_result =
-                                    crate::tree_formatter::format_browser_dom_as_compact_yaml(
-                                        &dom_elements,
-                                    );
-                                result_json["browser_dom"] = json!(dom_result.formatted);
-
-                                // Store DOM bounds with screen coordinates applied
-                                if let Ok(mut cache) = self.dom_bounds.lock() {
-                                    cache.clear();
-                                    let mut first_logged = false;
-                                    for (index, (tag, identifier, (x, y, w, h))) in
-                                        dom_result.index_to_bounds
-                                    {
-                                        // Convert viewport-relative to screen coordinates
-                                        let screen_x = x + viewport_offset_x;
-                                        let screen_y = y + viewport_offset_y;
-                                        // DPI DEBUG: Log first element conversion
-                                        if !first_logged {
-                                            info!(
-                                            "DOM DPI DEBUG: viewport_offset=({:.0},{:.0}), first_elem viewport_rel=({:.0},{:.0}), screen=({:.0},{:.0})",
-                                            viewport_offset_x, viewport_offset_y, x, y, screen_x, screen_y
-                                        );
-                                            first_logged = true;
-                                        }
-                                        cache.insert(
-                                            index,
-                                            (tag, identifier, (screen_x, screen_y, w, h)),
-                                        );
-                                    }
-                                    info!(
-                                        "Stored {} DOM element bounds for click_index",
-                                        cache.len()
-                                    );
-                                }
-                            }
-                            crate::mcp_types::TreeOutputFormat::VerboseJson => {
-                                result_json["browser_dom"] = json!(dom_elements);
-                            }
-                        }
-                        result_json["browser_dom_count"] = json!(dom_elements.len());
-                        info!("Captured {} DOM elements from browser", dom_elements.len());
+                match dom_result {
+                    Err(_timeout) => {
+                        warn!(
+                            "[get_window_tree] DOM capture timed out after {}s",
+                            dom_timeout.as_secs()
+                        );
+                        result_json["browser_dom_error"] =
+                            json!(format!("DOM capture timed out after {}s", dom_timeout.as_secs()));
                     }
-                    Ok(_) => {
-                        info!("Browser detected but no DOM elements captured (extension may not be available)");
-                        result_json["browser_dom_error"] = json!("No DOM elements captured - Chrome extension may not be installed or active");
-                    }
-                    Err(e) => {
+                    Ok(Err(e)) => {
                         warn!("Failed to capture browser DOM: {}", e);
                         result_json["browser_dom_error"] = json!(e.to_string());
+                    }
+                    Ok(Ok((dom_elements, viewport_offset_x, viewport_offset_y))) => {
+                        if dom_elements.is_empty() {
+                            info!("Browser detected but no DOM elements captured (extension may not be available)");
+                            result_json["browser_dom_error"] = json!(
+                                "No DOM elements captured - Chrome extension may not be installed or active"
+                            );
+                        } else {
+                            // Format based on tree_output_format
+                            let format = args
+                                .tree
+                                .tree_output_format
+                                .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
+
+                            match format {
+                                crate::mcp_types::TreeOutputFormat::CompactYaml => {
+                                    let dom_result =
+                                        crate::tree_formatter::format_browser_dom_as_compact_yaml(
+                                            &dom_elements,
+                                        );
+                                    result_json["browser_dom"] = json!(dom_result.formatted);
+
+                                    // Store DOM bounds with screen coordinates applied
+                                    if let Ok(mut cache) = self.dom_bounds.lock() {
+                                        cache.clear();
+                                        let mut first_logged = false;
+                                        for (index, (tag, identifier, (x, y, w, h))) in
+                                            dom_result.index_to_bounds
+                                        {
+                                            // Convert viewport-relative to screen coordinates
+                                            let screen_x = x + viewport_offset_x;
+                                            let screen_y = y + viewport_offset_y;
+                                            // DPI DEBUG: Log first element conversion
+                                            if !first_logged {
+                                                info!(
+                                                    "DOM DPI DEBUG: viewport_offset=({:.0},{:.0}), first_elem viewport_rel=({:.0},{:.0}), screen=({:.0},{:.0})",
+                                                    viewport_offset_x, viewport_offset_y, x, y, screen_x, screen_y
+                                                );
+                                                first_logged = true;
+                                            }
+                                            cache.insert(
+                                                index,
+                                                (tag, identifier, (screen_x, screen_y, w, h)),
+                                            );
+                                        }
+                                        info!(
+                                            "Stored {} DOM element bounds for click_index",
+                                            cache.len()
+                                        );
+                                    }
+                                }
+                                crate::mcp_types::TreeOutputFormat::VerboseJson => {
+                                    result_json["browser_dom"] = json!(dom_elements);
+                                }
+                            }
+                            result_json["browser_dom_count"] = json!(dom_elements.len());
+                            info!("Captured {} DOM elements from browser", dom_elements.len());
+                        }
                     }
                 }
             }
