@@ -17,8 +17,8 @@ export * from './types';
  *
  * For HTTP backend:
  * - Set KV_URL=https://app.mediar.ai/api/kv
- * - Pass token in config: createClient({ token: input.VM_TOKEN })
- * - Or set VM_TOKEN env var as fallback
+ * - Pass token in config: createClient({ token: input.ORG_TOKEN })
+ * - Or set ORG_TOKEN env var as fallback
  */
 export function createClient(config: KVConfig = {}): KVClient {
   // 1. Check for explicit backend selection

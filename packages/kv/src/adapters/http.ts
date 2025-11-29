@@ -2,13 +2,13 @@ import { KVClient, SetOptions, KVConfig } from '../types';
 
 /**
  * HTTP-based KV client that proxies requests through a web API.
- * Used to avoid exposing Redis credentials on VMs.
+ * Used to avoid exposing Redis credentials on VMs and desktop apps.
  *
  * URL format: http://your-webapp.com/api/kv or https://...
  *
  * Authentication:
- * - Pass token in config: createClient({ url: '...', token: input.VM_TOKEN })
- * - Or set VM_TOKEN environment variable (fallback)
+ * - Pass token in config: createClient({ url: '...', token: input.ORG_TOKEN })
+ * - Or set ORG_TOKEN environment variable (fallback)
  */
 export class HttpKV implements KVClient {
   private baseUrl: string;
@@ -23,10 +23,10 @@ export class HttpKV implements KVClient {
     this.baseUrl = config.url.replace(/\/$/, '');
 
     // Get auth token from config or environment
-    // Priority: config.token > VM_TOKEN env var
-    this.token = config.token || process.env.VM_TOKEN || '';
+    // Priority: config.token > ORG_TOKEN env var
+    this.token = config.token || process.env.ORG_TOKEN || '';
     if (!this.token) {
-      throw new Error('[KV] HTTP adapter requires token (pass in config or set VM_TOKEN env var)');
+      throw new Error('[KV] HTTP adapter requires token (pass in config or set ORG_TOKEN env var)');
     }
   }
 
