@@ -358,7 +358,11 @@ pub struct DesktopWrapper {
         Mutex<
             std::collections::HashMap<
                 String,
-                (crate::tree_formatter::ElementSource, u32, (f64, f64, f64, f64)),
+                (
+                    crate::tree_formatter::ElementSource,
+                    u32,
+                    (f64, f64, f64, f64),
+                ),
             >,
         >,
     >,
@@ -588,14 +592,10 @@ pub struct ClickElementArgs {
     )]
     pub window_selector: Option<String>,
 
-    #[schemars(
-        description = "Optional alternative selectors to try in parallel."
-    )]
+    #[schemars(description = "Optional alternative selectors to try in parallel.")]
     pub alternative_selectors: Option<String>,
 
-    #[schemars(
-        description = "Optional fallback selectors to try sequentially if primary fails."
-    )]
+    #[schemars(description = "Optional fallback selectors to try sequentially if primary fails.")]
     pub fallback_selectors: Option<String>,
 
     #[schemars(
@@ -622,9 +622,7 @@ pub struct ClickElementArgs {
     pub y: Option<f64>,
 
     // === Common options ===
-    #[schemars(
-        description = "Type of click: 'left' (default), 'double', or 'right'."
-    )]
+    #[schemars(description = "Type of click: 'left' (default), 'double', or 'right'.")]
     #[serde(default)]
     pub click_type: ClickType,
 

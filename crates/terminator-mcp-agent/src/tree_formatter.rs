@@ -590,9 +590,9 @@ impl ElementSource {
 pub struct UnifiedElement {
     pub source: ElementSource,
     pub index: u32,
-    pub display_type: String,        // role/tag/label/element_type
-    pub text: Option<String>,        // name/text/content
-    pub description: Option<String>, // Gemini description, DOM identifier
+    pub display_type: String,         // role/tag/label/element_type
+    pub text: Option<String>,         // name/text/content
+    pub description: Option<String>,  // Gemini description, DOM identifier
     pub bounds: (f64, f64, f64, f64), // x, y, width, height
 }
 
@@ -761,7 +761,7 @@ fn flatten_uia_tree(
 /// Elements within 1.5x their smaller dimension are grouped together.
 ///
 /// Output format:
-/// ```
+/// ```text
 /// # Cluster @(100,200)
 /// - [Button] #u1 "Submit" (bounds: [100,200,80,30])
 /// - [button] #d1 "Submit" (bounds: [100,200,80,30])
@@ -779,8 +779,10 @@ pub fn format_clustered_tree(
     vision_items: &HashMap<u32, VisionElement>,
 ) -> ClusteredFormattingResult {
     let mut all_elements: Vec<UnifiedElement> = Vec::new();
-    let mut index_to_source_and_bounds: HashMap<String, (ElementSource, u32, (f64, f64, f64, f64))> =
-        HashMap::new();
+    let mut index_to_source_and_bounds: HashMap<
+        String,
+        (ElementSource, u32, (f64, f64, f64, f64)),
+    > = HashMap::new();
 
     // 1. Flatten UIA tree
     if let Some(tree) = uia_tree {
@@ -876,13 +878,10 @@ pub fn format_clustered_tree(
         }
 
         // Calculate cluster centroid for header
-        let (sum_x, sum_y, count) =
-            cluster
-                .iter()
-                .fold((0.0, 0.0, 0), |(sx, sy, c), elem| {
-                    let (cx, cy) = elem.center();
-                    (sx + cx, sy + cy, c + 1)
-                });
+        let (sum_x, sum_y, count) = cluster.iter().fold((0.0, 0.0, 0), |(sx, sy, c), elem| {
+            let (cx, cy) = elem.center();
+            (sx + cx, sy + cy, c + 1)
+        });
         let centroid_x = sum_x / count as f64;
         let centroid_y = sum_y / count as f64;
 
@@ -1041,8 +1040,10 @@ pub fn format_clustered_tree_from_caches(
     }
 
     // Build the index mapping
-    let mut index_to_source_and_bounds: HashMap<String, (ElementSource, u32, (f64, f64, f64, f64))> =
-        HashMap::new();
+    let mut index_to_source_and_bounds: HashMap<
+        String,
+        (ElementSource, u32, (f64, f64, f64, f64)),
+    > = HashMap::new();
     for elem in &all_elements {
         let key = elem.prefixed_index();
         index_to_source_and_bounds.insert(key, (elem.source, elem.index, elem.bounds));

@@ -587,7 +587,9 @@ impl WindowsEngine {
                 // Check name if specified (case-insensitive partial match)
                 if let Some(expected_name) = name {
                     let element_name = win_element.get_name().unwrap_or_default();
-                    Ok(element_name.to_lowercase().contains(&expected_name.to_lowercase()))
+                    Ok(element_name
+                        .to_lowercase()
+                        .contains(&expected_name.to_lowercase()))
                 } else {
                     Ok(true)
                 }
@@ -595,7 +597,9 @@ impl WindowsEngine {
             Selector::Name(expected_name) => {
                 // name: is case-insensitive partial match
                 let element_name = win_element.get_name().unwrap_or_default();
-                Ok(element_name.to_lowercase().contains(&expected_name.to_lowercase()))
+                Ok(element_name
+                    .to_lowercase()
+                    .contains(&expected_name.to_lowercase()))
             }
             Selector::Text(expected_text) => {
                 // text: is case-sensitive partial match

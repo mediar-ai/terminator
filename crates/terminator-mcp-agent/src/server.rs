@@ -5,12 +5,11 @@ use crate::utils::find_and_execute_with_retry_with_fallback;
 pub use crate::utils::DesktopWrapper;
 use crate::utils::{
     get_timeout, ActivateElementArgs, CaptureScreenshotArgs, ClickElementArgs, DelayArgs,
-    ExecuteBrowserScriptArgs, ExecuteSequenceArgs,
-    GetApplicationsArgs, GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs, InvokeElementArgs,
-    MouseDragArgs, NavigateBrowserArgs,
+    ExecuteBrowserScriptArgs, ExecuteSequenceArgs, GetApplicationsArgs, GetWindowTreeArgs,
+    GlobalKeyArgs, HighlightElementArgs, InvokeElementArgs, MouseDragArgs, NavigateBrowserArgs,
     OpenApplicationArgs, PressKeyArgs, RunCommandArgs, ScrollElementArgs, SelectOptionArgs,
-    SetSelectedArgs, SetValueArgs,
-    StopHighlightingArgs, TypeIntoElementArgs, ValidateElementArgs, WaitForElementArgs,
+    SetSelectedArgs, SetValueArgs, StopHighlightingArgs, TypeIntoElementArgs, ValidateElementArgs,
+    WaitForElementArgs,
 };
 use image::imageops::FilterType;
 use image::{ExtendedColorType, ImageBuffer, ImageEncoder, Rgba};
@@ -1153,13 +1152,10 @@ impl DesktopWrapper {
         );
 
         // Call Gemini Vision backend
-        let (items, _raw_json) = crate::vision::parse_image_with_gemini(
-            &base64_image,
-            final_width,
-            final_height,
-        )
-        .await
-        .map_err(|e| format!("Gemini Vision failed: {e}"))?;
+        let (items, _raw_json) =
+            crate::vision::parse_image_with_gemini(&base64_image, final_width, final_height)
+                .await
+                .map_err(|e| format!("Gemini Vision failed: {e}"))?;
 
         // Convert coordinates to absolute screen coordinates
         // If image was resized, scale coordinates back to original size first
@@ -1350,8 +1346,10 @@ impl DesktopWrapper {
                             "[get_window_tree] DOM capture timed out after {}s",
                             dom_timeout.as_secs()
                         );
-                        result_json["browser_dom_error"] =
-                            json!(format!("DOM capture timed out after {}s", dom_timeout.as_secs()));
+                        result_json["browser_dom_error"] = json!(format!(
+                            "DOM capture timed out after {}s",
+                            dom_timeout.as_secs()
+                        ));
                     }
                     Ok(Err(e)) => {
                         warn!("Failed to capture browser DOM: {}", e);
@@ -1553,9 +1551,7 @@ impl DesktopWrapper {
                         crate::mcp_types::TreeOutputFormat::CompactYaml
                         | crate::mcp_types::TreeOutputFormat::ClusteredYaml => {
                             let (formatted, cache) =
-                                crate::tree_formatter::format_vision_tree_as_compact_yaml(
-                                    &items,
-                                );
+                                crate::tree_formatter::format_vision_tree_as_compact_yaml(&items);
                             if let Ok(mut locked_cache) = self.vision_items.lock() {
                                 *locked_cache = cache;
                             }
@@ -2693,7 +2689,11 @@ impl DesktopWrapper {
 
             result_json["ui_diff"] = json!(diff_result.diff);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
+            if args
+                .tree
+                .ui_diff_include_full_trees_in_response
+                .unwrap_or(false)
+            {
                 result_json["tree_before"] = json!(diff_result.tree_before);
                 result_json["tree_after"] = json!(diff_result.tree_after);
             }
@@ -2714,8 +2714,7 @@ impl DesktopWrapper {
         ))
     }
 
-    #[tool(
-        description = "Unified click tool with three modes:
+    #[tool(description = "Unified click tool with three modes:
 
 **Mode 1 - Selector** (process + selector): Find element by selector and click.
   Example: {\"process\": \"notepad\", \"selector\": \"role:Button|name:Save\", \"click_type\": \"left\"}
@@ -2726,8 +2725,7 @@ impl DesktopWrapper {
 **Mode 3 - Coordinates** (x + y): Click at absolute screen coordinates.
   Example: {\"x\": 500, \"y\": 300, \"click_type\": \"right\"}
 
-Click types: 'left' (default), 'double', 'right'. Selector mode uses actionability validation. Index mode requires get_window_tree first."
-    )]
+Click types: 'left' (default), 'double', 'right'. Selector mode uses actionability validation. Index mode requires get_window_tree first.")]
     pub async fn click_element(
         &self,
         Parameters(args): Parameters<ClickElementArgs>,
@@ -2747,7 +2745,11 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
 
         span.set_attribute("mode", format!("{:?}", mode));
         span.set_attribute("click_type", format!("{:?}", args.click_type));
-        tracing::info!("[click_element] Mode: {:?}, click_type: {:?}", mode, args.click_type);
+        tracing::info!(
+            "[click_element] Mode: {:?}, click_type: {:?}",
+            mode,
+            args.click_type
+        );
 
         let terminator_click_type = match args.click_type {
             crate::utils::ClickType::Left => terminator::ClickType::Left,
@@ -2763,9 +2765,16 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                 span.set_attribute("click_y", y.to_string());
                 tracing::info!("[click_element] Coordinate mode: ({}, {})", x, y);
 
-                match self.desktop.click_at_coordinates_with_type(x, y, terminator_click_type) {
+                match self
+                    .desktop
+                    .click_at_coordinates_with_type(x, y, terminator_click_type)
+                {
                     Ok(()) => {
-                        let ct_str = match args.click_type { crate::utils::ClickType::Left => "left", crate::utils::ClickType::Double => "double", crate::utils::ClickType::Right => "right" };
+                        let ct_str = match args.click_type {
+                            crate::utils::ClickType::Left => "left",
+                            crate::utils::ClickType::Double => "double",
+                            crate::utils::ClickType::Right => "right",
+                        };
                         let result_json = json!({
                             "action": "click", "mode": "coordinates", "status": "success",
                             "click_type": ct_str,
@@ -2775,13 +2784,21 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                         span.set_status(true, None);
                         span.end();
                         return Ok(CallToolResult::success(
-                            append_monitor_screenshots_if_enabled(&self.desktop, vec![Content::json(result_json)?], args.monitor.include_monitor_screenshots).await,
+                            append_monitor_screenshots_if_enabled(
+                                &self.desktop,
+                                vec![Content::json(result_json)?],
+                                args.monitor.include_monitor_screenshots,
+                            )
+                            .await,
                         ));
                     }
                     Err(e) => {
                         span.set_status(false, Some(&e.to_string()));
                         span.end();
-                        return Err(McpError::internal_error(format!("Failed to click at ({}, {}): {}", x, y, e), Some(json!({ "x": x, "y": y }))));
+                        return Err(McpError::internal_error(
+                            format!("Failed to click at ({}, {}): {}", x, y, e),
+                            Some(json!({ "x": x, "y": y })),
+                        ));
                     }
                 }
             }
@@ -2795,46 +2812,122 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
 
                 let (item_label, bounds) = match vision_type {
                     crate::utils::VisionType::UiTree => {
-                        let r = self.uia_bounds.lock().map_err(|e| McpError::internal_error(format!("Lock error: {e}"), None))?.get(&index).cloned();
+                        let r = self
+                            .uia_bounds
+                            .lock()
+                            .map_err(|e| {
+                                McpError::internal_error(format!("Lock error: {e}"), None)
+                            })?
+                            .get(&index)
+                            .cloned();
                         let Some((role, name, b)) = r else {
-                            span.set_status(false, Some("UIA index not found")); span.end();
-                            return Err(McpError::internal_error(format!("UI tree index {} not found. Call get_window_tree first.", index), Some(json!({ "index": index }))));
+                            span.set_status(false, Some("UIA index not found"));
+                            span.end();
+                            return Err(McpError::internal_error(
+                                format!(
+                                    "UI tree index {} not found. Call get_window_tree first.",
+                                    index
+                                ),
+                                Some(json!({ "index": index })),
+                            ));
                         };
-                        (if name.is_empty() { role } else { format!("{role}: {name}") }, b)
+                        (
+                            if name.is_empty() {
+                                role
+                            } else {
+                                format!("{role}: {name}")
+                            },
+                            b,
+                        )
                     }
                     crate::utils::VisionType::Ocr => {
-                        let r = self.ocr_bounds.lock().map_err(|e| McpError::internal_error(format!("Lock error: {e}"), None))?.get(&index).cloned();
+                        let r = self
+                            .ocr_bounds
+                            .lock()
+                            .map_err(|e| {
+                                McpError::internal_error(format!("Lock error: {e}"), None)
+                            })?
+                            .get(&index)
+                            .cloned();
                         let Some((text, b)) = r else {
-                            span.set_status(false, Some("OCR index not found")); span.end();
-                            return Err(McpError::internal_error(format!("OCR index {} not found.", index), Some(json!({ "index": index }))));
+                            span.set_status(false, Some("OCR index not found"));
+                            span.end();
+                            return Err(McpError::internal_error(
+                                format!("OCR index {} not found.", index),
+                                Some(json!({ "index": index })),
+                            ));
                         };
                         (text, b)
                     }
                     crate::utils::VisionType::Omniparser => {
-                        let r = self.omniparser_items.lock().map_err(|e| McpError::internal_error(format!("Lock error: {e}"), None))?.get(&index).cloned();
+                        let r = self
+                            .omniparser_items
+                            .lock()
+                            .map_err(|e| {
+                                McpError::internal_error(format!("Lock error: {e}"), None)
+                            })?
+                            .get(&index)
+                            .cloned();
                         let Some(item) = r else {
-                            span.set_status(false, Some("Omniparser index not found")); span.end();
-                            return Err(McpError::internal_error(format!("Omniparser index {} not found.", index), Some(json!({ "index": index }))));
+                            span.set_status(false, Some("Omniparser index not found"));
+                            span.end();
+                            return Err(McpError::internal_error(
+                                format!("Omniparser index {} not found.", index),
+                                Some(json!({ "index": index })),
+                            ));
                         };
-                        let b = item.box_2d.ok_or_else(|| McpError::internal_error("No bounds", None))?;
+                        let b = item
+                            .box_2d
+                            .ok_or_else(|| McpError::internal_error("No bounds", None))?;
                         (item.label, (b[0], b[1], b[2] - b[0], b[3] - b[1]))
                     }
                     crate::utils::VisionType::Gemini => {
-                        let r = self.vision_items.lock().map_err(|e| McpError::internal_error(format!("Lock error: {e}"), None))?.get(&index).cloned();
+                        let r = self
+                            .vision_items
+                            .lock()
+                            .map_err(|e| {
+                                McpError::internal_error(format!("Lock error: {e}"), None)
+                            })?
+                            .get(&index)
+                            .cloned();
                         let Some(item) = r else {
-                            span.set_status(false, Some("Gemini index not found")); span.end();
-                            return Err(McpError::internal_error(format!("Gemini index {} not found.", index), Some(json!({ "index": index }))));
+                            span.set_status(false, Some("Gemini index not found"));
+                            span.end();
+                            return Err(McpError::internal_error(
+                                format!("Gemini index {} not found.", index),
+                                Some(json!({ "index": index })),
+                            ));
                         };
-                        let b = item.box_2d.ok_or_else(|| McpError::internal_error("No bounds", None))?;
+                        let b = item
+                            .box_2d
+                            .ok_or_else(|| McpError::internal_error("No bounds", None))?;
                         (item.element_type, (b[0], b[1], b[2] - b[0], b[3] - b[1]))
                     }
                     crate::utils::VisionType::Dom => {
-                        let r = self.dom_bounds.lock().map_err(|e| McpError::internal_error(format!("Lock error: {e}"), None))?.get(&index).cloned();
+                        let r = self
+                            .dom_bounds
+                            .lock()
+                            .map_err(|e| {
+                                McpError::internal_error(format!("Lock error: {e}"), None)
+                            })?
+                            .get(&index)
+                            .cloned();
                         let Some((tag, id, b)) = r else {
-                            span.set_status(false, Some("DOM index not found")); span.end();
-                            return Err(McpError::internal_error(format!("DOM index {} not found.", index), Some(json!({ "index": index }))));
+                            span.set_status(false, Some("DOM index not found"));
+                            span.end();
+                            return Err(McpError::internal_error(
+                                format!("DOM index {} not found.", index),
+                                Some(json!({ "index": index })),
+                            ));
                         };
-                        (if id.is_empty() { tag } else { format!("{tag}: {id}") }, b)
+                        (
+                            if id.is_empty() {
+                                tag
+                            } else {
+                                format!("{tag}: {id}")
+                            },
+                            b,
+                        )
                     }
                 };
 
@@ -2842,10 +2935,18 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                 let click_y = bounds.1 + bounds.3 / 2.0;
                 span.set_attribute("label", item_label.clone());
 
-                match self.desktop.click_at_coordinates_with_type(click_x, click_y, terminator_click_type) {
+                match self.desktop.click_at_coordinates_with_type(
+                    click_x,
+                    click_y,
+                    terminator_click_type,
+                ) {
                     Ok(()) => {
                         let vt_str = format!("{:?}", vision_type).to_lowercase();
-                        let ct_str = match args.click_type { crate::utils::ClickType::Left => "left", crate::utils::ClickType::Double => "double", crate::utils::ClickType::Right => "right" };
+                        let ct_str = match args.click_type {
+                            crate::utils::ClickType::Left => "left",
+                            crate::utils::ClickType::Double => "double",
+                            crate::utils::ClickType::Right => "right",
+                        };
                         let result_json = json!({
                             "action": "click", "mode": "index", "status": "success",
                             "index": index, "vision_type": vt_str, "click_type": ct_str, "label": item_label,
@@ -2856,12 +2957,21 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                         span.set_status(true, None);
                         span.end();
                         return Ok(CallToolResult::success(
-                            append_monitor_screenshots_if_enabled(&self.desktop, vec![Content::json(result_json)?], args.monitor.include_monitor_screenshots).await,
+                            append_monitor_screenshots_if_enabled(
+                                &self.desktop,
+                                vec![Content::json(result_json)?],
+                                args.monitor.include_monitor_screenshots,
+                            )
+                            .await,
                         ));
                     }
                     Err(e) => {
-                        span.set_status(false, Some(&e.to_string())); span.end();
-                        return Err(McpError::internal_error(format!("Failed to click index {}: {e}", index), Some(json!({ "index": index, "label": item_label }))));
+                        span.set_status(false, Some(&e.to_string()));
+                        span.end();
+                        return Err(McpError::internal_error(
+                            format!("Failed to click index {}: {e}", index),
+                            Some(json!({ "index": index, "label": item_label })),
+                        ));
                     }
                 }
             }
@@ -2872,7 +2982,12 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                 span.set_attribute("selector", full_selector.clone());
                 span.set_attribute("click.position_x", click_position.x_percentage.to_string());
                 span.set_attribute("click.position_y", click_position.y_percentage.to_string());
-                tracing::info!("[click_element] Selector mode: '{}', position: {}%, {}%", full_selector, click_position.x_percentage, click_position.y_percentage);
+                tracing::info!(
+                    "[click_element] Selector mode: '{}', position: {}%, {}%",
+                    full_selector,
+                    click_position.x_percentage,
+                    click_position.y_percentage
+                );
 
                 if let Some(retries) = args.action.retries {
                     span.set_attribute("retry.max_attempts", retries.to_string());
@@ -2885,7 +3000,9 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
 
                 if should_restore {
                     if let Some(ref process) = args.process {
-                        let _ = self.prepare_window_management(process, None, None, None, &args.window_mgmt).await;
+                        let _ = self
+                            .prepare_window_management(process, None, None, None, &args.window_mgmt)
+                            .await;
                     }
                 }
 
@@ -2901,8 +3018,10 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                             }
                             match element.bounds() {
                                 Ok(bounds) => {
-                                    let x = bounds.0 + (bounds.2 * click_position.x_percentage as f64 / 100.0);
-                                    let y = bounds.1 + (bounds.3 * click_position.y_percentage as f64 / 100.0);
+                                    let x = bounds.0
+                                        + (bounds.2 * click_position.x_percentage as f64 / 100.0);
+                                    let y = bounds.1
+                                        + (bounds.3 * click_position.y_percentage as f64 / 100.0);
                                     tracing::debug!("[click_element] Clicking at ({}, {})", x, y);
 
                                     match click_type {
@@ -2926,11 +3045,18 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                                     Ok(ClickResult {
                                         coordinates: Some((x, y)),
                                         method: "Position Click".to_string(),
-                                        details: format!("Clicked at {}%, {}%", click_position.x_percentage, click_position.y_percentage),
+                                        details: format!(
+                                            "Clicked at {}%, {}%",
+                                            click_position.x_percentage,
+                                            click_position.y_percentage
+                                        ),
                                     })
                                 }
                                 Err(e) => {
-                                    tracing::warn!("[click_element] Failed to get bounds: {}. Falling back.", e);
+                                    tracing::warn!(
+                                        "[click_element] Failed to get bounds: {}. Falling back.",
+                                        e
+                                    );
                                     element.click()
                                 }
                             }
@@ -2939,7 +3065,10 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                 };
 
                 let operation_start = std::time::Instant::now();
-                let tree_output_format = args.tree.tree_output_format.unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
+                let tree_output_format = args
+                    .tree
+                    .tree_output_format
+                    .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
 
                 let result = crate::helpers::find_and_execute_with_ui_diff(
                     &self.desktop,
@@ -2987,7 +3116,11 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                 }
 
                 let element_info = build_element_info(&element);
-                let ct_str = match args.click_type { crate::utils::ClickType::Left => "left", crate::utils::ClickType::Double => "double", crate::utils::ClickType::Right => "right" };
+                let ct_str = match args.click_type {
+                    crate::utils::ClickType::Left => "left",
+                    crate::utils::ClickType::Double => "double",
+                    crate::utils::ClickType::Right => "right",
+                };
 
                 let mut result_json = json!({
                     "action": "click", "mode": "selector", "status": "success",
@@ -2998,12 +3131,32 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                     "timestamp": chrono::Utc::now().to_rfc3339()
                 });
 
-                if !args.action.verify_element_exists.is_empty() || !args.action.verify_element_not_exists.is_empty() {
+                if !args.action.verify_element_exists.is_empty()
+                    || !args.action.verify_element_not_exists.is_empty()
+                {
                     let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
-                    let verify_exists_opt = if args.action.verify_element_exists.is_empty() { None } else { Some(args.action.verify_element_exists.as_str()) };
-                    let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() { None } else { Some(args.action.verify_element_not_exists.as_str()) };
+                    let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
+                        None
+                    } else {
+                        Some(args.action.verify_element_exists.as_str())
+                    };
+                    let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty()
+                    {
+                        None
+                    } else {
+                        Some(args.action.verify_element_not_exists.as_str())
+                    };
 
-                    match crate::helpers::verify_post_action(&self.desktop, &element, verify_exists_opt, verify_not_exists_opt, verify_timeout_ms, &successful_selector).await {
+                    match crate::helpers::verify_post_action(
+                        &self.desktop,
+                        &element,
+                        verify_exists_opt,
+                        verify_not_exists_opt,
+                        verify_timeout_ms,
+                        &successful_selector,
+                    )
+                    .await
+                    {
                         Ok(verification_result) => {
                             span.set_attribute("verification.passed", "true".to_string());
                             let verification_json = json!({ "passed": verification_result.passed, "method": verification_result.method, "details": verification_result.details, "elapsed_ms": verification_result.elapsed_ms });
@@ -3014,7 +3167,10 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                         Err(e) => {
                             span.set_status(false, Some("Verification failed"));
                             span.end();
-                            return Err(McpError::internal_error(format!("Post-action verification failed: {e}"), Some(json!({ "selector_used": successful_selector }))));
+                            return Err(McpError::internal_error(
+                                format!("Post-action verification failed: {e}"),
+                                Some(json!({ "selector_used": successful_selector })),
+                            ));
                         }
                     }
                 }
@@ -3023,7 +3179,11 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                     span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
                     result_json["ui_diff"] = json!(diff_result.diff);
                     result_json["has_ui_changes"] = json!(diff_result.has_changes);
-                    if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
+                    if args
+                        .tree
+                        .ui_diff_include_full_trees_in_response
+                        .unwrap_or(false)
+                    {
                         result_json["tree_before"] = json!(diff_result.tree_before);
                         result_json["tree_after"] = json!(diff_result.tree_after);
                     }
@@ -3034,7 +3194,12 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                 span.end();
 
                 Ok(CallToolResult::success(
-                    append_monitor_screenshots_if_enabled(&self.desktop, vec![Content::json(result_json)?], args.monitor.include_monitor_screenshots).await,
+                    append_monitor_screenshots_if_enabled(
+                        &self.desktop,
+                        vec![Content::json(result_json)?],
+                        args.monitor.include_monitor_screenshots,
+                    )
+                    .await,
                 ))
             }
         }
@@ -3272,7 +3437,11 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
 
             result_json["ui_diff"] = json!(diff_result.diff);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
+            if args
+                .tree
+                .ui_diff_include_full_trees_in_response
+                .unwrap_or(false)
+            {
                 result_json["tree_before"] = json!(diff_result.tree_before);
                 result_json["tree_after"] = json!(diff_result.tree_after);
             }
@@ -6053,7 +6222,11 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
             result_json["ui_diff"] = json!(diff_result.diff);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
+            if args
+                .tree
+                .ui_diff_include_full_trees_in_response
+                .unwrap_or(false)
+            {
                 result_json["tree_before"] = json!(diff_result.tree_before);
                 result_json["tree_after"] = json!(diff_result.tree_after);
             }
@@ -6189,7 +6362,11 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
             result_json["ui_diff"] = json!(diff_result.diff);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
+            if args
+                .tree
+                .ui_diff_include_full_trees_in_response
+                .unwrap_or(false)
+            {
                 result_json["tree_before"] = json!(diff_result.tree_before);
                 result_json["tree_after"] = json!(diff_result.tree_after);
             }
@@ -6427,7 +6604,11 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
             result_json["ui_diff"] = json!(diff_result.diff);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
+            if args
+                .tree
+                .ui_diff_include_full_trees_in_response
+                .unwrap_or(false)
+            {
                 result_json["tree_before"] = json!(diff_result.tree_before);
                 result_json["tree_after"] = json!(diff_result.tree_after);
             }
@@ -6482,7 +6663,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         };
 
         if should_restore {
-            tracing::info!("[capture_screenshot] Direct MCP call detected - performing window management");
+            tracing::info!(
+                "[capture_screenshot] Direct MCP call detected - performing window management"
+            );
             let _ = self
                 .prepare_window_management(
                     &args.selector.process,
@@ -6858,7 +7041,11 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
             result_json["ui_diff"] = json!(diff_result.diff);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
+            if args
+                .tree
+                .ui_diff_include_full_trees_in_response
+                .unwrap_or(false)
+            {
                 result_json["tree_before"] = json!(diff_result.tree_before);
                 result_json["tree_after"] = json!(diff_result.tree_after);
             }
@@ -7134,7 +7321,11 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
             result_json["ui_diff"] = json!(diff_result.diff);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
+            if args
+                .tree
+                .ui_diff_include_full_trees_in_response
+                .unwrap_or(false)
+            {
                 result_json["tree_before"] = json!(diff_result.tree_before);
                 result_json["tree_after"] = json!(diff_result.tree_after);
             }

@@ -85,7 +85,11 @@ pub async fn parse_image_with_gemini(
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
         warn!("Gemini Vision backend error: {} - {}", status, text);
-        return Err(anyhow!("Gemini Vision backend error ({}): {}", status, text));
+        return Err(anyhow!(
+            "Gemini Vision backend error ({}): {}",
+            status,
+            text
+        ));
     }
 
     let response_text = resp.text().await?;
