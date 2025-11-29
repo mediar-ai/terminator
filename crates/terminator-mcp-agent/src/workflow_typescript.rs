@@ -423,7 +423,6 @@ impl TypeScriptWorkflow {
             }
         };
 
-
         // Take stderr and spawn a task to stream logs through tracing
         // execution_id is passed as a structured field for OpenTelemetry/ClickHouse filtering
         let stderr = child.stderr.take();
