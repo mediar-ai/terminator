@@ -9,7 +9,7 @@ use crate::utils::{
     GetApplicationsArgs, GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs, InvokeElementArgs,
     MouseDragArgs, NavigateBrowserArgs,
     OpenApplicationArgs, PressKeyArgs, RunCommandArgs, ScrollElementArgs, SelectOptionArgs,
-    SetSelectedArgs, SetValueArgs, SetZoomArgs,
+    SetSelectedArgs, SetValueArgs,
     StopHighlightingArgs, TypeIntoElementArgs, ValidateElementArgs, WaitForElementArgs,
 };
 use image::imageops::FilterType;
@@ -6699,75 +6699,6 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
     }
 
     #[tool(
-        description = "Sets the zoom level to a specific percentage (e.g., 100 for 100%, 150 for 150%, 50 for 50%)."
-    )]
-    async fn set_zoom(
-        &self,
-        Parameters(args): Parameters<SetZoomArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        // Start telemetry span
-        let mut span = StepSpan::new("set_zoom", None);
-
-        // Add comprehensive telemetry attributes
-        span.set_attribute("percentage", args.percentage.to_string());
-
-        // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            !*in_sequence
-        };
-
-        if should_restore {
-            tracing::info!("[set_zoom] Direct MCP call detected - performing window management");
-            // Note: set_zoom operates on browser context, using generic browser process
-            let _ = self
-                .prepare_window_management("chrome", None, None, None, &args.window_mgmt)
-                .await;
-        } else {
-            tracing::debug!(
-                "[set_zoom] In sequence - skipping window management (dispatch_tool handles it)"
-            );
-        }
-
-        self.desktop.set_zoom(args.percentage).await.map_err(|e| {
-            McpError::internal_error("Failed to set zoom", Some(json!({"reason": e.to_string()})))
-        })?;
-        let mut result_json = json!({
-            "action": "set_zoom",
-            "status": "success",
-            "percentage": args.percentage,
-            "note": "Zoom level set to the specified percentage"
-        });
-        maybe_attach_tree(
-            &self.desktop,
-            args.tree.include_tree_after_action,
-            args.tree.tree_max_depth,
-            args.tree.tree_from_selector.as_deref(),
-            args.tree.include_detailed_attributes,
-            None,
-            None, // No specific element for zoom operation
-            &mut result_json,
-            None, // No element available for zoom
-            false,
-        )
-        .await;
-
-        self.restore_window_management(should_restore).await;
-
-        span.set_status(true, None);
-        span.end();
-
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                None,
-            )
-            .await,
-        ))
-    }
-
-    #[tool(
         description = "Sets the text value of an editable control (e.g., an input field) directly using the underlying accessibility API. This action requires the application to be focused and may change the UI."
     )]
     async fn set_value(
@@ -8252,13 +8183,6 @@ impl DesktopWrapper {
                     )),
                 }
             }
-            "set_zoom" => match serde_json::from_value::<SetZoomArgs>(arguments.clone()) {
-                Ok(args) => self.set_zoom(Parameters(args)).await,
-                Err(e) => Err(McpError::invalid_params(
-                    "Invalid arguments for set_zoom",
-                    Some(json!({ "error": e.to_string() })),
-                )),
-            },
             "set_value" => match serde_json::from_value::<SetValueArgs>(arguments.clone()) {
                 Ok(args) => self.set_value(Parameters(args)).await,
                 Err(e) => Err(McpError::invalid_params(

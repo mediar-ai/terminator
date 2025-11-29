@@ -1324,21 +1324,6 @@ pub struct ZoomArgs {
     pub include_monitor_screenshots: Option<bool>,
 }
 
-#[derive(Deserialize, JsonSchema, Debug, Clone)]
-pub struct SetZoomArgs {
-    #[schemars(
-        description = "The zoom percentage to set (e.g., 100 for 100%, 150 for 150%, 50 for 50%)"
-    )]
-    pub percentage: u32,
-    #[serde(flatten)]
-    pub tree: SimpleTreeOptions,
-    #[serde(flatten)]
-    pub monitor: MonitorScreenshotOptions,
-
-    #[serde(flatten)]
-    pub window_mgmt: WindowManagementOptions,
-}
-
 #[derive(Debug)]
 pub struct ValidationError {
     pub field: String,
