@@ -36,14 +36,14 @@ fn ui_node_to_serializable(node: &UINode) -> SerializableUIElement {
     }
 }
 
-/// Format a UI tree as compact YAML with - [ROLE] #index name format
+/// Format a UI tree as compact YAML with #index [ROLE] name format
 ///
 /// Output format:
-/// - [ROLE] #1 name (bounds: [x,y,w,h], additional context)
-///   - [ROLE] #2 name (bounds: [x,y,w,h])
+/// #1 [ROLE] name (bounds: [x,y,w,h], additional context)
+///   #2 [ROLE] name (bounds: [x,y,w,h])
 ///     - ...
 ///
-/// Elements with bounds get a clickable index. Elements without bounds are shown without index.
+/// Elements with bounds get a clickable index first. Elements without bounds use dash prefix.
 /// Returns both the formatted string and a mapping of index → (role, name, bounds) for click_index.
 pub fn format_tree_as_compact_yaml(
     tree: &SerializableUIElement,
@@ -85,22 +85,24 @@ fn format_node(
         String::new()
     };
 
-    // Add indent and dash prefix
+    // Add indent
     output.push_str(&indent_str);
-    output.push_str("- ");
 
-    // Format: [ROLE]
-    output.push_str(&format!("[{}]", node.role));
-
-    // Add index if element has bounds (clickable)
+    // Add index first if element has bounds (clickable), otherwise dash prefix
     if let Some((x, y, w, h)) = node.bounds {
         let idx = *next_index;
         *next_index += 1;
-        output.push_str(&format!(" #{idx}"));
+        output.push_str(&format!("#{idx} "));
+
+        // Format: [ROLE]
+        output.push_str(&format!("[{}]", node.role));
 
         // Store in cache: index → (role, name, bounds)
         let name = node.name.clone().unwrap_or_default();
         index_to_bounds.insert(idx, (node.role.clone(), name, (x, y, w, h)));
+    } else {
+        // No bounds - use dash prefix and [ROLE]
+        output.push_str(&format!("- [{}]", node.role));
     }
 
     // Add name if present
@@ -215,8 +217,8 @@ pub struct DomFormattingResult {
 /// Output format:
 /// - [OcrResult] (text_angle: 0.0)
 ///   - [OcrLine] "Line of text"
-///     - [OcrWord] #1 "word" (bounds: [x,y,w,h])
-///     - [OcrWord] #2 "another" (bounds: [x,y,w,h])
+///     #1 [OcrWord] "word" (bounds: [x,y,w,h])
+///     #2 [OcrWord] "another" (bounds: [x,y,w,h])
 ///
 /// Returns both the formatted string and a mapping of index → bounds for click_cv_index with vision_type='ocr'
 pub fn format_ocr_tree_as_compact_yaml(tree: &OcrElement, indent: usize) -> OcrFormattingResult {
@@ -250,20 +252,17 @@ fn format_ocr_node(
         String::new()
     };
 
-    // Add indent and dash prefix
+    // Add indent
     output.push_str(&indent_str);
-    output.push_str("- ");
 
-    // Format: [ROLE] "text"
-    output.push_str(&format!("[{}]", node.role));
-
-    // For OcrWord, add index number before the text
+    // For OcrWord, add index first, otherwise dash prefix
     let current_index = if node.role == "OcrWord" {
         let idx = *next_index;
         *next_index += 1;
-        output.push_str(&format!(" #{idx}"));
+        output.push_str(&format!("#{idx} [{role}]", role = node.role));
         Some(idx)
     } else {
+        output.push_str(&format!("- [{}]", node.role));
         None
     };
 
@@ -333,8 +332,8 @@ pub fn format_omniparser_tree_as_compact_yaml(
         let index = (i + 1) as u32;
         cache.insert(index, item.clone());
 
-        // Format: - [label] #index "content" (bounds: [x,y,w,h])
-        output.push_str(&format!("- [{}] #{}", item.label, index));
+        // Format: #index [label] "content" (bounds: [x,y,w,h])
+        output.push_str(&format!("#{} [{}]", index, item.label));
 
         if let Some(ref content) = item.content {
             if !content.is_empty() {
@@ -358,12 +357,12 @@ pub fn format_omniparser_tree_as_compact_yaml(
     (output, cache)
 }
 
-/// Format vision elements as compact YAML with - [type] #index "content" - "description" format
+/// Format vision elements as compact YAML with #index [type] "content" - "description" format
 ///
 /// Output format:
-/// - [button] #1 "Submit" - "Primary form submission button" (bounds: [x,y,w,h])
-/// - [input] #2 "Email" - "Text input for email address" (bounds: [x,y,w,h])
-/// - [icon] #3 "" - "Settings gear icon" (bounds: [x,y,w,h])
+/// #1 [button] "Submit" - "Primary form submission button" (bounds: [x,y,w,h])
+/// #2 [input] "Email" - "Text input for email address" (bounds: [x,y,w,h])
+/// #3 [icon] "" - "Settings gear icon" (bounds: [x,y,w,h])
 ///
 /// Returns tuple of (formatted string, cache for click_element_by_index)
 pub fn format_vision_tree_as_compact_yaml(
@@ -376,8 +375,8 @@ pub fn format_vision_tree_as_compact_yaml(
         let index = (i + 1) as u32;
         cache.insert(index, item.clone());
 
-        // Format: - [type] #index "content" - "description" (bounds: [x,y,w,h])
-        output.push_str(&format!("- [{}] #{}", item.element_type, index));
+        // Format: #index [type] "content" - "description" (bounds: [x,y,w,h])
+        output.push_str(&format!("#{} [{}]", index, item.element_type));
 
         // Add content (visible text)
         let content_str = item.content.as_deref().unwrap_or("");
@@ -410,7 +409,7 @@ pub fn format_vision_tree_as_compact_yaml(
 /// Format browser DOM elements as compact YAML with indexed elements for click targeting
 ///
 /// Output format:
-/// - [tag] #1 [.class1.class2] name #element_id (bounds: [x,y,w,h])
+/// #1 [tag] [.class1.class2] name #element_id (bounds: [x,y,w,h])
 ///
 /// Name is resolved from: text → aria_label → value → placeholder
 /// Null/empty attributes are omitted
@@ -436,11 +435,11 @@ pub fn format_browser_dom_as_compact_yaml(elements: &[serde_json::Value]) -> Dom
         let has_bounds =
             matches!((x, y, w, h), (Some(_), Some(_), Some(w), Some(h)) if w > 0.0 && h > 0.0);
 
-        output.push_str(&format!("- [{tag}]"));
-
-        // Add index if element has valid bounds
+        // Add index first if element has valid bounds, otherwise dash prefix
         if has_bounds {
-            output.push_str(&format!(" #{next_index}"));
+            output.push_str(&format!("#{next_index} [{tag}]"));
+        } else {
+            output.push_str(&format!("- [{tag}]"));
         }
 
         // Get classes if any
@@ -537,6 +536,590 @@ pub fn format_browser_dom_as_compact_yaml(elements: &[serde_json::Value]) -> Dom
     DomFormattingResult {
         formatted: output,
         index_to_bounds,
+    }
+}
+
+// ============================================================================
+// Clustered Tree Output - Groups elements from all sources by spatial proximity
+// ============================================================================
+
+/// Source of an element for clustered output
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ElementSource {
+    Uia,        // #u - Accessibility tree
+    Dom,        // #d - Browser DOM
+    Ocr,        // #o - OCR text
+    Omniparser, // #p - Omniparser vision
+    Gemini,     // #g - Gemini vision
+}
+
+impl ElementSource {
+    /// Get the prefix character for this source
+    pub fn prefix(&self) -> char {
+        match self {
+            ElementSource::Uia => 'u',
+            ElementSource::Dom => 'd',
+            ElementSource::Ocr => 'o',
+            ElementSource::Omniparser => 'p',
+            ElementSource::Gemini => 'g',
+        }
+    }
+
+    /// Parse a prefixed index string like "u1" or "d23"
+    pub fn parse_prefixed_index(s: &str) -> Option<(ElementSource, u32)> {
+        if s.is_empty() {
+            return None;
+        }
+        let prefix = s.chars().next()?;
+        let num_str = &s[1..];
+        let num: u32 = num_str.parse().ok()?;
+        let source = match prefix {
+            'u' => ElementSource::Uia,
+            'd' => ElementSource::Dom,
+            'o' => ElementSource::Ocr,
+            'p' => ElementSource::Omniparser,
+            'g' => ElementSource::Gemini,
+            _ => return None,
+        };
+        Some((source, num))
+    }
+}
+
+/// A unified element representation for clustering across all sources
+#[derive(Debug, Clone)]
+pub struct UnifiedElement {
+    pub source: ElementSource,
+    pub index: u32,
+    pub display_type: String,        // role/tag/label/element_type
+    pub text: Option<String>,        // name/text/content
+    pub description: Option<String>, // Gemini description, DOM identifier
+    pub bounds: (f64, f64, f64, f64), // x, y, width, height
+}
+
+impl UnifiedElement {
+    /// Get the prefixed index string (e.g., "u1", "d2")
+    pub fn prefixed_index(&self) -> String {
+        format!("{}{}", self.source.prefix(), self.index)
+    }
+
+    /// Get the center point of the element
+    pub fn center(&self) -> (f64, f64) {
+        let (x, y, w, h) = self.bounds;
+        (x + w / 2.0, y + h / 2.0)
+    }
+}
+
+/// Result of clustered tree formatting
+#[derive(Debug, Clone)]
+pub struct ClusteredFormattingResult {
+    /// The formatted YAML string with clusters
+    pub formatted: String,
+    /// Mapping of prefixed index (e.g., "u1", "d2") to (source, original_index, bounds)
+    pub index_to_source_and_bounds: HashMap<String, (ElementSource, u32, (f64, f64, f64, f64))>,
+}
+
+/// Calculate minimum edge-to-edge distance between two bounding boxes
+/// Returns 0 for overlapping/touching elements
+fn min_edge_distance(b1: (f64, f64, f64, f64), b2: (f64, f64, f64, f64)) -> f64 {
+    let (x1, y1, w1, h1) = b1;
+    let (x2, y2, w2, h2) = b2;
+
+    // Horizontal gap (0 if overlapping horizontally)
+    let h_gap = f64::max(0.0, f64::max(x1 - (x2 + w2), x2 - (x1 + w1)));
+
+    // Vertical gap (0 if overlapping vertically)
+    let v_gap = f64::max(0.0, f64::max(y1 - (y2 + h2), y2 - (y1 + h1)));
+
+    // Euclidean distance if diagonal, otherwise just the gap
+    (h_gap * h_gap + v_gap * v_gap).sqrt()
+}
+
+/// Determine if two elements should be clustered together
+/// Uses relative threshold based on smaller element dimension
+fn should_cluster(b1: (f64, f64, f64, f64), b2: (f64, f64, f64, f64)) -> bool {
+    let smaller_dim = f64::min(f64::min(b1.2, b1.3), f64::min(b2.2, b2.3));
+    // Threshold: 1.5x the smaller dimension
+    let threshold = smaller_dim * 1.5;
+    min_edge_distance(b1, b2) < threshold
+}
+
+/// Cluster elements by spatial proximity using union-find approach
+fn cluster_elements(elements: Vec<UnifiedElement>) -> Vec<Vec<UnifiedElement>> {
+    if elements.is_empty() {
+        return vec![];
+    }
+
+    let n = elements.len();
+    // Union-find parent array
+    let mut parent: Vec<usize> = (0..n).collect();
+
+    // Find with path compression
+    fn find(parent: &mut [usize], i: usize) -> usize {
+        if parent[i] != i {
+            parent[i] = find(parent, parent[i]);
+        }
+        parent[i]
+    }
+
+    // Union two sets
+    fn union(parent: &mut [usize], i: usize, j: usize) {
+        let pi = find(parent, i);
+        let pj = find(parent, j);
+        if pi != pj {
+            parent[pi] = pj;
+        }
+    }
+
+    // Build clusters by checking all pairs
+    for i in 0..n {
+        for j in (i + 1)..n {
+            if should_cluster(elements[i].bounds, elements[j].bounds) {
+                union(&mut parent, i, j);
+            }
+        }
+    }
+
+    // Group elements by their cluster root
+    let mut cluster_map: HashMap<usize, Vec<usize>> = HashMap::new();
+    for i in 0..n {
+        let root = find(&mut parent, i);
+        cluster_map.entry(root).or_default().push(i);
+    }
+
+    // Convert to Vec<Vec<UnifiedElement>> and sort by reading order within clusters
+    let mut clusters: Vec<Vec<UnifiedElement>> = cluster_map
+        .into_values()
+        .map(|indices| {
+            let mut cluster: Vec<UnifiedElement> =
+                indices.into_iter().map(|i| elements[i].clone()).collect();
+            // Sort within cluster by reading order (Y then X)
+            cluster.sort_by(|a, b| {
+                let (_, ay, _, _) = a.bounds;
+                let (_, by, _, _) = b.bounds;
+                let (ax, _, _, _) = a.bounds;
+                let (bx, _, _, _) = b.bounds;
+                ay.partial_cmp(&by)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then(ax.partial_cmp(&bx).unwrap_or(std::cmp::Ordering::Equal))
+            });
+            cluster
+        })
+        .collect();
+
+    // Sort clusters by the position of their first element (reading order)
+    clusters.sort_by(|a, b| {
+        let a_first = a.first().map(|e| e.bounds).unwrap_or((0.0, 0.0, 0.0, 0.0));
+        let b_first = b.first().map(|e| e.bounds).unwrap_or((0.0, 0.0, 0.0, 0.0));
+        a_first
+            .1
+            .partial_cmp(&b_first.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(
+                a_first
+                    .0
+                    .partial_cmp(&b_first.0)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
+    });
+
+    clusters
+}
+
+/// Flatten UIA tree into a list of elements with bounds
+fn flatten_uia_tree(
+    node: &SerializableUIElement,
+    elements: &mut Vec<UnifiedElement>,
+    next_index: &mut u32,
+) {
+    // Only include elements with bounds
+    if let Some((x, y, w, h)) = node.bounds {
+        if w > 0.0 && h > 0.0 {
+            let idx = *next_index;
+            *next_index += 1;
+            elements.push(UnifiedElement {
+                source: ElementSource::Uia,
+                index: idx,
+                display_type: node.role.clone(),
+                text: node.name.clone(),
+                description: node.description.clone(),
+                bounds: (x, y, w, h),
+            });
+        }
+    }
+
+    // Recurse into children
+    if let Some(ref children) = node.children {
+        for child in children {
+            flatten_uia_tree(child, elements, next_index);
+        }
+    }
+}
+
+/// Format clustered tree output combining all sources
+///
+/// Groups elements from UIA, DOM, OCR, Omniparser, and Gemini Vision by spatial proximity.
+/// Elements within 1.5x their smaller dimension are grouped together.
+///
+/// Output format:
+/// ```
+/// # Cluster @(100,200)
+/// - [Button] #u1 "Submit" (bounds: [100,200,80,30])
+/// - [button] #d1 "Submit" (bounds: [100,200,80,30])
+/// - [OcrWord] #o1 "Submit" (bounds: [102,205,76,25])
+///
+/// # Cluster @(100,280)
+/// - [Text] #u2 "Username"
+/// - [input] #d2 (bounds: [100,300,200,30])
+/// ```
+pub fn format_clustered_tree(
+    uia_tree: Option<&SerializableUIElement>,
+    dom_elements: &HashMap<u32, (String, String, (f64, f64, f64, f64))>,
+    ocr_elements: &HashMap<u32, (String, (f64, f64, f64, f64))>,
+    omniparser_items: &HashMap<u32, OmniparserItem>,
+    vision_items: &HashMap<u32, VisionElement>,
+) -> ClusteredFormattingResult {
+    let mut all_elements: Vec<UnifiedElement> = Vec::new();
+    let mut index_to_source_and_bounds: HashMap<String, (ElementSource, u32, (f64, f64, f64, f64))> =
+        HashMap::new();
+
+    // 1. Flatten UIA tree
+    if let Some(tree) = uia_tree {
+        let mut next_idx = 1u32;
+        flatten_uia_tree(tree, &mut all_elements, &mut next_idx);
+    }
+
+    // 2. Add DOM elements
+    for (idx, (tag, identifier, bounds)) in dom_elements {
+        all_elements.push(UnifiedElement {
+            source: ElementSource::Dom,
+            index: *idx,
+            display_type: tag.clone(),
+            text: if identifier.is_empty() {
+                None
+            } else {
+                Some(identifier.clone())
+            },
+            description: None,
+            bounds: *bounds,
+        });
+    }
+
+    // 3. Add OCR elements
+    for (idx, (text, bounds)) in ocr_elements {
+        all_elements.push(UnifiedElement {
+            source: ElementSource::Ocr,
+            index: *idx,
+            display_type: "OcrWord".to_string(),
+            text: Some(text.clone()),
+            description: None,
+            bounds: *bounds,
+        });
+    }
+
+    // 4. Add Omniparser elements
+    for (idx, item) in omniparser_items {
+        if let Some(box_2d) = item.box_2d {
+            // Convert [x_min, y_min, x_max, y_max] to (x, y, w, h)
+            let bounds = (
+                box_2d[0],
+                box_2d[1],
+                box_2d[2] - box_2d[0],
+                box_2d[3] - box_2d[1],
+            );
+            all_elements.push(UnifiedElement {
+                source: ElementSource::Omniparser,
+                index: *idx,
+                display_type: item.label.clone(),
+                text: item.content.clone(),
+                description: None,
+                bounds,
+            });
+        }
+    }
+
+    // 5. Add Gemini Vision elements
+    for (idx, item) in vision_items {
+        if let Some(box_2d) = item.box_2d {
+            // Convert [x_min, y_min, x_max, y_max] to (x, y, w, h)
+            let bounds = (
+                box_2d[0],
+                box_2d[1],
+                box_2d[2] - box_2d[0],
+                box_2d[3] - box_2d[1],
+            );
+            all_elements.push(UnifiedElement {
+                source: ElementSource::Gemini,
+                index: *idx,
+                display_type: item.element_type.clone(),
+                text: item.content.clone(),
+                description: item.description.clone(),
+                bounds,
+            });
+        }
+    }
+
+    // Build the index mapping
+    for elem in &all_elements {
+        let key = elem.prefixed_index();
+        index_to_source_and_bounds.insert(key, (elem.source, elem.index, elem.bounds));
+    }
+
+    // Cluster the elements
+    let clusters = cluster_elements(all_elements);
+
+    // Format output
+    let mut output = String::new();
+
+    for cluster in clusters {
+        if cluster.is_empty() {
+            continue;
+        }
+
+        // Calculate cluster centroid for header
+        let (sum_x, sum_y, count) =
+            cluster
+                .iter()
+                .fold((0.0, 0.0, 0), |(sx, sy, c), elem| {
+                    let (cx, cy) = elem.center();
+                    (sx + cx, sy + cy, c + 1)
+                });
+        let centroid_x = sum_x / count as f64;
+        let centroid_y = sum_y / count as f64;
+
+        // Cluster header
+        output.push_str(&format!(
+            "# Cluster @({:.0},{:.0})\n",
+            centroid_x, centroid_y
+        ));
+
+        // Format each element in the cluster
+        for elem in &cluster {
+            output.push_str(&format!(
+                "#{} [{}]",
+                elem.prefixed_index(),
+                elem.display_type
+            ));
+
+            // Add text if present
+            if let Some(ref text) = elem.text {
+                if !text.is_empty() {
+                    // Truncate long text
+                    let clean_text = text.replace('\n', " ").replace('\r', "");
+                    let truncated = if clean_text.len() > 50 {
+                        format!("{}...", &clean_text[..47])
+                    } else {
+                        clean_text
+                    };
+                    output.push_str(&format!(" \"{}\"", truncated));
+                }
+            }
+
+            // Add description if present (Gemini)
+            if let Some(ref desc) = elem.description {
+                if !desc.is_empty() {
+                    let clean_desc = desc.replace('\n', " ").replace('\r', "");
+                    let truncated = if clean_desc.len() > 40 {
+                        format!("{}...", &clean_desc[..37])
+                    } else {
+                        clean_desc
+                    };
+                    output.push_str(&format!(" - \"{}\"", truncated));
+                }
+            }
+
+            // Add bounds
+            let (x, y, w, h) = elem.bounds;
+            output.push_str(&format!(" (bounds: [{:.0},{:.0},{:.0},{:.0}])", x, y, w, h));
+
+            output.push('\n');
+        }
+
+        output.push('\n'); // Blank line between clusters
+    }
+
+    ClusteredFormattingResult {
+        formatted: output,
+        index_to_source_and_bounds,
+    }
+}
+
+/// Format clustered tree output from cached bounds data
+///
+/// This is a convenience function that takes the cached bounds from each source
+/// (as stored in DesktopWrapper) and produces a clustered output.
+pub fn format_clustered_tree_from_caches(
+    uia_bounds: &HashMap<u32, (String, String, (f64, f64, f64, f64))>,
+    dom_bounds: &HashMap<u32, (String, String, (f64, f64, f64, f64))>,
+    ocr_bounds: &HashMap<u32, (String, (f64, f64, f64, f64))>,
+    omniparser_items: &HashMap<u32, OmniparserItem>,
+    vision_items: &HashMap<u32, VisionElement>,
+) -> ClusteredFormattingResult {
+    let mut all_elements: Vec<UnifiedElement> = Vec::new();
+
+    // Add UIA elements from cache
+    for (idx, (role, name, bounds)) in uia_bounds {
+        all_elements.push(UnifiedElement {
+            source: ElementSource::Uia,
+            index: *idx,
+            display_type: role.clone(),
+            text: if name.is_empty() {
+                None
+            } else {
+                Some(name.clone())
+            },
+            description: None,
+            bounds: *bounds,
+        });
+    }
+
+    // Add DOM elements
+    for (idx, (tag, identifier, bounds)) in dom_bounds {
+        all_elements.push(UnifiedElement {
+            source: ElementSource::Dom,
+            index: *idx,
+            display_type: tag.clone(),
+            text: if identifier.is_empty() {
+                None
+            } else {
+                Some(identifier.clone())
+            },
+            description: None,
+            bounds: *bounds,
+        });
+    }
+
+    // Add OCR elements
+    for (idx, (text, bounds)) in ocr_bounds {
+        all_elements.push(UnifiedElement {
+            source: ElementSource::Ocr,
+            index: *idx,
+            display_type: "OcrWord".to_string(),
+            text: Some(text.clone()),
+            description: None,
+            bounds: *bounds,
+        });
+    }
+
+    // Add Omniparser elements
+    for (idx, item) in omniparser_items {
+        if let Some(box_2d) = item.box_2d {
+            let bounds = (
+                box_2d[0],
+                box_2d[1],
+                box_2d[2] - box_2d[0],
+                box_2d[3] - box_2d[1],
+            );
+            all_elements.push(UnifiedElement {
+                source: ElementSource::Omniparser,
+                index: *idx,
+                display_type: item.label.clone(),
+                text: item.content.clone(),
+                description: None,
+                bounds,
+            });
+        }
+    }
+
+    // Add Gemini Vision elements
+    for (idx, item) in vision_items {
+        if let Some(box_2d) = item.box_2d {
+            let bounds = (
+                box_2d[0],
+                box_2d[1],
+                box_2d[2] - box_2d[0],
+                box_2d[3] - box_2d[1],
+            );
+            all_elements.push(UnifiedElement {
+                source: ElementSource::Gemini,
+                index: *idx,
+                display_type: item.element_type.clone(),
+                text: item.content.clone(),
+                description: item.description.clone(),
+                bounds,
+            });
+        }
+    }
+
+    // Build the index mapping
+    let mut index_to_source_and_bounds: HashMap<String, (ElementSource, u32, (f64, f64, f64, f64))> =
+        HashMap::new();
+    for elem in &all_elements {
+        let key = elem.prefixed_index();
+        index_to_source_and_bounds.insert(key, (elem.source, elem.index, elem.bounds));
+    }
+
+    // Cluster the elements
+    let clusters = cluster_elements(all_elements);
+
+    // Format output
+    let mut output = String::new();
+
+    for cluster in clusters {
+        if cluster.is_empty() {
+            continue;
+        }
+
+        // Calculate cluster centroid for header
+        let (sum_x, sum_y, count) = cluster.iter().fold((0.0, 0.0, 0), |(sx, sy, c), elem| {
+            let (cx, cy) = elem.center();
+            (sx + cx, sy + cy, c + 1)
+        });
+        let centroid_x = sum_x / count as f64;
+        let centroid_y = sum_y / count as f64;
+
+        // Cluster header
+        output.push_str(&format!(
+            "# Cluster @({:.0},{:.0})\n",
+            centroid_x, centroid_y
+        ));
+
+        // Format each element in the cluster
+        for elem in &cluster {
+            output.push_str(&format!(
+                "#{} [{}]",
+                elem.prefixed_index(),
+                elem.display_type
+            ));
+
+            // Add text if present
+            if let Some(ref text) = elem.text {
+                if !text.is_empty() {
+                    let clean_text = text.replace('\n', " ").replace('\r', "");
+                    let truncated = if clean_text.len() > 50 {
+                        format!("{}...", &clean_text[..47])
+                    } else {
+                        clean_text
+                    };
+                    output.push_str(&format!(" \"{}\"", truncated));
+                }
+            }
+
+            // Add description if present (Gemini)
+            if let Some(ref desc) = elem.description {
+                if !desc.is_empty() {
+                    let clean_desc = desc.replace('\n', " ").replace('\r', "");
+                    let truncated = if clean_desc.len() > 40 {
+                        format!("{}...", &clean_desc[..37])
+                    } else {
+                        clean_desc
+                    };
+                    output.push_str(&format!(" - \"{}\"", truncated));
+                }
+            }
+
+            // Add bounds
+            let (x, y, w, h) = elem.bounds;
+            output.push_str(&format!(" (bounds: [{:.0},{:.0},{:.0},{:.0}])", x, y, w, h));
+
+            output.push('\n');
+        }
+
+        output.push('\n'); // Blank line between clusters
+    }
+
+    ClusteredFormattingResult {
+        formatted: output,
+        index_to_source_and_bounds,
     }
 }
 
