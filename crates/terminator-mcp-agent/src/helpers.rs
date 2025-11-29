@@ -901,7 +901,6 @@ pub fn is_state_changing_action(tool_name: &str) -> bool {
         "click_element"
             | "type_into_element"
             | "select_option"
-            | "set_toggled"
             | "set_selected"
             | "invoke_element"
             | "press_key"

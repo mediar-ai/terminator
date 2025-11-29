@@ -995,26 +995,6 @@ pub struct SelectOptionArgs {
     pub window_mgmt: WindowManagementOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct SetToggledArgs {
-    #[schemars(description = "The desired state: true for on, false for off.")]
-    pub state: bool,
-    #[serde(flatten)]
-    pub selector: SelectorOptions,
-
-    #[serde(flatten)]
-    pub action: ActionOptions,
-
-    #[serde(flatten)]
-    pub tree: DiffTreeOptions,
-
-    #[serde(flatten)]
-    pub monitor: MonitorScreenshotOptions,
-
-    #[serde(flatten)]
-    pub window_mgmt: WindowManagementOptions,
-}
-
 #[derive(Debug, serde::Deserialize, JsonSchema)]
 pub struct MaximizeWindowArgs {
     #[serde(flatten)]
