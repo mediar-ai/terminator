@@ -989,10 +989,7 @@ impl DesktopWrapper {
         );
 
         // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            !*in_sequence
-        };
+        let should_restore = self.should_restore_windows();
 
         if should_restore {
             tracing::info!(
@@ -1825,17 +1822,7 @@ impl DesktopWrapper {
         );
 
         // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            let flag_value = *in_sequence;
-            let should_restore_value = !flag_value;
-            tracing::info!(
-                "[type_into_element] Flag check: in_sequence={}, should_restore={}",
-                flag_value,
-                should_restore_value
-            );
-            should_restore_value
-        };
+        let should_restore = self.should_restore_windows();
 
         if should_restore {
             tracing::info!(
@@ -2150,17 +2137,7 @@ impl DesktopWrapper {
         );
 
         // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            let flag_value = *in_sequence;
-            let should_restore_value = !flag_value;
-            tracing::info!(
-                "[click_element] Flag check: in_sequence={}, should_restore={}",
-                flag_value,
-                should_restore_value
-            );
-            should_restore_value
-        };
+        let should_restore = self.should_restore_windows();
 
         if should_restore {
             tracing::info!(
@@ -2374,17 +2351,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
         );
 
         // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            let flag_value = *in_sequence;
-            let should_restore_value = !flag_value;
-            tracing::info!(
-                "[press_key] Flag check: in_sequence={}, should_restore={}",
-                flag_value,
-                should_restore_value
-            );
-            should_restore_value
-        };
+        let should_restore = self.should_restore_windows();
 
         if should_restore {
             tracing::info!("[press_key] Direct MCP call detected - performing window management");
@@ -3839,17 +3806,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         }
 
         // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            let flag_value = *in_sequence;
-            let should_restore_value = !flag_value;
-            tracing::info!(
-                "[activate_element] Flag check: in_sequence={}, should_restore={}",
-                flag_value,
-                should_restore_value
-            );
-            should_restore_value
-        };
+        let should_restore = self.should_restore_windows();
 
         if should_restore {
             tracing::info!(
@@ -4053,10 +4010,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         }
 
         // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            !*in_sequence
-        };
+        let should_restore = self.should_restore_windows();
 
         if should_restore {
             let _ = self
@@ -4398,10 +4352,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         }
 
         // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            !*in_sequence
-        };
+        let should_restore = self.should_restore_windows();
 
         if should_restore {
             tracing::info!(
@@ -4549,10 +4500,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         }
 
         // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            !*in_sequence
-        };
+        let should_restore = self.should_restore_windows();
 
         if should_restore {
             tracing::info!(
@@ -4734,10 +4682,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         );
 
         // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            !*in_sequence
-        };
+        let should_restore = self.should_restore_windows();
 
         if should_restore {
             tracing::info!(
@@ -5002,10 +4947,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         span.set_attribute("process", args.process.clone());
 
         // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            !*in_sequence
-        };
+        let should_restore = self.should_restore_windows();
 
         if should_restore {
             tracing::info!(
@@ -5153,17 +5095,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let _window_title = ui_element.window_title();
 
         // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            let flag_value = *in_sequence;
-            let should_restore_value = !flag_value;
-            tracing::info!(
-                "[open_application] Flag check: in_sequence={}, should_restore={}",
-                flag_value,
-                should_restore_value
-            );
-            should_restore_value
-        };
+        let should_restore = self.should_restore_windows();
 
         if should_restore {
             tracing::info!(
@@ -5308,10 +5240,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         );
 
         // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            !*in_sequence
-        };
+        let should_restore = self.should_restore_windows();
 
         if should_restore {
             tracing::info!(
@@ -5465,10 +5394,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         }
 
         // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            !*in_sequence
-        };
+        let should_restore = self.should_restore_windows();
 
         if should_restore {
             tracing::info!(
@@ -5556,20 +5482,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         });
 
         // Attach UI diff if captured
-        if let Some(diff_result) = ui_diff {
-            tracing::debug!(
-                "[select_option] Attaching UI diff to result (has_changes: {})",
-                diff_result.has_changes
-            );
-            span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
-
-            result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["has_ui_changes"] = json!(diff_result.has_changes);
-            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
-                result_json["tree_before"] = json!(diff_result.tree_before);
-                result_json["tree_after"] = json!(diff_result.tree_after);
-            }
-        }
+        attach_ui_diff_to_result(
+            ui_diff,
+            args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false),
+            "select_option",
+            &mut result_json,
+            &mut span,
+        );
 
         self.restore_window_management(should_restore).await;
 
@@ -5604,10 +5523,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         }
 
         // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            !*in_sequence
-        };
+        let should_restore = self.should_restore_windows();
 
         if should_restore {
             tracing::info!(
@@ -5794,20 +5710,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         }
 
         // Attach UI diff if captured
-        if let Some(diff_result) = ui_diff {
-            tracing::debug!(
-                "[set_selected] Attaching UI diff to result (has_changes: {})",
-                diff_result.has_changes
-            );
-            span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
-
-            result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["has_ui_changes"] = json!(diff_result.has_changes);
-            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
-                result_json["tree_before"] = json!(diff_result.tree_before);
-                result_json["tree_after"] = json!(diff_result.tree_after);
-            }
-        }
+        attach_ui_diff_to_result(
+            ui_diff,
+            args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false),
+            "set_selected",
+            &mut result_json,
+            &mut span,
+        );
 
         self.restore_window_management(should_restore).await;
 
@@ -5841,10 +5750,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         }
 
         // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            !*in_sequence
-        };
+        let should_restore = self.should_restore_windows();
 
         if should_restore {
             tracing::info!("[capture_element_screenshot] Direct MCP call detected - performing window management");
@@ -6005,17 +5911,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         }
 
         // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            let flag_value = *in_sequence;
-            let should_restore_value = !flag_value;
-            tracing::info!(
-                "[invoke_element] Flag check: in_sequence={}, should_restore={}",
-                flag_value,
-                should_restore_value
-            );
-            should_restore_value
-        };
+        let should_restore = self.should_restore_windows();
 
         if should_restore {
             tracing::info!(
@@ -6152,10 +6048,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         let mut span = StepSpan::new("stop_highlighting", None);
 
         // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            !*in_sequence
-        };
+        let should_restore = self.should_restore_windows();
 
         // Note: stop_highlighting doesn't interact with specific windows, so no prepare needed
 
@@ -6220,10 +6113,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         }
 
         // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            !*in_sequence
-        };
+        let should_restore = self.should_restore_windows();
 
         if should_restore {
             tracing::info!("[set_value] Direct MCP call detected - performing window management");
@@ -6386,20 +6276,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         }
 
         // Attach UI diff if captured
-        if let Some(diff_result) = ui_diff {
-            tracing::debug!(
-                "[set_value] Attaching UI diff to result (has_changes: {})",
-                diff_result.has_changes
-            );
-            span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
-
-            result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["has_ui_changes"] = json!(diff_result.has_changes);
-            if args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false) {
-                result_json["tree_before"] = json!(diff_result.tree_before);
-                result_json["tree_after"] = json!(diff_result.tree_after);
-            }
-        }
+        attach_ui_diff_to_result(
+            ui_diff,
+            args.tree.ui_diff_include_full_trees_in_response.unwrap_or(false),
+            "set_value",
+            &mut result_json,
+            &mut span,
+        );
 
         self.restore_window_management(should_restore).await;
 
@@ -6675,17 +6558,7 @@ Requires Chrome extension to be installed."
         let start_instant = std::time::Instant::now();
 
         // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            let flag_value = *in_sequence;
-            let should_restore_value = !flag_value;
-            tracing::info!(
-                "[execute_browser_script] Flag check: in_sequence={}, should_restore={}",
-                flag_value,
-                should_restore_value
-            );
-            should_restore_value
-        };
+        let should_restore = self.should_restore_windows();
 
         if should_restore {
             tracing::info!(

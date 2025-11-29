@@ -357,6 +357,16 @@ impl Default for DesktopWrapper {
     }
 }
 
+impl DesktopWrapper {
+    /// Returns true if window management should be performed (i.e., not in a sequence).
+    /// When in a workflow sequence, window management is handled at the sequence level,
+    /// so individual tools should skip it.
+    pub fn should_restore_windows(&self) -> bool {
+        let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+        !*in_sequence
+    }
+}
+
 // Test helper methods for DesktopWrapper
 #[cfg(test)]
 impl DesktopWrapper {
