@@ -424,7 +424,7 @@ impl TypeScriptWorkflow {
         };
 
         // Take stderr and spawn a task to stream logs through tracing
-        // Include execution_id in each log message for ClickHouse filtering
+        // execution_id is passed as a structured field for OpenTelemetry/ClickHouse filtering
         let stderr = child.stderr.take();
         let exec_id_for_logs = execution_id.map(|s| s.to_string());
         if let Some(stderr) = stderr {
@@ -434,23 +434,32 @@ impl TypeScriptWorkflow {
                     let mut lines = reader.lines();
                     while let Ok(Some(line)) = lines.next_line().await {
                         let parsed = parse_log_line(&line);
-                        // Include execution_id in message body for ClickHouse filtering
-                        let msg = if let Some(ref exec_id) = exec_id_for_logs {
-                            format!("[execution_id={}] {}", exec_id, parsed.message)
-                        } else {
-                            parsed.message
-                        };
-                        match parsed.level {
-                            LogLevel::Error => {
+                        let msg = parsed.message;
+                        // Pass execution_id as structured field (not in message body)
+                        // This keeps logs clean while still enabling ClickHouse filtering via OTEL attributes
+                        match (&exec_id_for_logs, parsed.level) {
+                            (Some(exec_id), LogLevel::Error) => {
+                                error!(target: "workflow.typescript", execution_id = %exec_id, "{}", msg)
+                            }
+                            (Some(exec_id), LogLevel::Warn) => {
+                                warn!(target: "workflow.typescript", execution_id = %exec_id, "{}", msg)
+                            }
+                            (Some(exec_id), LogLevel::Debug) => {
+                                debug!(target: "workflow.typescript", execution_id = %exec_id, "{}", msg)
+                            }
+                            (Some(exec_id), LogLevel::Info) => {
+                                info!(target: "workflow.typescript", execution_id = %exec_id, "{}", msg)
+                            }
+                            (None, LogLevel::Error) => {
                                 error!(target: "workflow.typescript", "{}", msg)
                             }
-                            LogLevel::Warn => {
+                            (None, LogLevel::Warn) => {
                                 warn!(target: "workflow.typescript", "{}", msg)
                             }
-                            LogLevel::Debug => {
+                            (None, LogLevel::Debug) => {
                                 debug!(target: "workflow.typescript", "{}", msg)
                             }
-                            LogLevel::Info => {
+                            (None, LogLevel::Info) => {
                                 info!(target: "workflow.typescript", "{}", msg)
                             }
                         }
