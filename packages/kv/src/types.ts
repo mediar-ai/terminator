@@ -86,12 +86,12 @@ export interface KVClient {
   disconnect(): Promise<void>;
 }
 
-export type KVBackendType = 'redis' | 'memory' | 'file';
+export type KVBackendType = 'redis' | 'memory' | 'file' | 'http';
 
 export interface KVConfig {
   /**
    * Connection URL.
-   * e.g. redis://localhost:6379, file://./data.json, memory://
+   * e.g. redis://localhost:6379, file://./data.json, memory://, https://app.mediar.ai/api/kv
    */
   url?: string;
   /**
