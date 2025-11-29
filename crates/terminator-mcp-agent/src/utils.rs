@@ -365,6 +365,162 @@ impl DesktopWrapper {
         let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
         !*in_sequence
     }
+
+    /// Resolves a relative script path using priority order:
+    /// 1. scripts_base_path (from workflow root level)
+    /// 2. workflow directory
+    /// 3. Current directory / as-is
+    ///
+    /// Returns (resolved_path, resolution_attempts) or an error if not found.
+    pub async fn resolve_script_path(
+        &self,
+        script_file: &str,
+        script_type: &str,
+    ) -> Result<(std::path::PathBuf, Vec<String>), rmcp::ErrorData> {
+        let script_path = std::path::Path::new(script_file);
+        let mut resolved_path = None;
+        let mut resolution_attempts = Vec::new();
+
+        // Only resolve if path is relative
+        if script_path.is_relative() {
+            tracing::info!(
+                "[SCRIPTS_BASE_PATH] Resolving relative {} script: '{}'",
+                script_type,
+                script_file
+            );
+
+            // Priority 1: Try scripts_base_path if provided
+            let scripts_base_guard = self.current_scripts_base_path.lock().await;
+            if let Some(ref base_path) = *scripts_base_guard {
+                tracing::info!(
+                    "[SCRIPTS_BASE_PATH] Checking scripts_base_path for {} script: {}",
+                    script_type,
+                    base_path
+                );
+                let base = std::path::Path::new(base_path);
+                if base.exists() && base.is_dir() {
+                    let candidate = base.join(script_file);
+                    resolution_attempts.push(format!("scripts_base_path: {}", candidate.display()));
+                    tracing::info!(
+                        "[SCRIPTS_BASE_PATH] Looking for {} script at: {}",
+                        script_type,
+                        candidate.display()
+                    );
+                    if candidate.exists() {
+                        tracing::info!(
+                            "[SCRIPTS_BASE_PATH] ✓ Found {} script in scripts_base_path: {} -> {}",
+                            script_type,
+                            script_file,
+                            candidate.display()
+                        );
+                        resolved_path = Some(candidate);
+                    } else {
+                        tracing::info!(
+                            "[SCRIPTS_BASE_PATH] ✗ {} script not found in scripts_base_path: {}",
+                            script_type,
+                            candidate.display()
+                        );
+                    }
+                } else {
+                    tracing::warn!(
+                        "[SCRIPTS_BASE_PATH] Base path does not exist or is not a directory: {}",
+                        base_path
+                    );
+                }
+            } else {
+                tracing::debug!(
+                    "[SCRIPTS_BASE_PATH] No scripts_base_path configured for {} script",
+                    script_type
+                );
+            }
+            drop(scripts_base_guard);
+
+            // Priority 2: Try workflow directory if not found yet
+            if resolved_path.is_none() {
+                let workflow_dir_guard = self.current_workflow_dir.lock().await;
+                if let Some(ref workflow_dir) = *workflow_dir_guard {
+                    let candidate = workflow_dir.join(script_file);
+                    resolution_attempts.push(format!("workflow_dir: {}", candidate.display()));
+                    tracing::info!(
+                        "[SCRIPTS_BASE_PATH] Looking for {} script at: {}",
+                        script_type,
+                        candidate.display()
+                    );
+                    if candidate.exists() {
+                        tracing::info!(
+                            "[SCRIPTS_BASE_PATH] ✓ Found {} script in workflow directory: {} -> {}",
+                            script_type,
+                            script_file,
+                            candidate.display()
+                        );
+                        resolved_path = Some(candidate);
+                    } else {
+                        tracing::info!(
+                            "[SCRIPTS_BASE_PATH] ✗ {} script not found in workflow directory: {}",
+                            script_type,
+                            candidate.display()
+                        );
+                    }
+                } else {
+                    tracing::debug!("[SCRIPTS_BASE_PATH] No workflow directory available");
+                }
+            }
+
+            // Priority 3: Check current directory or use as-is
+            if resolved_path.is_none() {
+                let candidate = script_path.to_path_buf();
+                resolution_attempts.push(format!("as-is: {}", candidate.display()));
+
+                if candidate.exists() {
+                    tracing::info!(
+                        "[SCRIPTS_BASE_PATH] Found {} script at: {}",
+                        script_type,
+                        candidate.display()
+                    );
+                    resolved_path = Some(candidate);
+                } else {
+                    tracing::warn!(
+                        "[SCRIPTS_BASE_PATH] {} script not found: {} (tried: {:?})",
+                        script_type,
+                        script_file,
+                        resolution_attempts
+                    );
+                    return Err(rmcp::ErrorData::invalid_params(
+                        format!("Script file '{}' not found", script_file),
+                        Some(serde_json::json!({
+                            "file": script_file,
+                            "script_type": script_type,
+                            "resolution_attempts": resolution_attempts,
+                            "error": "File does not exist"
+                        })),
+                    ));
+                }
+            }
+        } else {
+            // Absolute path - use as-is but verify it exists
+            tracing::info!(
+                "[SCRIPTS_BASE_PATH] Using absolute {} script path: '{}'",
+                script_type,
+                script_file
+            );
+            resolution_attempts.push(format!("absolute: {}", script_file));
+            if script_path.exists() {
+                resolved_path = Some(script_path.to_path_buf());
+            } else {
+                return Err(rmcp::ErrorData::invalid_params(
+                    format!("Script file '{}' not found", script_file),
+                    Some(serde_json::json!({
+                        "file": script_file,
+                        "script_type": script_type,
+                        "resolution_attempts": resolution_attempts,
+                        "error": "File does not exist"
+                    })),
+                ));
+            }
+        }
+
+        Ok((resolved_path.unwrap(), resolution_attempts))
+    }
 }
 
 // Test helper methods for DesktopWrapper
