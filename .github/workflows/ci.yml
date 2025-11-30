@@ -93,6 +93,24 @@ jobs:
           bun run build
         shell: pwsh
 
+      - name: Install workflow package dependencies
+        run: |
+          cd packages/workflow
+          npm install
+        shell: pwsh
+
+      - name: Run workflow package type check
+        run: |
+          cd packages/workflow
+          npx tsc --noEmit
+        shell: pwsh
+
+      - name: Run workflow package unit tests
+        run: |
+          cd packages/workflow
+          npm test -- --testPathPattern="branching" --testTimeout=30000
+        shell: pwsh
+
       # - name: Run Node.js tests
       #   run: |
       #     cd packages/terminator-nodejs
