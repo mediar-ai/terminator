@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.30] - 2025-11-29
+
+### Added
+- Workflow SDK: Add `retry()` function that can be thrown from `execute()` to re-run step
+- CI: Add workflow package type checking and unit tests
+
+### Fixed
+- Workflow SDK: Fix test type annotations (remove `as any` casts)
+- MCP Agent: Pass execution_id as structured tracing field instead of message prefix
+- MCP Agent: Use SendMessageTimeoutW to avoid blocking on hung windows
+- Recorder: Use `&&` syntax instead of pipe for selectors
+- Recorder: Use `text:` instead of `name:contains:` in selectors
+
+### Changed
+- KV: Rename VM_TOKEN to ORG_TOKEN in HTTP adapter
+
 ## [0.23.29] - 2025-11-28
 
 ### Added
