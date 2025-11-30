@@ -29,7 +29,7 @@ arguments:
     - tool_name: navigate_browser
       arguments:
         url: "https://www.google.com"
-        include_tree: false
+        include_tree_after_action: false
       delay_ms: 3000
 
     # Perform search

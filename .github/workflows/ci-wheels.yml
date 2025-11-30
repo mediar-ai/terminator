@@ -15,59 +15,6 @@ env:
   MACOSX_DEPLOYMENT_TARGET: "13.0"
 
 jobs:
-  linux-x64:
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Linux dependencies
-        run: bash scripts/install_linux_deps.sh
-
-      - name: Set up Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: stable
-          override: true
-          cache: true
-          target: x86_64-unknown-linux-gnu
-          rustflags: ""
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          architecture: x64
-
-      - name: Generate stubs
-        run: |
-          cargo run --bin stub_gen
-        working-directory: packages/terminator-python
-
-      - name: Build wheels with system deps
-        uses: PyO3/maturin-action@v1
-        with:
-          working-directory: packages/terminator-python
-          target: x86_64
-          manylinux: '2_34'
-          args: --release --strip --out dist
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          before-script-linux: |
-            dnf install -y epel-release
-            dnf install -y \
-              pipewire-devel \
-              libxkbcommon-devel \
-              systemd-devel \
-              dbus-devel \
-              openssl-devel \
-              mesa-libEGL-devel \
-              mesa-libgbm-devel \
-              clang-devel \
-              llvm-devel \
-              wayland-devel
-      
-      - name: Upload wheels
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheels-linux-x86_64
-          path: packages/terminator-python/dist
-
   windows-x64:
     runs-on: windows-latest
     steps:
@@ -159,7 +106,7 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
-    needs: [windows-x64, windows-arm64, linux-x64]
+    needs: [windows-x64, windows-arm64]
     permissions:
       id-token: write
       contents: write
@@ -181,7 +128,7 @@ jobs:
         with:
           working-directory: packages/terminator-python
           command: upload
-          args: --non-interactive --skip-existing wheels-sdist/* wheels-windows-x64/* wheels-windows-arm64/* wheels-linux-x86_64/*
+          args: --non-interactive --skip-existing wheels-sdist/* wheels-windows-x64/* wheels-windows-arm64/*
 
       - name: Checkout code for package rename
         uses: actions/checkout@v4

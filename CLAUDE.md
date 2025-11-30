@@ -3,12 +3,28 @@
 Open-source desktop automation (MIT). Gives AI hands to control any app on Windows/macOS/Linux.
 **Mediar AI** | [$2.8M seed](https://x.com/louis030195/status/1948745185178914929) | [mediar.ai](https://mediar.ai)
 
+## Installation
+
+**Windows (Primary Platform):**
+```bash
+npx @mediar-ai/cli --help  # Run without install
+npm i -g @mediar-ai/cli    # Or install globally
+```
+
+**macOS/Linux (Experimental):**
+Compile from source - npm wrapper only includes Windows binaries.
+```bash
+cargo build --release
+```
+
 ## Release
 
 **CRITICAL**: Use `terminator` CLI only (syncs versions across workspace).
 
 ```bash
-cargo install --path terminator-cli  # Once
+# Windows: use npx @mediar-ai/cli or installed CLI
+# Others: compile from source first
+cargo install --path crates/terminator-cli  # Once
 terminator release                   # Bump patch → tag → push (triggers CI/CD)
 ```
 
@@ -34,7 +50,7 @@ cargo fmt && cargo clippy
 **Security:**
 - ❌ **NEVER use `#id` selectors** (non-deterministic across machines)
 - ❌ Don't commit credentials
-- ✅ Use `role:Type|name:Name` or `nativeid` selectors
+- ✅ Use `role:Type && name:Name` or `nativeid` selectors
 
 ## MCP Debugging
 

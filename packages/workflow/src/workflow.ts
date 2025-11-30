@@ -1,8 +1,11 @@
 import { z } from 'zod';
 import { Desktop } from '@mediar-ai/terminator';
+import * as fs from 'fs';
+import * as path from 'path';
 import type {
   Workflow,
   WorkflowConfig,
+  ResolvedWorkflowConfig,
   Step,
   WorkflowContext,
   WorkflowSuccessContext,
@@ -16,16 +19,52 @@ import { createWorkflowRunner } from './runner';
 
 /**
  * Workflow builder that accumulates state types
+ * Reads workflow metadata from package.json in the current working directory
+ */
+function readPackageJson(): { name?: string; version?: string; description?: string } {
+  try {
+    const packageJsonPath = path.join(process.cwd(), 'package.json');
+    if (fs.existsSync(packageJsonPath)) {
+      const content = fs.readFileSync(packageJsonPath, 'utf-8');
+      const pkg = JSON.parse(content);
+      return {
+        name: pkg.name,
+        version: pkg.version,
+        description: pkg.description,
+      };
+    }
+  } catch {
+    // Silently ignore errors reading package.json
+  }
+  return {};
+}
+
+/**
+ * Resolves workflow config by adding name/version/description from package.json
+ */
+function resolveConfig<TInput>(config: WorkflowConfig<TInput>): ResolvedWorkflowConfig<TInput> {
+  const pkgInfo = readPackageJson();
+
+  return {
+    ...config,
+    name: pkgInfo.name || 'Unnamed Workflow',
+    version: pkgInfo.version,
+    description: pkgInfo.description,
+  };
+}
+
+/**
+ * Workflow builder that accumulates state types
  * @template TInput - Type of workflow input
  * @template TState - Accumulated state type from all previous steps
  */
-class WorkflowBuilder<TInput = any, TState extends Record<string, any> = {}> {
-  private config: WorkflowConfig<TInput>;
+export class WorkflowBuilder<TInput = any, TState extends Record<string, any> = {}> {
+  private config: ResolvedWorkflowConfig<TInput>;
   private steps: Step[] = [];
-  private successHandler?: (context: WorkflowSuccessContext<TInput, TState>) => Promise<void>;
+  private successHandler?: (context: WorkflowSuccessContext<TInput, TState>) => Promise<any>;
   private errorHandler?: (context: WorkflowErrorContext<TInput, TState>) => Promise<void>;
 
-  constructor(config: WorkflowConfig<TInput>) {
+  constructor(config: ResolvedWorkflowConfig<TInput>) {
     this.config = config;
   }
 
@@ -42,10 +81,24 @@ class WorkflowBuilder<TInput = any, TState extends Record<string, any> = {}> {
   }
 
   /**
-   * Set success handler with typed state
+   * Set success handler that returns workflow result data
+   * The returned value will be automatically set as context.data
+   * 
+   * @example
+   * ```typescript
+   * .onSuccess(({ input, context }) => ({
+   *   accountEmail: input.email,
+   *   completed: true,
+   * }))
+   * ```
    */
-  onSuccess(handler: (context: WorkflowSuccessContext<TInput, TState>) => Promise<void>): this {
-    this.successHandler = handler;
+  onSuccess<TSuccess = any>(
+    handler: (context: Omit<WorkflowSuccessContext<TInput, TState>, "duration">) => TSuccess | Promise<TSuccess>
+  ): this {
+    this.successHandler = async (ctx) => {
+      const result = await Promise.resolve(handler({ input: ctx.input, context: ctx.context, logger: ctx.logger }));
+      return result;
+    };
     return this;
   }
 
@@ -61,8 +114,8 @@ class WorkflowBuilder<TInput = any, TState extends Record<string, any> = {}> {
    * Build the workflow
    */
   build(): Workflow<TInput> {
-    return createWorkflowInstance(
-      this.config,
+    return createWorkflowInstance(resolveConfig(
+      this.config),
       this.steps,
       this.successHandler as any,
       this.errorHandler as any
@@ -71,10 +124,11 @@ class WorkflowBuilder<TInput = any, TState extends Record<string, any> = {}> {
 }
 
 /**
+ * Workflow builder that accumulates state types
  * Creates a workflow instance
  */
 function createWorkflowInstance<TInput = any>(
-  config: WorkflowConfig<TInput>,
+  config: ResolvedWorkflowConfig<TInput>,
   steps: Step[],
   successHandler?: (context: WorkflowSuccessContext<TInput>) => Promise<void>,
   errorHandler?: (context: WorkflowErrorContext<TInput>) => Promise<void>
@@ -176,12 +230,32 @@ function createWorkflowInstance<TInput = any>(
       let lastStepId: string | undefined;
       let lastStepIndex: number | undefined;
 
-      try {
-        // Execute steps sequentially
-        for (let i = 0; i < steps.length; i++) {
-          const step = steps[i];
+      // Max iterations to prevent infinite loops
+      const MAX_ITERATIONS = 1000;
+      let iterations = 0;
 
-          log.info(`[${i + 1}/${steps.length}] ${step.config.name}`);
+      try {
+        // Execute steps with support for branching via 'next' pointer
+        let currentIndex = 0;
+
+        while (currentIndex < steps.length && iterations < MAX_ITERATIONS) {
+          iterations++;
+          const step = steps[currentIndex];
+
+          // Check condition
+          if (step.config.condition) {
+            const shouldRun = step.config.condition({
+              input: validatedInput,
+              context,
+            });
+            if (!shouldRun) {
+              log.info(`[${currentIndex + 1}/${steps.length}] ${step.config.name} (skipped)`);
+              currentIndex++;
+              continue;
+            }
+          }
+
+          log.info(`[${currentIndex + 1}/${steps.length}] ${step.config.name}`);
 
           await step.run({
             desktop: desktopInstance,
@@ -192,9 +266,34 @@ function createWorkflowInstance<TInput = any>(
 
           // Track last completed step for state persistence
           lastStepId = step.config.id;
-          lastStepIndex = i;
+          lastStepIndex = currentIndex;
 
           log.info('');
+
+          // Handle 'next' pointer for branching
+          if (step.config.next) {
+            const nextStepId = typeof step.config.next === 'function'
+              ? step.config.next({ input: validatedInput, context })
+              : step.config.next;
+
+            if (nextStepId) {
+              const nextIndex = steps.findIndex(s => s.config.id === nextStepId);
+              if (nextIndex === -1) {
+                throw new Error(`Step '${step.config.id}' references unknown next step: '${nextStepId}'`);
+              }
+              log.info(`  → jumping to '${nextStepId}'`);
+              currentIndex = nextIndex;
+              continue;
+            }
+          }
+
+          // Default: move to next sequential step
+          currentIndex++;
+        }
+
+        // Check for infinite loop
+        if (iterations >= MAX_ITERATIONS) {
+          throw new Error(`Workflow exceeded maximum iterations (${MAX_ITERATIONS}). Possible infinite loop detected.`);
         }
 
         const duration = Date.now() - startTime;
@@ -205,12 +304,16 @@ function createWorkflowInstance<TInput = any>(
 
         // Call success handler if provided
         if (successHandler) {
-          await successHandler({
+          const result = await successHandler({
             input: validatedInput,
             context,
             logger: log,
             duration,
           });
+          // Automatically set context.data with returned value
+          if (result !== undefined) {
+            context.data = result;
+          }
         }
 
         // Return success response with state tracking
@@ -372,14 +475,26 @@ function createWorkflowInstance<TInput = any>(
  * });
  * ```
  */
+
+// Single signature that always returns WorkflowBuilder for builder pattern
+export function createWorkflow<TInput = any>(
+  config: Omit<WorkflowConfig<TInput>, "steps" | "onError">
+): WorkflowBuilder<TInput, {}>;
+
+// Overload for direct pattern with steps array
+export function createWorkflow<TInput = any>(
+  config: WorkflowConfig<TInput> & Required<Pick<WorkflowConfig<TInput>, "steps">>
+): Workflow<TInput>;
+
+// Implementation
 export function createWorkflow<TInput = any>(
   config: WorkflowConfig<TInput>
 ): WorkflowBuilder<TInput, {}> | Workflow<TInput> {
   // If steps are provided in config, create workflow directly
   if (config.steps && config.steps.length > 0) {
-    return createWorkflowInstance(config, config.steps);
+    return createWorkflowInstance(resolveConfig(config), config.steps);
   }
 
   // Otherwise, return builder for chaining with type-safe state
-  return new WorkflowBuilder<TInput, {}>(config);
+  return new WorkflowBuilder<TInput, {}>(resolveConfig(config));
 }

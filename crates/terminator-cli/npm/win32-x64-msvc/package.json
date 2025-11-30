@@ -1,0 +1,21 @@
+{
+  "cpu": [
+    "x64"
+  ],
+  "engines": {
+    "node": ">= 10"
+  },
+  "files": [
+    "terminator.exe"
+  ],
+  "main": "terminator.exe",
+  "name": "@mediar-ai/cli-win32-x64-msvc",
+  "os": [
+    "win32"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mediar-ai/terminator"
+  },
+  "version": "0.23.30"
+}

@@ -1,4 +1,4 @@
-use crate::{AutomationError, Browser, Selector, UIElement, UINode};
+use crate::{AutomationError, Browser, OcrElement, Selector, UIElement, UINode};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -15,6 +15,8 @@ pub struct TreeBuildConfig {
     pub batch_size: Option<usize>,
     /// Optional maximum depth to traverse (None = unlimited)
     pub max_depth: Option<usize>,
+    /// Include bounds for all elements (not just focusable). Used for inspect overlay.
+    pub include_all_bounds: bool,
 }
 
 /// Defines how much element property data to load
@@ -36,6 +38,7 @@ impl Default for TreeBuildConfig {
             yield_every_n_elements: Some(50),
             batch_size: Some(50),
             max_depth: None, // No limit by default
+            include_all_bounds: false,
         }
     }
 }
@@ -167,6 +170,40 @@ pub trait AccessibilityEngine: Send + Sync {
         &self,
         screenshot: &crate::ScreenshotResult,
     ) -> Result<String, AutomationError>;
+
+    /// OCR on screenshot with bounding boxes - returns structured OCR elements with absolute screen coordinates
+    /// Default implementation returns UnsupportedOperation - override in platform-specific engines
+    fn ocr_screenshot_with_bounds(
+        &self,
+        _screenshot: &crate::ScreenshotResult,
+        _window_x: f64,
+        _window_y: f64,
+    ) -> Result<OcrElement, AutomationError> {
+        Err(AutomationError::UnsupportedOperation(
+            "OCR with bounding boxes not supported on this platform".to_string(),
+        ))
+    }
+
+    /// Click at absolute screen coordinates
+    /// Default implementation returns UnsupportedOperation - override in platform-specific engines
+    fn click_at_coordinates(&self, _x: f64, _y: f64) -> Result<(), AutomationError> {
+        Err(AutomationError::UnsupportedOperation(
+            "Click at coordinates not supported on this platform".to_string(),
+        ))
+    }
+
+    /// Click at absolute screen coordinates with specified click type (left, double, right)
+    /// Default implementation returns UnsupportedOperation - override in platform-specific engines
+    fn click_at_coordinates_with_type(
+        &self,
+        _x: f64,
+        _y: f64,
+        _click_type: crate::ClickType,
+    ) -> Result<(), AutomationError> {
+        Err(AutomationError::UnsupportedOperation(
+            "Click at coordinates with type not supported on this platform".to_string(),
+        ))
+    }
 
     /// Activate browser window
     fn activate_browser_window_by_title(&self, title: &str) -> Result<(), AutomationError>;

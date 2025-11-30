@@ -255,6 +255,25 @@ fn test_text_selector() {
 }
 
 #[test]
+fn test_text_selector_with_special_chars() {
+    // Test that text: selector works with parentheses, exclamation marks, etc.
+    let selector = Selector::from("text:Test 1: DEFAULT (focus+click) SUCCESS!");
+    match selector {
+        Selector::Text(text) => assert_eq!(text, "Test 1: DEFAULT (focus+click) SUCCESS!"),
+        _ => panic!("Expected Text selector, got {selector:?}"),
+    }
+}
+
+#[test]
+fn test_text_selector_with_comma() {
+    let selector = Selector::from("text:Hello, world!");
+    match selector {
+        Selector::Text(text) => assert_eq!(text, "Hello, world!"),
+        _ => panic!("Expected Text selector, got {selector:?}"),
+    }
+}
+
+#[test]
 fn test_id_selector_with_hash() {
     let selector = Selector::from("#button-123");
     match selector {

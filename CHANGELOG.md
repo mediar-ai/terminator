@@ -7,6 +7,308 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.30] - 2025-11-29
+
+### Added
+- Workflow SDK: Add `retry()` function that can be thrown from `execute()` to re-run step
+- CI: Add workflow package type checking and unit tests
+
+### Fixed
+- Workflow SDK: Fix test type annotations (remove `as any` casts)
+- MCP Agent: Pass execution_id as structured tracing field instead of message prefix
+- MCP Agent: Use SendMessageTimeoutW to avoid blocking on hung windows
+- Recorder: Use `&&` syntax instead of pipe for selectors
+- Recorder: Use `text:` instead of `name:contains:` in selectors
+
+### Changed
+- KV: Rename VM_TOKEN to ORG_TOKEN in HTTP adapter
+
+## [0.23.29] - 2025-11-28
+
+### Added
+- Workflow SDK: Add `retries` option to createStep with configurable delay
+- MCP Agent: Add `include_browser_dom` parameter to get_window_tree
+- MCP Agent: Add index-based clicking for browser DOM elements (`click_index` with `vision_type: 'dom'`)
+- MCP Agent: Add index-based clicking for UI tree elements (`click_index` with `vision_type: 'uia'`)
+- MCP Agent: Add `show_overlay` parameter for visual UI debugging
+- MCP Agent: Add `browser_dom_max_elements` parameter to get_window_tree
+- MCP Agent: Add compact YAML format for omniparser output
+- Inspect Overlay: Add display modes, collision detection, and smaller font
+- Inspect Overlay: Show text content in DOM overlay labels
+
+### Fixed
+- Code: Add missing `include_all_bounds` field and fix clippy warnings
+- Inspect Overlay: Use non-blocking polling loop and cache-based UI tree overlay
+- Inspect Overlay: Fix DPI scaling for browser DOM
+- Inspect Overlay: Improve visual appearance and fix hide functionality
+- Inspect Overlay: Simplify label to show only index number
+
+### Changed
+- Docs: Update selector syntax to use `&&` instead of legacy pipe `|`
+
+## [0.23.28] - 2025-11-27
+
+
+### Added
+- CI: Publish terminator-cli to crates.io on release (`cargo install terminator-cli`)
+- Docs: Add remote-mcp skill for controlling remote machines via MCP
+
+### Fixed
+- Code: Resolve clippy warnings (dead_code, format strings)
+
+## [0.23.27] - 2025-11-27
+
+### Added
+- MCP Agent: Add configurable timeout for run_command execution
+- MCP Agent: Optimize OmniParser image processing for faster inference
+
+### Fixed
+- CLI: Fix authentication on remote MCP
+
+## [0.23.26] - 2025-11-26
+
+### Added
+- MCP Agent: Add telemetry to TypeScript workflow execution
+
+## [0.23.25] - 2025-11-26
+
+### Added
+- Workflow SDK: Add `next` pointer for step branching and loops
+  - Static jumps: `next: 'step_id'`
+  - Dynamic branching: `next: ({ context }) => condition ? 'a' : 'b'`
+  - Retry loops with counter
+  - Infinite loop detection (max 1000 iterations)
+- Workflow SDK: Auto-read name/version/description from package.json
+
+### Changed
+- Workflow SDK: Remove name/version/description from createWorkflow() - now exclusively read from package.json (single source of truth)
+
+### Fixed
+- CLI: Remove unused telemetry receiver
+- Code: Fix clippy warnings (unused imports, extra blank lines)
+
+## [0.23.24] - 2025-11-26
+
+### Added
+- MCP: Stream TypeScript workflow logs through Rust tracing with full OpenTelemetry integration
+- MCP: Add log level prefixes ([ERROR], [WARN], [INFO], [DEBUG]) in TypeScript execution
+- MCP: Add ParsedLogLine struct and parse_log_line function for log parsing
+
+### Fixed
+- Telemetry: TypeScript workflow logs now include trace_id/execution_id for ClickHouse correlation
+
+## [0.23.23] - 2025-11-26
+
+### Added
+- MCP: Add unified click_cv_index tool with vision_type parameter (ocr/omniparser) replacing separate click tools
+- MCP: Add click_type parameter (left/double/right) to click_cv_index for different click actions
+- MCP: Add omniparser support via Replicate API integration
+- MCP: Support nested execute_sequence calls in dispatch_tool
+- UI Automation: Add click_at_coordinates_with_type method supporting left, double, and right clicks
+
+### Fixed
+- Telemetry: Propagate tracing spans to spawned tasks for proper trace correlation
+- Telemetry: Include execution_id and trace_id in log body for ClickHouse filtering
+- Telemetry: Downgrade expected failures from error! to warn!/debug!
+- Code: Address clippy warnings (format strings, needless borrow)
+
+### Changed
+- MCP: Replace click_ocr_index and click_omniparser_index with unified click_cv_index tool
+- Config: Add files.eol setting to enforce LF line endings
+
+## [0.23.21] - 2025-11-25
+
+### Added
+- MCP: Add OCR support and click_ocr_index tool for text-based UI automation
+- MCP: Add OCR tree formatting with indexed words in get_window_tree
+- UI Automation: Expose OCR and coordinate click on Desktop
+- UI Automation: Implement Windows OCR with bounding boxes using Windows Media OCR
+- Workflow Recorder: Add process_name field to event structs and TextInputTracker
+
+### Fixed
+- Telemetry: Add tracing-opentelemetry layer for TraceId propagation to logs
+
+### Changed
+- MCP: Update get_window_tree description with OCR usage information
+
+## [0.23.20] - 2025-11-25
+
+### Added
+- MCP: Add tracing span with trace_id for distributed tracing
+- Extension: Add lifecycle logging and health reporting
+- UI Automation: Add element verification to open_application and navigate_browser
+
+## [0.23.19] - 2025-11-22
+
+### Fixed
+- Telemetry: Add structured log attributes for OpenTelemetry correlation
+- Build: Revert bun install mode restriction for S3 mount compatibility
+
+## [0.23.18] - 2025-11-21
+
+### Added
+- MCP: Add version field to /health endpoint for monitoring
+
+### Fixed
+- Code quality: Address cargo clippy warnings (format strings, collapsible if, ptr_arg)
+
+## [0.23.17] - 2025-11-21
+
+### Added
+- Telemetry: Receive and use execution_id from executor for distributed tracing
+
+### Fixed
+- Tests: Add missing trace_id and execution_id fields to test fixtures
+
+### Changed
+- Docs: Update README terminology from 'legacy systems' to 'legacy software'
+
+## [0.23.16] - 2025-11-21
+
+### Added
+- Telemetry: Add log_source and trace_id fields for distributed tracing support
+
+## [0.23.15] - 2025-11-21
+
+### Added
+- Workflow: Add onSuccess handler that returns data for MCP integration
+
+### Changed
+- Docs: Improve CLI installation instructions with npm wrapper guidance
+
+## [0.23.14] - 2025-11-21
+
+### Changed
+- Workflow: Rename createWorkflowError to WorkflowError for consistency
+
+## [0.23.13] - 2025-11-21
+
+### Added
+- CI/CD: Add GitHub Actions workflow to publish @mediar-ai/kv package
+  - Automatically builds TypeScript and publishes to npm on version tags
+  - Synced @mediar-ai/kv version to 0.23.13 (was stuck at 0.1.0 since v0.23.8)
+
+## [0.23.12] - 2025-11-21
+
+### Fixed
+- CI/CD: Prevent duplicate artifact uploads in Release Terminator CLI workflow
+  - Fixed "Not Found" errors by uploading only archives (*.tar.gz, *.zip) instead of all artifacts
+  - Removed duplicate terminator.exe uploads that were causing workflow failures
+- CI/CD: Remove duplicate tag trigger from Publish Workflow Package workflow
+  - Fixed double workflow runs by removing redundant push:tags trigger
+  - Now only triggers via workflow_run dependency chain after NPM packages are published
+  - Prevents race conditions and ensures correct dependency order
+
+## [0.23.11] - 2025-11-21
+
+### Added
+- Telemetry: Add OpenTelemetry metadata for better filtering and grouping in ClickHouse dashboards
+  - Resource-level: deployment.environment, service.instance.id, os.type, os.arch, automation.api
+  - Workflow-level: workflow.execution_id, workflow.url, workflow.format, workflow.trigger_source
+  - Step-level: step.process, step.selector, step.url, step.text_length for improved filtering
+- MCP: Add post-action verification to missing action tools
+- MCP: Add activate_window before actions and enhance press_key_global
+- MCP: Make ui_diff_before_after and include_tree_after_action mandatory
+- MCP: Make verify_timeout_ms optional with 2000ms default
+- MCP: Add bring_to_front flag to separate foreground from window management
+
+### Fixed
+- MCP: Use text: selector instead of value: for set_value auto-verification
+- MCP: Hide #ID selectors in compact YAML tree view
+- MCP: Add unwrap_or(2000) to verify_timeout_ms in verification code
+- MCP: Set in_sequence flag in dispatch_tool to prevent double window management
+- Windows: Use AttachThreadInput to bypass Windows focus-stealing prevention
+
+### Changed
+- MCP: Skip tree building when both verify fields are empty
+- MCP: Make highlight_before_action a required boolean parameter
+- MCP: Flatten FontStyle into HighlightElementArgs
+- MCP: Change maximize_target default from true to false
+- Editor: Add .editorconfig and fix .gitattributes line endings
+
+### Documentation
+- MCP: Improve MCP agent prompt with selector syntax guide
+- MCP: Update MCP agent prompt with tool behavior defaults
+
+## [0.23.10] - 2025-11-20
+
+### Added
+- MCP: Add local-copy execution mode for TypeScript workflows to fix S3/rclone symlink issues
+- Window management: Add BringWindowToTop and SetForegroundWindow to window management
+
+### Changed
+- Workflow: Copy workflow files to local temp directory before execution for better performance and symlink support
+- MCP: Default MCP_EXECUTION_MODE to "local-copy" in agent wrapper
+
+## [0.23.9] - 2025-11-20
+
+### Added
+- MCP: Add optional window management parameters to all MCP tools
+- Docs: Add Bounty Developer Program section to README
+
+### Fixed
+- Tests: Add missing skip_preflight_check and window_mgmt fields to ExecuteSequenceArgs test instantiations
+- Style: Run cargo fmt to fix formatting issues
+
+## [0.23.8] - 2025-11-20
+
+### Added
+- KV package: New @mediar-ai/kv package for workflow state sharing with Memory, File, and Redis adapters
+
+### Changed
+- CLI: Add sync_kv_package() to version management for release automation
+- CI: Remove Linux from Python wheels workflow
+- Test: Ignore debugger detach tests failing in CI
+
+## [0.23.7] - 2025-11-18
+
+### Fixed
+- Linux: Add missing trait method implementations (maximize_window_keyboard, minimize_window_keyboard, get_native_window_handle)
+- Linux: Fix press_key signature to match trait definition
+- Linux: Add Process selector case handling in selector matching
+- Element: Fix unused variable warning
+
+### Changed
+- CI: Remove Linux builds from MCP and NPM publish workflows (Windows-only for now)
+
+## [0.23.6] - 2025-11-18
+
+### Added
+- TypeScript workflow: Export WorkflowBuilder and add function overloads for type inference
+- MCP: Guidance for server-side dev log tools and screenshot investigation
+- Window management: Add window manager module for optimized window state management
+- Window management: Integrate UWP window management support with keyboard-based maximize/restore
+- Selector: Add Process selector for targeting elements by process name
+- Workflow: Add workflow_id parameter for env state persistence
+- Test: Add comprehensive UWP window management tests
+
+### Changed
+- **BREAKING**: Renamed `include_tree` parameter to `include_tree_after_action` across all MCP tools and YAML workflows for clearer semantics
+- **BREAKING**: Enforce mandatory process scoping to eliminate desktop-wide searches - all selectors must include `process:` prefix
+- **BREAKING**: Make clear_before_typing, highlight_before_action, and click_position mandatory parameters
+- **BREAKING**: Make verification parameters mandatory for all action tools
+- Selector: Replace PID parameter with process selector in capture_element_screenshot
+- Performance: Optimize window search depth from 10 to 5
+- Performance: Remove click action delays for faster automation
+- Performance: Remove bounds stability checking for faster Windows element interactions
+- Refactor: Remove element IDs from compact YAML tree view
+- Refactor: Consolidate window management with UWP support in MCP tools
+- MCP: Update tool descriptions to recommend process selector over PID
+
+### Fixed
+- Test: Fix notepad test to use correct process selector syntax
+- Test: Ignore browser script tests failing in CI due to extension connection timeout
+- Selector: Restore boolean operators for non-text prefixed selectors
+- Selector: Handle special characters in prefixed selectors
+- Security: Update js-yaml to fix prototype pollution vulnerability
+- MCP: Fix timeout inconsistency in wait_for_element error details
+- MCP: Ensure window restoration in all error paths
+- MCP: Add tree data management guidance to prevent redundant get_window_tree calls
+- Inline autocomplete: Dismiss before pressing Enter/Return
+- Workflow: Gracefully handle user cancellation in workflow execution
+- CI: Resolve module resolution error in Node.js tests (#367)
+- Formatting: Apply cargo fmt and fix all clippy warnings
+
 ## [0.23.5] - 2025-11-13
 
 ### Changed

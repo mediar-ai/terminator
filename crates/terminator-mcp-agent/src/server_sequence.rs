@@ -12,9 +12,34 @@ use rmcp::service::{Peer, RequestContext, RoleServer};
 use rmcp::ErrorData as McpError;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, info_span, warn, Instrument};
 use uuid::Uuid;
+
+/// RAII guard to automatically reset the in_sequence flag when dropped
+struct SequenceGuard {
+    flag: Arc<Mutex<bool>>,
+}
+
+impl Drop for SequenceGuard {
+    fn drop(&mut self) {
+        // Reset flag to false when guard is dropped (function exits)
+        if let Ok(mut flag) = self.flag.lock() {
+            *flag = false;
+        }
+    }
+}
+
+impl SequenceGuard {
+    fn new(flag: Arc<Mutex<bool>>) -> Self {
+        // Set flag to true when guard is created
+        if let Ok(mut f) = flag.lock() {
+            *f = true;
+        }
+        Self { flag }
+    }
+}
 
 /// Helper function to recursively validate a value against a variable definition
 fn validate_variable_value(
@@ -323,8 +348,18 @@ impl DesktopWrapper {
             .await;
 
         // Use tokio::select to handle cancellation from request manager
+        // Create span with trace_id for distributed tracing - all nested logs inherit it
+        let trace_id_val = args.trace_id.clone().unwrap_or_default();
+        let execution_id_val = args.execution_id.clone().unwrap_or_default();
+        let tracing_span = info_span!(
+            "execute_sequence",
+            trace_id = %trace_id_val,
+            execution_id = %execution_id_val,
+            log_source = "agent",
+        );
+
         tokio::select! {
-            result = self.execute_sequence_inner(peer, request_context, args) => {
+            result = self.execute_sequence_inner(peer, request_context, args, request_id.clone()).instrument(tracing_span) => {
                 // Unregister when done
                 self.request_manager.unregister(&request_id).await;
                 result
@@ -345,7 +380,12 @@ impl DesktopWrapper {
         peer: Peer<RoleServer>,
         request_context: RequestContext<RoleServer>,
         mut args: ExecuteSequenceArgs,
+        execution_id: String,
     ) -> Result<CallToolResult, McpError> {
+        // Set the in_sequence flag for the duration of this function
+        // This flag will be automatically reset to false when this guard is dropped
+        let _sequence_guard = SequenceGuard::new(self.in_sequence.clone());
+
         // Validate that either URL or steps are provided
         if args.url.is_none() && args.steps.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
             return Err(McpError::invalid_params(
@@ -362,7 +402,9 @@ impl DesktopWrapper {
                 WorkflowFormat::TypeScript => {
                     // Execute TypeScript workflow
                     let url_clone = url.clone();
-                    return self.execute_typescript_workflow(&url_clone, args).await;
+                    return self
+                        .execute_typescript_workflow(&url_clone, args, execution_id)
+                        .await;
                 }
                 WorkflowFormat::Yaml => {
                     // Continue with existing YAML workflow logic
@@ -820,16 +862,39 @@ impl DesktopWrapper {
             "Executing sequence with context: {}",
             serde_json::to_string_pretty(&execution_context).unwrap_or_default()
         );
+        // Extract attributes early for logging
+        let log_source = "agent";
+        let trace_id_val = args.trace_id.as_deref().unwrap_or("");
+        let execution_id_val = args.execution_id.as_deref().unwrap_or("");
+
         info!(
-            "Starting execute_sequence: steps={}, stop_on_error={}, include_detailed_results={}",
-            args.steps.as_ref().map(|s| s.len()).unwrap_or(0),
-            stop_on_error,
-            include_detailed
+            log_source = %log_source,
+            execution_id = %execution_id_val,
+            trace_id = %trace_id_val,
+            steps = args.steps.as_ref().map(|s| s.len()).unwrap_or(0),
+            stop_on_error = %stop_on_error,
+            include_detailed = %include_detailed,
+            "Starting execute_sequence [execution_id={}, trace_id={}]", execution_id_val, trace_id_val
         );
 
         // Start workflow telemetry span
         let workflow_name = "execute_sequence";
         let mut workflow_span = WorkflowSpan::new(workflow_name);
+
+        // Add execution metadata for filtering/grouping
+        workflow_span.set_attribute("workflow.execution_id", execution_id.clone());
+        workflow_span.set_attribute("log_source", log_source.to_string());
+
+        // Add trace_id for distributed tracing if provided by executor
+        if let Some(trace_id) = &args.trace_id {
+            workflow_span.set_attribute("trace_id", trace_id.clone());
+        }
+
+        // Add execution_id for distributed tracing if provided by executor
+        if let Some(exec_id) = &args.execution_id {
+            workflow_span.set_attribute("execution_id", exec_id.clone());
+        }
+
         workflow_span.set_attribute(
             "workflow.total_steps",
             args.steps
@@ -839,6 +904,32 @@ impl DesktopWrapper {
                 .to_string(),
         );
         workflow_span.set_attribute("workflow.stop_on_error", stop_on_error.to_string());
+
+        // Add workflow source metadata
+        if let Some(url) = &args.url {
+            workflow_span.set_attribute("workflow.url", url.clone());
+            // Detect and set workflow format
+            let format = detect_workflow_format(url);
+            workflow_span.set_attribute("workflow.format", format!("{format:?}").to_lowercase());
+        } else {
+            workflow_span.set_attribute("workflow.format", "inline".to_string());
+        }
+
+        // Add trigger source (from MCP API)
+        workflow_span.set_attribute("workflow.trigger_source", "mcp_api".to_string());
+
+        // Add organization/user context from environment if available
+        if let Ok(org_id) = std::env::var("ORGANIZATION_ID") {
+            workflow_span.set_attribute("organization.id", org_id);
+        }
+        if let Ok(user_id) = std::env::var("USER_ID") {
+            workflow_span.set_attribute("user.id", user_id);
+        }
+
+        // Add execution mode from environment
+        let execution_mode =
+            std::env::var("EXECUTION_MODE").unwrap_or_else(|_| "normal".to_string());
+        workflow_span.set_attribute("workflow.execution_mode", execution_mode);
 
         // Convert flattened SequenceStep to internal SequenceItem representation
         let mut sequence_items = Vec::new();
@@ -976,7 +1067,16 @@ impl DesktopWrapper {
             })
             .unwrap_or(false);
 
-        if has_browser_script_steps {
+        // Check if we should run the pre-flight check
+        // Skip if: 1) no browser script steps, OR 2) skip_preflight_check flag is set
+        let should_run_preflight =
+            has_browser_script_steps && !args.skip_preflight_check.unwrap_or(false);
+
+        if has_browser_script_steps && args.skip_preflight_check.unwrap_or(false) {
+            info!("Skipping browser extension pre-flight check (skip_preflight_check=true)");
+        }
+
+        if should_run_preflight {
             info!(
                 "Workflow contains execute_browser_script steps - checking Chrome extension health"
             );
@@ -1101,6 +1201,9 @@ impl DesktopWrapper {
         // Track whether we've jumped to troubleshooting
         let mut jumped_to_troubleshooting = false;
 
+        // Track last executed process for window management
+        let mut last_executed_process: Option<String> = None;
+
         // Detect if we're starting directly in the troubleshooting section
         if start_from_index >= main_steps_len {
             jumped_to_troubleshooting = true;
@@ -1145,6 +1248,23 @@ impl DesktopWrapper {
                 "Will stop after {} step at index {} (inclusive)",
                 step_type, end_at_index
             );
+        }
+
+        // Capture initial window state before executing any steps
+        // This captures state before step 0 (which might open new windows)
+        // Check if window management is enabled (defaults to true for backward compatibility)
+        let window_mgmt_enabled = args.window_mgmt.enable_window_management.unwrap_or(true);
+        if window_mgmt_enabled {
+            if let Err(e) = self.window_manager.capture_initial_state().await {
+                tracing::warn!(
+                    "Failed to capture initial window state before sequence: {}",
+                    e
+                );
+            } else {
+                tracing::info!("Captured initial window state before sequence execution");
+            }
+        } else {
+            tracing::debug!("Window management disabled for sequence, skipping capture");
         }
 
         while current_index < sequence_items.len()
@@ -1332,6 +1452,61 @@ impl DesktopWrapper {
                             step_span.set_attribute("step.retry_attempt", attempt.to_string());
                         }
 
+                        // Add workflow execution_id to step for correlation
+                        step_span.set_attribute("workflow.execution_id", execution_id.clone());
+
+                        // Extract and add step-level metadata for filtering/grouping
+                        // Extract current process from arguments
+                        let current_process = substituted_args
+                            .get("process")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        if let Some(ref proc) = current_process {
+                            step_span.set_attribute("step.process", proc.clone());
+                        }
+
+                        // Extract selector if present (common in UI automation tools)
+                        if let Some(selector) = substituted_args.get("selector") {
+                            let selector_str = if let Some(s) = selector.as_str() {
+                                s.to_string()
+                            } else if let Some(obj) = selector.as_object() {
+                                // Handle selector object with "selector" field
+                                obj.get("selector")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("complex_selector")
+                                    .to_string()
+                            } else {
+                                "complex_selector".to_string()
+                            };
+                            step_span.set_attribute("step.selector", selector_str);
+                        }
+
+                        // Extract window_selector if present
+                        if let Some(window_selector) = substituted_args
+                            .get("window_selector")
+                            .and_then(|v| v.as_str())
+                        {
+                            step_span
+                                .set_attribute("step.window_selector", window_selector.to_string());
+                        }
+
+                        // Extract URL for browser navigation tools
+                        if let Some(url) = substituted_args.get("url").and_then(|v| v.as_str()) {
+                            step_span.set_attribute("step.url", url.to_string());
+                        }
+
+                        // Extract text for typing tools
+                        if let Some(text) = substituted_args.get("text").and_then(|v| v.as_str()) {
+                            // Only log first 50 chars to avoid PII/sensitive data
+                            let text_preview = if text.len() > 50 {
+                                format!("{}...", &text[..50])
+                            } else {
+                                text.to_string()
+                            };
+                            step_span.set_attribute("step.text_length", text.len().to_string());
+                            step_span.set_attribute("step.text_preview", text_preview);
+                        }
+
                         // Add event for step started
                         workflow_span.add_event(
                             "step.started",
@@ -1340,6 +1515,15 @@ impl DesktopWrapper {
                                 ("step.index", current_index.to_string()),
                             ],
                         );
+
+                        // Create execution context for window management
+                        let execution_context =
+                            Some(crate::utils::ToolExecutionContext::sequence_step(
+                                args.url.clone().unwrap_or_default(),
+                                current_index + 1, // 1-based for user display
+                                total_steps,
+                                last_executed_process.clone(),
+                            ));
 
                         let (result, error_occurred) = self
                             .execute_single_tool(
@@ -1351,10 +1535,16 @@ impl DesktopWrapper {
                                 current_index,
                                 include_detailed,
                                 original_step.and_then(|s| s.id.as_deref()),
+                                execution_context,
                             )
                             .await;
 
                         final_result = result.clone();
+
+                        // Update last_executed_process for window management
+                        if let Some(ref proc) = current_process {
+                            last_executed_process = Some(proc.clone());
+                        }
 
                         // NEW: Store tool result in env if step has an ID (for ALL tools, not just scripts)
                         if let Some(step_id) = original_step.and_then(|s| s.id.as_deref()) {
@@ -1764,6 +1954,21 @@ impl DesktopWrapper {
                             let mut substituted_args = step_tool_call.arguments.clone();
                             substitute_variables(&mut substituted_args, &execution_context);
 
+                            // Extract current process from arguments
+                            let current_process = substituted_args
+                                .get("process")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+
+                            // Create execution context for window management
+                            let tool_execution_context =
+                                Some(crate::utils::ToolExecutionContext::sequence_step(
+                                    args.url.clone().unwrap_or_default(),
+                                    current_index + 1, // 1-based for user display
+                                    total_steps,
+                                    last_executed_process.clone(),
+                                ));
+
                             let (result, error_occurred) = self
                                 .execute_single_tool(
                                     peer.clone(),
@@ -1774,10 +1979,16 @@ impl DesktopWrapper {
                                     step_index,
                                     include_detailed,
                                     step_tool_call.id.as_deref(), // Use step ID if available
+                                    tool_execution_context,
                                 )
                                 .await;
 
                             group_results.push(result.clone());
+
+                            // Update last_executed_process for window management
+                            if let Some(ref proc) = current_process {
+                                last_executed_process = Some(proc.clone());
+                            }
 
                             if let Some(delay_ms) = step_tool_call.delay_ms {
                                 if delay_ms > 0 {
@@ -2046,12 +2257,15 @@ impl DesktopWrapper {
             "failed"
         };
         info!(
-            "execute_sequence completed: status={}, executed_tools={}, total_results={}, total_duration_ms={}, cancelled={}",
-            final_status,
-            actually_executed_count,
-            results.len(),
-            total_duration,
-            cancelled_by_user
+            log_source = %log_source,
+            execution_id = %execution_id_val,
+            trace_id = %trace_id_val,
+            status = %final_status,
+            executed_tools = %actually_executed_count,
+            total_results = %results.len(),
+            total_duration_ms = %total_duration,
+            cancelled = %cancelled_by_user,
+            "execute_sequence completed"
         );
 
         let mut summary = json!({
@@ -2162,6 +2376,19 @@ impl DesktopWrapper {
         );
         workflow_span.end();
 
+        // Restore windows after sequence completion (success or failure)
+        // This ensures windows are restored even if sequence fails mid-execution
+        if window_mgmt_enabled {
+            if let Err(e) = self.window_manager.restore_all_windows().await {
+                tracing::warn!("Failed to restore windows after sequence: {}", e);
+            } else {
+                tracing::info!("Restored all windows to original state after sequence");
+            }
+            self.window_manager.clear_captured_state().await;
+        } else {
+            tracing::debug!("Window management disabled for sequence, skipping restore");
+        }
+
         Ok(CallToolResult::success(contents))
     }
 
@@ -2176,6 +2403,7 @@ impl DesktopWrapper {
         index: usize,
         include_detailed: bool,
         step_id: Option<&str>,
+        execution_context: Option<crate::utils::ToolExecutionContext>,
     ) -> (serde_json::Value, bool) {
         let tool_start_time = chrono::Utc::now();
         let tool_name_short = tool_name
@@ -2191,7 +2419,13 @@ impl DesktopWrapper {
 
         // The substitution is handled in `execute_sequence_impl`.
         let tool_result = self
-            .dispatch_tool(peer, request_context, tool_name_short, arguments)
+            .dispatch_tool(
+                peer,
+                request_context,
+                tool_name_short,
+                arguments,
+                execution_context,
+            )
             .await;
 
         let (processed_result, error_occurred) = match tool_result {
@@ -2338,75 +2572,124 @@ impl DesktopWrapper {
         &self,
         url: &str,
         args: ExecuteSequenceArgs,
+        execution_id: String,
     ) -> Result<CallToolResult, McpError> {
-        info!("Executing TypeScript workflow from URL: {}", url);
+        // Extract trace context for distributed tracing
+        let trace_id_val = args.trace_id.clone().unwrap_or_default();
+        let execution_id_val = args
+            .execution_id
+            .clone()
+            .unwrap_or_else(|| execution_id.clone());
 
-        // Load saved state if resuming
-        let restored_state = if args.start_from_step.is_some() {
-            Self::load_workflow_state(args.workflow_id.as_deref(), Some(url)).await?
-        } else {
-            None
-        };
+        // Create tracing span with execution context
+        // All nested logs (including from TypeScript workflow stderr) will inherit this context
+        let workflow_span = info_span!(
+            "execute_typescript_workflow",
+            trace_id = %trace_id_val,
+            execution_id = %execution_id_val,
+            log_source = "agent",
+            url = %url,
+        );
 
-        // Create TypeScript workflow executor
-        let ts_workflow = TypeScriptWorkflow::new(url)?;
+        // Log start with execution context for ClickHouse filtering
+        info!(
+            log_source = "agent",
+            execution_id = %execution_id_val,
+            trace_id = %trace_id_val,
+            url = %url,
+            "Starting TypeScript workflow execution [execution_id={}, trace_id={}]",
+            execution_id_val, trace_id_val
+        );
 
-        // Execute workflow
-        let result = ts_workflow
-            .execute(
-                args.inputs.unwrap_or(json!({})),
-                args.start_from_step.as_deref(),
-                args.end_at_step.as_deref(),
-                restored_state,
-            )
-            .await?;
+        // Execute within the span context so all nested logs inherit execution_id/trace_id
+        async move {
+            // Load saved state if resuming
+            let restored_state = if args.start_from_step.is_some() {
+                Self::load_workflow_state(args.workflow_id.as_deref(), Some(url)).await?
+            } else {
+                None
+            };
 
-        // Save state for resumption (only if last_step_index is provided by runner-based workflows)
-        if let (Some(ref last_step_id), Some(last_step_index)) =
-            (&result.result.last_step_id, result.result.last_step_index)
-        {
-            Self::save_workflow_state(
-                args.workflow_id.as_deref(),
-                Some(url),
-                Some(last_step_id),
-                last_step_index,
-                &result.state,
-            )
-            .await?;
-        }
+            // Create TypeScript workflow executor
+            let ts_workflow = TypeScriptWorkflow::new(url)?;
 
-        // Return result
-        let mut output = json!({
-            "status": result.result.status,
-            "message": result.result.message,
-            "data": result.result.data,
-            "metadata": result.metadata,
-            "state": result.state,
-            "last_step_id": result.result.last_step_id,
-            "last_step_index": result.result.last_step_index,
-        });
+            // Execute workflow
+            let result = ts_workflow
+                .execute(
+                    args.inputs.unwrap_or(json!({})),
+                    args.start_from_step.as_deref(),
+                    args.end_at_step.as_deref(),
+                    restored_state,
+                    Some(&execution_id_val),
+                )
+                .await?;
 
-        // If there's data from context.data, add it as parsed_output for CLI compatibility
-        if let Some(data) = &result.result.data {
-            if !data.is_null() {
-                if let Some(obj) = output.as_object_mut() {
-                    obj.insert(
-                        "parsed_output".to_string(),
-                        json!({
-                            "data": data
-                        }),
-                    );
+            // Save state for resumption (only if last_step_index is provided by runner-based workflows)
+            if let (Some(ref last_step_id), Some(last_step_index)) =
+                (&result.result.last_step_id, result.result.last_step_index)
+            {
+                Self::save_workflow_state(
+                    args.workflow_id.as_deref(),
+                    Some(url),
+                    Some(last_step_id),
+                    last_step_index,
+                    &result.state,
+                )
+                .await?;
+            }
+
+            // Return result
+            let mut output = json!({
+                "status": result.result.status,
+                "message": result.result.message,
+                "data": result.result.data,
+                "metadata": result.metadata,
+                "state": result.state,
+                "last_step_id": result.result.last_step_id,
+                "last_step_index": result.result.last_step_index,
+            });
+
+            // If there's data from context.data, add it as parsed_output for CLI compatibility
+            if let Some(data) = &result.result.data {
+                if !data.is_null() {
+                    if let Some(obj) = output.as_object_mut() {
+                        obj.insert(
+                            "parsed_output".to_string(),
+                            json!({
+                                "data": data
+                            }),
+                        );
+                    }
                 }
             }
-        }
 
-        Ok(CallToolResult {
-            content: vec![Content::text(
-                serde_json::to_string_pretty(&output).unwrap(),
-            )],
-            is_error: Some(result.result.status != "success"),
-            meta: None,
-            structured_content: None,
-        })
+            // Restore windows after TypeScript workflow completion (success or failure)
+            let window_mgmt_enabled = args.window_mgmt.enable_window_management.unwrap_or(true);
+            if window_mgmt_enabled {
+                if let Err(e) = self.window_manager.restore_all_windows().await {
+                    tracing::warn!("Failed to restore windows after TypeScript workflow: {}", e);
+                } else {
+                    tracing::info!(
+                        "Restored all windows to original state after TypeScript workflow"
+                    );
+                }
+                self.window_manager.clear_captured_state().await;
+            } else {
+                tracing::debug!(
+                    "Window management disabled for TypeScript workflow, skipping restore"
+                );
+            }
+
+            Ok(CallToolResult {
+                content: vec![Content::text(
+                    serde_json::to_string_pretty(&output).unwrap(),
+                )],
+                is_error: Some(result.result.status != "success"),
+                meta: None,
+                structured_content: None,
+            })
+        }
+        .instrument(workflow_span)
+        .await
     }
 }

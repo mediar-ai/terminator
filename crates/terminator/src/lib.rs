@@ -15,6 +15,7 @@ pub mod extension_bridge;
 pub mod health;
 pub mod locator;
 pub mod platforms;
+pub mod screenshot;
 pub mod selector;
 #[cfg(test)]
 mod tests;
@@ -22,9 +23,10 @@ pub mod tree_formatter;
 pub mod types;
 pub mod utils;
 
-pub use element::{SerializableUIElement, UIElement, UIElementAttributes};
+pub use element::{OcrElement, SerializableUIElement, UIElement, UIElementAttributes};
 pub use errors::AutomationError;
 pub use locator::Locator;
+pub use screenshot::ScreenshotResult;
 pub use selector::Selector;
 pub use tree_formatter::{format_tree_as_compact_yaml, format_ui_node_as_compact_yaml};
 pub use types::{FontStyle, HighlightHandle, TextPosition};
@@ -42,9 +44,22 @@ pub enum Browser {
     Custom(String),
 }
 
+/// Type of mouse click to perform
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ClickType {
+    /// Single left click (default)
+    Left,
+    /// Double left click
+    Double,
+    /// Single right click
+    Right,
+}
+
 #[cfg(target_os = "windows")]
 pub use platforms::windows::{
-    convert_uiautomation_element_to_terminator, get_process_name_by_pid, set_recording_mode,
+    convert_uiautomation_element_to_terminator, get_process_name_by_pid, hide_inspect_overlay,
+    set_recording_mode, show_inspect_overlay, InspectElement, InspectOverlayHandle,
+    OverlayDisplayMode,
 };
 
 // Define a new struct to hold click result information - move to module level
@@ -210,18 +225,7 @@ impl fmt::Debug for DebugNodeWithDepth<'_> {
     }
 }
 
-/// Holds the screenshot data
-#[derive(Debug, Clone)]
-pub struct ScreenshotResult {
-    /// Raw image data (e.g., RGBA)
-    pub image_data: Vec<u8>,
-    /// Width of the image
-    pub width: u32,
-    /// Height of the image
-    pub height: u32,
-    /// Monitor information if captured from a specific monitor
-    pub monitor: Option<Monitor>,
-}
+// Removed struct ScreenshotResult (moved to screenshot.rs)
 
 /// The main entry point for UI automation
 pub struct Desktop {
@@ -573,6 +577,38 @@ impl Desktop {
         screenshot: &ScreenshotResult,
     ) -> Result<String, AutomationError> {
         self.engine.ocr_screenshot(screenshot).await
+    }
+
+    /// OCR on screenshot with bounding boxes - returns structured OCR elements with absolute screen coordinates
+    /// Window coordinates are used to convert OCR bounding boxes to absolute screen positions
+    #[instrument(skip(self, screenshot))]
+    pub fn ocr_screenshot_with_bounds(
+        &self,
+        screenshot: &ScreenshotResult,
+        window_x: f64,
+        window_y: f64,
+    ) -> Result<OcrElement, AutomationError> {
+        self.engine
+            .ocr_screenshot_with_bounds(screenshot, window_x, window_y)
+    }
+
+    /// Click at absolute screen coordinates
+    /// This is useful for clicking on OCR-detected text elements
+    #[instrument(skip(self))]
+    pub fn click_at_coordinates(&self, x: f64, y: f64) -> Result<(), AutomationError> {
+        self.engine.click_at_coordinates(x, y)
+    }
+
+    /// Click at absolute screen coordinates with specified click type (left, double, right)
+    /// This is useful for clicking on OCR-detected text elements with different click types
+    #[instrument(skip(self))]
+    pub fn click_at_coordinates_with_type(
+        &self,
+        x: f64,
+        y: f64,
+        click_type: ClickType,
+    ) -> Result<(), AutomationError> {
+        self.engine.click_at_coordinates_with_type(x, y, click_type)
     }
 
     #[instrument(skip(self, title))]

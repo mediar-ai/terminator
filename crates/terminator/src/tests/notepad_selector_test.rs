@@ -21,8 +21,8 @@ async fn test_open_notepad_and_type() {
     // Wait for Notepad to fully load
     sleep(Duration::from_millis(1500)).await;
 
-    // Find Notepad window using AND selector
-    let window_selector = Selector::from("role:Window && name:Notepad");
+    // Find Notepad window using process with AND for additional filters
+    let window_selector = Selector::from("process:notepad && name:Notepad");
     let notepad_window = desktop
         .locator(window_selector)
         .first(Some(Duration::from_secs(5)))
@@ -82,7 +82,7 @@ async fn test_open_notepad_and_type() {
     sleep(Duration::from_millis(500)).await;
 
     // If "Save changes" dialog appears, press "Don't Save" (N key)
-    let dialog_selector = Selector::from("role:Window && name:Notepad");
+    let dialog_selector = Selector::from("process:notepad && name:Notepad");
     if desktop
         .locator(dialog_selector)
         .first(Some(Duration::from_millis(500)))
@@ -148,30 +148,40 @@ fn test_document_or_edit() {
 
 #[test]
 fn test_chain_with_window_selector() {
-    // Test the chain selector pattern: window >> element
-    let sel = Selector::from("role:Window && name:Notepad >> role:Document");
+    // Test the chain selector pattern: process >> (window && name) >> element
+    let sel = Selector::from("process:notepad >> (role:Window && name:Notepad) >> role:Document");
     match sel {
         Selector::Chain(parts) => {
-            assert_eq!(parts.len(), 2);
-            // First part should be AND (Window && name:Notepad)
+            assert_eq!(parts.len(), 3);
+            // First part should be Process
             match &parts[0] {
+                Selector::Process(process) => {
+                    assert_eq!(process, "notepad");
+                }
+                _ => panic!(
+                    "Expected Process selector in chain first part, got: {:?}",
+                    parts[0]
+                ),
+            }
+            // Second part should be And (Window && name:Notepad)
+            match &parts[1] {
                 Selector::And(v) => {
                     assert_eq!(v.len(), 2);
                 }
                 _ => panic!(
-                    "Expected And selector in chain first part, got: {:?}",
-                    parts[0]
+                    "Expected And selector in chain second part, got: {:?}",
+                    parts[1]
                 ),
             }
-            // Second part should be Role (Document)
-            match &parts[1] {
+            // Third part should be Role (Document)
+            match &parts[2] {
                 Selector::Role { role, name } => {
                     assert_eq!(role, "Document");
                     assert_eq!(*name, None);
                 }
                 _ => panic!(
-                    "Expected Role selector in chain second part, got: {:?}",
-                    parts[1]
+                    "Expected Role selector in chain third part, got: {:?}",
+                    parts[2]
                 ),
             }
         }

@@ -1261,16 +1261,31 @@ impl UIElementImpl for MacOSUIElement {
         })
     }
 
-    fn type_text(&self, text: &str, _use_clipboard: bool) -> Result<(), AutomationError> {
-        // First, try to focus the element, but continue even if focus fails for web inputs
-        match self.focus() {
-            Ok(_) => debug!("Successfully focused element for typing"),
-            Err(e) => {
-                debug!("Focus failed, but continuing with type_text: {:?}", e);
-                // Click the element, which is often needed for web inputs
-                if let Err(click_err) = self.click() {
-                    debug!("Click also failed: {:?}", click_err);
+    fn type_text(
+        &self,
+        text: &str,
+        _use_clipboard: bool,
+        try_focus_before: bool,
+        try_click_before: bool,
+    ) -> Result<(), AutomationError> {
+        // Attempt to focus/click before typing based on parameters
+        if try_focus_before {
+            match self.focus() {
+                Ok(_) => debug!("Successfully focused element for typing"),
+                Err(e) => {
+                    debug!("Focus failed: {:?}", e);
+                    if try_click_before {
+                        // Click the element as fallback, which is often needed for web inputs
+                        if let Err(click_err) = self.click() {
+                            debug!("Click also failed: {:?}", click_err);
+                        }
+                    }
                 }
+            }
+        } else if try_click_before {
+            // Skip focus, just click
+            if let Err(click_err) = self.click() {
+                debug!("Click failed: {:?}", click_err);
             }
         }
 
@@ -1334,23 +1349,49 @@ impl UIElementImpl for MacOSUIElement {
         Ok(())
     }
 
-    fn press_key(&self, key_combo: &str) -> Result<(), AutomationError> {
+    fn press_key(
+        &self,
+        key_combo: &str,
+        try_focus_before: bool,
+        try_click_before: bool,
+    ) -> Result<(), AutomationError> {
         debug!("Pressing key combination: {}", key_combo);
 
-        // Get element role and details for better error reporting
-        let element_role = self.role();
-        let element_label = self.attributes().label.unwrap_or_default();
+        // Attempt to focus/click before pressing key based on parameters
+        if try_focus_before {
+            // Get element role and details for better error reporting
+            let element_role = self.role();
+            let element_label = self.attributes().label.unwrap_or_default();
 
-        // First, try to focus the element - FAIL if focus fails
-        match self.focus() {
-            Ok(_) => debug!("successfully focused element for key press"),
-            Err(e) => {
-                let error_msg = format!(
-                    "key press aborted - failed to focus {} element '{}' before pressing '{}': {}",
-                    element_role, element_label, key_combo, e
-                );
-                debug!("{}", error_msg);
-                return Err(AutomationError::PlatformError(error_msg));
+            match self.focus() {
+                Ok(_) => debug!("Successfully focused element for key press"),
+                Err(e) => {
+                    debug!("Focus failed: {:?}", e);
+                    if try_click_before {
+                        // Try clicking as fallback
+                        if let Err(click_err) = self.click() {
+                            debug!("Click also failed: {:?}", click_err);
+                            // Still fail since macOS press_key needs focus
+                            let error_msg = format!(
+                                "key press aborted - failed to focus {} element '{}' before pressing '{}': {}",
+                                element_role, element_label, key_combo, e
+                            );
+                            return Err(AutomationError::PlatformError(error_msg));
+                        }
+                    } else {
+                        // No click fallback, fail
+                        let error_msg = format!(
+                            "key press aborted - failed to focus {} element '{}' before pressing '{}': {}",
+                            element_role, element_label, key_combo, e
+                        );
+                        return Err(AutomationError::PlatformError(error_msg));
+                    }
+                }
+            }
+        } else if try_click_before {
+            // Skip focus, just click
+            if let Err(click_err) = self.click() {
+                debug!("Click failed: {:?}", click_err);
             }
         }
 
@@ -4242,7 +4283,12 @@ impl AccessibilityEngine for MacOSEngine {
         self
     }
 
-    fn press_key(&self, _key: &str) -> Result<(), AutomationError> {
+    fn press_key(
+        &self,
+        _key: &str,
+        _try_focus_before: bool,
+        _try_click_before: bool,
+    ) -> Result<(), AutomationError> {
         Err(AutomationError::UnsupportedOperation(
             "press_key is not implemented for MacOSEngine yet".to_string(),
         ))

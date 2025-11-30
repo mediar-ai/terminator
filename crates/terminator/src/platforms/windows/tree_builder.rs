@@ -24,6 +24,7 @@ pub(crate) struct TreeBuildingContext {
     pub(crate) fallback_calls: usize,
     pub(crate) errors_encountered: usize,
     pub(crate) application_name: Option<String>, // Cached application name for all nodes in tree
+    pub(crate) include_all_bounds: bool, // Include bounds for all elements (not just focusable)
 }
 
 impl TreeBuildingContext {
@@ -87,8 +88,11 @@ pub(crate) fn build_ui_node_tree_configurable(
         }
 
         // Get element attributes with configurable property loading
-        let mut attributes =
-            get_configurable_attributes(&work_item.element, &context.property_mode);
+        let mut attributes = get_configurable_attributes(
+            &work_item.element,
+            &context.property_mode,
+            context.include_all_bounds,
+        );
 
         // Populate application_name from context if available
         if attributes.application_name.is_none() && context.application_name.is_some() {
@@ -185,6 +189,7 @@ pub(crate) fn build_ui_node_tree_configurable(
 fn get_configurable_attributes(
     element: &UIElement,
     property_mode: &crate::platforms::PropertyLoadingMode,
+    include_all_bounds: bool,
 ) -> UIElementAttributes {
     let mut attrs = match property_mode {
         crate::platforms::PropertyLoadingMode::Fast => {
@@ -205,8 +210,18 @@ fn get_configurable_attributes(
     if let Ok(is_focusable) = element.is_keyboard_focusable() {
         if is_focusable {
             attrs.is_keyboard_focusable = Some(true);
-            // Only add bounds for keyboard-focusable elements
+            // Add bounds for keyboard-focusable elements
             if let Ok(bounds) = element.bounds() {
+                attrs.bounds = Some(bounds);
+            }
+        }
+    }
+
+    // If include_all_bounds is set, get bounds for ALL elements (for inspect overlay)
+    if include_all_bounds && attrs.bounds.is_none() {
+        if let Ok(bounds) = element.bounds() {
+            // Only include if bounds are valid (non-zero size)
+            if bounds.2 > 0.0 && bounds.3 > 0.0 {
                 attrs.bounds = Some(bounds);
             }
         }

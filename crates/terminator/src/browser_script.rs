@@ -53,7 +53,8 @@ pub async fn execute_script(
         }
         if !connected {
             // Don't proceed if not connected - return error immediately
-            error!("Extension client failed to connect after 30 seconds of waiting");
+            // Use warn! since this is expected when extension is not installed
+            warn!("Extension client failed to connect after 30 seconds of waiting");
             if let Some(prev) = previously_focused {
                 let _ = prev.activate_window();
             }
@@ -157,6 +158,10 @@ pub async fn execute_script(
                 }
 
                 // If no errors detected, return the result as success
+                info!(
+                    "[browser_script] Returning successful result, len={}",
+                    result.len()
+                );
                 return Ok(result);
             }
             Ok(None) => {
@@ -186,7 +191,8 @@ pub async fn execute_script(
     }
 
     // All retries failed, return the last error
-    error!("All browser script execution attempts failed");
+    // Use warn! since this often indicates missing extension rather than a code bug
+    warn!("All browser script execution attempts failed");
     if let Some(prev) = previously_focused {
         let _ = prev.activate_window();
     }

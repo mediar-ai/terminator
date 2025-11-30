@@ -126,10 +126,10 @@ impl From<&UIElement> for SerializableUIElement {
 
         // Get process_id and derive process_name
         let process_id = element.process_id().ok();
-        let process_name = process_id.and_then(|pid| {
+        let process_name = process_id.and_then(|_pid| {
             #[cfg(target_os = "windows")]
             {
-                crate::platforms::windows::get_process_name_by_pid(pid as i32).ok()
+                crate::platforms::windows::get_process_name_by_pid(_pid as i32).ok()
             }
             #[cfg(not(target_os = "windows"))]
             {
@@ -228,6 +228,81 @@ fn is_false_bool(opt: &Option<bool>) -> bool {
 
 fn is_empty_properties(props: &HashMap<String, Option<serde_json::Value>>) -> bool {
     props.is_empty() || props.values().all(|v| v.is_none())
+}
+
+/// Serializable OCR element for representing text detected via optical character recognition.
+/// Mirrors the structure of SerializableUIElement for consistent tree formatting.
+///
+/// Hierarchy: OcrResult -> OcrLine -> OcrWord
+/// - OcrResult: Root element containing all recognized text and rotation angle
+/// - OcrLine: A line of text containing multiple words
+/// - OcrWord: Individual word with precise bounding box
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OcrElement {
+    /// Role type: "OcrResult", "OcrLine", or "OcrWord"
+    pub role: String,
+    /// The recognized text content
+    #[serde(skip_serializing_if = "is_empty_string")]
+    pub text: Option<String>,
+    /// Bounding box as (x, y, width, height) in absolute screen coordinates
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bounds: Option<(f64, f64, f64, f64)>,
+    /// Text rotation angle in degrees (only present on OcrResult)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_angle: Option<f64>,
+    /// Confidence score (0.0 to 1.0) if available
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f64>,
+    /// Child elements (lines for OcrResult, words for OcrLine)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<OcrElement>>,
+}
+
+impl OcrElement {
+    /// Create a new OcrResult (root element)
+    pub fn new_result(text: String, text_angle: Option<f64>, lines: Vec<OcrElement>) -> Self {
+        Self {
+            role: "OcrResult".to_string(),
+            text: Some(text),
+            bounds: None,
+            text_angle,
+            confidence: None,
+            children: if lines.is_empty() { None } else { Some(lines) },
+        }
+    }
+
+    /// Create a new OcrLine
+    pub fn new_line(
+        text: String,
+        bounds: Option<(f64, f64, f64, f64)>,
+        words: Vec<OcrElement>,
+    ) -> Self {
+        Self {
+            role: "OcrLine".to_string(),
+            text: Some(text),
+            bounds,
+            text_angle: None,
+            confidence: None,
+            children: if words.is_empty() { None } else { Some(words) },
+        }
+    }
+
+    /// Create a new OcrWord
+    pub fn new_word(text: String, bounds: (f64, f64, f64, f64), confidence: Option<f64>) -> Self {
+        Self {
+            role: "OcrWord".to_string(),
+            text: Some(text),
+            bounds: Some(bounds),
+            text_angle: None,
+            confidence,
+            children: None,
+        }
+    }
+
+    /// Get display name for tree formatting
+    pub fn display_name(&self) -> String {
+        self.text.clone().unwrap_or_default()
+    }
 }
 
 /// Attributes associated with a UI element
@@ -373,20 +448,35 @@ pub trait UIElementImpl: Send + Sync + Debug {
     fn hover(&self) -> Result<(), AutomationError>;
     fn focus(&self) -> Result<(), AutomationError>;
     fn invoke(&self) -> Result<(), AutomationError>;
-    fn type_text(&self, text: &str, use_clipboard: bool) -> Result<(), AutomationError>;
-    fn press_key(&self, key: &str) -> Result<(), AutomationError>;
+    fn type_text(
+        &self,
+        text: &str,
+        use_clipboard: bool,
+        try_focus_before: bool,
+        try_click_before: bool,
+    ) -> Result<(), AutomationError>;
+    fn press_key(
+        &self,
+        key: &str,
+        try_focus_before: bool,
+        try_click_before: bool,
+    ) -> Result<(), AutomationError>;
 
     fn type_text_with_state(
         &self,
         text: &str,
         use_clipboard: bool,
+        try_focus_before: bool,
+        try_click_before: bool,
     ) -> Result<crate::ActionResult, AutomationError> {
         // Default implementation - platforms can override for state tracking
-        self.type_text(text, use_clipboard)?;
+        self.type_text(text, use_clipboard, try_focus_before, try_click_before)?;
         Ok(crate::ActionResult {
             action: "type_text".to_string(),
             details: "No state tracking available".to_string(),
-            data: Some(serde_json::json!({"text": text, "use_clipboard": use_clipboard})),
+            data: Some(
+                serde_json::json!({"text": text, "use_clipboard": use_clipboard, "try_focus_before": try_focus_before, "try_click_before": try_click_before}),
+            ),
         })
     }
 
@@ -401,13 +491,20 @@ pub trait UIElementImpl: Send + Sync + Debug {
         })
     }
 
-    fn press_key_with_state(&self, key: &str) -> Result<crate::ActionResult, AutomationError> {
+    fn press_key_with_state(
+        &self,
+        key: &str,
+        try_focus_before: bool,
+        try_click_before: bool,
+    ) -> Result<crate::ActionResult, AutomationError> {
         // Default implementation - platforms can override for state tracking
-        self.press_key(key)?;
+        self.press_key(key, try_focus_before, try_click_before)?;
         Ok(crate::ActionResult {
             action: "press_key".to_string(),
             details: "No state tracking available".to_string(),
-            data: Some(serde_json::json!({"key": key})),
+            data: Some(
+                serde_json::json!({"key": key, "try_focus_before": try_focus_before, "try_click_before": try_click_before}),
+            ),
         })
     }
     fn get_text(&self, max_depth: usize) -> Result<String, AutomationError>;
@@ -442,6 +539,15 @@ pub trait UIElementImpl: Send + Sync + Debug {
 
     // New method to maximize the window containing the element
     fn maximize_window(&self) -> Result<(), AutomationError>;
+
+    /// Maximize window using keyboard simulation (Win+Up) - for UWP apps
+    fn maximize_window_keyboard(&self) -> Result<(), AutomationError>;
+
+    /// Minimize window using keyboard simulation (Win+Down) - for UWP apps
+    fn minimize_window_keyboard(&self) -> Result<(), AutomationError>;
+
+    /// Get native window handle (HWND on Windows)
+    fn get_native_window_handle(&self) -> Result<isize, AutomationError>;
 
     // Add a method to clone the box
     fn clone_box(&self) -> Box<dyn UIElementImpl>;
@@ -805,7 +911,8 @@ impl UIElement {
 
     /// Type text into this element
     pub fn type_text(&self, text: &str, use_clipboard: bool) -> Result<(), AutomationError> {
-        self.inner.type_text(text, use_clipboard)
+        // Default: try both focus and click
+        self.inner.type_text(text, use_clipboard, true, true)
     }
 
     /// Type text with state tracking
@@ -815,18 +922,47 @@ impl UIElement {
         text: &str,
         use_clipboard: bool,
     ) -> Result<crate::ActionResult, AutomationError> {
-        self.inner.type_text_with_state(text, use_clipboard)
+        // Default: try both focus and click
+        self.inner
+            .type_text_with_state(text, use_clipboard, true, true)
+    }
+
+    /// Type text with state tracking and custom focus/click behavior
+    #[instrument(level = "debug", skip(self))]
+    pub fn type_text_with_state_and_focus(
+        &self,
+        text: &str,
+        use_clipboard: bool,
+        try_focus_before: bool,
+        try_click_before: bool,
+    ) -> Result<crate::ActionResult, AutomationError> {
+        self.inner
+            .type_text_with_state(text, use_clipboard, try_focus_before, try_click_before)
     }
 
     /// Press a key while this element is focused
     pub fn press_key(&self, key: &str) -> Result<(), AutomationError> {
-        self.inner.press_key(key)
+        // Default: try both focus and click
+        self.inner.press_key(key, true, true)
     }
 
     /// Press a key with state tracking
     #[instrument(level = "debug", skip(self))]
     pub fn press_key_with_state(&self, key: &str) -> Result<crate::ActionResult, AutomationError> {
-        self.inner.press_key_with_state(key)
+        // Default: try both focus and click
+        self.inner.press_key_with_state(key, true, true)
+    }
+
+    /// Press a key with state tracking and custom focus/click behavior
+    #[instrument(level = "debug", skip(self))]
+    pub fn press_key_with_state_and_focus(
+        &self,
+        key: &str,
+        try_focus_before: bool,
+        try_click_before: bool,
+    ) -> Result<crate::ActionResult, AutomationError> {
+        self.inner
+            .press_key_with_state(key, try_focus_before, try_click_before)
     }
 
     /// Get text content of this element
@@ -902,6 +1038,23 @@ impl UIElement {
 
     pub fn maximize_window(&self) -> Result<(), AutomationError> {
         self.inner.maximize_window()
+    }
+
+    /// Maximize window using keyboard simulation (Win+Up)
+    /// Use this for UWP apps where ShowWindow does not work
+    pub fn maximize_window_keyboard(&self) -> Result<(), AutomationError> {
+        self.inner.maximize_window_keyboard()
+    }
+
+    /// Minimize window using keyboard simulation (Win+Down)
+    /// Use this for UWP apps where ShowWindow does not work
+    pub fn minimize_window_keyboard(&self) -> Result<(), AutomationError> {
+        self.inner.minimize_window_keyboard()
+    }
+
+    /// Get native window handle (HWND on Windows)
+    pub fn get_native_window_handle(&self) -> Result<isize, AutomationError> {
+        self.inner.get_native_window_handle()
     }
 
     /// Get the element's name

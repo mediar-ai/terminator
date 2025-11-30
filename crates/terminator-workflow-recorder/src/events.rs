@@ -267,6 +267,10 @@ pub struct HotkeyEvent {
     /// Whether this was a global or application-specific hotkey
     pub is_global: bool,
 
+    /// Process executable name (e.g., "chrome.exe", "Notepad.exe")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_name: Option<String>,
+
     /// Event metadata (UI element, application, etc.)
     pub metadata: EventMetadata,
 }
@@ -317,6 +321,10 @@ pub struct ClickEvent {
     /// Useful for clicking within large elements like table rows
     #[serde(skip_serializing_if = "Option::is_none")]
     pub relative_position: Option<(f32, f32)>,
+
+    /// Process executable name (e.g., "chrome.exe", "Notepad.exe")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_name: Option<String>,
 
     /// Event metadata with UI element context
     pub metadata: EventMetadata,
@@ -571,7 +579,7 @@ impl UIElementInfo {
 
         // Generate basic selector for this parent element
         let selector = match &name {
-            Some(n) if !n.is_empty() => format!("role:{role}|name:{n}"),
+            Some(n) if !n.is_empty() => format!("role:{role} && text:{n}"),
             _ => format!("role:{role}"),
         };
 
@@ -616,7 +624,7 @@ pub fn build_parent_hierarchy(element: &UIElement) -> Vec<UIElementInfo> {
 }
 
 /// Build chained selector from parent hierarchy and target element
-/// Returns selector like: role:Window|name:contains:Chrome >> role:Pane >> role:Button|name:contains:Submit
+/// Returns selector like: role:Window && text:Chrome >> role:Pane >> role:Button && text:Submit
 /// Uses only named parents (unnamed parents are already filtered by build_parent_hierarchy)
 pub fn build_chained_selector(
     parent_hierarchy: &[UIElementInfo],
@@ -632,8 +640,8 @@ pub fn build_chained_selector(
     for parent in parent_hierarchy {
         let selector = if let Some(ref name) = parent.name {
             if !name.is_empty() {
-                // Use contains for more flexible matching
-                format!("role:{}|name:contains:{}", parent.role, name)
+                // text: does case-sensitive substring matching by default
+                format!("role:{} && text:{}", parent.role, name)
             } else {
                 format!("role:{}", parent.role)
             }
@@ -648,7 +656,7 @@ pub fn build_chained_selector(
     let target_name = target_element.name().unwrap_or_default();
 
     let target_selector = if !target_name.is_empty() {
-        format!("role:{target_role}|name:contains:{target_name}")
+        format!("role:{target_role} && text:{target_name}")
     } else {
         format!("role:{target_role}")
     };
@@ -665,7 +673,7 @@ pub struct EnhancedUIElement {
     pub ui_element: UIElement,
     /// Generated selector options for MCP tools
     pub suggested_selectors: Vec<String>,
-    /// Chained selector from parent hierarchy to target element (e.g., "role:Window|name:contains:Chrome >> role:Pane >> role:Button|name:contains:Submit")
+    /// Chained selector from parent hierarchy to target element (e.g., "role:Window && text:Chrome >> role:Pane >> role:Button && text:Submit")
     pub chained_selector: Option<String>,
     /// Interaction context analysis
     pub interaction_context: InteractionContext,
@@ -851,6 +859,9 @@ pub struct TextInputCompletedEvent {
     pub typing_duration_ms: u64,
     /// Number of individual keystroke events that contributed to this input
     pub keystroke_count: u32,
+    /// Process executable name (e.g., "chrome.exe", "Notepad.exe")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_name: Option<String>,
     /// Event metadata with UI element context
     pub metadata: EventMetadata,
 }
@@ -1359,6 +1370,8 @@ pub struct SerializableHotkeyEvent {
     #[serde(skip_serializing_if = "is_empty_string")]
     pub action: Option<String>,
     pub is_global: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_name: Option<String>,
     pub metadata: SerializableEventMetadata,
 }
 
@@ -1368,6 +1381,7 @@ impl From<&HotkeyEvent> for SerializableHotkeyEvent {
             combination: event.combination.clone(),
             action: event.action.clone(),
             is_global: event.is_global,
+            process_name: event.process_name.clone(),
             metadata: (&event.metadata).into(),
         }
     }
@@ -1384,6 +1398,8 @@ pub struct SerializableTextInputCompletedEvent {
     pub focus_method: FieldFocusMethod,
     pub typing_duration_ms: u64,
     pub keystroke_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_name: Option<String>,
     pub metadata: SerializableEventMetadata,
 }
 
@@ -1397,6 +1413,7 @@ impl From<&TextInputCompletedEvent> for SerializableTextInputCompletedEvent {
             focus_method: event.focus_method.clone(),
             typing_duration_ms: event.typing_duration_ms,
             keystroke_count: event.keystroke_count,
+            process_name: event.process_name.clone(),
             metadata: (&event.metadata).into(),
         }
     }
@@ -1498,6 +1515,8 @@ pub struct SerializableClickEvent {
     pub child_text_content: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub relative_position: Option<(f32, f32)>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_name: Option<String>,
     pub metadata: SerializableEventMetadata,
 }
 
@@ -1512,6 +1531,7 @@ impl From<&ClickEvent> for SerializableClickEvent {
             element_description: event.element_description.clone(),
             child_text_content: event.child_text_content.clone(),
             relative_position: event.relative_position,
+            process_name: event.process_name.clone(),
             metadata: (&event.metadata).into(),
         }
     }

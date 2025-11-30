@@ -134,7 +134,7 @@ class NetronlineHighlightTest {
       duration_ms: 3000,      // 3 seconds
       text: 'Target',         // Overlay text
       text_position: 'TopRight',
-      include_tree: false,
+      include_tree_after_action: false,
       timeout_ms: 20000
     });
     NetronlineHighlightTest.printContentAsJson(highlightContent, 'highlight_element');

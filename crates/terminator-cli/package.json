@@ -1,0 +1,31 @@
+{
+  "bin": {
+    "terminator": "index.js",
+    "terminator-cli": "index.js"
+  },
+  "description": "Cross-platform CLI tool for managing the Terminator project",
+  "engines": {
+    "node": ">= 10"
+  },
+  "files": [
+    "index.js"
+  ],
+  "name": "@mediar-ai/cli",
+  "optionalDependencies": {
+    "@mediar-ai/cli-darwin-arm64": "0.23.30",
+    "@mediar-ai/cli-darwin-x64": "0.23.30",
+    "@mediar-ai/cli-linux-x64-gnu": "0.23.30",
+    "@mediar-ai/cli-win32-arm64-msvc": "0.23.30",
+    "@mediar-ai/cli-win32-x64-msvc": "0.23.30"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mediar-ai/terminator"
+  },
+  "scripts": {
+    "build": "node ./utils/build-cli.js --release",
+    "build:debug": "node ./utils/build-cli.js --debug",
+    "sync-version": "node ./utils/sync-version.js"
+  },
+  "version": "0.23.30"
+}

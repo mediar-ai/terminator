@@ -111,7 +111,7 @@ steps:
       url: "https://example.com"
   - tool_name: click_element
     arguments:
-      selector: "role:Button|name:Submit"
+      selector: "role:Button && name:Submit"
 stop_on_error: true
 include_detailed_results: true
 ```
@@ -123,7 +123,7 @@ steps:
   - tool_name: validate_element
     id: check_logged_in
     arguments:
-      selector: "role:button|name:Logout"
+      selector: "role:Button && name:Logout"
     jumps:
       - if: "check_logged_in_status == 'success'"
         to_id: main_app
@@ -132,13 +132,13 @@ steps:
   - tool_name: click_element
     id: login_flow
     arguments:
-      selector: "role:button|name:Login"
+      selector: "role:Button && name:Login"
   # ... more login steps ...
 
   - tool_name: click_element
     id: main_app
     arguments:
-      selector: "role:button|name:Dashboard"
+      selector: "role:Button && name:Dashboard"
 ```
 
 Tool call wrapper format (`workflow.json`):
@@ -453,7 +453,7 @@ The virtual display manager creates a memory-based display context that satisfie
 
 - Use specific selectors instead of broad element searches
 - Implement delays between rapid operations
-- Consider using `include_tree: false` for intermediate steps
+- Consider using `include_tree_after_action: false` for intermediate steps
 - For tree extraction tools, optimize with:
   - `tree_max_depth: 30` - Limit depth for large trees
   - `tree_from_selector: "role:List"` - Get subtree from specific element
@@ -506,10 +506,10 @@ For additional help, see the [Terminator CLI documentation](../terminator-cli/RE
     },
     "selectors": {
       // 3️⃣ Human-readable element shortcuts
-      "calc_window": "role:Window|name:Calculator",
-      "btn_clear": "role:Button|name:Clear",
-      "btn_plus": "role:Button|name:Plus",
-      "btn_equals": "role:Button|name:Equals"
+      "calc_window": "role:Window && name:Calculator",
+      "btn_clear": "role:Button && name:Clear",
+      "btn_plus": "role:Button && name:Plus",
+      "btn_equals": "role:Button && name:Equals"
     },
     "steps": [
       // 4️⃣ Ordered actions & control flow
@@ -639,7 +639,7 @@ steps:
   - id: check_apps
     tool_name: get_applications
     arguments:
-      include_tree: false
+      include_tree_after_action: false
 
   # Access the result in JavaScript
   - tool_name: run_command
@@ -662,7 +662,7 @@ steps:
 - tool_name: get_window_tree
   arguments:
     pid: 1234
-    include_tree: true  # Simple boolean form
+    include_tree_after_action: true  # Simple boolean form
       run: |
         // Direct variable access - auto-injected!
         const apps = check_apps_result || [];
@@ -736,7 +736,7 @@ steps:
   - id: check_button
     tool_name: validate_element
     arguments:
-      selector: "role:Button|name:Submit"
+      selector: "role:Button && name:Submit"
 
   # Use both results in script
   - tool_name: run_command

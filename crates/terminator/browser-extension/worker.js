@@ -25,6 +25,87 @@ function log(...args) {
   console.log("[TerminatorBridge]", ...args);
 }
 
+// === LIFECYCLE & HEARTBEAT LOGGING ===
+const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const MAX_LOG_ENTRIES = 100;
+let lastInstallReason = null;
+let lastPreviousVersion = null;
+
+// Log extension lifecycle events to persistent storage
+async function logLifecycleEvent(event, details = {}) {
+  try {
+    const entry = {
+      timestamp: new Date().toISOString(),
+      event,
+      extensionId: chrome.runtime.id,
+      version: chrome.runtime.getManifest().version,
+      ...details
+    };
+
+    // Get existing log
+    const data = await chrome.storage.local.get('terminatorLog');
+    const logs = data.terminatorLog || [];
+
+    // Add new entry, trim old ones
+    logs.push(entry);
+    if (logs.length > MAX_LOG_ENTRIES) {
+      logs.splice(0, logs.length - MAX_LOG_ENTRIES);
+    }
+
+    await chrome.storage.local.set({
+      terminatorLog: logs,
+      lastHeartbeat: entry.timestamp
+    });
+
+    log(`[Lifecycle] ${event}:`, entry);
+  } catch (e) {
+    console.error('[TerminatorBridge] Failed to log lifecycle event:', e);
+  }
+}
+
+// Get extension health info for reporting to Rust backend
+async function getExtensionHealth() {
+  try {
+    const data = await chrome.storage.local.get(['terminatorLog', 'lastHeartbeat']);
+    return {
+      type: 'extension_health',
+      extension_id: chrome.runtime.id,
+      version: chrome.runtime.getManifest().version,
+      last_heartbeat: data.lastHeartbeat || null,
+      recent_logs: (data.terminatorLog || []).slice(-10),
+      install_reason: lastInstallReason,
+      previous_version: lastPreviousVersion
+    };
+  } catch (e) {
+    console.error('[TerminatorBridge] Failed to get extension health:', e);
+    return {
+      type: 'extension_health',
+      extension_id: chrome.runtime.id,
+      version: chrome.runtime.getManifest().version,
+      error: String(e)
+    };
+  }
+}
+
+// Lifecycle event handlers
+chrome.runtime.onInstalled.addListener((details) => {
+  lastInstallReason = details.reason;
+  lastPreviousVersion = details.previousVersion || null;
+  logLifecycleEvent('installed', { reason: details.reason, previousVersion: details.previousVersion });
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  logLifecycleEvent('startup');
+});
+
+// Periodic heartbeat
+setInterval(() => {
+  logLifecycleEvent('heartbeat');
+}, HEARTBEAT_INTERVAL_MS);
+
+// Initial heartbeat on service worker load
+logLifecycleEvent('service_worker_started');
+
 // Exponential backoff to reduce repeated connection error spam
 const BASE_RECONNECT_DELAY_MS = 500; // faster initial retry
 const MAX_RECONNECT_DELAY_MS = 3000; // cap retries to 3s to align with host waiting
@@ -103,6 +184,11 @@ function connect() {
       log("Received reset command");
       await forceResetDebuggerState();
       safeSend({ type: "reset_complete", ok: true });
+    } else if (msg.action === "get_extension_health") {
+      // Return extension health info for logging on Rust side
+      log("Received get_extension_health request");
+      const health = await getExtensionHealth();
+      safeSend(health);
     } else if (msg.action === "capture_element_at_point") {
       // New action for recording DOM elements
       const { id, x, y } = msg;

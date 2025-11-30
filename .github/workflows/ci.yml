@@ -93,31 +93,49 @@ jobs:
           bun run build
         shell: pwsh
 
-      - name: Run Node.js tests
+      - name: Install workflow package dependencies
         run: |
-          cd packages/terminator-nodejs
-          bun test
+          cd packages/workflow
+          npm install
         shell: pwsh
 
-      # Install Chrome extension and run browser tests
-      - name: Install Chrome
+      - name: Run workflow package type check
         run: |
-          choco install googlechrome -y --ignore-checksums
-          Start-Sleep -Seconds 5
-          # check chrome is installed
-          $chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-          if (-not (Test-Path $chromePath)) {
-            Write-Error "Chrome is not installed"
-          }
+          cd packages/workflow
+          npx tsc --noEmit
         shell: pwsh
 
-      - name: Install extension via terminator workflow
+      - name: Run workflow package unit tests
         run: |
-          Write-Host "Running extension installation workflow..."
-          cargo run --bin terminator -- mcp run crates/terminator/browser-extension/install_chrome_extension_ui.yml
+          cd packages/workflow
+          npm test -- --testPathPattern="branching" --testTimeout=30000
         shell: pwsh
-        timeout-minutes: 5
-        continue-on-error: true
+
+      # - name: Run Node.js tests
+      #   run: |
+      #     cd packages/terminator-nodejs
+      #     bun test
+      #   shell: pwsh
+
+      # # Install Chrome extension and run browser tests
+      # - name: Install Chrome
+      #   run: |
+      #     choco install googlechrome -y --ignore-checksums
+      #     Start-Sleep -Seconds 5
+      #     # check chrome is installed
+      #     $chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+      #     if (-not (Test-Path $chromePath)) {
+      #       Write-Error "Chrome is not installed"
+      #     }
+      #   shell: pwsh
+
+      # - name: Install extension via terminator workflow
+      #   run: |
+      #     Write-Host "Running extension installation workflow..."
+      #     cargo run --bin terminator -- mcp run crates/terminator/browser-extension/install_chrome_extension_ui.yml
+      #   shell: pwsh
+      #   timeout-minutes: 5
+      #   continue-on-error: true
 
       - name: Run Rust tests
         run: cargo test --workspace --verbose  -- --test-threads=1

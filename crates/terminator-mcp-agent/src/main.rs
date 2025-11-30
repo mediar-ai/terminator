@@ -368,6 +368,8 @@ async fn main() -> Result<()> {
                 }
             };
 
+            // Background window polling service removed - we capture explicitly on step 0 instead
+
             // Serve with better error handling
             let service = desktop.serve(stdio()).await.inspect_err(|e| {
                 tracing::error!("Serving error: {:?}", e);
@@ -413,6 +415,9 @@ async fn main() -> Result<()> {
             }
 
             let desktop = server::DesktopWrapper::new_with_log_capture(log_capture.clone())?;
+
+            // Background window polling service removed - we capture explicitly on step 0 instead
+
             let ct = SseServer::serve(addr)
                 .await?
                 .with_service(move || desktop.clone());
@@ -738,6 +743,7 @@ async fn health_check() -> impl axum::response::IntoResponse {
         "status": "healthy",
         "message": "MCP server process is alive and responding",
         "timestamp": chrono::Utc::now().to_rfc3339(),
+        "version": env!("CARGO_PKG_VERSION"),
         "endpoints": {
             "/health": "Liveness check (this endpoint)",
             "/ready": "Readiness check with full UIAutomation validation",

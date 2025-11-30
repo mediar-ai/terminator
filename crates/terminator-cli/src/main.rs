@@ -29,7 +29,6 @@ use tokio::sync::Mutex;
 
 mod commands;
 mod mcp_client;
-mod telemetry_receiver;
 mod typescript_workflow;
 mod workflow_result;
 mod workflow_validator;
@@ -508,11 +507,17 @@ fn sync_all_versions() {
     // Sync MCP agent
     sync_mcp_agent(&workspace_version);
 
+    // Sync CLI package
+    sync_cli(&workspace_version);
+
     // Sync Browser Extension
     sync_browser_extension(&workspace_version);
 
     // Sync Workflow Package
     sync_workflow_package(&workspace_version);
+
+    // Sync KV Package
+    sync_kv_package(&workspace_version);
 
     // Update Cargo.lock
     println!("🔒 Updating Cargo.lock...");
@@ -657,6 +662,48 @@ fn sync_mcp_agent(version: &str) {
     println!("✅ MCP agent synced");
 }
 
+fn sync_cli(version: &str) {
+    println!("📦 Syncing CLI package...");
+
+    let cli_dir = Path::new("crates/terminator-cli");
+    if !cli_dir.exists() {
+        return;
+    }
+
+    // Update main package.json
+    if let Err(e) = update_package_json("crates/terminator-cli/package.json", version) {
+        eprintln!("⚠️  Warning: Failed to update CLI package.json: {e}");
+        return;
+    }
+
+    // Update platform packages
+    let npm_dir = cli_dir.join("npm");
+    if npm_dir.exists() {
+        if let Ok(entries) = fs::read_dir(npm_dir) {
+            for entry in entries.flatten() {
+                if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                    let package_json = entry.path().join("package.json");
+                    if package_json.exists() {
+                        if let Err(e) =
+                            update_package_json(&package_json.to_string_lossy(), version)
+                        {
+                            eprintln!(
+                                "⚠️  Warning: Failed to update {}: {}",
+                                entry.path().display(),
+                                e
+                            );
+                        } else {
+                            println!("📦 Updated {}", entry.file_name().to_string_lossy());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    println!("✅ CLI package synced");
+}
+
 fn sync_browser_extension(version: &str) {
     println!("📦 Syncing browser extension to version {version}...");
 
@@ -712,6 +759,25 @@ fn sync_workflow_package(version: &str) {
     }
 }
 
+fn sync_kv_package(version: &str) {
+    println!("📦 Syncing KV package to version {version}...");
+
+    let kv_dir = Path::new("packages/kv");
+    if !kv_dir.exists() {
+        println!("⚠️  KV package directory not found, skipping");
+        return;
+    }
+
+    let package_json = kv_dir.join("package.json");
+    if package_json.exists() {
+        if let Err(e) = update_package_json(&package_json.to_string_lossy(), version) {
+            eprintln!("⚠️  Warning: Failed to update KV package.json: {e}");
+        } else {
+            println!("✅ KV package synced to {version}");
+        }
+    }
+}
+
 fn update_package_json(path: &str, version: &str) -> Result<(), Box<dyn std::error::Error>> {
     let content = fs::read_to_string(path)?;
     let mut pkg: serde_json::Value = serde_json::from_str(&content)?;
@@ -727,6 +793,7 @@ fn update_package_json(path: &str, version: &str) -> Result<(), Box<dyn std::err
         for (key, value) in deps.iter_mut() {
             // Update @mediar-ai/terminator-* platform packages
             if key.starts_with("@mediar-ai/terminator-")
+                || key.starts_with("@mediar-ai/cli-")
                 || key.starts_with("terminator-mcp-")
                 || key.starts_with("terminator.js-")
             {

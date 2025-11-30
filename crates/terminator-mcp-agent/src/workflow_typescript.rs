@@ -2,9 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
-use tracing::{debug, info};
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tracing::{debug, error, info, warn, Instrument};
 
 use rmcp::ErrorData as McpError;
 
@@ -27,6 +28,151 @@ pub fn detect_js_runtime() -> JsRuntime {
     // Fallback to node
     info!("Bun not found, using node runtime");
     JsRuntime::Node
+}
+
+/// Log level parsed from TypeScript console output
+#[derive(Debug, Clone, PartialEq)]
+pub enum LogLevel {
+    Error,
+    Warn,
+    Info,
+    Debug,
+}
+
+/// Parsed log line from TypeScript workflow output
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParsedLogLine {
+    pub level: LogLevel,
+    pub message: String,
+}
+
+/// Parse a log line from TypeScript workflow stderr output
+/// Returns the log level and message content
+pub fn parse_log_line(line: &str) -> ParsedLogLine {
+    if let Some(msg) = line.strip_prefix("[ERROR] ") {
+        ParsedLogLine {
+            level: LogLevel::Error,
+            message: msg.to_string(),
+        }
+    } else if let Some(msg) = line.strip_prefix("[WARN] ") {
+        ParsedLogLine {
+            level: LogLevel::Warn,
+            message: msg.to_string(),
+        }
+    } else if let Some(msg) = line.strip_prefix("[DEBUG] ") {
+        ParsedLogLine {
+            level: LogLevel::Debug,
+            message: msg.to_string(),
+        }
+    } else if let Some(msg) = line.strip_prefix("[INFO] ") {
+        ParsedLogLine {
+            level: LogLevel::Info,
+            message: msg.to_string(),
+        }
+    } else {
+        // Default to info for unprefixed lines
+        ParsedLogLine {
+            level: LogLevel::Info,
+            message: line.to_string(),
+        }
+    }
+}
+
+/// Copy directory contents recursively (cross-platform)
+fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<(), McpError> {
+    use std::fs;
+
+    debug!("Copying {} to {}", src.display(), dst.display());
+
+    // Create destination directory
+    fs::create_dir_all(dst).map_err(|e| {
+        McpError::internal_error(
+            format!("Failed to create temp directory: {e}"),
+            Some(json!({"error": e.to_string(), "path": dst.display().to_string()})),
+        )
+    })?;
+
+    // On Windows, use robocopy for better performance and symlink handling
+    #[cfg(target_os = "windows")]
+    {
+        let output = Command::new("robocopy")
+            .arg(src)
+            .arg(dst)
+            .arg("/E") // Copy subdirectories, including empty ones
+            .arg("/NFL") // No file list
+            .arg("/NDL") // No directory list
+            .arg("/NJH") // No job header
+            .arg("/NJS") // No job summary
+            .arg("/nc") // No class
+            .arg("/ns") // No size
+            .arg("/np") // No progress
+            .output()
+            .map_err(|e| {
+                McpError::internal_error(
+                    format!("Failed to execute robocopy: {e}"),
+                    Some(json!({"error": e.to_string()})),
+                )
+            })?;
+
+        // robocopy exit codes: 0-7 are success, 8+ are errors
+        let exit_code = output.status.code().unwrap_or(16);
+        if exit_code >= 8 {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(McpError::internal_error(
+                format!("Robocopy failed with exit code {exit_code}: {stderr}"),
+                Some(json!({
+                    "exit_code": exit_code,
+                    "stderr": stderr.to_string(),
+                })),
+            ));
+        }
+
+        debug!("Successfully copied directory using robocopy");
+        Ok(())
+    }
+
+    // On Unix systems, use cp -r
+    #[cfg(not(target_os = "windows"))]
+    {
+        let output = Command::new("cp")
+            .arg("-r")
+            .arg(src)
+            .arg(dst)
+            .output()
+            .map_err(|e| {
+                McpError::internal_error(
+                    format!("Failed to execute cp: {e}"),
+                    Some(json!({"error": e.to_string()})),
+                )
+            })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(McpError::internal_error(
+                format!("cp failed: {stderr}"),
+                Some(json!({
+                    "stderr": stderr.to_string(),
+                })),
+            ));
+        }
+
+        debug!("Successfully copied directory using cp");
+        Ok(())
+    }
+}
+
+/// Clean up temporary directory
+fn cleanup_temp_dir(path: &PathBuf) {
+    use std::fs;
+    if let Err(e) = fs::remove_dir_all(path) {
+        warn!(
+            "Failed to clean up temporary directory {}: {}",
+            path.display(),
+            e
+        );
+    } else {
+        debug!("Cleaned up temporary directory: {}", path.display());
+    }
 }
 
 #[derive(Debug)]
@@ -170,13 +316,57 @@ impl TypeScriptWorkflow {
         start_from_step: Option<&str>,
         end_at_step: Option<&str>,
         restored_state: Option<Value>,
+        execution_id: Option<&str>,
     ) -> Result<TypeScriptWorkflowResult, McpError> {
-        // Ensure dependencies are installed and cached
-        self.ensure_dependencies().await?;
+        use std::env;
 
-        // Create execution script
-        let exec_script =
-            self.create_execution_script(inputs, start_from_step, end_at_step, restored_state)?;
+        // Check execution mode
+        let execution_mode = env::var("MCP_EXECUTION_MODE").unwrap_or_default();
+        let use_local_copy = execution_mode == "local-copy";
+
+        // Determine execution directory
+        let (execution_dir, temp_dir_guard) = if use_local_copy {
+            info!("🔄 Local-copy mode enabled - copying workflow to temporary directory");
+
+            // Create unique temporary directory
+            let temp_base = env::var("TEMP")
+                .or_else(|_| env::var("TMP"))
+                .unwrap_or_else(|_| {
+                    if cfg!(target_os = "windows") {
+                        "C:\\Temp".to_string()
+                    } else {
+                        "/tmp".to_string()
+                    }
+                });
+
+            let temp_dir =
+                PathBuf::from(temp_base).join(format!("mcp-exec-{}", uuid::Uuid::new_v4()));
+
+            info!("📁 Temporary directory: {}", temp_dir.display());
+
+            // Copy workflow files to temp directory
+            copy_dir_recursive(&self.workflow_path, &temp_dir)?;
+
+            info!("✅ Files copied successfully");
+
+            (temp_dir.clone(), Some(temp_dir))
+        } else {
+            debug!("📍 Direct mode - executing from source directory");
+            (self.workflow_path.clone(), None)
+        };
+
+        // Ensure dependencies are installed and cached
+        self.ensure_dependencies_in(&execution_dir).await?;
+
+        // Create execution script (using execution_dir for imports)
+        let exec_script = self.create_execution_script(
+            &execution_dir,
+            inputs,
+            start_from_step,
+            end_at_step,
+            restored_state,
+            execution_id,
+        )?;
 
         debug!(
             "Executing TypeScript workflow with script:\n{}",
@@ -184,24 +374,23 @@ impl TypeScriptWorkflow {
         );
 
         // Execute via bun (priority) or node (fallback)
-        // CRITICAL: Use spawn() with inherited stderr for real-time log streaming
-        // The .output() method buffers all output until completion, hiding logs during execution
+        // Use tokio::process for async stderr streaming with tracing integration
         let runtime = detect_js_runtime();
 
         use std::process::Stdio;
-        let child = match runtime {
+        let mut child = match runtime {
             JsRuntime::Bun => {
                 info!(
                     "Executing workflow with bun: {}/{}",
-                    self.workflow_path.display(),
+                    execution_dir.display(),
                     self.entry_file
                 );
-                Command::new("bun")
-                    .current_dir(&self.workflow_path)
+                tokio::process::Command::new("bun")
+                    .current_dir(&execution_dir)
                     .arg("--eval")
                     .arg(&exec_script)
                     .stdout(Stdio::piped()) // Capture stdout for JSON result
-                    .stderr(Stdio::inherit()) // Stream stderr (logs) in real-time
+                    .stderr(Stdio::piped()) // Capture stderr for tracing integration
                     .spawn()
                     .map_err(|e| {
                         McpError::internal_error(
@@ -213,17 +402,17 @@ impl TypeScriptWorkflow {
             JsRuntime::Node => {
                 info!(
                     "Executing workflow with node: {}/{}",
-                    self.workflow_path.display(),
+                    execution_dir.display(),
                     self.entry_file
                 );
-                Command::new("node")
-                    .current_dir(&self.workflow_path)
+                tokio::process::Command::new("node")
+                    .current_dir(&execution_dir)
                     .arg("--import")
                     .arg("tsx/esm")
                     .arg("--eval")
                     .arg(&exec_script)
                     .stdout(Stdio::piped()) // Capture stdout for JSON result
-                    .stderr(Stdio::inherit()) // Stream stderr (logs) in real-time
+                    .stderr(Stdio::piped()) // Capture stderr for tracing integration
                     .spawn()
                     .map_err(|e| {
                         McpError::internal_error(
@@ -234,8 +423,54 @@ impl TypeScriptWorkflow {
             }
         };
 
+        // Take stderr and spawn a task to stream logs through tracing
+        // execution_id is passed as a structured field for OpenTelemetry/ClickHouse filtering
+        let stderr = child.stderr.take();
+        let exec_id_for_logs = execution_id.map(|s| s.to_string());
+        if let Some(stderr) = stderr {
+            tokio::spawn(
+                async move {
+                    let reader = BufReader::new(stderr);
+                    let mut lines = reader.lines();
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        let parsed = parse_log_line(&line);
+                        let msg = parsed.message;
+                        // Pass execution_id as structured field (not in message body)
+                        // This keeps logs clean while still enabling ClickHouse filtering via OTEL attributes
+                        match (&exec_id_for_logs, parsed.level) {
+                            (Some(exec_id), LogLevel::Error) => {
+                                error!(target: "workflow.typescript", execution_id = %exec_id, "{}", msg)
+                            }
+                            (Some(exec_id), LogLevel::Warn) => {
+                                warn!(target: "workflow.typescript", execution_id = %exec_id, "{}", msg)
+                            }
+                            (Some(exec_id), LogLevel::Debug) => {
+                                debug!(target: "workflow.typescript", execution_id = %exec_id, "{}", msg)
+                            }
+                            (Some(exec_id), LogLevel::Info) => {
+                                info!(target: "workflow.typescript", execution_id = %exec_id, "{}", msg)
+                            }
+                            (None, LogLevel::Error) => {
+                                error!(target: "workflow.typescript", "{}", msg)
+                            }
+                            (None, LogLevel::Warn) => {
+                                warn!(target: "workflow.typescript", "{}", msg)
+                            }
+                            (None, LogLevel::Debug) => {
+                                debug!(target: "workflow.typescript", "{}", msg)
+                            }
+                            (None, LogLevel::Info) => {
+                                info!(target: "workflow.typescript", "{}", msg)
+                            }
+                        }
+                    }
+                }
+                .in_current_span(),
+            );
+        }
+
         // Wait for completion and get output
-        let output = child.wait_with_output().map_err(|e| {
+        let output = child.wait_with_output().await.map_err(|e| {
             McpError::internal_error(
                 format!("Failed to wait for workflow completion: {e}"),
                 Some(json!({"error": e.to_string()})),
@@ -243,8 +478,6 @@ impl TypeScriptWorkflow {
         })?;
 
         if !output.status.success() {
-            // Note: stderr was streamed to console in real-time (Stdio::inherit)
-            // so we won't have it captured here - that's intentional for better UX
             let stdout = String::from_utf8_lossy(&output.stdout);
             return Err(McpError::internal_error(
                 format!(
@@ -254,7 +487,7 @@ impl TypeScriptWorkflow {
                 Some(json!({
                     "stdout": stdout.to_string(),
                     "exit_code": output.status.code(),
-                    "note": "stderr was streamed to console in real-time"
+                    "note": "stderr was streamed through tracing"
                 })),
             ));
         }
@@ -301,18 +534,25 @@ impl TypeScriptWorkflow {
             )
         })?;
 
+        // Clean up temporary directory if used
+        if let Some(temp_dir) = temp_dir_guard {
+            cleanup_temp_dir(&temp_dir);
+        }
+
         Ok(result)
     }
 
     fn create_execution_script(
         &self,
+        execution_dir: &Path,
         inputs: Value,
         start_from_step: Option<&str>,
         end_at_step: Option<&str>,
         restored_state: Option<Value>,
+        _execution_id: Option<&str>,
     ) -> Result<String, McpError> {
         // Convert Windows path to forward slashes for file:// URL
-        let workflow_path_str = self.workflow_path.display().to_string();
+        let workflow_path_str = execution_dir.display().to_string();
         let workflow_path = workflow_path_str.replace('\\', "/");
         let entry_file = &self.entry_file;
 
@@ -348,18 +588,25 @@ impl TypeScriptWorkflow {
         // This automatically skips onError when step control options are present
         Ok(format!(
             r#"
-// Suppress workflow progress output by redirecting console methods to stderr
+// Redirect console methods to stderr with level prefixes for Rust tracing integration
 const originalLog = console.log;
-const originalInfo = console.info;
+const originalError = console.error;
+
+// Format args to string for logging
+const formatArgs = (...args) => args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+
 console.log = (...args) => {{
-    // Only allow JSON output to stdout
+    // Only allow JSON output to stdout (for result parsing)
     if (args.length === 1 && typeof args[0] === 'string' && args[0].startsWith('{{')) {{
         originalLog(...args);
     }} else {{
-        console.error(...args);
+        originalError('[INFO]', formatArgs(...args));
     }}
 }};
-console.info = console.error;
+console.info = (...args) => originalError('[INFO]', formatArgs(...args));
+console.warn = (...args) => originalError('[WARN]', formatArgs(...args));
+console.error = (...args) => originalError('[ERROR]', formatArgs(...args));
+console.debug = (...args) => originalError('[DEBUG]', formatArgs(...args));
 
 // Set environment to suppress workflow output if supported
 process.env.WORKFLOW_SILENT = 'true';
@@ -388,14 +635,14 @@ try {{
     const stepOptions = {step_options_json};
 
     // Debug logging
-    console.error('[DEBUG] Step options being passed to workflow.run():', JSON.stringify(stepOptions));
-    console.error('[DEBUG] Workflow has run method?', typeof workflow.run);
-    console.error('[DEBUG] Inputs:', JSON.stringify(inputs));
+    console.debug('Step options being passed to workflow.run():', JSON.stringify(stepOptions));
+    console.debug('Workflow has run method?', typeof workflow.run);
+    console.debug('Inputs:', JSON.stringify(inputs));
 
     const result = await workflow.run(inputs, undefined, undefined, stepOptions);
 
     // Debug the result
-    console.error('[DEBUG] Result from workflow.run():', JSON.stringify(result));
+    console.debug('Result from workflow.run():', JSON.stringify(result));
 
     // Get workflow metadata for response
     const metadata = workflow.getMetadata ? workflow.getMetadata() : {{
@@ -435,12 +682,11 @@ try {{
         ))
     }
 
-    /// Ensure dependencies are installed
+    /// Ensure dependencies are installed in a specific directory
     ///
     /// Simple strategy: Just run bun/npm install in the workflow directory.
-    /// Since workflow is mounted from S3, node_modules will be persisted there automatically.
-    async fn ensure_dependencies(&self) -> Result<(), McpError> {
-        let package_json_path = self.workflow_path.join("package.json");
+    async fn ensure_dependencies_in(&self, workflow_dir: &PathBuf) -> Result<(), McpError> {
+        let package_json_path = workflow_dir.join("package.json");
 
         // Check if package.json exists
         if !package_json_path.exists() {
@@ -448,14 +694,14 @@ try {{
             return Ok(());
         }
 
-        let workflow_node_modules = self.workflow_path.join("node_modules");
+        let workflow_node_modules = workflow_dir.join("node_modules");
         let runtime = detect_js_runtime();
 
         // Check if dependencies need updating by comparing package.json mtime with lockfile
         let needs_install = if workflow_node_modules.exists() {
             let lockfile_path = match runtime {
-                JsRuntime::Bun => self.workflow_path.join("bun.lockb"),
-                JsRuntime::Node => self.workflow_path.join("package-lock.json"),
+                JsRuntime::Bun => workflow_dir.join("bun.lockb"),
+                JsRuntime::Node => workflow_dir.join("package-lock.json"),
             };
 
             // If lockfile doesn't exist, need to install
@@ -494,17 +740,17 @@ try {{
             return Ok(());
         }
 
-        // Install dependencies in workflow directory (will be persisted to S3)
+        // Install dependencies in workflow directory
         info!("⏳ Installing dependencies...");
 
         let install_result = match runtime {
             JsRuntime::Bun => Command::new("bun")
                 .arg("install")
-                .current_dir(&self.workflow_path)
+                .current_dir(workflow_dir)
                 .output(),
             JsRuntime::Node => Command::new("npm")
                 .arg("install")
-                .current_dir(&self.workflow_path)
+                .current_dir(workflow_dir)
                 .output(),
         }
         .map_err(|e| {
@@ -526,7 +772,6 @@ try {{
         }
 
         info!("✓ Dependencies installed successfully");
-        info!("✓ node_modules will be persisted to S3 with workflow");
 
         Ok(())
     }
@@ -669,5 +914,69 @@ mod tests {
         let err = result.unwrap_err();
         assert!(err.message.contains("Multiple workflow files detected"));
         assert!(err.message.contains("my-workflow.ts"));
+    }
+
+    #[test]
+    fn test_parse_log_line_error() {
+        let parsed = parse_log_line("[ERROR] Something went wrong");
+        assert_eq!(parsed.level, LogLevel::Error);
+        assert_eq!(parsed.message, "Something went wrong");
+    }
+
+    #[test]
+    fn test_parse_log_line_warn() {
+        let parsed = parse_log_line("[WARN] This is a warning");
+        assert_eq!(parsed.level, LogLevel::Warn);
+        assert_eq!(parsed.message, "This is a warning");
+    }
+
+    #[test]
+    fn test_parse_log_line_info() {
+        let parsed = parse_log_line("[INFO] Informational message");
+        assert_eq!(parsed.level, LogLevel::Info);
+        assert_eq!(parsed.message, "Informational message");
+    }
+
+    #[test]
+    fn test_parse_log_line_debug() {
+        let parsed = parse_log_line("[DEBUG] Debug details here");
+        assert_eq!(parsed.level, LogLevel::Debug);
+        assert_eq!(parsed.message, "Debug details here");
+    }
+
+    #[test]
+    fn test_parse_log_line_unprefixed_defaults_to_info() {
+        let parsed = parse_log_line("Some random output without prefix");
+        assert_eq!(parsed.level, LogLevel::Info);
+        assert_eq!(parsed.message, "Some random output without prefix");
+    }
+
+    #[test]
+    fn test_parse_log_line_empty_message() {
+        let parsed = parse_log_line("[ERROR] ");
+        assert_eq!(parsed.level, LogLevel::Error);
+        assert_eq!(parsed.message, "");
+    }
+
+    #[test]
+    fn test_parse_log_line_with_json_content() {
+        let parsed = parse_log_line("[DEBUG] {\"key\": \"value\", \"count\": 42}");
+        assert_eq!(parsed.level, LogLevel::Debug);
+        assert_eq!(parsed.message, "{\"key\": \"value\", \"count\": 42}");
+    }
+
+    #[test]
+    fn test_parse_log_line_preserves_spaces_in_message() {
+        let parsed = parse_log_line("[INFO]    Multiple   spaces   here");
+        assert_eq!(parsed.level, LogLevel::Info);
+        assert_eq!(parsed.message, "   Multiple   spaces   here");
+    }
+
+    #[test]
+    fn test_parse_log_line_case_sensitive() {
+        // Lowercase prefix should not be recognized
+        let parsed = parse_log_line("[error] lowercase prefix");
+        assert_eq!(parsed.level, LogLevel::Info); // Falls through to default
+        assert_eq!(parsed.message, "[error] lowercase prefix");
     }
 }

@@ -20,14 +20,14 @@
 | `nth:<n>`              | `nth:0`                                          | Select the **nth element** (0-based) from matches.                               | `:nth-child(n)`                            |
 | `nth-<n>`              | `nth-1`                                          | Select the **nth element from end** (nth-1 = last, nth-2 = second-to-last).      | `:nth-last-child(n)`                       |
 | `..`                   | `..`                                             | Navigate to **parent element** (Playwright-style).                               | `xpath=..`                                 |
-| `role:<r> \| name:<n>` | `role:Button \| name:Close`                      | **Compound** selector – role **and** name in one step.                           | `role=button[name="Close"]`                |
+| `role:<r> && name:<n>` | `role:Button && name:Close`                      | **Compound** selector – role **and** name in one step.                           | `role=button[name="Close"]`                |
 | `<selA> >> <selB>`     | `window:Calculator >> role:Button >> name:Seven` | **Chain** selectors to traverse hierarchy, similar to descendant combinators.    | `#Calculator >> role=button[name="Seven"]` |
 
 \* The Playwright column shows an approximate conceptual mapping for web automation. Desktop and web runtimes expose different accessibility trees, so the exact selector semantics may differ.
 
 ## Tips
 
-1. Prefer **specific** selectors (e.g. `role:Button|name:Save`) over broad ones (`role:Button`).
+1. Prefer **specific** selectors (e.g. `role:Button && name:Save`) over broad ones (`role:Button`).
 2. Build selectors incrementally with `.locator()` chaining to keep them readable and maintainable.
 3. Inspect the accessibility tree with the tools mentioned in the main README (Accessibility Insights, Accessibility Inspector, Accerciser) to discover roles and names.
 4. Combine positional filters (`rightof:`, `below:`) with role/name for ambiguous layouts.

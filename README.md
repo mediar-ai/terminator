@@ -2,6 +2,16 @@
 
 ## [Want No code workflow builder? app.mediar.ai](https://app.mediar.ai)
 
+## 💰 Bounty Developer Program
+
+We have listed a few issues with bounties - ask questions, complete tasks, make money!
+
+Check out our bounty-tagged issues and start contributing today:
+- [Example Issue #372 - Add GitHub Workflow to Handle Dependent PR Releases](https://github.com/mediar-ai/terminator/issues/372)
+- [View all bounty issues](https://github.com/mediar-ai/terminator/issues?q=is%3Aissue+is%3Aopen+label%3Abounty)
+
+Join our [Discord](https://discord.gg/dU9EBuw7Uq) to discuss bounties and get help getting started.
+
 # demo of terminator drawing in paint
 
 https://github.com/user-attachments/assets/b7bec5df-64a9-4f0e-aba4-1578c11275c7
@@ -35,35 +45,64 @@ https://github.com/user-attachments/assets/b7bec5df-64a9-4f0e-aba4-1578c11275c7
 
 ## 🚀 What's new
 
-- 10/30 Public alpha is live - [n8n for data entry automation in legacy systems](https://www.mediar.ai/)
+- 10/30 Public alpha is live - [n8n for legacy software](https://www.mediar.ai)
 - 09/26 Terminator was on [Cohere Labs podcast](https://www.youtube.com/watch?v=cfQxlk8KNmY), also [check the slides](https://092025-cohere.mediar.ai/)
 - 08/25 Big release — NodeJS SDK in YAML workflows, run JS in browser, OS event recording → YAML generation in MCP, and more
 - 08/25 [we raised $2.8m to give AI hands to every desktop](https://x.com/louis030195/status/1948745185178914929) ⚠
-
-> AI-first data entry automation in legacy systems 
 
 ## 🧠 Why Terminator
 
 ### For Developers
 
 - Create automations that work across any desktop app or browser
-- Runs 100x faster than ChatGPT Agents, Claude, Perplexity Comet, BrowserBase, BrowserUse
-- \>95% success rate without costly consultant armies (UIPath, Automation Anywhere)
+- Runs 100x faster than ChatGPT Agents, Claude, Perplexity Comet, BrowserBase, BrowserUse (deterministic, CPU speed, with AI recovery)
+- \>95% success rate unlike most computer use overhyped products
 - MIT-licensed — fork it, ship it, no lock-in
 
 We achieve this by pre-training workflows as deterministic code, and calling AI only when recovery is needed.
 
 ### For Teams
 
-[Our public beta workflow builder](https://www.mediar.ai/) + managed hosting = n8n for data entry automation in legacy systems:
+[Our public beta workflow builder](https://www.mediar.ai) + managed hosting:
 
-- Record & map your processes in 5 mins
-- Deploy AI to execute them at >95% success rate
-- Kill repetitive work without legacy RPA complexity or cost
+- Record, map your processes, and implement the workflow without technical skills
+- Deploy AI to execute them at >95% success rate without managing hundreds of Windows VMs
+- Kill repetitive work without legacy RPA complexity, implementation and maintenance cost
 
-## 🎯 Choose Your Path
+### Platform installation method
 
-### 🤖 Want AI Automation with Claude Code? (Recommended for Most Users)
+| Platform | CLI | MCP Agent | Automation | Installation Method |
+|----------|:---:|:---------:|:----------:|---------------------|
+| Windows  | ✅  | ✅        | ✅         | npm/bunx |
+| macOS    | 🟡  | 🟡        | 🟡         | Compile from source |
+| Linux    | 🟡  | 🟡        | 🟡         | Compile from source |
+
+## 📥 Installation for technical users
+
+### Terminator CLI
+
+**Windows (Recommended):**
+```bash
+# Run directly without installation
+npx @mediar-ai/cli --help
+bunx @mediar-ai/cli --help
+
+# Or install globally
+npm install -g @mediar-ai/cli
+```
+
+**macOS / Linux (Experimental - Compile from Source):**
+
+⚠️ **Warning:** macOS and Linux support is experimental. Many features are Windows-only or incomplete on other platforms.
+
+```bash
+git clone https://github.com/mediar-ai/terminator
+cd terminator
+cargo build --release
+# Binary at: ./target/release/terminator
+```
+
+### 🤖 Want AI Automation with Claude Code? 
 
 Install the Terminator MCP in Claude Code:
 
@@ -74,8 +113,6 @@ claude mcp add terminator "npx -y terminator-mcp-agent@latest" -s user
 Or install via the [MCP directory](https://github.com/mediar-ai/terminator/tree/main/terminator-mcp-agent) for other clients (Cursor, VS Code, etc.).
 
 **What this does:** Gives AI assistants the ability to control your desktop and automate tasks across any application.
-
-To create workflows, please [download the desktop app](https://www.mediar.ai/).
 
 ## Feature Support
 
@@ -93,9 +130,12 @@ While Terminator aims for full cross-platform support, current capabilities vary
 | Workflow Recording           |    ✅    |   ❌   |   ❌   | Record human workflows for deterministic automation. |
 | Monitor Management           |    ✅    |   🟡   |   🟡   | Multi-display support.                               |
 | Screen & Element Capture     |    ✅    |   ✅   |   🟡   | Take screenshots of displays or elements.            |
-| **Language Bindings**        |         |       |       |                                                      |
+| **Libraries**        |         |       |       |                                                      |
 | Python (`terminator.py`)     |    🟡    |   🟡   |   🟡   | `pip install terminator`                          |
 | TypeScript (`@mediar-ai/terminator`) |    ✅    |   ✅   |   ✅   | `npm i @mediar-ai/terminator`                                |
+| Workflow (`@mediar-ai/workflow`) |    ✅    |   ✅   |   ✅   | `npm i @mediar-ai/workflow`                                |
+| CLI (`@mediar-ai/cli`) |    ✅    |   ✅   |   ✅   | `npm i @mediar-ai/cli`                                |
+| KV (`@mediar-ai/kv`) |    ✅    |   ✅   |   ✅   | `npm i @mediar-ai/kv`                                |
 | MCP (`terminator-mcp-agent`) |    ✅    |   ✅   |   ✅   | `npx -y terminator-mcp-agent --add-to-app [app]`     |
 | Rust (`terminator-rs`)       |    ✅    |   ✅   |   ✅   | `cargo add terminator-rs`                            |
 
@@ -138,10 +178,6 @@ To create reliable selectors (e.g. `name:Seven`, `role:Button`, `window:Calculat
 - **Usage:** Launch Accerciser → Select the window/app → Browse the accessible widget tree.
 
 ---
-
-## Explore Further
-
-- **[Examples](https://github.com/mediar-ai/terminator/tree/main/examples)**
 
 ## Troubleshooting
 

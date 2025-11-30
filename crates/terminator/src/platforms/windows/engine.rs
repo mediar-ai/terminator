@@ -40,6 +40,12 @@ use windows::Win32::System::Diagnostics::ToolHelp::{
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
+// Windows Media OCR imports
+use windows::Media::Ocr::OcrEngine as WinOcrEngine;
+
+// Import OcrElement for bounding box OCR results
+use crate::element::OcrElement;
+
 // Define a default timeout duration
 // Set to 0 for one-time search (no polling) - add explicit timeout where waiting is needed
 const DEFAULT_FIND_TIMEOUT: Duration = Duration::from_millis(0);
@@ -158,6 +164,24 @@ pub fn get_process_name_by_pid(pid: i32) -> Result<String, AutomationError> {
         Err(AutomationError::PlatformError(format!(
             "Process with PID {pid} not found"
         )))
+    }
+}
+
+// Helper function to check if a selector has process scoping
+fn selector_has_process_scope(selector: &Selector) -> bool {
+    match selector {
+        Selector::Process(_) => true,
+        Selector::Chain(selectors) => selectors.iter().any(selector_has_process_scope),
+        Selector::And(selectors) => selectors.iter().any(selector_has_process_scope),
+        Selector::Or(selectors) => selectors.iter().any(selector_has_process_scope),
+        Selector::Not(inner) => selector_has_process_scope(inner),
+        Selector::Has(inner) => selector_has_process_scope(inner),
+        Selector::RightOf(inner)
+        | Selector::LeftOf(inner)
+        | Selector::Above(inner)
+        | Selector::Below(inner)
+        | Selector::Near(inner) => selector_has_process_scope(inner),
+        _ => false,
     }
 }
 
@@ -560,21 +584,26 @@ impl WindowsEngine {
                     return Ok(false);
                 }
 
-                // Check name if specified
+                // Check name if specified (case-insensitive partial match)
                 if let Some(expected_name) = name {
                     let element_name = win_element.get_name().unwrap_or_default();
-                    Ok(element_name.contains(expected_name))
+                    Ok(element_name
+                        .to_lowercase()
+                        .contains(&expected_name.to_lowercase()))
                 } else {
                     Ok(true)
                 }
             }
             Selector::Name(expected_name) => {
+                // name: is case-insensitive partial match
                 let element_name = win_element.get_name().unwrap_or_default();
-                Ok(element_name.contains(expected_name))
+                Ok(element_name
+                    .to_lowercase()
+                    .contains(&expected_name.to_lowercase()))
             }
             Selector::Text(expected_text) => {
+                // text: is case-sensitive partial match
                 let element_name = win_element.get_name().unwrap_or_default();
-                // Value property might not exist for all elements, check if it's a text-like element
                 Ok(element_name.contains(expected_text))
             }
             Selector::ClassName(expected_class) => {
@@ -661,6 +690,127 @@ impl WindowsEngine {
                 Ok(false)
             }
         }
+    }
+
+    /// Perform OCR on a screenshot and return structured results with bounding boxes.
+    /// Uses Windows native OCR (Windows.Media.Ocr) for accurate word-level positioning.
+    ///
+    /// # Arguments
+    /// * `screenshot` - The screenshot to perform OCR on
+    /// * `window_x` - X offset of the window on screen (to convert to absolute coords)
+    /// * `window_y` - Y offset of the window on screen (to convert to absolute coords)
+    ///
+    /// # Returns
+    /// An OcrElement tree with bounds in absolute screen coordinates
+    pub fn ocr_screenshot_with_bounds(
+        &self,
+        screenshot: &ScreenshotResult,
+        window_x: f64,
+        window_y: f64,
+    ) -> Result<OcrElement, AutomationError> {
+        use windows::Graphics::Imaging::{BitmapPixelFormat, SoftwareBitmap};
+        use windows::Storage::Streams::DataWriter;
+
+        // Windows OCR expects BGRA format, but our screenshot is RGBA
+        // Convert RGBA to BGRA
+        let mut bgra_data = screenshot.image_data.clone();
+        for chunk in bgra_data.chunks_exact_mut(4) {
+            chunk.swap(0, 2); // Swap R and B
+        }
+
+        // Create an IBuffer from the pixel data using DataWriter
+        let writer = DataWriter::new().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to create DataWriter: {e}"))
+        })?;
+
+        writer
+            .WriteBytes(&bgra_data)
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to write bytes: {e}")))?;
+
+        let buffer = writer
+            .DetachBuffer()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to detach buffer: {e}")))?;
+
+        // Create SoftwareBitmap directly from raw pixel buffer
+        let bitmap = SoftwareBitmap::CreateCopyFromBuffer(
+            &buffer,
+            BitmapPixelFormat::Bgra8,
+            screenshot.width as i32,
+            screenshot.height as i32,
+        )
+        .map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to create SoftwareBitmap: {e}"))
+        })?;
+
+        // Create OCR engine from user profile languages
+        let ocr_engine = WinOcrEngine::TryCreateFromUserProfileLanguages().map_err(|e| {
+            AutomationError::PlatformError(format!("Failed to create Windows OCR engine: {e}"))
+        })?;
+
+        // Perform OCR recognition (blocking)
+        let result = ocr_engine
+            .RecognizeAsync(&bitmap)
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to start OCR: {e}")))?
+            .get()
+            .map_err(|e| AutomationError::PlatformError(format!("OCR recognition failed: {e}")))?;
+
+        // Get text angle (rotation)
+        let text_angle = result.TextAngle().ok().and_then(|opt| opt.Value().ok());
+
+        // Get full text
+        let full_text = result.Text().map(|s| s.to_string()).unwrap_or_default();
+
+        // Build OcrElement tree from lines and words
+        let lines = result
+            .Lines()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to get OCR lines: {e}")))?;
+
+        let mut ocr_lines = Vec::new();
+        for line in lines {
+            let line_text = line.Text().map(|s| s.to_string()).unwrap_or_default();
+
+            // Get words for this line
+            let words = line.Words().map_err(|e| {
+                AutomationError::PlatformError(format!("Failed to get OCR words: {e}"))
+            })?;
+
+            let mut ocr_words = Vec::new();
+            let mut line_bounds: Option<(f64, f64, f64, f64)> = None;
+
+            for word in words {
+                let word_text = word.Text().map(|s| s.to_string()).unwrap_or_default();
+
+                // Get bounding rectangle and convert to absolute screen coordinates
+                let rect = word.BoundingRect().map_err(|e| {
+                    AutomationError::PlatformError(format!("Failed to get word bounds: {e}"))
+                })?;
+
+                let word_bounds = (
+                    window_x + rect.X as f64,
+                    window_y + rect.Y as f64,
+                    rect.Width as f64,
+                    rect.Height as f64,
+                );
+
+                // Update line bounds to encompass all words
+                line_bounds = Some(match line_bounds {
+                    None => word_bounds,
+                    Some((lx, ly, lw, lh)) => {
+                        let new_x = lx.min(word_bounds.0);
+                        let new_y = ly.min(word_bounds.1);
+                        let new_right = (lx + lw).max(word_bounds.0 + word_bounds.2);
+                        let new_bottom = (ly + lh).max(word_bounds.1 + word_bounds.3);
+                        (new_x, new_y, new_right - new_x, new_bottom - new_y)
+                    }
+                });
+
+                ocr_words.push(OcrElement::new_word(word_text, word_bounds, None));
+            }
+
+            ocr_lines.push(OcrElement::new_line(line_text, line_bounds, ocr_words));
+        }
+
+        Ok(OcrElement::new_result(full_text, text_angle, ocr_lines))
     }
 }
 
@@ -847,6 +997,19 @@ impl AccessibilityEngine for WindowsEngine {
         timeout: Option<Duration>,
         depth: Option<usize>,
     ) -> Result<Vec<UIElement>, AutomationError> {
+        // Enforce scoping: desktop-wide search requires process selector when root is None
+        if root.is_none() && !selector_has_process_scope(selector) {
+            return Err(AutomationError::InvalidSelector(format!(
+                "Desktop-wide search not allowed. Selector must include 'process:' prefix to scope search to a specific application.\n\
+                 Examples:\n\
+                 - process:chrome|role:Button|name:Submit\n\
+                 - process:notepad|role:Document\n\
+                 - process:explorer|role:Icon|name:Recycle Bin (for desktop icons/taskbar)\n\
+                 Or use element.locator() to search within a specific element's tree.\n\
+                 Current selector: {selector:?}"
+            )));
+        }
+
         let root_ele = if let Some(el) = root {
             if let Some(ele) = el.as_any().downcast_ref::<WindowsUIElement>() {
                 &ele.element.0
@@ -1111,13 +1274,18 @@ impl AccessibilityEngine for WindowsEngine {
             }
             Selector::Name(name) => {
                 debug!("searching element by name: {}", name);
-
+                // name: selector is case-insensitive partial match
+                let filter = NameFilter {
+                    value: String::from(name),
+                    casesensitive: false,
+                    partial: true,
+                };
                 let matcher = self
                     .automation
                     .0
                     .create_matcher()
                     .from_ref(root_ele)
-                    .contains_name(name)
+                    .filter(Box::new(filter))
                     .depth(depth.unwrap_or(50) as u32)
                     .timeout(timeout_ms as u64);
 
@@ -1136,24 +1304,19 @@ impl AccessibilityEngine for WindowsEngine {
                     .collect())
             }
             Selector::Text(text) => {
-                let filter = OrFilter {
-                    left: Box::new(NameFilter {
-                        value: String::from(text),
-                        casesensitive: false,
-                        partial: true,
-                    }),
-                    right: Box::new(ControlTypeFilter {
-                        control_type: ControlType::Text,
-                    }),
+                // text: selector is case-sensitive partial match + bypasses boolean parser
+                let filter = NameFilter {
+                    value: String::from(text),
+                    casesensitive: true,
+                    partial: true,
                 };
-                // Create a matcher that uses contains_name which is more reliable for text searching
                 let matcher = self
                     .automation
                     .0
                     .create_matcher()
                     .from_ref(root_ele)
-                    .filter(Box::new(filter)) // This is the key improvement from the example
-                    .depth(depth.unwrap_or(50) as u32) // Search deep enough to find most elements
+                    .filter(Box::new(filter))
+                    .depth(depth.unwrap_or(50) as u32)
                     .timeout(timeout_ms as u64); // Allow enough time for search
 
                 // Get the first matching element
@@ -1257,8 +1420,7 @@ impl AccessibilityEngine for WindowsEngine {
 
                 if filtered_elements.is_empty() {
                     return Err(AutomationError::ElementNotFound(format!(
-                        "No elements found for process: '{}'",
-                        process_name
+                        "No elements found for process: '{process_name}'"
                     )));
                 }
 
@@ -1855,16 +2017,19 @@ impl AccessibilityEngine for WindowsEngine {
                 })))
             }
             Selector::Name(name) => {
-                // find use create matcher api
-
                 debug!("searching element by name: {}", name);
-
+                // name: selector is case-insensitive partial match
+                let filter = NameFilter {
+                    value: String::from(name),
+                    casesensitive: false,
+                    partial: true,
+                };
                 let matcher = self
                     .automation
                     .0
                     .create_matcher()
                     .from_ref(root_ele)
-                    .contains_name(name)
+                    .filter(Box::new(filter))
                     .depth(50)
                     .timeout(timeout_ms as u64);
 
@@ -1879,27 +2044,21 @@ impl AccessibilityEngine for WindowsEngine {
                 })))
             }
             Selector::Text(text) => {
-                let filter = OrFilter {
-                    left: Box::new(NameFilter {
-                        value: String::from(text),
-                        casesensitive: false,
-                        partial: true,
-                    }),
-                    right: Box::new(ControlTypeFilter {
-                        control_type: ControlType::Text,
-                    }),
+                // text: selector is case-sensitive partial match + bypasses boolean parser
+                let filter = NameFilter {
+                    value: String::from(text),
+                    casesensitive: true,
+                    partial: true,
                 };
-                // Create a matcher that uses contains_name which is more reliable for text searching
                 let matcher = self
                     .automation
                     .0
                     .create_matcher()
                     .from_ref(root_ele)
-                    .filter(Box::new(filter)) // This is the key improvement from the example
-                    .depth(50) // Search deep enough to find most elements
-                    .timeout(timeout_ms as u64); // Allow enough time for search
+                    .filter(Box::new(filter))
+                    .depth(50)
+                    .timeout(timeout_ms as u64);
 
-                // Get the first matching element
                 let element = matcher.find_first().map_err(|e| {
                     AutomationError::ElementNotFound(format!(
                         "Text: '{text}', Root: {root:?}, Err: {e}"
@@ -2631,7 +2790,7 @@ impl AccessibilityEngine for WindowsEngine {
                             Ok(false)
                         }
                     }))
-                    .depth(10)
+                    .depth(5)
                     .timeout(1000);
 
                 match matcher.find_first() {
@@ -2854,7 +3013,7 @@ impl AccessibilityEngine for WindowsEngine {
                                 Ok(false)
                             }
                         }))
-                        .depth(10)
+                        .depth(5)
                         .timeout(500); // Reduced to 500ms since API timeout doesn't work reliably
 
                     debug!(
@@ -3346,6 +3505,176 @@ impl AccessibilityEngine for WindowsEngine {
         Ok(text)
     }
 
+    fn ocr_screenshot_with_bounds(
+        &self,
+        screenshot: &ScreenshotResult,
+        window_x: f64,
+        window_y: f64,
+    ) -> Result<OcrElement, AutomationError> {
+        // Delegate to the implementation in impl WindowsEngine
+        WindowsEngine::ocr_screenshot_with_bounds(self, screenshot, window_x, window_y)
+    }
+
+    fn click_at_coordinates(&self, x: f64, y: f64) -> Result<(), AutomationError> {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN,
+            MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE, MOUSEINPUT,
+        };
+        use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+
+        // Convert screen coordinates to absolute input coordinates (0-65535 range)
+        let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+        let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+        let abs_x = ((x / screen_w as f64) * 65535.0).round() as i32;
+        let abs_y = ((y / screen_h as f64) * 65535.0).round() as i32;
+
+        // Move mouse to position
+        let move_input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx: abs_x,
+                    dy: abs_y,
+                    mouseData: 0,
+                    dwFlags: MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+
+        // Mouse button down
+        let down_input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx: 0,
+                    dy: 0,
+                    mouseData: 0,
+                    dwFlags: MOUSEEVENTF_LEFTDOWN,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+
+        // Mouse button up
+        let up_input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx: 0,
+                    dy: 0,
+                    mouseData: 0,
+                    dwFlags: MOUSEEVENTF_LEFTUP,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+
+        // Send all inputs
+        unsafe {
+            SendInput(&[move_input], std::mem::size_of::<INPUT>() as i32);
+            SendInput(&[down_input], std::mem::size_of::<INPUT>() as i32);
+            SendInput(&[up_input], std::mem::size_of::<INPUT>() as i32);
+        }
+
+        Ok(())
+    }
+
+    fn click_at_coordinates_with_type(
+        &self,
+        x: f64,
+        y: f64,
+        click_type: crate::ClickType,
+    ) -> Result<(), AutomationError> {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN,
+            MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
+            MOUSEINPUT,
+        };
+        use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+
+        // Convert screen coordinates to absolute input coordinates (0-65535 range)
+        let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+        let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+        let abs_x = ((x / screen_w as f64) * 65535.0).round() as i32;
+        let abs_y = ((y / screen_h as f64) * 65535.0).round() as i32;
+
+        // Move mouse to position
+        let move_input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx: abs_x,
+                    dy: abs_y,
+                    mouseData: 0,
+                    dwFlags: MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+
+        unsafe {
+            SendInput(&[move_input], std::mem::size_of::<INPUT>() as i32);
+        }
+
+        // Determine button flags based on click type
+        let (down_flag, up_flag) = match click_type {
+            crate::ClickType::Left | crate::ClickType::Double => {
+                (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP)
+            }
+            crate::ClickType::Right => (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
+        };
+
+        // Create button down input
+        let down_input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx: 0,
+                    dy: 0,
+                    mouseData: 0,
+                    dwFlags: down_flag,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+
+        // Create button up input
+        let up_input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx: 0,
+                    dy: 0,
+                    mouseData: 0,
+                    dwFlags: up_flag,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+
+        // Send click(s)
+        unsafe {
+            SendInput(&[down_input], std::mem::size_of::<INPUT>() as i32);
+            SendInput(&[up_input], std::mem::size_of::<INPUT>() as i32);
+
+            // For double-click, send another click sequence
+            if click_type == crate::ClickType::Double {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                SendInput(&[down_input], std::mem::size_of::<INPUT>() as i32);
+                SendInput(&[up_input], std::mem::size_of::<INPUT>() as i32);
+            }
+        }
+
+        Ok(())
+    }
+
     fn activate_browser_window_by_title(&self, title: &str) -> Result<(), AutomationError> {
         info!(
             "Attempting to activate browser window containing title: {}",
@@ -3729,6 +4058,7 @@ impl AccessibilityEngine for WindowsEngine {
             fallback_calls: 0,
             errors_encountered: 0,
             application_name, // Cache application name for all nodes in tree
+            include_all_bounds: config.include_all_bounds,
         };
 
         let result = build_ui_node_tree_configurable(&window_element_wrapper, 0, &mut context)?;

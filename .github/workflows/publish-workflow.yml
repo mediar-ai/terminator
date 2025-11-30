@@ -1,9 +1,6 @@
 name: Publish Workflow Package
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
   workflow_run:
     workflows: ["Publish NPM Packages"]
@@ -17,10 +14,9 @@ jobs:
   wait-for-terminator:
     name: Wait for @mediar-ai/terminator to be published
     runs-on: ubuntu-latest
-    # Only run if triggered by tag push or workflow_run (not workflow_dispatch)
+    # Only run if triggered by successful workflow_run
     if: |
-      github.event_name == 'push' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+      github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
 
     steps:
       - uses: actions/checkout@v4
@@ -30,15 +26,11 @@ jobs:
         with:
           node-version: 18
 
-      - name: Extract version from tag
+      - name: Extract version from package.json
         id: version
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            VERSION=${GITHUB_REF#refs/tags/v}
-          else
-            # Get version from package.json
-            VERSION=$(node -p "require('./packages/workflow/package.json').peerDependencies['@mediar-ai/terminator'].replace('^', '')")
-          fi
+          # Get version from package.json peerDependencies
+          VERSION=$(node -p "require('./packages/workflow/package.json').peerDependencies['@mediar-ai/terminator'].replace('^', '')")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Waiting for @mediar-ai/terminator@$VERSION"
 

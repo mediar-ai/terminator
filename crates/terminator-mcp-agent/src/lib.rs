@@ -3,6 +3,7 @@ pub mod duration_parser;
 pub mod expression_eval;
 pub mod helpers;
 pub mod mcp_types;
+pub mod omniparser;
 pub mod output_parser;
 pub mod prompt;
 pub mod scripting_engine;
@@ -14,6 +15,8 @@ pub mod tool_logging;
 pub mod tree_formatter;
 pub mod ui_tree_diff;
 pub mod utils;
+pub mod vision;
+pub mod window_manager;
 pub mod workflow_format;
 pub mod workflow_typescript;
 

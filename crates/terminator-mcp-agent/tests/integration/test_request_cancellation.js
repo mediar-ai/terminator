@@ -120,7 +120,7 @@ class RequestCancellationTest {
     
     const startTime = Date.now();
     const result = await this.client.callTool('get_applications', {
-      include_tree: false
+      include_tree_after_action: false
     });
     const duration = Date.now() - startTime;
     
@@ -143,7 +143,7 @@ class RequestCancellationTest {
     try {
       // Call a tool that should complete within timeout
       const result = await this.client.callTool('get_applications', {
-        include_tree: false
+        include_tree_after_action: false
       });
       const duration = Date.now() - startTime;
       
