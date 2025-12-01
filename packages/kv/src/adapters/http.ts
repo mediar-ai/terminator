@@ -41,12 +41,12 @@ export class HttpKV implements KVClient {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: response.statusText }));
+      const error = await response.json().catch(() => ({ error: response.statusText })) as { error?: string };
       throw new Error(`[KV] HTTP error ${response.status}: ${error.error || 'Unknown error'}`);
     }
 
-    const data = await response.json();
-    return data.result as T;
+    const data = await response.json() as { result: T };
+    return data.result;
   }
 
   async get(key: string): Promise<string | null> {
