@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.31] - 2025-12-01
+
+### Added
+- MCP Agent: Add KV storage support for run_command scripts
+- Docs: Add KV storage documentation to run_command tool
+
+### Fixed
+- OCR: Apply DPI scaling to OCR, Omniparser, and Gemini Vision bounds
+
 ## [0.23.30] - 2025-11-29
 
 ### Added
