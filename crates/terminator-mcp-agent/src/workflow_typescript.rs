@@ -486,8 +486,8 @@ impl TypeScriptWorkflow {
                 ),
                 Some(json!({
                     "stdout": stdout.to_string(),
-                    "exit_code": output.status.code(),
-                    "note": "stderr was streamed through tracing"
+                    "stderr": String::from_utf8_lossy(&output.stderr).to_string(),
+                    "exit_code": output.status.code()
                 })),
             ));
         }
