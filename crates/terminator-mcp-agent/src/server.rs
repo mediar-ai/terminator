@@ -3742,6 +3742,52 @@ Use specific names instead: validationMessage, queryResult, tableData, entriesCo
 
 include_logs Parameter:
 Set include_logs: true to capture stdout/stderr output. Default is false for cleaner responses. On errors, logs are always included.
+
+═══════════════════════════════════════════════════════════════════
+KV STORAGE (Persistent Key-Value Store)
+═══════════════════════════════════════════════════════════════════
+
+Use createKVClient(ORG_TOKEN) to access org-scoped persistent storage.
+ORG_TOKEN is automatically injected by the desktop app/VM.
+
+Basic Usage:
+const kv = createKVClient(ORG_TOKEN);
+await kv.set('myKey', 'myValue');           // Set a value
+const val = await kv.get('myKey');          // Get a value
+await kv.del('myKey');                      // Delete a key
+
+With Options:
+await kv.set('lock', 'active', { ex: 60 }); // Expires in 60 seconds
+await kv.set('key', 'val', { nx: true });   // Only set if NOT exists (for locks)
+await kv.set('key', 'val', { xx: true });   // Only set if EXISTS (for updates)
+
+Counters:
+await kv.incr('counter');                   // Increment by 1
+
+Lists (Queues):
+await kv.lpush('queue', 'item1', 'item2');  // Add to front
+await kv.rpush('queue', 'item3');           // Add to back
+const item = await kv.lpop('queue');        // Remove from front
+const item = await kv.rpop('queue');        // Remove from back
+
+Hashes (Objects):
+await kv.hset('user:123', { name: 'Alice', score: 100 });
+const name = await kv.hget('user:123', 'name');
+const all = await kv.hgetall('user:123');   // { name: 'Alice', score: '100' }
+await kv.hincrby('user:123', 'score', 10);  // Increment field
+
+Common Patterns:
+// Duplicate check
+const processed = await kv.get('processed:' + fileHash);
+if (processed) return { skip: true, reason: 'Already processed' };
+
+// Distributed lock
+const locked = await kv.set('lock:resource', 'active', { nx: true, ex: 300 });
+if (!locked) return { error: 'Resource locked by another process' };
+try { /* do work */ } finally { await kv.del('lock:resource'); }
+
+// Progress tracking
+await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
 "
     )]
     async fn run_command(
