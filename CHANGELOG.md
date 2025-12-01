@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.32] - 2025-12-01
+
+### Fixed
+- MCP Agent: Strip stack traces from error responses
+- TypeScript: Add type assertions to HTTP adapter for strict mode
+
 ## [0.23.31] - 2025-12-01
 
 ### Added
