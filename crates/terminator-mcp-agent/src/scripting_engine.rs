@@ -959,6 +959,24 @@ global.desktop = new Desktop();
 global.log = console.log;
 global.sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+// Initialize KV client helper
+// Usage: const kv = createKVClient(ORG_TOKEN);
+try {{
+    const {{ createClient }} = require('@mediar-ai/kv');
+    global.createKVClient = (token) => {{
+        if (!token) {{
+            throw new Error('KV requires ORG_TOKEN. Pass it as: createKVClient(ORG_TOKEN)');
+        }}
+        return createClient({{
+            url: process.env.KV_URL || 'https://app.mediar.ai/api/kv',
+            token: token
+        }});
+    }};
+}} catch (e) {{
+    // KV package not available
+    global.createKVClient = () => {{ throw new Error('@mediar-ai/kv package not installed'); }};
+}}
+
 // Execute user script
 (async () => {{
     try {{
@@ -1434,6 +1452,25 @@ const setEnv = (updates: Record<string, any>) => {{
         console.log(`::set-env name=${{key}}::${{value}}`);
     }}
 }};
+
+// Initialize KV client helper
+// Usage: const kv = createKVClient(ORG_TOKEN);
+let createKVClient: (token: string) => any;
+try {{
+    const {{ createClient }} = require('@mediar-ai/kv');
+    createKVClient = (token: string) => {{
+        if (!token) {{
+            throw new Error('KV requires ORG_TOKEN. Pass it as: createKVClient(ORG_TOKEN)');
+        }}
+        return createClient({{
+            url: process.env.KV_URL || 'https://app.mediar.ai/api/kv',
+            token: token
+        }});
+    }};
+}} catch (e) {{
+    // KV package not available
+    createKVClient = () => {{ throw new Error('@mediar-ai/kv package not installed'); }};
+}}
 
 console.log('[TypeScript] Current working directory:', process.cwd());
 
