@@ -1228,7 +1228,14 @@ try {{
 
                                 return Err(McpError::internal_error(
                                     detailed_message,
-                                    Some(error_data),
+                                    {
+                                    // Strip stack trace from error data (already logged)
+                                    let mut clean_data = error_data.clone();
+                                    if let Some(obj) = clean_data.as_object_mut() {
+                                        obj.remove("stack");
+                                    }
+                                    Some(clean_data)
+                                },
                                 ));
                             }
                             break;
@@ -1611,7 +1618,14 @@ console.log('[TypeScript] Current working directory:', process.cwd());
 
                                     return Err(McpError::internal_error(
                                         detailed_message,
-                                        Some(error_data),
+                                        {
+                                    // Strip stack trace from error data (already logged)
+                                    let mut clean_data = error_data.clone();
+                                    if let Some(obj) = clean_data.as_object_mut() {
+                                        obj.remove("stack");
+                                    }
+                                    Some(clean_data)
+                                },
                                     ));
                                 }
 
@@ -1952,9 +1966,14 @@ asyncio.run(__runner__())
                             .get("message")
                             .and_then(|m| m.as_str())
                             .unwrap_or("Unknown error");
+                        // Strip stack trace from error data
+                        let mut clean_data = error_data.clone();
+                        if let Some(obj) = clean_data.as_object_mut() {
+                            obj.remove("stack");
+                        }
                         return Err(McpError::internal_error(
                             format!("Python execution error: {error_message}"),
-                            Some(error_data),
+                            Some(clean_data),
                         ));
                     }
                 }
@@ -2035,7 +2054,14 @@ asyncio.run(__runner__())
 
                                 return Err(McpError::internal_error(
                                     detailed_message,
-                                    Some(error_data),
+                                    {
+                                    // Strip stack trace from error data (already logged)
+                                    let mut clean_data = error_data.clone();
+                                    if let Some(obj) = clean_data.as_object_mut() {
+                                        obj.remove("stack");
+                                    }
+                                    Some(clean_data)
+                                },
                                 ));
                             }
 
@@ -2583,7 +2609,14 @@ pub async fn execute_javascript_with_local_bindings(
                     format!("JavaScript execution error with local bindings: {error_message}")
                 };
 
-                return Err(McpError::internal_error(detailed_message, Some(error_data)));
+                {
+                    // Strip stack trace from error data
+                    let mut clean_data = error_data.clone();
+                    if let Some(obj) = clean_data.as_object_mut() {
+                        obj.remove("stack");
+                    }
+                    return Err(McpError::internal_error(detailed_message, Some(clean_data)));
+                }
             }
             break;
         } else {
