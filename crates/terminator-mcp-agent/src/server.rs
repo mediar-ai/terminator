@@ -2344,10 +2344,17 @@ impl DesktopWrapper {
 
     /// Ensures element is visible and applies highlighting before action with hardcoded defaults
     fn ensure_visible_and_apply_highlight(element: &UIElement, action_name: &str) {
+        let start = std::time::Instant::now();
+
         // Always ensure element is in view first (for all actions, not just when highlighting)
+        let scroll_start = std::time::Instant::now();
         if let Err(e) = Self::ensure_element_in_view(element) {
             tracing::warn!("Failed to ensure element is in view for {action_name} action: {e}");
         }
+        tracing::info!(
+            "[PERF] ensure_element_in_view: {}ms",
+            scroll_start.elapsed().as_millis()
+        );
 
         // Hardcoded highlight configuration
         let duration = Some(std::time::Duration::from_millis(500));
@@ -2385,6 +2392,11 @@ impl DesktopWrapper {
         } else {
             tracing::warn!("Failed to apply highlighting before {action_name} action");
         }
+
+        tracing::info!(
+            "[PERF] ensure_visible_and_apply_highlight: {}ms",
+            start.elapsed().as_millis()
+        );
     }
 
     #[tool(

@@ -434,6 +434,7 @@ pub async fn maybe_attach_tree(
 
     // Add delay for UI to stabilize (same as ui_diff_before_after mode)
     // This ensures we capture the tree after animations/transitions complete
+    tracing::info!("[PERF] ui_settle_delay (maybe_attach_tree): 1500ms");
     tokio::time::sleep(Duration::from_millis(1500)).await;
 
     // Only proceed if we have a PID
@@ -540,7 +541,12 @@ pub async fn maybe_attach_tree(
     }
 
     // Default: get the full window tree
+    let tree_capture_start = std::time::Instant::now();
     if let Ok(tree) = desktop.get_window_tree(pid, None, Some(tree_config)) {
+        tracing::info!(
+            "[PERF] maybe_attach_tree (get_window_tree): {}ms",
+            tree_capture_start.elapsed().as_millis()
+        );
         // Format UINode based on output format
         let (tree_val_result, cache) = match format {
             TreeOutputFormat::CompactYaml | TreeOutputFormat::ClusteredYaml => {
@@ -559,6 +565,11 @@ pub async fn maybe_attach_tree(
             }
             bounds_cache = cache;
         }
+    } else {
+        tracing::info!(
+            "[PERF] maybe_attach_tree (get_window_tree FAILED): {}ms",
+            tree_capture_start.elapsed().as_millis()
+        );
     }
 
     bounds_cache
@@ -824,6 +835,7 @@ where
                                 action_start.elapsed().as_millis()
                             );
                             // Small delay for UI to settle (1500ms - same delay used in maybe_attach_tree)
+                            tracing::info!("[PERF] ui_settle_delay (after_action): 1500ms");
                             tokio::time::sleep(Duration::from_millis(1500)).await;
 
                             // Capture AFTER tree
@@ -1082,6 +1094,11 @@ pub async fn verify_post_action(
         }
 
         if verification_element.is_none() {
+            tracing::info!(
+                "[PERF] verify_element_exists: {}ms (FAILED selector: {})",
+                start.elapsed().as_millis(),
+                exists_selector
+            );
             return Err(anyhow::anyhow!(
                 "Verification failed: expected element '{}' not found after {}ms",
                 exists_selector,
@@ -1089,6 +1106,11 @@ pub async fn verify_post_action(
             ));
         }
 
+        tracing::info!(
+            "[PERF] verify_element_exists: {}ms (selector: {})",
+            start.elapsed().as_millis(),
+            exists_selector
+        );
         return Ok(VerificationResult {
             passed: true,
             method: method.to_string(),
@@ -1136,6 +1158,11 @@ pub async fn verify_post_action(
         match search_result {
             Ok(_) => {
                 // Element found - this is a verification failure!
+                tracing::info!(
+                    "[PERF] verify_element_not_exists: {}ms (FAILED - element found: {})",
+                    start.elapsed().as_millis(),
+                    not_exists_selector
+                );
                 return Err(anyhow::anyhow!(
                     "Verification failed: element '{}' should not exist but was found",
                     not_exists_selector
@@ -1143,6 +1170,11 @@ pub async fn verify_post_action(
             }
             Err(_) => {
                 // Element not found - this is what we wanted!
+                tracing::info!(
+                    "[PERF] verify_element_not_exists: {}ms (selector: {})",
+                    start.elapsed().as_millis(),
+                    not_exists_selector
+                );
                 return Ok(VerificationResult {
                     passed: true,
                     method: method.to_string(),
