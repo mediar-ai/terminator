@@ -408,6 +408,23 @@ export interface WorkflowConfig<TInput = any> {
     tags?: string[];
     /** Steps to execute in sequence */
     steps?: Step[];
+    /**
+     * Workflow-level success handler - runs after all steps complete successfully.
+     * The returned value will be set as context.data (workflow output).
+     *
+     * @example
+     * ```typescript
+     * onSuccess: async ({ context, logger }) => {
+     *   const { file_name, outlet_code, date } = context.state;
+     *   return {
+     *     human: `# SAP Journal Entry - Success\n| Outlet | ${outlet_code} |`,
+     *     success: true,
+     *     data: { file_name, outlet_code, date }
+     *   };
+     * }
+     * ```
+     */
+    onSuccess?: (context: WorkflowSuccessContext<TInput>) => Promise<any> | any;
     /** Workflow-level error handler */
     onError?: (
         context: WorkflowErrorContext<TInput>,
@@ -461,6 +478,10 @@ export interface WorkflowSuccessContext<
     logger: Logger;
     /** Execution duration in ms */
     duration: number;
+    /** ID of the last executed step */
+    lastStepId?: string;
+    /** Index of the last executed step */
+    lastStepIndex?: number;
 }
 
 /**
