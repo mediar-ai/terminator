@@ -7,6 +7,7 @@ pub fn get_server_instructions() -> String {
     let current_working_dir = env::current_dir()
         .map(|path| path.display().to_string())
         .unwrap_or_else(|_| "Unknown".to_string());
+    let mcp_tools = env!("MCP_TOOLS");
 
     format!(
         "
@@ -47,6 +48,11 @@ Both do **substring matching** by default. Wildcards (`*`, `?`) are NOT supporte
 *   **Element not found** Element may be deeper than default tree depth (30) or buried in large subtree. Increase `tree_max_depth` (e.g., 100+) or use `tree_from_selector` to focus on specific UI region (e.g., `tree_from_selector: \"role:Dialog\"`).
 *   **Hyperlink container clicks don't navigate:** On search results, a `role:Hyperlink` container often wraps a composite group; target the child anchor instead: tighten `name:` (title or destination domain), add `|nth:0` if needed, or use numeric `#id`. Prefer `invoke_element` or focus target then `press_key` \"{{Enter}}\"; always verify with postconditions (address bar/title/tab or destination element).
 *   **Unable to understand UI state or debug issues:** Use `capture_element_screenshot` to visually inspect problematic elements when tree data is insufficient.
+
+**execute_sequence Tool Restrictions**
+Only desktop automation tools from the MCP server can be used inside `execute_sequence` steps. Valid tool names for execute_sequence:
+{mcp_tools}
+Server-side tools (like add_workflow_step, update_workflow_step, search_similar_workflow_steps, etc.) must be called as separate top-level tool calls, NOT inside execute_sequence steps.
 
 Contextual information:
 - The current date and time is {current_date_time}.
