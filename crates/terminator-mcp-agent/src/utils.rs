@@ -1495,6 +1495,26 @@ pub struct ZoomArgs {
     pub include_monitor_screenshots: Option<bool>,
 }
 
+/// Arguments for Gemini Computer Use agentic loop tool
+#[derive(Deserialize, JsonSchema, Debug, Clone)]
+pub struct GeminiComputerUseArgs {
+    #[schemars(
+        description = "Process name of the target application (e.g., 'chrome', 'notepad', 'explorer')"
+    )]
+    pub process: String,
+
+    #[schemars(description = "The goal to achieve (e.g., 'Open Notepad and type Hello World')")]
+    pub goal: String,
+
+    #[schemars(
+        description = "Maximum number of steps to take before stopping. Defaults to 20."
+    )]
+    pub max_steps: Option<u32>,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
+}
+
 #[derive(Debug)]
 pub struct ValidationError {
     pub field: String,

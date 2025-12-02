@@ -5,11 +5,11 @@ use crate::utils::find_and_execute_with_retry_with_fallback;
 pub use crate::utils::DesktopWrapper;
 use crate::utils::{
     get_timeout, ActivateElementArgs, CaptureScreenshotArgs, ClickElementArgs, DelayArgs,
-    ExecuteBrowserScriptArgs, ExecuteSequenceArgs, GetApplicationsArgs, GetWindowTreeArgs,
-    GlobalKeyArgs, HighlightElementArgs, InvokeElementArgs, MouseDragArgs, NavigateBrowserArgs,
-    OpenApplicationArgs, PressKeyArgs, RunCommandArgs, ScrollElementArgs, SelectOptionArgs,
-    SetSelectedArgs, SetValueArgs, StopHighlightingArgs, TypeIntoElementArgs, ValidateElementArgs,
-    WaitForElementArgs,
+    ExecuteBrowserScriptArgs, ExecuteSequenceArgs, GeminiComputerUseArgs, GetApplicationsArgs,
+    GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs, InvokeElementArgs, MouseDragArgs,
+    NavigateBrowserArgs, OpenApplicationArgs, PressKeyArgs, RunCommandArgs, ScrollElementArgs,
+    SelectOptionArgs, SetSelectedArgs, SetValueArgs, StopHighlightingArgs, TypeIntoElementArgs,
+    ValidateElementArgs, WaitForElementArgs,
 };
 use image::imageops::FilterType;
 use image::{ExtendedColorType, ImageBuffer, ImageEncoder, Rgba};
@@ -8355,6 +8355,402 @@ console.info = function(...args) {
 
         Ok(CallToolResult::success(vec![Content::json(result_json)?]))
     }
+
+    #[tool(
+        description = "Gemini Computer Use agentic loop. Provide a goal and target process, and the tool will autonomously take actions (click, type, scroll, etc.) until the goal is achieved or max_steps is reached. Returns when: goal achieved ('done'), cannot proceed, needs user confirmation for risky action, or max_steps exceeded."
+    )]
+    async fn gemini_computer_use(
+        &self,
+        Parameters(args): Parameters<GeminiComputerUseArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::vision::{call_computer_use_backend, ComputerUseHistoryStep};
+
+        let mut span = StepSpan::new("gemini_computer_use", None);
+        span.set_attribute("process", args.process.clone());
+        span.set_attribute("goal", args.goal.clone());
+
+        let max_steps = args.max_steps.unwrap_or(20);
+        let mut history: Vec<ComputerUseHistoryStep> = Vec::new();
+        let mut final_status = "max_steps_reached";
+        let mut final_action = String::new();
+        let mut pending_confirmation: Option<serde_json::Value> = None;
+
+        info!(
+            "[gemini_computer_use] Starting agentic loop for goal: {} (max_steps: {})",
+            args.goal, max_steps
+        );
+
+        // Perform initial window management
+        let _ = self
+            .prepare_window_management(&args.process, None, None, None, &args.window_mgmt)
+            .await;
+
+        for step_num in 1..=max_steps {
+            info!("[gemini_computer_use] Step {}/{}", step_num, max_steps);
+
+            // 1. Capture screenshot of target window
+            let screenshot_result = self.capture_window_for_computer_use(&args.process).await;
+            let (base64_image, window_bounds, dpi_scale, resize_scale) = match screenshot_result {
+                Ok(data) => data,
+                Err(e) => {
+                    warn!("[gemini_computer_use] Failed to capture screenshot: {}", e);
+                    final_status = "failed";
+                    break;
+                }
+            };
+
+            // 2. Call backend to get next action
+            let action_result =
+                call_computer_use_backend(&base64_image, &args.goal, Some(&history)).await;
+
+            let action = match action_result {
+                Ok(a) => a,
+                Err(e) => {
+                    warn!("[gemini_computer_use] Backend error: {}", e);
+                    final_status = "failed";
+                    break;
+                }
+            };
+
+            final_action = action.action.clone();
+            info!(
+                "[gemini_computer_use] Action: {} (reasoning: {:?})",
+                action.action, action.reasoning
+            );
+
+            // 3. Check for terminal states
+            if action.action == "done" {
+                final_status = "success";
+                history.push(ComputerUseHistoryStep {
+                    step: step_num,
+                    action: "done".to_string(),
+                    args: None,
+                    result: "success".to_string(),
+                    error: None,
+                });
+                break;
+            }
+
+            if action.action == "cannot_proceed" {
+                final_status = "cannot_proceed";
+                history.push(ComputerUseHistoryStep {
+                    step: step_num,
+                    action: "cannot_proceed".to_string(),
+                    args: None,
+                    result: "failed".to_string(),
+                    error: action.reasoning.clone(),
+                });
+                break;
+            }
+
+            // 4. Check for safety confirmation
+            if action.safety_decision.as_deref() == Some("require_confirmation") {
+                final_status = "needs_confirmation";
+                pending_confirmation = Some(json!({
+                    "action": action.action,
+                    "args": action.args,
+                    "reasoning": action.reasoning,
+                }));
+                break;
+            }
+
+            // 5. Convert coordinates and execute action
+            let action_args = action.args.clone().unwrap_or_default();
+            let execute_result = self
+                .execute_computer_use_action(
+                    &args.process,
+                    &action.action,
+                    &action_args,
+                    window_bounds,
+                    dpi_scale,
+                    resize_scale,
+                )
+                .await;
+
+            // 6. Record in history
+            let (result_status, error_msg) = match &execute_result {
+                Ok(_) => ("success".to_string(), None),
+                Err(e) => ("failed".to_string(), Some(e.to_string())),
+            };
+
+            history.push(ComputerUseHistoryStep {
+                step: step_num,
+                action: action.action.clone(),
+                args: action.args.clone(),
+                result: result_status,
+                error: error_msg,
+            });
+
+            // Small delay for UI to settle after action
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+
+        // Restore windows
+        let _ = self.window_manager.restore_all_windows().await;
+        self.window_manager.clear_captured_state().await;
+
+        span.set_status(final_status == "success", None);
+        span.end();
+
+        let result_json = json!({
+            "status": final_status,
+            "goal": args.goal,
+            "steps_executed": history.len(),
+            "final_action": final_action,
+            "history": history,
+            "pending_confirmation": pending_confirmation,
+        });
+
+        info!(
+            "[gemini_computer_use] Completed with status: {} ({} steps)",
+            final_status,
+            history.len()
+        );
+
+        Ok(CallToolResult::success(vec![Content::json(result_json)?]))
+    }
+}
+
+impl DesktopWrapper {
+    /// Capture window screenshot for computer use, returning base64 image and metadata for coord conversion
+    async fn capture_window_for_computer_use(
+        &self,
+        process: &str,
+    ) -> Result<(String, (f64, f64, f64, f64), f64, f64), String> {
+        // Find the window element for this process using sysinfo to match process names
+        let apps = self
+            .desktop
+            .applications()
+            .map_err(|e| format!("Failed to get applications: {e}"))?;
+
+        let mut system = System::new();
+        system.refresh_processes(ProcessesToUpdate::All, true);
+
+        let window_element = apps
+            .into_iter()
+            .find(|app| {
+                let app_pid = app.process_id().unwrap_or(0);
+                if app_pid > 0 {
+                    system
+                        .process(sysinfo::Pid::from_u32(app_pid))
+                        .map(|p| {
+                            let process_name = p.name().to_string_lossy().to_string();
+                            process_name.to_lowercase().contains(&process.to_lowercase())
+                        })
+                        .unwrap_or(false)
+                } else {
+                    false
+                }
+            })
+            .ok_or_else(|| format!("No window found for process '{process}'"))?;
+
+        // Get window bounds (absolute screen coordinates)
+        let bounds = window_element
+            .bounds()
+            .map_err(|e| format!("Failed to get window bounds: {e}"))?;
+        let (window_x, window_y, win_w, win_h) = bounds;
+
+        // Capture screenshot
+        let screenshot = window_element
+            .capture()
+            .map_err(|e| format!("Failed to capture screenshot: {e}"))?;
+
+        let original_width = screenshot.width;
+        let original_height = screenshot.height;
+
+        // Calculate DPI scale
+        let dpi_scale_w = original_width as f64 / win_w;
+
+        // Convert BGRA to RGBA
+        let rgba_data: Vec<u8> = screenshot
+            .image_data
+            .chunks_exact(4)
+            .flat_map(|bgra| [bgra[2], bgra[1], bgra[0], bgra[3]])
+            .collect();
+
+        // Resize if needed (max 1920px)
+        const MAX_DIM: u32 = 1920;
+        let (final_width, final_height, final_rgba_data, resize_scale) =
+            if original_width > MAX_DIM || original_height > MAX_DIM {
+                let scale =
+                    (MAX_DIM as f32 / original_width.max(original_height) as f32).min(1.0);
+                let new_width = (original_width as f32 * scale).round() as u32;
+                let new_height = (original_height as f32 * scale).round() as u32;
+
+                let img =
+                    ImageBuffer::<Rgba<u8>, _>::from_raw(original_width, original_height, rgba_data)
+                        .ok_or("Failed to create image buffer")?;
+                let resized =
+                    image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
+
+                (new_width, new_height, resized.into_raw(), scale as f64)
+            } else {
+                (original_width, original_height, rgba_data, 1.0)
+            };
+
+        // Encode to PNG
+        let mut png_data = Vec::new();
+        let encoder = PngEncoder::new(Cursor::new(&mut png_data));
+        encoder
+            .write_image(
+                &final_rgba_data,
+                final_width,
+                final_height,
+                ExtendedColorType::Rgba8,
+            )
+            .map_err(|e| format!("Failed to encode PNG: {e}"))?;
+
+        let base64_image = general_purpose::STANDARD.encode(&png_data);
+
+        Ok((
+            base64_image,
+            (window_x, window_y, final_width as f64, final_height as f64),
+            dpi_scale_w,
+            resize_scale,
+        ))
+    }
+
+    /// Execute a computer use action by mapping to MCP tools
+    async fn execute_computer_use_action(
+        &self,
+        _process: &str,
+        action: &str,
+        args: &crate::vision::ComputerUseActionArgs,
+        window_bounds: (f64, f64, f64, f64),
+        dpi_scale: f64,
+        resize_scale: f64,
+    ) -> Result<(), String> {
+        let (window_x, window_y, screenshot_w, screenshot_h) = window_bounds;
+
+        // Helper to convert 0-999 normalized coords to absolute screen coords
+        let convert_coord = |norm_x: f64, norm_y: f64| -> (f64, f64) {
+            // Convert 0-999 to screenshot pixels
+            let px_x = (norm_x / 1000.0) * screenshot_w;
+            let px_y = (norm_y / 1000.0) * screenshot_h;
+            // Apply inverse resize scale
+            let px_x = px_x / resize_scale;
+            let px_y = px_y / resize_scale;
+            // Apply DPI conversion (physical to logical)
+            let logical_x = px_x / dpi_scale;
+            let logical_y = px_y / dpi_scale;
+            // Add window offset
+            let screen_x = window_x + logical_x;
+            let screen_y = window_y + logical_y;
+            (screen_x, screen_y)
+        };
+
+        match action {
+            "click_at" => {
+                let x = args.x.ok_or("click_at requires x coordinate")?;
+                let y = args.y.ok_or("click_at requires y coordinate")?;
+                let (screen_x, screen_y) = convert_coord(x, y);
+                info!(
+                    "[computer_use] click_at ({}, {}) -> screen ({}, {})",
+                    x, y, screen_x, screen_y
+                );
+                self.desktop
+                    .click_at_coordinates(screen_x, screen_y)
+                    .map_err(|e| format!("Click failed: {e}"))?;
+            }
+            "type_text_at" => {
+                let x = args.x.ok_or("type_text_at requires x coordinate")?;
+                let y = args.y.ok_or("type_text_at requires y coordinate")?;
+                let text = args.text.as_ref().ok_or("type_text_at requires text")?;
+                let (screen_x, screen_y) = convert_coord(x, y);
+                info!(
+                    "[computer_use] type_text_at ({}, {}) -> screen ({}, {}), text: {}",
+                    x, y, screen_x, screen_y, text
+                );
+                // Click first to focus
+                self.desktop
+                    .click_at_coordinates(screen_x, screen_y)
+                    .map_err(|e| format!("Click before type failed: {e}"))?;
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                // Type text using root element
+                let root = self.desktop.root();
+                root.type_text(text, false)
+                    .map_err(|e| format!("Type text failed: {e}"))?;
+            }
+            "key_combination" => {
+                let keys = args.keys.as_ref().ok_or("key_combination requires keys")?;
+                info!("[computer_use] key_combination: {}", keys);
+                self.desktop
+                    .press_key(keys)
+                    .await
+                    .map_err(|e| format!("Key press failed: {e}"))?;
+            }
+            "scroll_document" | "scroll_at" => {
+                let direction = args
+                    .direction
+                    .as_ref()
+                    .ok_or("scroll requires direction")?;
+                let amount: f64 = match direction.as_str() {
+                    "up" => -3.0,
+                    "down" => 3.0,
+                    "left" => -3.0,
+                    "right" => 3.0,
+                    _ => 3.0,
+                };
+                info!("[computer_use] scroll: {} (amount: {})", direction, amount);
+                // If coordinates provided, click there first to focus
+                if let (Some(x), Some(y)) = (args.x, args.y) {
+                    let (screen_x, screen_y) = convert_coord(x, y);
+                    self.desktop
+                        .click_at_coordinates(screen_x, screen_y)
+                        .map_err(|e| format!("Click before scroll failed: {e}"))?;
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                // Scroll using root element
+                let root = self.desktop.root();
+                root.scroll(direction, amount)
+                    .map_err(|e| format!("Scroll failed: {e}"))?;
+            }
+            "drag_and_drop" => {
+                let start_x = args.start_x.ok_or("drag_and_drop requires start_x")?;
+                let start_y = args.start_y.ok_or("drag_and_drop requires start_y")?;
+                let end_x = args.end_x.ok_or("drag_and_drop requires end_x")?;
+                let end_y = args.end_y.ok_or("drag_and_drop requires end_y")?;
+                let (start_screen_x, start_screen_y) = convert_coord(start_x, start_y);
+                let (end_screen_x, end_screen_y) = convert_coord(end_x, end_y);
+                info!(
+                    "[computer_use] drag_and_drop from ({}, {}) to ({}, {})",
+                    start_screen_x, start_screen_y, end_screen_x, end_screen_y
+                );
+                let root = self.desktop.root();
+                root.mouse_drag(start_screen_x, start_screen_y, end_screen_x, end_screen_y)
+                    .map_err(|e| format!("Drag failed: {e}"))?;
+            }
+            "wait_5_seconds" => {
+                info!("[computer_use] waiting 5 seconds");
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+            "hover_at" => {
+                let x = args.x.ok_or("hover_at requires x coordinate")?;
+                let y = args.y.ok_or("hover_at requires y coordinate")?;
+                let (screen_x, screen_y) = convert_coord(x, y);
+                info!(
+                    "[computer_use] hover_at ({}, {}) -> screen ({}, {})",
+                    x, y, screen_x, screen_y
+                );
+                let root = self.desktop.root();
+                root.mouse_move(screen_x, screen_y)
+                    .map_err(|e| format!("Mouse move failed: {e}"))?;
+            }
+            "navigate" => {
+                let url = args.url.as_ref().ok_or("navigate requires url")?;
+                info!("[computer_use] navigate to: {}", url);
+                self.desktop
+                    .open_url(url, None)
+                    .map_err(|e| format!("Navigate failed: {e}"))?;
+            }
+            _ => {
+                warn!("[computer_use] Unknown action: {}", action);
+                return Err(format!("Unknown action: {action}"));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl DesktopWrapper {
@@ -8713,6 +9109,25 @@ impl DesktopWrapper {
             "stop_execution" => {
                 // No arguments needed for stop_execution
                 self.stop_execution().await
+            }
+            "gemini_computer_use" => {
+                match serde_json::from_value::<GeminiComputerUseArgs>(arguments.clone()) {
+                    Ok(args) => {
+                        tokio::select! {
+                            result = self.gemini_computer_use(Parameters(args)) => result,
+                            _ = request_context.ct.cancelled() => {
+                                Err(McpError::internal_error(
+                                    format!("{tool_name} cancelled"),
+                                    Some(json!({"code": -32001, "tool": tool_name}))
+                                ))
+                            }
+                        }
+                    }
+                    Err(e) => Err(McpError::invalid_params(
+                        "Invalid arguments for gemini_computer_use",
+                        Some(json!({"error": e.to_string()})),
+                    )),
+                }
             }
             _ => Err(McpError::internal_error(
                 "Unknown tool called",

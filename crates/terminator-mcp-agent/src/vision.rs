@@ -139,3 +139,134 @@ pub async fn parse_image_with_gemini(
 
     Ok((items, response_text))
 }
+
+// ===== Computer Use Types and Client =====
+
+/// Arguments for a computer use action (coordinates in 0-999 normalized range)
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ComputerUseActionArgs {
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+    pub text: Option<String>,
+    pub keys: Option<String>,
+    pub direction: Option<String>,
+    pub url: Option<String>,
+    pub start_x: Option<f64>,
+    pub start_y: Option<f64>,
+    pub end_x: Option<f64>,
+    pub end_y: Option<f64>,
+}
+
+/// Action returned by Gemini Computer Use model
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ComputerUseAction {
+    pub action: String,
+    #[serde(default)]
+    pub args: Option<ComputerUseActionArgs>,
+    pub reasoning: Option<String>,
+    pub safety_decision: Option<String>,
+}
+
+/// History step for context in multi-step interactions
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ComputerUseHistoryStep {
+    pub step: u32,
+    pub action: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub args: Option<ComputerUseActionArgs>,
+    pub result: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Response from computer use backend
+#[derive(Debug, Deserialize)]
+struct ComputerUseBackendResponse {
+    action: String,
+    #[serde(default)]
+    args: Option<ComputerUseActionArgs>,
+    reasoning: Option<String>,
+    safety_decision: Option<String>,
+    #[allow(dead_code)]
+    duration_ms: Option<u64>,
+    error: Option<String>,
+}
+
+/// Call the Gemini Computer Use backend to get the next action.
+///
+/// # Arguments
+/// * `base64_image` - Base64 encoded PNG screenshot
+/// * `goal` - What the user wants to achieve
+/// * `history` - Previous actions taken (for context)
+///
+/// # Returns
+/// * `Ok(action)` - The next action to take
+/// * `Err(e)` - If the request fails
+pub async fn call_computer_use_backend(
+    base64_image: &str,
+    goal: &str,
+    history: Option<&[ComputerUseHistoryStep]>,
+) -> Result<ComputerUseAction> {
+    let backend_url = env::var("GEMINI_COMPUTER_USE_BACKEND_URL")
+        .unwrap_or_else(|_| "https://app.mediar.ai/api/vision/computer-use".to_string());
+
+    info!(
+        "Calling Computer Use backend at {} (goal: {})",
+        backend_url,
+        &goal[..goal.len().min(50)]
+    );
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .build()?;
+
+    let payload = serde_json::json!({
+        "image": base64_image,
+        "goal": goal,
+        "history": history.unwrap_or(&[])
+    });
+
+    let resp = client
+        .post(&backend_url)
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()
+        .await?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        warn!("Computer Use backend error: {} - {}", status, text);
+        return Err(anyhow!(
+            "Computer Use backend error ({}): {}",
+            status,
+            text
+        ));
+    }
+
+    let response_text = resp.text().await?;
+    debug!(
+        "Computer Use backend response: {}",
+        &response_text[..response_text.len().min(500)]
+    );
+
+    let backend_response: ComputerUseBackendResponse = serde_json::from_str(&response_text)
+        .map_err(|e| anyhow!("Failed to parse backend response: {}", e))?;
+
+    if let Some(error) = backend_response.error {
+        return Err(anyhow!("Computer Use error: {}", error));
+    }
+
+    info!(
+        "Computer Use action: {} (reasoning: {})",
+        backend_response.action,
+        backend_response.reasoning.as_deref().unwrap_or("none")
+    );
+
+    Ok(ComputerUseAction {
+        action: backend_response.action,
+        args: backend_response.args,
+        reasoning: backend_response.reasoning,
+        safety_decision: backend_response.safety_decision,
+    })
+}
