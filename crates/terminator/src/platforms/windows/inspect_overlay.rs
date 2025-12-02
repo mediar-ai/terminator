@@ -277,8 +277,8 @@ fn format_label(elem: &InspectElement, mode: OverlayDisplayMode) -> Option<Strin
         OverlayDisplayMode::IndexRole => Some(format!("[{}:{}]", elem.index, elem.role)),
         OverlayDisplayMode::Name => {
             if let Some(ref name) = elem.name {
-                let truncated = if name.len() > 15 {
-                    format!("{}...", &name[..12])
+                let truncated = if name.chars().count() > 15 {
+                    format!("{}...", name.chars().take(12).collect::<String>())
                 } else {
                     name.clone()
                 };
@@ -289,8 +289,8 @@ fn format_label(elem: &InspectElement, mode: OverlayDisplayMode) -> Option<Strin
         }
         OverlayDisplayMode::IndexName => {
             if let Some(ref name) = elem.name {
-                let truncated = if name.len() > 15 {
-                    format!("{}...", &name[..12])
+                let truncated = if name.chars().count() > 15 {
+                    format!("{}...", name.chars().take(12).collect::<String>())
                 } else {
                     name.clone()
                 };
@@ -301,8 +301,8 @@ fn format_label(elem: &InspectElement, mode: OverlayDisplayMode) -> Option<Strin
         }
         OverlayDisplayMode::Full => {
             if let Some(ref name) = elem.name {
-                let truncated = if name.len() > 12 {
-                    format!("{}...", &name[..9])
+                let truncated = if name.chars().count() > 12 {
+                    format!("{}...", name.chars().take(9).collect::<String>())
                 } else {
                     name.clone()
                 };
@@ -371,7 +371,7 @@ fn draw_inspect_overlay(hwnd: HWND) {
             let old_font = SelectObject(hdc, HGDIOBJ(font.0));
 
             // Set text properties
-            SetTextColor(hdc, COLORREF(0x000000)); // Black text
+            SetTextColor(hdc, COLORREF(0x00FF00)); // Green text to match borders
             SetBkMode(hdc, TRANSPARENT);
 
             let label_height = 12;
