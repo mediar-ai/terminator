@@ -2394,6 +2394,7 @@ impl DesktopWrapper {
         &self,
         Parameters(args): Parameters<TypeIntoElementArgs>,
     ) -> Result<CallToolResult, McpError> {
+        let operation_start = std::time::Instant::now();
         let mut span = StepSpan::new("type_into_element", None);
 
         // Add comprehensive telemetry attributes
@@ -2709,6 +2710,7 @@ impl DesktopWrapper {
         // Restore windows after typing into element
         self.restore_window_management(should_restore).await;
 
+        tracing::info!("[PERF] type_into_element total: {}ms", operation_start.elapsed().as_millis());
         span.set_status(true, None);
         span.end();
         Ok(CallToolResult::success(
@@ -3094,6 +3096,7 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
 
                 let operation_time_ms = operation_start.elapsed().as_millis() as i64;
                 span.set_attribute("operation.duration_ms", operation_time_ms.to_string());
+                tracing::info!("[PERF] click_element total: {}ms", operation_time_ms);
 
                 let ((click_result, element), successful_selector, ui_diff) = match result {
                     Ok(((result, element), selector, diff)) => {
@@ -5789,6 +5792,7 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
         &self,
         Parameters(args): Parameters<NavigateBrowserArgs>,
     ) -> Result<CallToolResult, McpError> {
+        let operation_start = std::time::Instant::now();
         // Start telemetry span
         let mut span = StepSpan::new("navigate_browser", None);
 
@@ -5910,6 +5914,7 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
 
         self.restore_window_management(should_restore).await;
 
+        tracing::info!("[PERF] navigate_browser total: {}ms", operation_start.elapsed().as_millis());
         span.set_status(true, None);
         span.end();
 

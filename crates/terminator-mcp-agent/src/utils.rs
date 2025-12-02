@@ -1953,16 +1953,23 @@ pub async fn find_element_with_fallbacks(
 ) -> Result<(terminator::UIElement, String), terminator::AutomationError> {
     use tokio::time::Duration;
 
+    let find_start = std::time::Instant::now();
     let timeout_duration = get_timeout(timeout_ms).unwrap_or(Duration::from_millis(3000));
 
     // FAST PATH: If no alternatives or fallbacks are provided, just use the primary selector directly.
     if alternative_selectors.is_none() && fallback_selectors.is_none() {
         let locator = desktop.locator(terminator::Selector::from(primary_selector));
         return match locator.first(Some(timeout_duration)).await {
-            Ok(element) => Ok((element, primary_selector.to_string())),
-            Err(e) => Err(terminator::AutomationError::ElementNotFound(format!(
-                "Primary selector '{primary_selector}' failed: {e}"
-            ))),
+            Ok(element) => {
+                tracing::info!("[PERF] find_element_with_fallbacks: {}ms (selector: {})", find_start.elapsed().as_millis(), primary_selector);
+                Ok((element, primary_selector.to_string()))
+            },
+            Err(e) => {
+                tracing::info!("[PERF] find_element_with_fallbacks: {}ms (FAILED selector: {})", find_start.elapsed().as_millis(), primary_selector);
+                Err(terminator::AutomationError::ElementNotFound(format!(
+                    "Primary selector '{primary_selector}' failed: {e}"
+                )))
+            },
         };
     }
 
@@ -2036,6 +2043,7 @@ pub async fn find_element_with_fallbacks(
 
                 // Always prefer primary selector (index 0) if it succeeds
                 if index == 0 {
+                    tracing::info!("[PERF] find_element_with_fallbacks: {}ms (primary selector: {})", find_start.elapsed().as_millis(), selector);
                     return Ok((element, selector));
                 } else {
                     // Alternative succeeded first, but give primary selector a brief grace period
@@ -2052,10 +2060,12 @@ pub async fn find_element_with_fallbacks(
                     {
                         Ok(Ok(primary_element)) => {
                             // Primary also succeeded within grace period - prefer it
+                            tracing::info!("[PERF] find_element_with_fallbacks: {}ms (primary after grace: {})", find_start.elapsed().as_millis(), primary_selector);
                             return Ok((primary_element, primary_selector.to_string()));
                         }
                         _ => {
                             // Primary didn't succeed quickly, use the alternative that worked
+                            tracing::info!("[PERF] find_element_with_fallbacks: {}ms (alternative: {})", find_start.elapsed().as_millis(), selector);
                             return Ok((element, selector));
                         }
                     }
@@ -2109,6 +2119,7 @@ pub async fn find_element_with_fallbacks(
         )
     };
 
+    tracing::info!("[PERF] find_element_with_fallbacks: {}ms (ALL FAILED: {})", find_start.elapsed().as_millis(), primary_selector);
     Err(terminator::AutomationError::ElementNotFound(combined_error))
 }
 

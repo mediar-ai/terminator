@@ -120,6 +120,23 @@ pub fn build_element_not_found_error(
     McpError::invalid_params("Element not found", Some(error_payload))
 }
 
+/// Converts a variable path to a JSON pointer.
+/// Supports dot notation and array indexing.
+/// Examples:
+///   "url" -> "/url"
+///   "nested.field" -> "/nested/field"
+///   "keywords[0]" -> "/keywords/0"
+///   "data.items[2].name" -> "/data/items/2/name"
+///   "arr[0][1]" -> "/arr/0/1"
+fn variable_path_to_pointer(path: &str) -> String {
+    // First replace dots with slashes
+    let result = path.replace('.', "/");
+    // Then replace [N] with /N using regex
+    let bracket_re = Regex::new(r"\[(\d+)\]").unwrap();
+    let result = bracket_re.replace_all(&result, "/$1");
+    format!("/{}", result)
+}
+
 /// Substitutes `{{variable}}` placeholders in a JSON value.
 pub fn substitute_variables(args: &mut Value, variables: &Value) {
     use tracing::debug;
@@ -157,13 +174,13 @@ pub fn substitute_variables(args: &mut Value, variables: &Value) {
                         s, inner_str
                     );
 
-                    // Check if it's a simple variable path.
+                    // Check if it's a simple variable path (supports array indexing like [0]).
                     let is_simple_var = inner_str
                         .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.');
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' || c == '[' || c == ']');
 
                     if is_simple_var {
-                        let pointer = format!("/{}", inner_str.replace('.', "/"));
+                        let pointer = variable_path_to_pointer(inner_str);
                         debug!("Looking up simple variable with pointer: '{}'", pointer);
                         if let Some(replacement_val) = variables.pointer(&pointer) {
                             debug!("Found replacement value: {}", replacement_val);
@@ -210,10 +227,10 @@ pub fn substitute_variables(args: &mut Value, variables: &Value) {
 
                     let is_simple_var = inner_str
                         .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.');
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' || c == '[' || c == ']');
 
                     if is_simple_var {
-                        let pointer = format!("/{}", inner_str.replace('.', "/"));
+                        let pointer = variable_path_to_pointer(inner_str);
                         debug!("Looking up simple variable with pointer: '{}'", pointer);
                         if let Some(val) = variables.pointer(&pointer) {
                             if val.is_string() {
@@ -748,12 +765,16 @@ where
 
                     // Capture BEFORE tree
                     tracing::debug!("[ui_diff] Capturing UI tree before action (PID: {})", pid);
+                    let tree_before_start = std::time::Instant::now();
                     let tree_before = match desktop.get_window_tree(
                         pid,
                         None,
                         Some(tree_config.clone()),
                     ) {
-                        Ok(tree) => tree,
+                        Ok(tree) => {
+                            tracing::info!("[PERF] capture_tree_before: {}ms", tree_before_start.elapsed().as_millis());
+                            tree
+                        }
                         Err(e) => {
                             tracing::warn!("[ui_diff] Failed to capture tree before action: {}. Continuing without diff.", e);
                             // Execute action without diff
@@ -782,8 +803,10 @@ where
                     let before_str = format_tree_string(&tree_before, tree_output_format);
 
                     // Execute action
+                    let action_start = std::time::Instant::now();
                     match action(element.clone()).await {
                         Ok(result) => {
+                            tracing::info!("[PERF] action_execution: {}ms", action_start.elapsed().as_millis());
                             // Small delay for UI to settle (1500ms - same delay used in maybe_attach_tree)
                             tokio::time::sleep(Duration::from_millis(1500)).await;
 
@@ -792,12 +815,16 @@ where
                                 "[ui_diff] Capturing UI tree after action (PID: {})",
                                 pid
                             );
+                            let tree_after_start = std::time::Instant::now();
                             let tree_after = match desktop.get_window_tree(
                                 pid,
                                 None,
                                 Some(tree_config),
                             ) {
-                                Ok(tree) => tree,
+                                Ok(tree) => {
+                                    tracing::info!("[PERF] capture_tree_after: {}ms", tree_after_start.elapsed().as_millis());
+                                    tree
+                                }
                                 Err(e) => {
                                     tracing::warn!("[ui_diff] Failed to capture tree after action: {}. Returning result without diff.", e);
                                     return Ok(((result, element), successful_selector, None));
@@ -807,6 +834,7 @@ where
                             let after_str = format_tree_string(&tree_after, tree_output_format);
 
                             // Compute diff using the ui_tree_diff module
+                            let diff_start = std::time::Instant::now();
                             let diff_result = match crate::ui_tree_diff::simple_ui_tree_diff(
                                 &before_str,
                                 &after_str,
@@ -837,6 +865,7 @@ where
                                     None
                                 }
                             };
+                            tracing::info!("[PERF] compute_ui_diff: {}ms", diff_start.elapsed().as_millis());
 
                             return Ok(((result, element), successful_selector, diff_result));
                         }
