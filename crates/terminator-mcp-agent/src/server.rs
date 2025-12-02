@@ -8375,22 +8375,25 @@ console.info = function(...args) {
     }
 
     #[tool(
-        description = "Gemini Computer Use agentic loop. Provide a goal and target process, and the tool will autonomously take actions (click, type, scroll, etc.) until the goal is achieved or max_steps is reached. Returns when: goal achieved ('done'), cannot proceed, needs user confirmation for risky action, or max_steps exceeded."
+        description = "Gemini Computer Use agentic loop. Provide a goal and target process, and the tool will autonomously take actions (click, type, scroll, etc.) until the goal is achieved or max_steps is reached. Uses native Gemini 2.5 Computer Use model with function calling. Returns when: task complete (model returns no function call), needs user confirmation, or max_steps exceeded."
     )]
     async fn gemini_computer_use(
         &self,
         Parameters(args): Parameters<GeminiComputerUseArgs>,
     ) -> Result<CallToolResult, McpError> {
-        use crate::vision::{call_computer_use_backend, ComputerUseHistoryStep};
+        use crate::vision::{
+            call_computer_use_backend, ComputerUseActionResponse, ComputerUsePreviousAction,
+        };
 
         let mut span = StepSpan::new("gemini_computer_use", None);
         span.set_attribute("process", args.process.clone());
         span.set_attribute("goal", args.goal.clone());
 
         let max_steps = args.max_steps.unwrap_or(20);
-        let mut history: Vec<ComputerUseHistoryStep> = Vec::new();
+        let mut previous_actions: Vec<ComputerUsePreviousAction> = Vec::new();
         let mut final_status = "max_steps_reached";
         let mut final_action = String::new();
+        let mut final_text: Option<String> = None;
         let mut pending_confirmation: Option<serde_json::Value> = None;
 
         info!(
@@ -8417,12 +8420,20 @@ console.info = function(...args) {
                 }
             };
 
-            // 2. Call backend to get next action
-            let action_result =
-                call_computer_use_backend(&base64_image, &args.goal, Some(&history)).await;
+            // 2. Call backend to get next action (pass previous actions with their screenshots)
+            let response_result = call_computer_use_backend(
+                &base64_image,
+                &args.goal,
+                if previous_actions.is_empty() {
+                    None
+                } else {
+                    Some(&previous_actions)
+                },
+            )
+            .await;
 
-            let action = match action_result {
-                Ok(a) => a,
+            let response = match response_result {
+                Ok(r) => r,
                 Err(e) => {
                     warn!("[gemini_computer_use] Backend error: {}", e);
                     final_status = "failed";
@@ -8430,73 +8441,84 @@ console.info = function(...args) {
                 }
             };
 
-            final_action = action.action.clone();
+            // Store text response
+            if response.text.is_some() {
+                final_text = response.text.clone();
+            }
+
+            // 3. Check for task completion (no function call = done)
+            if response.completed {
+                final_status = "success";
+                final_action = "completed".to_string();
+                info!(
+                    "[gemini_computer_use] Task completed. Text: {:?}",
+                    response.text
+                );
+                break;
+            }
+
+            // 4. Get function call
+            let function_call = match response.function_call {
+                Some(fc) => fc,
+                None => {
+                    // No function call and not completed - unexpected state
+                    final_status = "success";
+                    final_action = "no_action".to_string();
+                    break;
+                }
+            };
+
+            final_action = function_call.name.clone();
             info!(
-                "[gemini_computer_use] Action: {} (reasoning: {:?})",
-                action.action, action.reasoning
+                "[gemini_computer_use] Action: {} (text: {:?})",
+                function_call.name, response.text
             );
 
-            // 3. Check for terminal states
-            if action.action == "done" {
-                final_status = "success";
-                history.push(ComputerUseHistoryStep {
-                    step: step_num,
-                    action: "done".to_string(),
-                    args: None,
-                    result: "success".to_string(),
-                    error: None,
-                });
-                break;
-            }
-
-            if action.action == "cannot_proceed" {
-                final_status = "cannot_proceed";
-                history.push(ComputerUseHistoryStep {
-                    step: step_num,
-                    action: "cannot_proceed".to_string(),
-                    args: None,
-                    result: "failed".to_string(),
-                    error: action.reasoning.clone(),
-                });
-                break;
-            }
-
-            // 4. Check for safety confirmation
-            if action.safety_decision.as_deref() == Some("require_confirmation") {
+            // 5. Check for safety confirmation
+            if response.safety_decision.as_deref() == Some("require_confirmation") {
                 final_status = "needs_confirmation";
                 pending_confirmation = Some(json!({
-                    "action": action.action,
-                    "args": action.args,
-                    "reasoning": action.reasoning,
+                    "action": function_call.name,
+                    "args": function_call.args,
+                    "text": response.text,
                 }));
                 break;
             }
 
-            // 5. Convert coordinates and execute action
-            let action_args = action.args.clone().unwrap_or_default();
+            // 6. Execute action
             let execute_result = self
                 .execute_computer_use_action(
                     &args.process,
-                    &action.action,
-                    &action_args,
+                    &function_call.name,
+                    &function_call.args,
                     window_bounds,
                     dpi_scale,
                     resize_scale,
                 )
                 .await;
 
-            // 6. Record in history
-            let (result_status, error_msg) = match &execute_result {
-                Ok(_) => ("success".to_string(), None),
-                Err(e) => ("failed".to_string(), Some(e.to_string())),
+            // 7. Capture new screenshot after action for next iteration
+            let post_action_screenshot = match self
+                .capture_window_for_computer_use(&args.process)
+                .await
+            {
+                Ok((img, _, _, _)) => img,
+                Err(_) => base64_image.clone(), // Fallback to previous screenshot
             };
 
-            history.push(ComputerUseHistoryStep {
-                step: step_num,
-                action: action.action.clone(),
-                args: action.args.clone(),
-                result: result_status,
-                error: error_msg,
+            // 8. Record action with result and new screenshot for next call
+            let (success, error_msg) = match &execute_result {
+                Ok(_) => (true, None),
+                Err(e) => (false, Some(e.to_string())),
+            };
+
+            previous_actions.push(ComputerUsePreviousAction {
+                name: function_call.name.clone(),
+                response: ComputerUseActionResponse {
+                    success,
+                    error: error_msg,
+                },
+                screenshot: post_action_screenshot,
             });
 
             // Small delay for UI to settle after action
@@ -8510,19 +8532,34 @@ console.info = function(...args) {
         span.set_status(final_status == "success", None);
         span.end();
 
+        // Build history summary for response
+        let history_summary: Vec<serde_json::Value> = previous_actions
+            .iter()
+            .enumerate()
+            .map(|(i, action)| {
+                json!({
+                    "step": i + 1,
+                    "action": action.name,
+                    "success": action.response.success,
+                    "error": action.response.error,
+                })
+            })
+            .collect();
+
         let result_json = json!({
             "status": final_status,
             "goal": args.goal,
-            "steps_executed": history.len(),
+            "steps_executed": previous_actions.len(),
             "final_action": final_action,
-            "history": history,
+            "final_text": final_text,
+            "history": history_summary,
             "pending_confirmation": pending_confirmation,
         });
 
         info!(
             "[gemini_computer_use] Completed with status: {} ({} steps)",
             final_status,
-            history.len()
+            previous_actions.len()
         );
 
         Ok(CallToolResult::success(vec![Content::json(result_json)?]))
@@ -8629,16 +8666,28 @@ impl DesktopWrapper {
     }
 
     /// Execute a computer use action by mapping to MCP tools
+    /// Handles both old ComputerUseActionArgs and new serde_json::Value args
     async fn execute_computer_use_action(
         &self,
         _process: &str,
         action: &str,
-        args: &crate::vision::ComputerUseActionArgs,
+        args: &serde_json::Value,
         window_bounds: (f64, f64, f64, f64),
         dpi_scale: f64,
         resize_scale: f64,
     ) -> Result<(), String> {
         let (window_x, window_y, screenshot_w, screenshot_h) = window_bounds;
+
+        // Helper to get f64 from args
+        let get_f64 = |key: &str| -> Option<f64> {
+            args.get(key).and_then(|v| v.as_f64())
+        };
+        let get_str = |key: &str| -> Option<&str> {
+            args.get(key).and_then(|v| v.as_str())
+        };
+        let get_bool = |key: &str| -> Option<bool> {
+            args.get(key).and_then(|v| v.as_bool())
+        };
 
         // Helper to convert 0-999 normalized coords to absolute screen coords
         let convert_coord = |norm_x: f64, norm_y: f64| -> (f64, f64) {
@@ -8659,8 +8708,8 @@ impl DesktopWrapper {
 
         match action {
             "click_at" => {
-                let x = args.x.ok_or("click_at requires x coordinate")?;
-                let y = args.y.ok_or("click_at requires y coordinate")?;
+                let x = get_f64("x").ok_or("click_at requires x coordinate")?;
+                let y = get_f64("y").ok_or("click_at requires y coordinate")?;
                 let (screen_x, screen_y) = convert_coord(x, y);
                 info!(
                     "[computer_use] click_at ({}, {}) -> screen ({}, {})",
@@ -8671,9 +8720,11 @@ impl DesktopWrapper {
                     .map_err(|e| format!("Click failed: {e}"))?;
             }
             "type_text_at" => {
-                let x = args.x.ok_or("type_text_at requires x coordinate")?;
-                let y = args.y.ok_or("type_text_at requires y coordinate")?;
-                let text = args.text.as_ref().ok_or("type_text_at requires text")?;
+                let x = get_f64("x").ok_or("type_text_at requires x coordinate")?;
+                let y = get_f64("y").ok_or("type_text_at requires y coordinate")?;
+                let text = get_str("text").ok_or("type_text_at requires text")?;
+                let press_enter = get_bool("press_enter").unwrap_or(false);
+                let _clear_before = get_bool("clear_before_typing").unwrap_or(false);
                 let (screen_x, screen_y) = convert_coord(x, y);
                 info!(
                     "[computer_use] type_text_at ({}, {}) -> screen ({}, {}), text: {}",
@@ -8688,9 +8739,17 @@ impl DesktopWrapper {
                 let root = self.desktop.root();
                 root.type_text(text, false)
                     .map_err(|e| format!("Type text failed: {e}"))?;
+                // Press Enter if requested
+                if press_enter {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    self.desktop
+                        .press_key("Return")
+                        .await
+                        .map_err(|e| format!("Press Enter failed: {e}"))?;
+                }
             }
             "key_combination" => {
-                let keys = args.keys.as_ref().ok_or("key_combination requires keys")?;
+                let keys = get_str("keys").ok_or("key_combination requires keys")?;
                 info!("[computer_use] key_combination: {}", keys);
                 self.desktop
                     .press_key(keys)
@@ -8698,20 +8757,18 @@ impl DesktopWrapper {
                     .map_err(|e| format!("Key press failed: {e}"))?;
             }
             "scroll_document" | "scroll_at" => {
-                let direction = args
-                    .direction
-                    .as_ref()
-                    .ok_or("scroll requires direction")?;
-                let amount: f64 = match direction.as_str() {
-                    "up" => -3.0,
-                    "down" => 3.0,
-                    "left" => -3.0,
-                    "right" => 3.0,
-                    _ => 3.0,
+                let direction = get_str("direction").ok_or("scroll requires direction")?;
+                let magnitude = get_f64("magnitude").unwrap_or(3.0);
+                let amount: f64 = match direction {
+                    "up" => -magnitude,
+                    "down" => magnitude,
+                    "left" => -magnitude,
+                    "right" => magnitude,
+                    _ => magnitude,
                 };
                 info!("[computer_use] scroll: {} (amount: {})", direction, amount);
                 // If coordinates provided, click there first to focus
-                if let (Some(x), Some(y)) = (args.x, args.y) {
+                if let (Some(x), Some(y)) = (get_f64("x"), get_f64("y")) {
                     let (screen_x, screen_y) = convert_coord(x, y);
                     self.desktop
                         .click_at_coordinates(screen_x, screen_y)
@@ -8724,10 +8781,11 @@ impl DesktopWrapper {
                     .map_err(|e| format!("Scroll failed: {e}"))?;
             }
             "drag_and_drop" => {
-                let start_x = args.start_x.ok_or("drag_and_drop requires start_x")?;
-                let start_y = args.start_y.ok_or("drag_and_drop requires start_y")?;
-                let end_x = args.end_x.ok_or("drag_and_drop requires end_x")?;
-                let end_y = args.end_y.ok_or("drag_and_drop requires end_y")?;
+                // Support both x/y + destination_x/destination_y and start_x/start_y/end_x/end_y
+                let start_x = get_f64("x").or(get_f64("start_x")).ok_or("drag_and_drop requires x/start_x")?;
+                let start_y = get_f64("y").or(get_f64("start_y")).ok_or("drag_and_drop requires y/start_y")?;
+                let end_x = get_f64("destination_x").or(get_f64("end_x")).ok_or("drag_and_drop requires destination_x/end_x")?;
+                let end_y = get_f64("destination_y").or(get_f64("end_y")).ok_or("drag_and_drop requires destination_y/end_y")?;
                 let (start_screen_x, start_screen_y) = convert_coord(start_x, start_y);
                 let (end_screen_x, end_screen_y) = convert_coord(end_x, end_y);
                 info!(
@@ -8743,8 +8801,8 @@ impl DesktopWrapper {
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
             "hover_at" => {
-                let x = args.x.ok_or("hover_at requires x coordinate")?;
-                let y = args.y.ok_or("hover_at requires y coordinate")?;
+                let x = get_f64("x").ok_or("hover_at requires x coordinate")?;
+                let y = get_f64("y").ok_or("hover_at requires y coordinate")?;
                 let (screen_x, screen_y) = convert_coord(x, y);
                 info!(
                     "[computer_use] hover_at ({}, {}) -> screen ({}, {})",
@@ -8755,7 +8813,7 @@ impl DesktopWrapper {
                     .map_err(|e| format!("Mouse move failed: {e}"))?;
             }
             "navigate" => {
-                let url = args.url.as_ref().ok_or("navigate requires url")?;
+                let url = get_str("url").ok_or("navigate requires url")?;
                 info!("[computer_use] navigate to: {}", url);
                 self.desktop
                     .open_url(url, None)

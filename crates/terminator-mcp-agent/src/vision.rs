@@ -142,71 +142,76 @@ pub async fn parse_image_with_gemini(
 
 // ===== Computer Use Types and Client =====
 
-/// Arguments for a computer use action (coordinates in 0-999 normalized range)
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct ComputerUseActionArgs {
-    pub x: Option<f64>,
-    pub y: Option<f64>,
-    pub text: Option<String>,
-    pub keys: Option<String>,
-    pub direction: Option<String>,
-    pub url: Option<String>,
-    pub start_x: Option<f64>,
-    pub start_y: Option<f64>,
-    pub end_x: Option<f64>,
-    pub end_y: Option<f64>,
+/// Function call from Gemini Computer Use model (native API format)
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ComputerUseFunctionCall {
+    pub name: String,
+    #[serde(default)]
+    pub args: serde_json::Value,
+    pub id: Option<String>,
 }
 
-/// Action returned by Gemini Computer Use model
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ComputerUseAction {
-    pub action: String,
-    #[serde(default)]
-    pub args: Option<ComputerUseActionArgs>,
-    pub reasoning: Option<String>,
+/// Response from Computer Use - either completed or needs action
+#[derive(Debug, Clone)]
+pub struct ComputerUseResponse {
+    /// True if task is complete (no more actions needed)
+    pub completed: bool,
+    /// Function call if action is needed
+    pub function_call: Option<ComputerUseFunctionCall>,
+    /// Text response from model (reasoning or final answer)
+    pub text: Option<String>,
+    /// Safety decision if confirmation required
     pub safety_decision: Option<String>,
 }
 
-/// History step for context in multi-step interactions
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ComputerUseHistoryStep {
-    pub step: u32,
-    pub action: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub args: Option<ComputerUseActionArgs>,
-    pub result: String,
+/// Previous action to send back with screenshot (for multi-step)
+#[derive(Debug, Serialize, Clone)]
+pub struct ComputerUsePreviousAction {
+    pub name: String,
+    pub response: ComputerUseActionResponse,
+    pub screenshot: String, // base64 PNG
+}
+
+/// Response for a previous action
+#[derive(Debug, Serialize, Clone)]
+pub struct ComputerUseActionResponse {
+    pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 
-/// Response from computer use backend
+/// Backend response structure (matches route.ts ComputerUseResponse)
 #[derive(Debug, Deserialize)]
 struct ComputerUseBackendResponse {
-    action: String,
+    completed: bool,
     #[serde(default)]
-    args: Option<ComputerUseActionArgs>,
-    reasoning: Option<String>,
+    function_call: Option<ComputerUseFunctionCall>,
+    text: Option<String>,
     safety_decision: Option<String>,
     #[allow(dead_code)]
     duration_ms: Option<u64>,
+    #[allow(dead_code)]
+    model_used: Option<String>,
     error: Option<String>,
 }
 
 /// Call the Gemini Computer Use backend to get the next action.
 ///
+/// Uses the native Gemini Computer Use API with function calling.
+///
 /// # Arguments
 /// * `base64_image` - Base64 encoded PNG screenshot
 /// * `goal` - What the user wants to achieve
-/// * `history` - Previous actions taken (for context)
+/// * `previous_actions` - Previous actions taken with their screenshots
 ///
 /// # Returns
-/// * `Ok(action)` - The next action to take
+/// * `Ok(response)` - Response indicating completion or next action
 /// * `Err(e)` - If the request fails
 pub async fn call_computer_use_backend(
     base64_image: &str,
     goal: &str,
-    history: Option<&[ComputerUseHistoryStep]>,
-) -> Result<ComputerUseAction> {
+    previous_actions: Option<&[ComputerUsePreviousAction]>,
+) -> Result<ComputerUseResponse> {
     let backend_url = env::var("GEMINI_COMPUTER_USE_BACKEND_URL")
         .unwrap_or_else(|_| "https://app.mediar.ai/api/vision/computer-use".to_string());
 
@@ -223,7 +228,7 @@ pub async fn call_computer_use_backend(
     let payload = serde_json::json!({
         "image": base64_image,
         "goal": goal,
-        "history": history.unwrap_or(&[])
+        "previous_actions": previous_actions.unwrap_or(&[])
     });
 
     let resp = client
@@ -257,16 +262,23 @@ pub async fn call_computer_use_backend(
         return Err(anyhow!("Computer Use error: {}", error));
     }
 
-    info!(
-        "Computer Use action: {} (reasoning: {})",
-        backend_response.action,
-        backend_response.reasoning.as_deref().unwrap_or("none")
-    );
+    if backend_response.completed {
+        info!(
+            "Computer Use completed. Text: {}",
+            backend_response.text.as_deref().unwrap_or("none")
+        );
+    } else if let Some(ref fc) = backend_response.function_call {
+        info!(
+            "Computer Use action: {} (text: {})",
+            fc.name,
+            backend_response.text.as_deref().unwrap_or("none")
+        );
+    }
 
-    Ok(ComputerUseAction {
-        action: backend_response.action,
-        args: backend_response.args,
-        reasoning: backend_response.reasoning,
+    Ok(ComputerUseResponse {
+        completed: backend_response.completed,
+        function_call: backend_response.function_call,
+        text: backend_response.text,
         safety_decision: backend_response.safety_decision,
     })
 }
