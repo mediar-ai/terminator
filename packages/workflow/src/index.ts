@@ -29,6 +29,7 @@ export type {
     ErrorCategory,
     ExecuteError,
     ExecutionResponse,
+    SuccessResult,
     StepResult,
     StepConfig,
     Step,

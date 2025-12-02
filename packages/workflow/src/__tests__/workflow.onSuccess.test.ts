@@ -27,7 +27,7 @@ describe("Workflow onSuccess Handler", () => {
     describe("Direct Pattern (steps array)", () => {
         test("onSuccess is called after all steps complete", async () => {
             const onSuccessMock = jest.fn().mockReturnValue({
-                human: "# Success",
+                summary: "# Success",
                 success: true,
             });
 
@@ -147,7 +147,7 @@ describe("Workflow onSuccess Handler", () => {
                 onSuccess: async ({ context }) => {
                     const { file_name, outlet_code, date } = context.state;
                     return {
-                        human: `# Report Generated\n- File: ${file_name}\n- Outlet: ${outlet_code}\n- Date: ${date}`,
+                        summary: `# Report Generated\n- File: ${file_name}\n- Outlet: ${outlet_code}\n- Date: ${date}`,
                         success: true,
                         data: { file_name, outlet_code, date },
                     };
@@ -158,7 +158,7 @@ describe("Workflow onSuccess Handler", () => {
 
             expect(result.status).toBe("success");
             expect(result.data).toEqual({
-                human: "# Report Generated\n- File: report.xlsx\n- Outlet: ABC123\n- Date: 2024-01-15",
+                summary: "# Report Generated\n- File: report.xlsx\n- Outlet: ABC123\n- Date: 2024-01-15",
                 success: true,
                 data: {
                     file_name: "report.xlsx",
@@ -340,7 +340,7 @@ describe("Workflow onSuccess Handler", () => {
                 .step(step1)
                 .onSuccess(({ context }) => {
                     capturedState = context.state;
-                    return { human: "Done!", success: true };
+                    return { summary: "Done!", success: true };
                 })
                 .build();
 
@@ -348,7 +348,7 @@ describe("Workflow onSuccess Handler", () => {
 
             expect(result.status).toBe("success");
             expect(capturedState).toEqual({ accumulated: "data" });
-            expect(result.data).toEqual({ human: "Done!", success: true });
+            expect(result.data).toEqual({ summary: "Done!", success: true });
         });
     });
 
@@ -428,7 +428,7 @@ describe("Workflow onSuccess Handler", () => {
                     capturedLastStepId = lastStepId;
                     capturedLastStepIndex = lastStepIndex;
                     return {
-                        human: `Workflow ended at step ${lastStepId}`,
+                        summary: `Workflow ended at step ${lastStepId}`,
                         earlyExit: context.state.earlyExit,
                     };
                 },
@@ -492,7 +492,7 @@ describe("Workflow onSuccess Handler", () => {
                     } = context.state;
 
                     return {
-                        human: `# SAP Journal Entry - Success
+                        summary: `# SAP Journal Entry - Success
 
 | Field | Value |
 |-------|-------|
@@ -522,11 +522,11 @@ Source: \`${input.file_path}\``,
             );
 
             expect(result.status).toBe("success");
-            expect(result.data.human).toContain(
+            expect(result.data.summary).toContain(
                 "# SAP Journal Entry - Success",
             );
-            expect(result.data.human).toContain("SG-001");
-            expect(result.data.human).toContain("SAP-2024-00123");
+            expect(result.data.summary).toContain("SG-001");
+            expect(result.data.summary).toContain("SAP-2024-00123");
             expect(result.data.success).toBe(true);
             expect(result.data.data.document_number).toBe("SAP-2024-00123");
         });

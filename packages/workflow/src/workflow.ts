@@ -13,6 +13,7 @@ import type {
     Logger,
     ExecutionResponse,
     ExecutionStatus,
+    SuccessResult,
 } from "./types";
 import { ConsoleLogger } from "./types";
 import { createWorkflowRunner } from "./runner";
@@ -155,7 +156,7 @@ export class WorkflowBuilder<
 function createWorkflowInstance<TInput = any>(
     config: ResolvedWorkflowConfig<TInput>,
     steps: Step[],
-    successHandler?: (context: WorkflowSuccessContext<TInput>) => Promise<void>,
+    successHandler?: (context: WorkflowSuccessContext<TInput>) => Promise<SuccessResult | void> | SuccessResult | void,
     errorHandler?: (context: WorkflowErrorContext<TInput>) => Promise<void>,
 ): Workflow<TInput> {
     return {

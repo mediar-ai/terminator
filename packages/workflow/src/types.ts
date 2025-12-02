@@ -123,7 +123,7 @@ export interface ErrorRecoveryResult {
  */
 export interface ExpectationResult {
     /** Whether the expectation was met */
-    success: boolean;
+    success?: boolean;
     /** Optional message describing the result */
     message?: string;
     /** Optional custom data */
@@ -209,6 +209,23 @@ export const createWorkflowError = WorkflowError;
 /**
  * Workflow execution response
  */
+/**
+ * Success handler result - structured output for onSuccess
+ * @template TData - Type of custom data payload
+ */
+export interface SuccessResult<TData = Record<string, any>> {
+    /** Whether the workflow achieved its business goal */
+    success?: boolean;
+    /** Short one-line message for UI display */
+    message?: string;
+    /** Markdown summary for detailed reporting */
+    summary?: string;
+    /** Custom data payload */
+    data?: TData;
+    /** Allow additional custom properties */
+    [key: string]: any;
+}
+
 export interface ExecutionResponse<TData = any> {
     /** Well-rendered status in UI */
     status: ExecutionStatus;
@@ -216,6 +233,8 @@ export interface ExecutionResponse<TData = any> {
     error?: ExecuteError;
     /** Optional custom data (less well-rendered in UI) */
     data?: TData;
+    /** Allow additional custom properties */
+    [key: string]: any;
     /** Optional user-facing message */
     message?: string;
     /** Last completed step ID (for state persistence) */
@@ -234,6 +253,8 @@ export interface ExecutionResponse<TData = any> {
 export interface StepResult<TData = any, TStateUpdate = Record<string, any>> {
     /** Optional data to store in workflow context */
     data?: TData;
+    /** Allow additional custom properties */
+    [key: string]: any;
     /** Optional state updates to merge into workflow context.state */
     state?: TStateUpdate;
 }
@@ -417,14 +438,14 @@ export interface WorkflowConfig<TInput = any> {
      * onSuccess: async ({ context, logger }) => {
      *   const { file_name, outlet_code, date } = context.state;
      *   return {
-     *     human: `# SAP Journal Entry - Success\n| Outlet | ${outlet_code} |`,
+     *     summary: `# SAP Journal Entry - Success\n| Outlet | ${outlet_code} |`,
      *     success: true,
      *     data: { file_name, outlet_code, date }
      *   };
      * }
      * ```
      */
-    onSuccess?: (context: WorkflowSuccessContext<TInput>) => Promise<any> | any;
+    onSuccess?: (context: WorkflowSuccessContext<TInput>) => Promise<SuccessResult> | SuccessResult | void;
     /** Workflow-level error handler */
     onError?: (
         context: WorkflowErrorContext<TInput>,
