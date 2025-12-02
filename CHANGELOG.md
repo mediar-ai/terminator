@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.33] - 2025-12-02
+
+### Added
+- Workflow SDK: Add `onSuccess` handler support for direct pattern (steps array)
+- Workflow SDK: Add `lastStepId` and `lastStepIndex` to `WorkflowSuccessContext`
+
+### Changed
+- Style: Run cargo fmt on Rust codebase
+
+### Fixed
+- MCP Agent: Optimize window restoration to only restore modified windows
+
+### Performance
+- MCP Agent: Add PERF timing logs for MCP tool execution breakdown
+
+### Tests
+- Workflow SDK: Add comprehensive tests for onSuccess handler (14 tests)
+- MCP Agent: Add array indexing tests for variable substitution
+
 ## [0.23.32] - 2025-12-01
 
 ### Fixed
