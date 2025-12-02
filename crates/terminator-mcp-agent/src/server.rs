@@ -3767,8 +3767,8 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 KV STORAGE (Persistent Key-Value Store)
 ═══════════════════════════════════════════════════════════════════
 
-Use createKVClient(ORG_TOKEN) to access org-scoped persistent storage.
-ORG_TOKEN is automatically injected by the desktop app/VM.
+The 'kv' variable is auto-initialized when ORG_TOKEN is present (desktop app/VM).
+Just use 'kv' directly - no need to call createKVClient().
 
 When to use KV:
 - Workflow processes files from folder → track processed filenames to skip duplicates
@@ -3777,7 +3777,6 @@ When to use KV:
 - Workflow has loops/iterations → checkpoint progress for resume on failure
 
 Basic Usage:
-const kv = createKVClient(ORG_TOKEN);
 await kv.set('myKey', 'myValue');           // Set a value
 const val = await kv.get('myKey');          // Get a value
 await kv.del('myKey');                      // Delete a key
@@ -4136,6 +4135,13 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
 
                 // Inject variables
                 final_script.push_str(&format!("var variables = {variables_json};\n"));
+
+                // Auto-initialize kv if ORG_TOKEN was injected
+                if accumulated_env_json.contains("\"ORG_TOKEN\"") || explicit_env_json.contains("\"ORG_TOKEN\"") {
+                    final_script.push_str("var kv = createKVClient(ORG_TOKEN);\n");
+                    tracing::debug!("[run_command] Auto-initialized kv with ORG_TOKEN");
+                }
+
                 tracing::debug!("[run_command] Injected accumulated env, explicit env, individual vars, and workflow variables for JavaScript");
             } else if matches!(engine.as_str(), "python" | "py") {
                 // For Python, inject as dictionaries
