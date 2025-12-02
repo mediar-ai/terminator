@@ -1426,15 +1426,12 @@ impl DesktopWrapper {
                                 );
                             }
 
-                            // Only inject accumulated env if explicitly in verbose/debug mode
-                            if args.include_detailed_results.unwrap_or(false) {
-                                // Add accumulated env from execution context as special key
-                                if let Some(accumulated_env) = execution_context.get("env") {
-                                    env_obj.insert(
-                                        "_accumulated_env".to_string(),
-                                        accumulated_env.clone(),
-                                    );
-                                }
+                            // Always inject accumulated env so scripts can access previous step results
+                            if let Some(accumulated_env) = execution_context.get("env") {
+                                env_obj.insert(
+                                    "_accumulated_env".to_string(),
+                                    accumulated_env.clone(),
+                                );
                             }
 
                             // Update the arguments
