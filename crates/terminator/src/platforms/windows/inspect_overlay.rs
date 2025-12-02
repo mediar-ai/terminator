@@ -11,9 +11,9 @@ use tracing::{debug, error, info};
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HWND, RECT};
 use windows::Win32::Graphics::Gdi::{
-    CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW, FillRect, GetDC, LineTo,
-    MoveToEx, Rectangle, ReleaseDC, SelectObject, SetBkMode, SetTextColor, DT_SINGLELINE,
-    DT_VCENTER, HBRUSH, HGDIOBJ, PS_SOLID, TRANSPARENT,
+    CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW, FillRect, GetDC, Rectangle,
+    ReleaseDC, SelectObject, SetBkMode, SetTextColor, DT_SINGLELINE, DT_VCENTER, HBRUSH, HGDIOBJ,
+    PS_SOLID, TRANSPARENT,
 };
 
 /// Display mode for overlay labels
@@ -314,11 +314,6 @@ fn format_label(elem: &InspectElement, mode: OverlayDisplayMode) -> Option<Strin
     }
 }
 
-/// Check if two rectangles overlap
-fn rects_overlap(r1: &RECT, r2: &RECT) -> bool {
-    !(r1.right < r2.left || r1.left > r2.right || r1.bottom < r2.top || r1.top > r2.bottom)
-}
-
 /// Draw overlay content directly using GetDC (not via WM_PAINT)
 fn draw_inspect_overlay(hwnd: HWND) {
     unsafe {
@@ -346,9 +341,8 @@ fn draw_inspect_overlay(hwnd: HWND) {
             let (offset_x, offset_y) = *offset;
             let mode = *display_mode;
 
-            // Create pen for borders (green, 2px) and connector lines (green, 1px)
+            // Create pen for borders (green, 2px)
             let border_pen = CreatePen(PS_SOLID, 2, COLORREF(0x00FF00));
-            let connector_pen = CreatePen(PS_SOLID, 1, COLORREF(0x00FF00));
             let old_pen = SelectObject(hdc, HGDIOBJ(border_pen.0));
 
             // Select null brush for transparent fill on rectangles
@@ -381,10 +375,6 @@ fn draw_inspect_overlay(hwnd: HWND) {
             SetBkMode(hdc, TRANSPARENT);
 
             let label_height = 12;
-            let diagonal_offset = 12; // How far to offset diagonally when collision
-
-            // Track used label positions for collision detection
-            let mut used_rects: Vec<RECT> = Vec::new();
 
             // First pass: draw all element rectangles
             for elem in elements.iter() {
@@ -402,7 +392,7 @@ fn draw_inspect_overlay(hwnd: HWND) {
                 let _ = Rectangle(hdc, rel_x, rel_y, rel_x + rel_w, rel_y + rel_h);
             }
 
-            // Second pass: draw labels with collision detection (if not rectangles-only mode)
+            // Second pass: draw labels inside element boxes (if not rectangles-only mode)
             if mode != OverlayDisplayMode::Rectangles {
                 for elem in elements.iter() {
                     let (ex, ey, ew, eh) = elem.bounds;
@@ -422,65 +412,15 @@ fn draw_inspect_overlay(hwnd: HWND) {
                     };
                     let label_width = (label.len() * 5) as i32 + 4; // 5px per char for smaller font
 
-                    // Initial label position (above element)
-                    let mut label_left = rel_x;
-                    let mut label_top = if rel_y > label_height + 2 {
-                        rel_y - label_height - 2
-                    } else {
-                        rel_y
-                    };
-
-                    let mut label_rect = RECT {
-                        left: label_left,
-                        top: label_top,
-                        right: label_left + label_width,
-                        bottom: label_top + label_height,
-                    };
-
-                    // Check for collisions and offset diagonally
-                    let mut attempts = 0;
-                    let max_attempts = 10;
-                    while attempts < max_attempts
-                        && used_rects.iter().any(|r| rects_overlap(&label_rect, r))
-                    {
-                        // Offset diagonally (up-right)
-                        label_left += diagonal_offset;
-                        label_top -= diagonal_offset;
-                        label_rect = RECT {
-                            left: label_left,
-                            top: label_top,
-                            right: label_left + label_width,
-                            bottom: label_top + label_height,
-                        };
-                        attempts += 1;
-                    }
-
-                    // Check if label was offset (needs connector line)
-                    let was_offset = label_left != rel_x
-                        || label_top
-                            != (if rel_y > label_height + 2 {
-                                rel_y - label_height - 2
-                            } else {
-                                rel_y
-                            });
-
-                    // Draw connector line if label was offset
-                    if was_offset {
-                        SelectObject(hdc, HGDIOBJ(connector_pen.0));
-                        let _ = MoveToEx(hdc, label_left, label_top + label_height, None);
-                        let _ = LineTo(hdc, rel_x, rel_y);
-                        SelectObject(hdc, HGDIOBJ(border_pen.0));
-                    }
-
-                    // Draw text (no background fill)
+                    // Draw text inside the element box at top-left corner
                     let mut wide_text: Vec<u16> = label.encode_utf16().collect();
                     wide_text.push(0);
 
                     let mut text_rect = RECT {
-                        left: label_left + 1,
-                        top: label_top,
-                        right: label_left + label_width,
-                        bottom: label_top + label_height,
+                        left: rel_x + 2,
+                        top: rel_y + 1,
+                        right: rel_x + label_width + 2,
+                        bottom: rel_y + label_height + 1,
                     };
 
                     let _ = DrawTextW(
@@ -489,9 +429,6 @@ fn draw_inspect_overlay(hwnd: HWND) {
                         &mut text_rect,
                         DT_SINGLELINE | DT_VCENTER,
                     );
-
-                    // Track this label's position
-                    used_rects.push(label_rect);
                 }
             }
 
@@ -501,7 +438,6 @@ fn draw_inspect_overlay(hwnd: HWND) {
             SelectObject(hdc, old_pen);
             let _ = DeleteObject(HGDIOBJ(font.0));
             let _ = DeleteObject(border_pen.into());
-            let _ = DeleteObject(connector_pen.into());
         }
 
         let _ = ReleaseDC(Some(hwnd), hdc);
