@@ -1813,4 +1813,97 @@ mod tests {
         // The if condition should remain as text
         assert_eq!(args["steps"][1]["if"], "!contains(user_roles, 'Premium')");
     }
+
+    // Tests for array indexing support
+    #[test]
+    fn test_variable_path_to_pointer_simple() {
+        assert_eq!(variable_path_to_pointer("url"), "/url");
+        assert_eq!(variable_path_to_pointer("nested.field"), "/nested/field");
+    }
+
+    #[test]
+    fn test_variable_path_to_pointer_array_indexing() {
+        assert_eq!(variable_path_to_pointer("keywords[0]"), "/keywords/0");
+        assert_eq!(variable_path_to_pointer("items[2]"), "/items/2");
+        assert_eq!(variable_path_to_pointer("data.items[0]"), "/data/items/0");
+        assert_eq!(variable_path_to_pointer("nested[0].field"), "/nested/0/field");
+        assert_eq!(variable_path_to_pointer("arr[0][1]"), "/arr/0/1");
+        assert_eq!(
+            variable_path_to_pointer("deep.nested[0].array[1].value"),
+            "/deep/nested/0/array/1/value"
+        );
+    }
+
+    #[test]
+    fn test_substitute_array_index_full_replacement() {
+        let mut args = json!({"keyword": "{{keywords[0]}}"});
+        let vars = json!({"keywords": ["rpa", "desktop automation", "computer use"]});
+        substitute_variables(&mut args, &vars);
+        assert_eq!(args["keyword"], "rpa");
+    }
+
+    #[test]
+    fn test_substitute_array_index_second_element() {
+        let mut args = json!({"keyword": "{{keywords[1]}}"});
+        let vars = json!({"keywords": ["rpa", "desktop automation", "computer use"]});
+        substitute_variables(&mut args, &vars);
+        assert_eq!(args["keyword"], "desktop automation");
+    }
+
+    #[test]
+    fn test_substitute_array_index_partial_replacement() {
+        let mut args = json!({"text": "Search for: {{keywords[0]}}"});
+        let vars = json!({"keywords": ["rpa", "desktop automation"]});
+        substitute_variables(&mut args, &vars);
+        assert_eq!(args["text"], "Search for: rpa");
+    }
+
+    #[test]
+    fn test_substitute_nested_array_index() {
+        let mut args = json!({"value": "{{data.items[0]}}"});
+        let vars = json!({"data": {"items": ["first", "second", "third"]}});
+        substitute_variables(&mut args, &vars);
+        assert_eq!(args["value"], "first");
+    }
+
+    #[test]
+    fn test_substitute_array_index_with_nested_field() {
+        let mut args = json!({"name": "{{users[0].name}}"});
+        let vars = json!({"users": [{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]});
+        substitute_variables(&mut args, &vars);
+        assert_eq!(args["name"], "Alice");
+    }
+
+    #[test]
+    fn test_substitute_array_index_out_of_bounds() {
+        // When array index is out of bounds, the placeholder should remain unchanged
+        let mut args = json!({"keyword": "{{keywords[99]}}"});
+        let vars = json!({"keywords": ["rpa"]});
+        substitute_variables(&mut args, &vars);
+        assert_eq!(args["keyword"], "{{keywords[99]}}");
+    }
+
+    #[test]
+    fn test_substitute_array_index_github_actions_style() {
+        let mut args = json!({"keyword": "${{keywords[0]}}"});
+        let vars = json!({"keywords": ["rpa", "desktop automation"]});
+        substitute_variables(&mut args, &vars);
+        assert_eq!(args["keyword"], "rpa");
+    }
+
+    #[test]
+    fn test_substitute_array_returns_number() {
+        let mut args = json!({"count": "{{counts[0]}}"});
+        let vars = json!({"counts": [42, 100, 200]});
+        substitute_variables(&mut args, &vars);
+        assert_eq!(args["count"], 42);
+    }
+
+    #[test]
+    fn test_substitute_array_returns_object() {
+        let mut args = json!({"user": "{{users[0]}}"});
+        let vars = json!({"users": [{"name": "Alice", "age": 30}]});
+        substitute_variables(&mut args, &vars);
+        assert_eq!(args["user"], json!({"name": "Alice", "age": 30}));
+    }
 }
