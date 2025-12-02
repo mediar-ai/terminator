@@ -2710,7 +2710,10 @@ impl DesktopWrapper {
         // Restore windows after typing into element
         self.restore_window_management(should_restore).await;
 
-        tracing::info!("[PERF] type_into_element total: {}ms", operation_start.elapsed().as_millis());
+        tracing::info!(
+            "[PERF] type_into_element total: {}ms",
+            operation_start.elapsed().as_millis()
+        );
         span.set_status(true, None);
         span.end();
         Ok(CallToolResult::success(
@@ -2723,7 +2726,8 @@ impl DesktopWrapper {
         ))
     }
 
-    #[tool(description = "Unified click tool with three modes. IMPORTANT: Use exactly ONE mode - do not mix parameters from different modes.
+    #[tool(
+        description = "Unified click tool with three modes. IMPORTANT: Use exactly ONE mode - do not mix parameters from different modes.
 
 **Mode 1 - Selector** (process + selector): Find element by selector and click.
   Example: {\"process\": \"notepad\", \"selector\": \"role:Button|name:Save\", \"click_type\": \"left\"}
@@ -2734,7 +2738,8 @@ impl DesktopWrapper {
 **Mode 3 - Coordinates** (x + y): Click at absolute screen coordinates.
   Example: {\"x\": 500, \"y\": 300, \"click_type\": \"right\"}
 
-Click types: 'left' (default), 'double', 'right'. Selector mode uses actionability validation. Index mode requires get_window_tree first.")]
+Click types: 'left' (default), 'double', 'right'. Selector mode uses actionability validation. Index mode requires get_window_tree first."
+    )]
     pub async fn click_element(
         &self,
         Parameters(args): Parameters<ClickElementArgs>,
@@ -5914,7 +5919,10 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
 
         self.restore_window_management(should_restore).await;
 
-        tracing::info!("[PERF] navigate_browser total: {}ms", operation_start.elapsed().as_millis());
+        tracing::info!(
+            "[PERF] navigate_browser total: {}ms",
+            operation_start.elapsed().as_millis()
+        );
         span.set_status(true, None);
         span.end();
 

@@ -3520,7 +3520,14 @@ impl AccessibilityEngine for WindowsEngine {
         dpi_scale_y: f64,
     ) -> Result<OcrElement, AutomationError> {
         // Delegate to the implementation in impl WindowsEngine
-        WindowsEngine::ocr_screenshot_with_bounds(self, screenshot, window_x, window_y, dpi_scale_x, dpi_scale_y)
+        WindowsEngine::ocr_screenshot_with_bounds(
+            self,
+            screenshot,
+            window_x,
+            window_y,
+            dpi_scale_x,
+            dpi_scale_y,
+        )
     }
 
     fn click_at_coordinates(&self, x: f64, y: f64) -> Result<(), AutomationError> {

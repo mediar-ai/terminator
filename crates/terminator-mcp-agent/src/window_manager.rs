@@ -404,8 +404,7 @@ impl WindowManager {
             .iter()
             .filter(|w| {
                 // Restore if this window was minimized OR if it's the target window
-                cache.minimized_windows.contains(&w.hwnd)
-                    || (cache.target_window == Some(w.hwnd))
+                cache.minimized_windows.contains(&w.hwnd) || (cache.target_window == Some(w.hwnd))
             })
             .collect();
 

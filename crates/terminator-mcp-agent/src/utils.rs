@@ -1961,15 +1961,23 @@ pub async fn find_element_with_fallbacks(
         let locator = desktop.locator(terminator::Selector::from(primary_selector));
         return match locator.first(Some(timeout_duration)).await {
             Ok(element) => {
-                tracing::info!("[PERF] find_element_with_fallbacks: {}ms (selector: {})", find_start.elapsed().as_millis(), primary_selector);
+                tracing::info!(
+                    "[PERF] find_element_with_fallbacks: {}ms (selector: {})",
+                    find_start.elapsed().as_millis(),
+                    primary_selector
+                );
                 Ok((element, primary_selector.to_string()))
-            },
+            }
             Err(e) => {
-                tracing::info!("[PERF] find_element_with_fallbacks: {}ms (FAILED selector: {})", find_start.elapsed().as_millis(), primary_selector);
+                tracing::info!(
+                    "[PERF] find_element_with_fallbacks: {}ms (FAILED selector: {})",
+                    find_start.elapsed().as_millis(),
+                    primary_selector
+                );
                 Err(terminator::AutomationError::ElementNotFound(format!(
                     "Primary selector '{primary_selector}' failed: {e}"
                 )))
-            },
+            }
         };
     }
 
@@ -2043,7 +2051,11 @@ pub async fn find_element_with_fallbacks(
 
                 // Always prefer primary selector (index 0) if it succeeds
                 if index == 0 {
-                    tracing::info!("[PERF] find_element_with_fallbacks: {}ms (primary selector: {})", find_start.elapsed().as_millis(), selector);
+                    tracing::info!(
+                        "[PERF] find_element_with_fallbacks: {}ms (primary selector: {})",
+                        find_start.elapsed().as_millis(),
+                        selector
+                    );
                     return Ok((element, selector));
                 } else {
                     // Alternative succeeded first, but give primary selector a brief grace period
@@ -2065,7 +2077,11 @@ pub async fn find_element_with_fallbacks(
                         }
                         _ => {
                             // Primary didn't succeed quickly, use the alternative that worked
-                            tracing::info!("[PERF] find_element_with_fallbacks: {}ms (alternative: {})", find_start.elapsed().as_millis(), selector);
+                            tracing::info!(
+                                "[PERF] find_element_with_fallbacks: {}ms (alternative: {})",
+                                find_start.elapsed().as_millis(),
+                                selector
+                            );
                             return Ok((element, selector));
                         }
                     }
@@ -2119,7 +2135,11 @@ pub async fn find_element_with_fallbacks(
         )
     };
 
-    tracing::info!("[PERF] find_element_with_fallbacks: {}ms (ALL FAILED: {})", find_start.elapsed().as_millis(), primary_selector);
+    tracing::info!(
+        "[PERF] find_element_with_fallbacks: {}ms (ALL FAILED: {})",
+        find_start.elapsed().as_millis(),
+        primary_selector
+    );
     Err(terminator::AutomationError::ElementNotFound(combined_error))
 }
 

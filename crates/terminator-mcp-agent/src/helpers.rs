@@ -175,9 +175,14 @@ pub fn substitute_variables(args: &mut Value, variables: &Value) {
                     );
 
                     // Check if it's a simple variable path (supports array indexing like [0]).
-                    let is_simple_var = inner_str
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' || c == '[' || c == ']');
+                    let is_simple_var = inner_str.chars().all(|c| {
+                        c.is_ascii_alphanumeric()
+                            || c == '_'
+                            || c == '-'
+                            || c == '.'
+                            || c == '['
+                            || c == ']'
+                    });
 
                     if is_simple_var {
                         let pointer = variable_path_to_pointer(inner_str);
@@ -225,9 +230,14 @@ pub fn substitute_variables(args: &mut Value, variables: &Value) {
                         inner_str
                     );
 
-                    let is_simple_var = inner_str
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' || c == '[' || c == ']');
+                    let is_simple_var = inner_str.chars().all(|c| {
+                        c.is_ascii_alphanumeric()
+                            || c == '_'
+                            || c == '-'
+                            || c == '.'
+                            || c == '['
+                            || c == ']'
+                    });
 
                     if is_simple_var {
                         let pointer = variable_path_to_pointer(inner_str);
@@ -772,7 +782,10 @@ where
                         Some(tree_config.clone()),
                     ) {
                         Ok(tree) => {
-                            tracing::info!("[PERF] capture_tree_before: {}ms", tree_before_start.elapsed().as_millis());
+                            tracing::info!(
+                                "[PERF] capture_tree_before: {}ms",
+                                tree_before_start.elapsed().as_millis()
+                            );
                             tree
                         }
                         Err(e) => {
@@ -806,7 +819,10 @@ where
                     let action_start = std::time::Instant::now();
                     match action(element.clone()).await {
                         Ok(result) => {
-                            tracing::info!("[PERF] action_execution: {}ms", action_start.elapsed().as_millis());
+                            tracing::info!(
+                                "[PERF] action_execution: {}ms",
+                                action_start.elapsed().as_millis()
+                            );
                             // Small delay for UI to settle (1500ms - same delay used in maybe_attach_tree)
                             tokio::time::sleep(Duration::from_millis(1500)).await;
 
@@ -822,7 +838,10 @@ where
                                 Some(tree_config),
                             ) {
                                 Ok(tree) => {
-                                    tracing::info!("[PERF] capture_tree_after: {}ms", tree_after_start.elapsed().as_millis());
+                                    tracing::info!(
+                                        "[PERF] capture_tree_after: {}ms",
+                                        tree_after_start.elapsed().as_millis()
+                                    );
                                     tree
                                 }
                                 Err(e) => {
@@ -865,7 +884,10 @@ where
                                     None
                                 }
                             };
-                            tracing::info!("[PERF] compute_ui_diff: {}ms", diff_start.elapsed().as_millis());
+                            tracing::info!(
+                                "[PERF] compute_ui_diff: {}ms",
+                                diff_start.elapsed().as_millis()
+                            );
 
                             return Ok(((result, element), successful_selector, diff_result));
                         }
@@ -1826,7 +1848,10 @@ mod tests {
         assert_eq!(variable_path_to_pointer("keywords[0]"), "/keywords/0");
         assert_eq!(variable_path_to_pointer("items[2]"), "/items/2");
         assert_eq!(variable_path_to_pointer("data.items[0]"), "/data/items/0");
-        assert_eq!(variable_path_to_pointer("nested[0].field"), "/nested/0/field");
+        assert_eq!(
+            variable_path_to_pointer("nested[0].field"),
+            "/nested/0/field"
+        );
         assert_eq!(variable_path_to_pointer("arr[0][1]"), "/arr/0/1");
         assert_eq!(
             variable_path_to_pointer("deep.nested[0].array[1].value"),

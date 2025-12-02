@@ -597,8 +597,13 @@ impl Desktop {
         dpi_scale_x: f64,
         dpi_scale_y: f64,
     ) -> Result<OcrElement, AutomationError> {
-        self.engine
-            .ocr_screenshot_with_bounds(screenshot, window_x, window_y, dpi_scale_x, dpi_scale_y)
+        self.engine.ocr_screenshot_with_bounds(
+            screenshot,
+            window_x,
+            window_y,
+            dpi_scale_x,
+            dpi_scale_y,
+        )
     }
 
     /// Click at absolute screen coordinates
