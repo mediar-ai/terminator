@@ -251,6 +251,12 @@ impl WindowManager {
     // Bring window to front (BringWindowToTop + SetForegroundWindow)
     // Uses AttachThreadInput trick to bypass Windows' focus-stealing prevention
     pub async fn bring_window_to_front(&self, hwnd: isize) -> Result<bool, String> {
+        // Track this window as the target for restoration
+        {
+            let mut cache = self.window_cache.lock().await;
+            cache.target_window = Some(hwnd);
+        }
+
         unsafe {
             let hwnd_win = HWND(hwnd as *mut _);
 
@@ -392,23 +398,16 @@ impl WindowManager {
         }
 
         // Determine which windows need restoration
-        // If minimized_windows is empty AND no target window, restore all (backward compatibility)
-        let windows_to_restore: Vec<&WindowInfo> =
-            if cache.minimized_windows.is_empty() && cache.target_window.is_none() {
-                // Legacy behavior: restore all original states
-                cache.original_states.iter().collect()
-            } else {
-                // New optimized behavior: restore windows we minimized + target window
-                cache
-                    .original_states
-                    .iter()
-                    .filter(|w| {
-                        // Restore if this window was minimized OR if it's the target window
-                        cache.minimized_windows.contains(&w.hwnd)
-                            || (cache.target_window == Some(w.hwnd))
-                    })
-                    .collect()
-            };
+        // Only restore windows we actually modified (minimized or target)
+        let windows_to_restore: Vec<&WindowInfo> = cache
+            .original_states
+            .iter()
+            .filter(|w| {
+                // Restore if this window was minimized OR if it's the target window
+                cache.minimized_windows.contains(&w.hwnd)
+                    || (cache.target_window == Some(w.hwnd))
+            })
+            .collect();
 
         // Restore in reverse order (bottommost first) to preserve Z-order
         // This ensures topmost windows end up on top after restoration
