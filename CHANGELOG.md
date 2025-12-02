@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.34] - 2025-12-02
+
+### Added
+- Workflow SDK: Add `SuccessResult` type and rename `human` to `summary`
+- MCP Agent: Add `gemini_computer_use` tool for agentic desktop automation using native Gemini 2.5 Computer Use API
+- MCP Agent: Add dynamic MCP tools list to `execute_sequence` instructions
+- MCP Agent: Auto-initialize KV variable when `ORG_TOKEN` is present
+
+### Changed
+- MCP Agent: Rewrite `gemini_computer_use` to use native Gemini 2.5 Computer Use API
+- UI Overlay: Simplify overlay labels to render inside element boxes
+
+### Performance
+- MCP Agent: Add granular PERF logs for MCP tool execution timing
+- Development: Optimize dev build profile
+
+### Fixed
+- MCP Agent: Change premature success log to debug level in `browser_script`
+
 ## [0.23.33] - 2025-12-02
 
 ### Added
