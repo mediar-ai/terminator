@@ -2721,7 +2721,7 @@ impl DesktopWrapper {
         ))
     }
 
-    #[tool(description = "Unified click tool with three modes:
+    #[tool(description = "Unified click tool with three modes. IMPORTANT: Use exactly ONE mode - do not mix parameters from different modes.
 
 **Mode 1 - Selector** (process + selector): Find element by selector and click.
   Example: {\"process\": \"notepad\", \"selector\": \"role:Button|name:Save\", \"click_type\": \"left\"}
@@ -3749,6 +3749,12 @@ KV STORAGE (Persistent Key-Value Store)
 
 Use createKVClient(ORG_TOKEN) to access org-scoped persistent storage.
 ORG_TOKEN is automatically injected by the desktop app/VM.
+
+When to use KV:
+- Workflow processes files from folder → track processed filenames to skip duplicates
+- Workflow runs on schedule (cron) → persist state between scheduled runs
+- Workflow runs on multiple VMs → use locks to prevent concurrent execution
+- Workflow has loops/iterations → checkpoint progress for resume on failure
 
 Basic Usage:
 const kv = createKVClient(ORG_TOKEN);
