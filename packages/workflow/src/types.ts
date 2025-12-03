@@ -618,45 +618,50 @@ export function retry(): RetrySignal {
 }
 
 /**
- * Signal class for completing workflow early with success
+ * Marker object for early workflow success.
+ * Return this from execute() to complete workflow immediately.
  * @internal
  */
-export class WorkflowCompleteSignal extends Error {
-    readonly _isWorkflowCompleteSignal = true;
+export interface WorkflowSuccessMarker {
+    readonly __workflowSuccess: true;
     readonly result: SuccessResult;
-
-    constructor(result: SuccessResult) {
-        super("Workflow complete signal");
-        this.name = "WorkflowCompleteSignal";
-        this.result = result;
-    }
 }
 
 /**
- * Complete the workflow early with a success result.
- * Throw this to skip remaining steps and return success immediately.
+ * Complete the workflow early with success.
+ * Return this from execute() to skip remaining steps and return success immediately.
  * This bypasses onSuccess handler - the provided result IS the final output.
  *
  * @example
  * ```typescript
- * import { createStep, complete } from '@mediar-ai/workflow';
+ * import { createStep, success } from '@mediar-ai/workflow';
  *
  * createStep({
  *   id: 'check_files',
  *   name: 'Check Files',
- *   execute: async ({ context }) => {
+ *   execute: async () => {
  *     if (noFilesFound) {
- *       throw complete({
- *         status: 'success',
+ *       return success({
  *         message: 'No files to process',
  *         data: { filesChecked: 0 }
  *       });
  *     }
- *     // Continue with normal processing...
+ *     return { state: { hasFiles: true } };
  *   }
  * });
  * ```
  */
-export function complete(result: SuccessResult): WorkflowCompleteSignal {
-    return new WorkflowCompleteSignal(result);
+export function success(result: SuccessResult): WorkflowSuccessMarker {
+    return {
+        __workflowSuccess: true,
+        result,
+    };
+}
+
+/**
+ * Check if a value is a workflow success marker
+ * @internal
+ */
+export function isWorkflowSuccess(value: any): value is WorkflowSuccessMarker {
+    return value && typeof value === 'object' && value.__workflowSuccess === true;
 }

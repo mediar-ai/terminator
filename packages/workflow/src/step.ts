@@ -9,6 +9,7 @@ import {
     ExecuteError,
     StepResult,
     RetrySignal,
+    isWorkflowSuccess,
 } from "./types";
 
 /**
@@ -112,6 +113,13 @@ export function createStep<
                     result = await config.execute(context);
                 }
 
+
+                // Check for early workflow success - return immediately without normalization
+                if (isWorkflowSuccess(result)) {
+                    const duration = Date.now() - startTime;
+                    logger.success(`✅ Completed step: ${config.name} (${duration}ms)`);
+                    return result as any;
+                }
                 // Normalize result to StepResult format
                 let normalizedResult: StepResult<TOutput, TStateOut> | void;
 

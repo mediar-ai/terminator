@@ -13,8 +13,8 @@ export {
     createWorkflowError,
     retry,
     RetrySignal,
-    complete,
-    WorkflowCompleteSignal,
+    success,
+    WorkflowSuccessMarker,
 } from "./types";
 
 export type {

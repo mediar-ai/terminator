@@ -15,7 +15,7 @@ import type {
     ExecutionStatus,
     SuccessResult,
 } from "./types";
-import { ConsoleLogger, WorkflowCompleteSignal } from "./types";
+import { ConsoleLogger, isWorkflowSuccess } from "./types";
 import { createWorkflowRunner } from "./runner";
 
 /**
@@ -310,12 +310,29 @@ function createWorkflowInstance<TInput = any>(
                         `[${currentIndex + 1}/${steps.length}] ${step.config.name}`,
                     );
 
-                    await step.run({
+                    const stepResult = await step.run({
                         desktop: desktopInstance,
                         input: validatedInput,
                         context,
                         logger: log,
                     });
+
+                    // Check for early success return
+                    if (isWorkflowSuccess(stepResult)) {
+                        const duration = Date.now() - startTime;
+                        log.info("");
+                        log.info("=".repeat(60));
+                        log.success(`✅ Workflow completed early! (${duration}ms)`);
+                        log.info("=".repeat(60));
+                        return {
+                            status: "success",
+                            message: stepResult.result.message || "Workflow completed early",
+                            data: stepResult.result,
+                            lastStepId: step.config.id,
+                            lastStepIndex: currentIndex,
+                            state: { context, lastStepId: step.config.id, lastStepIndex: currentIndex },
+                        };
+                    }
 
                     // Track last completed step for state persistence
                     lastStepId = step.config.id;
@@ -393,22 +410,6 @@ function createWorkflowInstance<TInput = any>(
                     state: { context, lastStepId, lastStepIndex },
                 };
             } catch (error: any) {
-                // Handle early workflow completion (not an error)
-                if (error instanceof WorkflowCompleteSignal) {
-                    const duration = Date.now() - startTime;
-                    log.info("");
-                    log.info("=".repeat(60));
-                    log.success(`✅ Workflow completed early! (${duration}ms)`);
-                    log.info("=".repeat(60));
-                    return {
-                        status: "success",
-                        message: error.result.message || "Workflow completed early",
-                        data: error.result,
-                        lastStepId,
-                        lastStepIndex,
-                        state: { context, lastStepId, lastStepIndex },
-                    };
-                }
 
                 const duration = Date.now() - startTime;
 

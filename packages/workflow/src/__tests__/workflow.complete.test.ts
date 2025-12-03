@@ -1,8 +1,8 @@
 /**
- * Unit tests for workflow complete() early exit functionality
+ * Unit tests for workflow success() early exit functionality
  */
 
-import { createWorkflow, createStep, z, complete } from "../index";
+import { createWorkflow, createStep, z, success } from "../index";
 import type { StepResult } from "../types";
 
 // Mock Desktop for unit tests
@@ -12,9 +12,9 @@ const mockDesktop = {
     delay: jest.fn(),
 } as any;
 
-describe("Workflow Complete Tests", () => {
-    describe("complete() early exit", () => {
-        test("exits workflow early with success when complete() is thrown", async () => {
+describe("Workflow Success Tests", () => {
+    describe("success() early exit", () => {
+        test("exits workflow early with success when success() is returned", async () => {
             const executionOrder: string[] = [];
 
             const step1 = createStep({
@@ -29,9 +29,9 @@ describe("Workflow Complete Tests", () => {
             const step2 = createStep({
                 id: "step2",
                 name: "Step 2 - exits early",
-                execute: async (): Promise<StepResult> => {
+                execute: async () => {
                     executionOrder.push("step2");
-                    throw complete({
+                    return success({
                         message: "No files to process",
                         data: { filesChecked: 0 },
                     });
@@ -65,14 +65,14 @@ describe("Workflow Complete Tests", () => {
             expect(executionOrder).not.toContain("step3");
         });
 
-        test("complete() bypasses onSuccess handler", async () => {
+        test("success() bypasses onSuccess handler", async () => {
             let onSuccessCalled = false;
 
             const step1 = createStep({
                 id: "step1",
                 name: "Step 1",
-                execute: async (): Promise<StepResult> => {
-                    throw complete({
+                execute: async () => {
+                    return success({
                         message: "Early exit",
                         success: true,
                     });
@@ -95,12 +95,12 @@ describe("Workflow Complete Tests", () => {
             expect(onSuccessCalled).toBe(false);
         });
 
-        test("complete() with custom data fields", async () => {
+        test("success() with custom data fields", async () => {
             const step1 = createStep({
                 id: "step1",
                 name: "Step 1",
-                execute: async (): Promise<StepResult> => {
-                    throw complete({
+                execute: async () => {
+                    return success({
                         message: "Custom completion",
                         summary: "# Summary\nNo work needed",
                         data: {
@@ -125,7 +125,7 @@ describe("Workflow Complete Tests", () => {
             expect(result.data.customField).toBe("customValue");
         });
 
-        test("complete() preserves lastStepId and lastStepIndex", async () => {
+        test("success() sets correct lastStepId and lastStepIndex", async () => {
             const step1 = createStep({
                 id: "first_step",
                 name: "First Step",
@@ -137,8 +137,8 @@ describe("Workflow Complete Tests", () => {
             const step2 = createStep({
                 id: "second_step",
                 name: "Second Step",
-                execute: async (): Promise<StepResult> => {
-                    throw complete({ message: "Done early" });
+                execute: async () => {
+                    return success({ message: "Done early" });
                 },
             });
 
@@ -150,8 +150,8 @@ describe("Workflow Complete Tests", () => {
             const result = await workflow.run({}, mockDesktop);
 
             expect(result.status).toBe("success");
-            expect(result.lastStepId).toBe("first_step");
-            expect(result.lastStepIndex).toBe(0);
+            expect(result.lastStepId).toBe("second_step");
+            expect(result.lastStepIndex).toBe(1);
         });
     });
 });
