@@ -64,6 +64,22 @@ fn is_empty_string(s: &Option<String>) -> bool {
     }
 }
 
+/// Check if text contains relative time patterns that would make selectors unstable
+/// Examples: "3 hours ago", "5 minutes ago", "yesterday", "just now"
+fn contains_relative_time(text: &str) -> bool {
+    // Common relative time patterns (text is already lowercase)
+    text.contains(" ago")
+        || text.contains("just now")
+        || text.contains("yesterday")
+        || text.contains("today")
+        || text.contains("last week")
+        || text.contains("last month")
+        || text.ends_with(" min")
+        || text.ends_with(" mins")
+        || text.ends_with(" hr")
+        || text.ends_with(" hrs")
+}
+
 /// Represents a position on the screen
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Position {
@@ -682,6 +698,8 @@ pub fn build_parent_hierarchy(element: &UIElement) -> Vec<UIElementInfo> {
                     || lower.ends_with(" - mozilla firefox")
                     || lower.ends_with(" - microsoft edge")
                 ))
+                // Skip elements with relative timestamps (dynamic, will break selectors)
+                || contains_relative_time(&lower)
         }).unwrap_or(false);
 
         if has_name && !is_internal_element {
