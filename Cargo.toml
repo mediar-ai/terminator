@@ -78,8 +78,8 @@ codegen-units = 1
 
 # Fast dev iteration profile - use with: cargo build --profile dev-release
 # ~3x faster compile than release, slightly larger binary
-[profile.dev]
-opt-level = 1          # Slight optimization (faster runtime, slightly slower compile)
-lto = false            # No LTO in dev
+[profile.dev-release]
+inherits = "release"
+lto = false            # No LTO for faster compile
 codegen-units = 256    # Max parallelism
-incremental = true     # Already default, but explicit
+incremental = true     # Enable incremental compilation
