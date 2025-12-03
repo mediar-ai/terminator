@@ -1064,6 +1064,11 @@ impl WindowsRecorder {
 
             let mut active_keys: HashMap<u32, bool> = HashMap::new();
 
+            // Debounce tracker for ButtonPress events to filter OS-level duplicates
+            // Some mouse drivers/Windows configurations send duplicate click events within milliseconds
+            let mut last_button_press: Option<(Instant, Position, rdev::Button)> = None;
+            const BUTTON_PRESS_DEBOUNCE_MS: u128 = 50;
+
             if let Err(error) = rdev::listen(move |event: rdev::Event| {
                 if stop_indicator_clone.load(Ordering::SeqCst) {
                     return;
@@ -1209,13 +1214,32 @@ impl WindowsRecorder {
                     }
                     EventType::ButtonPress(button) => {
                         if let Some((x, y)) = *last_mouse_pos.lock().unwrap() {
+                            let position = Position { x, y };
+                            let now = Instant::now();
+
+                            // Debounce: filter duplicate ButtonPress events within 50ms at same position
+                            if let Some((last_time, last_pos, last_btn)) = last_button_press {
+                                let elapsed = now.duration_since(last_time).as_millis();
+                                if elapsed < BUTTON_PRESS_DEBOUNCE_MS
+                                    && last_pos.x == position.x
+                                    && last_pos.y == position.y
+                                    && last_btn == button
+                                {
+                                    debug!(
+                                        "🔇 Filtering duplicate ButtonPress at ({}, {}) - {}ms since last",
+                                        position.x, position.y, elapsed
+                                    );
+                                    return;
+                                }
+                            }
+                            last_button_press = Some((now, position, button));
+
                             let mouse_button = match button {
                                 Button::Left => MouseButton::Left,
                                 Button::Right => MouseButton::Right,
                                 Button::Middle => MouseButton::Middle,
                                 _ => return,
                             };
-                            let position = Position { x, y };
 
                             if capture_ui_elements_rdev {
                                 // Emit PendingAction immediately before slow UI capture
@@ -2899,55 +2923,94 @@ impl WindowsRecorder {
         element: &UIElement,
         position: Position,
     ) -> Option<UIElement> {
+        let element_name = element.name().unwrap_or_default();
+        let element_role = element.role();
+
         debug!(
-            "≡ƒöì Checking element '{}' (role: {}) for coordinates ({}, {})",
-            element.name().unwrap_or_default(),
-            element.role(),
+            "🔍 Checking element '{}' (role: {}) for coordinates ({}, {})",
+            element_name,
+            element_role,
             position.x,
             position.y
         );
 
+        // Check if this is a container element (unnamed Group/Pane) that may have broken bounds
+        let is_container = element_name.is_empty()
+            && matches!(
+                element_role.as_str(),
+                "Group" | "Pane" | "GenericContainer" | "Custom"
+            );
+
         // Check current element bounds
-        if let Ok(bounds) = element.bounds() {
+        let bounds_contain_point = if let Ok(bounds) = element.bounds() {
             debug!(
                 "   Element bounds: ({}, {}, {}, {})",
                 bounds.0, bounds.1, bounds.2, bounds.3
             );
 
-            // If current element doesn't contain our point, return None
-            if !(bounds.0 <= position.x as f64
+            bounds.0 <= position.x as f64
                 && position.x as f64 <= bounds.0 + bounds.2
                 && bounds.1 <= position.y as f64
-                && position.y as f64 <= bounds.1 + bounds.3)
-            {
-                debug!("   Γ¥î Point is outside element bounds");
-                return None;
-            }
+                && position.y as f64 <= bounds.1 + bounds.3
         } else {
-            debug!("   ΓÜá∩╕Å Cannot get element bounds");
+            debug!("   ⚠️ Cannot get element bounds");
+            true // If we can't get bounds, assume it contains the point
+        };
+
+        // If bounds don't contain point and this is NOT a container, bail out
+        // Containers may have broken bounds (smaller than children), so we still check their children
+        if !bounds_contain_point && !is_container {
+            debug!("   ❌ Point is outside non-container element bounds");
+            return None;
+        }
+
+        if !bounds_contain_point && is_container {
+            debug!(
+                "   ⚠️ Container bounds don't contain point, but checking children anyway (bounds may be broken)"
+            );
         }
 
         // Try to find a deeper child that contains our point
         if let Ok(children) = element.children() {
             debug!("   Checking {} children for deeper matches", children.len());
 
-            for child in children {
+            for child in &children {
                 if let Some(deeper_element) =
-                    Self::find_deepest_element_at_coordinates(&child, position)
+                    Self::find_deepest_element_at_coordinates(child, position)
                 {
                     debug!(
-                        "   Γ£à Found deeper element: '{}' (role: {})",
+                        "   ✅ Found deeper element: '{}' (role: {})",
                         deeper_element.name().unwrap_or_default(),
                         deeper_element.role()
                     );
                     return Some(deeper_element);
                 }
             }
+
+            // Fallback: If we're a container with broken bounds and normal recursion failed,
+            // search ALL descendants for any named element at the click position
+            if !bounds_contain_point && is_container {
+                debug!(
+                    "   🔎 Container with broken bounds - searching descendants for named element"
+                );
+                if let Some(named_descendant) =
+                    Self::find_named_descendant_at_position(&children, position)
+                {
+                    debug!(
+                        "   ✅ Found named descendant: '{}' (role: {})",
+                        named_descendant.name().unwrap_or_default(),
+                        named_descendant.role()
+                    );
+                    return Some(named_descendant);
+                }
+                // No descendant found, don't return this broken-bounds container
+                debug!("   ❌ No named descendant found in container with broken bounds");
+                return None;
+            }
         }
 
         // Before returning this element, check if it's an empty container
         // with a single child that has content
-        let element_name = element.name().unwrap_or_default();
         if element_name.is_empty() {
             if let Ok(children) = element.children() {
                 // Check for single child with content
@@ -2965,7 +3028,7 @@ impl WindowsRecorder {
                                 && position.y as f64 <= child_bounds.1 + child_bounds.3
                             {
                                 debug!(
-                                    "   ≡ƒÄ» Preferring child with content: '{}' (role: {}) over empty parent",
+                                    "   🎯 Preferring child with content: '{}' (role: {}) over empty parent",
                                     child_name, child.role()
                                 );
                                 return Some(child.clone());
@@ -2987,7 +3050,7 @@ impl WindowsRecorder {
                                 && position.y as f64 <= child_bounds.1 + child_bounds.3
                             {
                                 debug!(
-                                    "   ≡ƒÄ» Found child with content at click position: '{}' (role: {})",
+                                    "   🎯 Found child with content at click position: '{}' (role: {})",
                                     child_name, child.role()
                                 );
                                 return Some(child.clone());
@@ -3000,11 +3063,49 @@ impl WindowsRecorder {
 
         // No deeper element found, this is the deepest one
         debug!(
-            "   ≡ƒÄ» Using this element as deepest: '{}' (role: {})",
+            "   🎯 Using this element as deepest: '{}' (role: {})",
             element_name,
-            element.role()
+            element_role
         );
         Some(element.clone())
+    }
+
+    /// Search all descendants for a named element that contains the click position.
+    /// This is used as a fallback when parent containers have broken bounds.
+    fn find_named_descendant_at_position(
+        children: &[UIElement],
+        position: Position,
+    ) -> Option<UIElement> {
+        for child in children {
+            let child_name = child.name().unwrap_or_default();
+
+            // Check if this child has a name AND contains the click point
+            if !child_name.is_empty() {
+                if let Ok(bounds) = child.bounds() {
+                    if bounds.0 <= position.x as f64
+                        && position.x as f64 <= bounds.0 + bounds.2
+                        && bounds.1 <= position.y as f64
+                        && position.y as f64 <= bounds.1 + bounds.3
+                    {
+                        debug!(
+                            "   🔎 Found named descendant at position: '{}' (role: {})",
+                            child_name,
+                            child.role()
+                        );
+                        return Some(child.clone());
+                    }
+                }
+            }
+
+            // Recurse into this child's children
+            if let Ok(grandchildren) = child.children() {
+                if let Some(found) = Self::find_named_descendant_at_position(&grandchildren, position)
+                {
+                    return Some(found);
+                }
+            }
+        }
+        None
     }
 
     /// Get element from a specific point with a hard timeout (legacy method for compatibility).
