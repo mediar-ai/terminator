@@ -616,3 +616,47 @@ export class RetrySignal extends Error {
 export function retry(): RetrySignal {
     return new RetrySignal();
 }
+
+/**
+ * Signal class for completing workflow early with success
+ * @internal
+ */
+export class WorkflowCompleteSignal extends Error {
+    readonly _isWorkflowCompleteSignal = true;
+    readonly result: SuccessResult;
+
+    constructor(result: SuccessResult) {
+        super("Workflow complete signal");
+        this.name = "WorkflowCompleteSignal";
+        this.result = result;
+    }
+}
+
+/**
+ * Complete the workflow early with a success result.
+ * Throw this to skip remaining steps and return success immediately.
+ * This bypasses onSuccess handler - the provided result IS the final output.
+ *
+ * @example
+ * ```typescript
+ * import { createStep, complete } from '@mediar-ai/workflow';
+ *
+ * createStep({
+ *   id: 'check_files',
+ *   name: 'Check Files',
+ *   execute: async ({ context }) => {
+ *     if (noFilesFound) {
+ *       throw complete({
+ *         status: 'success',
+ *         message: 'No files to process',
+ *         data: { filesChecked: 0 }
+ *       });
+ *     }
+ *     // Continue with normal processing...
+ *   }
+ * });
+ * ```
+ */
+export function complete(result: SuccessResult): WorkflowCompleteSignal {
+    return new WorkflowCompleteSignal(result);
+}

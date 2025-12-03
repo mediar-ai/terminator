@@ -15,7 +15,7 @@ import type {
     ExecutionStatus,
     SuccessResult,
 } from "./types";
-import { ConsoleLogger } from "./types";
+import { ConsoleLogger, WorkflowCompleteSignal } from "./types";
 import { createWorkflowRunner } from "./runner";
 
 /**
@@ -393,6 +393,23 @@ function createWorkflowInstance<TInput = any>(
                     state: { context, lastStepId, lastStepIndex },
                 };
             } catch (error: any) {
+                // Handle early workflow completion (not an error)
+                if (error instanceof WorkflowCompleteSignal) {
+                    const duration = Date.now() - startTime;
+                    log.info("");
+                    log.info("=".repeat(60));
+                    log.success(`✅ Workflow completed early! (${duration}ms)`);
+                    log.info("=".repeat(60));
+                    return {
+                        status: "success",
+                        message: error.result.message || "Workflow completed early",
+                        data: error.result,
+                        lastStepId,
+                        lastStepIndex,
+                        state: { context, lastStepId, lastStepIndex },
+                    };
+                }
+
                 const duration = Date.now() - startTime;
 
                 log.info("");

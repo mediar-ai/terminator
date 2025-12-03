@@ -1,4 +1,4 @@
-import { Workflow, WorkflowContext, Logger, ConsoleLogger } from './types';
+import { Workflow, WorkflowContext, Logger, ConsoleLogger, WorkflowCompleteSignal } from './types';
 import { Desktop } from '@mediar-ai/terminator';
 
 export interface WorkflowRunnerOptions {
@@ -120,6 +120,17 @@ export class WorkflowRunner {
         this.state.lastStepIndex = i;
 
       } catch (error: any) {
+        // Handle early workflow completion
+        if (error instanceof WorkflowCompleteSignal) {
+          this.logger.success(`✅ Workflow completed early`);
+          this.state.context.data = error.result;
+          return {
+            status: 'success',
+            lastStepId: this.state.lastStepId,
+            lastStepIndex: this.state.lastStepIndex,
+          };
+        }
+
         this.logger.error(`❌ Step failed: ${error.message}`);
 
         // Save step error
