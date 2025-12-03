@@ -290,6 +290,36 @@ pub enum ButtonInteractionType {
     Cancel,
 }
 
+/// Type of pending action being processed
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum PendingActionType {
+    /// A click action is being processed
+    Click,
+    /// A keyboard action is being processed
+    Keyboard,
+    /// A hotkey action is being processed
+    Hotkey,
+}
+
+/// Represents a pending action that is being processed
+/// Emitted immediately when an action is detected, before UI element capture completes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingActionEvent {
+    /// The type of action being processed
+    pub action_type: PendingActionType,
+
+    /// The position where the action occurred (for clicks)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position: Option<Position>,
+
+    /// Which mouse button was used (for clicks)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub button: Option<MouseButton>,
+
+    /// Event metadata
+    pub metadata: EventMetadata,
+}
+
 /// Represents a high-level button click event
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClickEvent {
@@ -456,6 +486,9 @@ pub enum WorkflowEvent {
 
     /// File opened event (detected via window title and file system search)
     FileOpened(FileOpenedEvent),
+
+    /// Pending action event - emitted immediately before UI capture completes
+    PendingAction(PendingActionEvent),
 }
 
 impl WorkflowEvent {
@@ -475,6 +508,7 @@ impl WorkflowEvent {
             WorkflowEvent::BrowserClick(e) => &e.metadata,
             WorkflowEvent::BrowserTextInput(e) => &e.metadata,
             WorkflowEvent::FileOpened(e) => &e.metadata,
+            WorkflowEvent::PendingAction(e) => &e.metadata,
         }
     }
 
@@ -494,6 +528,7 @@ impl WorkflowEvent {
             WorkflowEvent::BrowserClick(e) => &mut e.metadata,
             WorkflowEvent::BrowserTextInput(e) => &mut e.metadata,
             WorkflowEvent::FileOpened(e) => &mut e.metadata,
+            WorkflowEvent::PendingAction(e) => &mut e.metadata,
         }
     }
 
@@ -658,8 +693,9 @@ pub fn build_parent_hierarchy(element: &UIElement) -> Vec<UIElementInfo> {
 }
 
 /// Build chained selector from parent hierarchy and target element
-/// Returns selector like: role:Window && text:Chrome >> role:Pane >> role:Button && text:Submit
+/// Returns selector like: role:Pane >> role:Button && text:Submit
 /// Uses only named parents (unnamed parents are already filtered by build_parent_hierarchy)
+/// Note: Skips the first Window element since process:app.exe already targets that window
 pub fn build_chained_selector(
     parent_hierarchy: &[UIElementInfo],
     target_element: &UIElement,
@@ -671,7 +707,18 @@ pub fn build_chained_selector(
     let mut path_parts = Vec::new();
 
     // Add each parent in the hierarchy chain
-    for parent in parent_hierarchy {
+    // Skip the first Window element since process:app.exe already targets that window
+    // The >> operator searches within children, so we don't want to search for the Window again
+    for (i, parent) in parent_hierarchy.iter().enumerate() {
+        // Skip the first element if it's a Window (since process: selector already returns it)
+        if i == 0 && parent.role == "Window" {
+            tracing::debug!(
+                "Skipping first Window element in chain (process: selector already targets it): {:?}",
+                parent.name
+            );
+            continue;
+        }
+
         let selector = if let Some(ref name) = parent.name {
             if !name.is_empty() {
                 // text: does case-sensitive substring matching by default

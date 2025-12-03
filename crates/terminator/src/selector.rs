@@ -97,16 +97,21 @@ fn tokenize(input: &str) -> Result<Vec<Token>, String> {
     let mut current = String::new();
 
     while let Some(ch) = chars.next() {
+        // Special handling for text: selectors - they can contain any characters
+        // except && which is the boolean AND operator we use to chain selectors.
+        // This allows text: values like "RPA Hospital (MGP)? : r/foo" to work correctly.
+        let in_text_selector = current.trim().starts_with("text:");
+
         match ch {
-            // Parentheses - these are operators/delimiters
-            '(' => {
+            // Parentheses - these are operators/delimiters (unless inside text:)
+            '(' if !in_text_selector => {
                 if !current.is_empty() {
                     tokens.push(Token::Selector(current.trim().to_string()));
                     current.clear();
                 }
                 tokens.push(Token::LParen);
             }
-            ')' => {
+            ')' if !in_text_selector => {
                 if !current.is_empty() {
                     tokens.push(Token::Selector(current.trim().to_string()));
                     current.clear();
@@ -114,6 +119,7 @@ fn tokenize(input: &str) -> Result<Vec<Token>, String> {
                 tokens.push(Token::RParen);
             }
             // Logical operators - check for && and ||
+            // && is always treated as AND operator, even inside text: (it's how we chain selectors)
             '&' => {
                 // Look ahead for second &
                 if chars.peek() == Some(&'&') {
@@ -136,7 +142,7 @@ fn tokenize(input: &str) -> Result<Vec<Token>, String> {
                     current.push(ch);
                 }
             }
-            '|' => {
+            '|' if !in_text_selector => {
                 // Look ahead for second |
                 if chars.peek() == Some(&'|') {
                     chars.next(); // consume second |
@@ -157,7 +163,7 @@ fn tokenize(input: &str) -> Result<Vec<Token>, String> {
                     current.push(ch);
                 }
             }
-            ',' => {
+            ',' if !in_text_selector => {
                 // Comma is an OR operator
                 if !current.is_empty() {
                     tokens.push(Token::Selector(current.trim().to_string()));
@@ -170,7 +176,7 @@ fn tokenize(input: &str) -> Result<Vec<Token>, String> {
                     chars.next();
                 }
             }
-            '!' => {
+            '!' if !in_text_selector => {
                 // NOT operator
                 if !current.is_empty() {
                     tokens.push(Token::Selector(current.trim().to_string()));
@@ -719,6 +725,25 @@ mod tokenizer_debug_test {
                 }
             }
             Err(e) => println!("Tokenization error: {e}"),
+        }
+    }
+
+    #[test]
+    fn test_tokenize_text_with_special_chars() {
+        // text: selector with special characters that would normally be treated as operators
+        let input = "role:Window && text:RPA Hospital - Antenatal Care, the same as RPA Midwifery Group Practice (MGP)? : r/BabyBumpsandBeyondAu - Google Chrome";
+        println!("Tokenizing: {input}");
+
+        match tokenize(input) {
+            Ok(tokens) => {
+                println!("Tokens ({} total):", tokens.len());
+                for (i, token) in tokens.iter().enumerate() {
+                    println!("  [{i}] {token:?}");
+                }
+                // Should only have 3 tokens: role:Window, And, and the full text: selector
+                assert_eq!(tokens.len(), 3, "Expected 3 tokens (role, And, text), got: {tokens:?}");
+            }
+            Err(e) => panic!("Tokenization error: {e}"),
         }
     }
 }
