@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.35] - 2025-12-03
+
+### Added
+- Workflow SDK: Add `complete()` function for early workflow exit with success
+- Workflow SDK: Add `PendingAction` event for immediate modal display
+- Workflow Recorder: Add URL capture for Gemini Computer Use API compliance
+- Workflow Recorder: Add UIA debug logging and `page_url` for click events
+
+### Changed
+- Workflow SDK: Replace `throw complete()` pattern with `return success()` for cleaner early exit
+- Workflow Recorder: Use magenta color key and Consolas font for overlay labels
+
+### Fixed
+- Workflow SDK: Use 1-based step index in validation error messages
+- Workflow SDK: Improve validation error messages with step index and execution range
+- Workflow Recorder: Skip elements with relative timestamps in selectors
+- Workflow Recorder: Filter internal browser elements from selector chain
+- Workflow Recorder: Stop parent hierarchy at application window boundary
+- Workflow Recorder: Improve selector parsing and chain generation
+- Workflow Recorder: Use UTF-8 safe string truncation in overlay labels
+- MCP Agent: Always inject `accumulated_env` for `run_command` steps
+- MCP Agent: Improve `get_window_tree` tool description with vision options
+
+### Tests
+- Workflow SDK: Add unit tests for `complete()` early exit functionality
+
 ## [0.23.34] - 2025-12-02
 
 ### Added
