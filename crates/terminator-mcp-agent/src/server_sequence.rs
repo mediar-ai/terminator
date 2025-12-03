@@ -987,16 +987,16 @@ impl DesktopWrapper {
                 return Err(McpError::invalid_params(
                     format!(
                         "Step {} is invalid: missing tool_name or group_name. {}",
-                        step_idx, range_info
+                        step_idx + 1, range_info
                     ),
                     Some(json!({
                         "error_type": "invalid_step",
-                        "step_index": step_idx,
+                        "step_index": step_idx + 1,
                         "step_id": step.id,
                         "is_in_execution_range": is_in_range,
                         "execution_range": {
-                            "start": start_from_index,
-                            "end": end_at_index
+                            "start": start_from_index + 1,
+                            "end": end_at_index + 1
                         }
                     })),
                 ));
@@ -1063,17 +1063,17 @@ impl DesktopWrapper {
                     return Err(McpError::invalid_params(
                         format!(
                             "Troubleshooting step {} (global index {}) is invalid: missing tool_name or group_name. {}",
-                            local_idx, global_step_idx, range_info
+                            local_idx + 1, global_step_idx + 1, range_info
                         ),
                         Some(json!({
                             "error_type": "invalid_step",
-                            "step_index": global_step_idx,
-                            "troubleshooting_index": local_idx,
+                            "step_index": global_step_idx + 1,
+                            "troubleshooting_index": local_idx + 1,
                             "step_id": step.id,
                             "is_in_execution_range": is_in_range,
                             "execution_range": {
-                                "start": start_from_index,
-                                "end": end_at_index
+                                "start": start_from_index + 1,
+                                "end": end_at_index + 1
                             }
                         })),
                     ));
