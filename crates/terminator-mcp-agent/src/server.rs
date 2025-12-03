@@ -3679,6 +3679,60 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
 
 Executes a shell command (GitHub Actions-style) OR runs inline code via an engine. Use 'run' for shell commands. Or set 'engine' to 'node'/'bun'/'javascript'/'typescript'/'ts' for JS/TS with terminator.js and provide the code in 'run' or 'script_file'. TypeScript is supported with automatic transpilation. When using engine mode, you can pass data to subsequent workflow steps by returning { set_env: { key: value } } or using console.log('::set-env name=key::value'). Access variables in later steps using direct syntax (e.g., 'key' in conditions or {{key}} in substitutions). NEW: Use 'script_file' to load scripts from files, 'env' to inject environment variables as 'var env = {...}'.
 
+═══════════════════════════════════════════════════════════════════
+INJECTED GLOBALS (engine mode)
+═══════════════════════════════════════════════════════════════════
+desktop: Desktop      // Terminator SDK instance
+log: console.log      // Shorthand for logging
+sleep(ms): Promise    // Delay execution
+setEnv({key: value})  // Pass data to next steps
+createKVClient(token) // KV client (when @mediar-ai/kv installed)
+
+═══════════════════════════════════════════════════════════════════
+DESKTOP API
+═══════════════════════════════════════════════════════════════════
+desktop.locator(selector): Locator           // Find elements
+desktop.openApplication(name): Element       // Open app
+desktop.activateApplication(name): void      // Activate app
+desktop.focusedElement(): Element            // Get focused element
+desktop.pressKey(key): Promise<void>         // Global key press
+desktop.delay(ms): Promise<void>             // Wait
+desktop.run(cmd, shell?, workingDir?): Promise<CommandOutput>  // Shell command
+desktop.executeBrowserScript(script): Promise<string>          // Browser JS (see execute_browser_script tool for patterns)
+  ↳ Must JSON.stringify return values, use typeof checks for injected vars, 30KB limit
+desktop.navigateBrowser(url, browser?): Element                // Navigate browser
+desktop.ocrScreenshot(screenshot): Promise<string>             // OCR
+
+═══════════════════════════════════════════════════════════════════
+LOCATOR API
+═══════════════════════════════════════════════════════════════════
+locator.first(timeoutMs): Promise<Element>        // Get first match (REQUIRED timeout)
+locator.all(timeoutMs, depth?): Promise<Element[]> // Get all matches (REQUIRED timeout)
+locator.validate(timeoutMs): Promise<ValidationResult>  // Check exists without throwing
+locator.timeout(timeoutMs): Locator               // Set default timeout
+locator.within(element): Locator                  // Scope search to element
+locator.locator(selector): Locator                // Chain selectors
+
+IMPORTANT: .first() and .all() require mandatory timeout in milliseconds:
+- .first(0) - immediate search, no retry
+- .first(1000) - retry for 1 second
+- .first(5000) - retry for 5 seconds (slow UI)
+
+═══════════════════════════════════════════════════════════════════
+ELEMENT API
+═══════════════════════════════════════════════════════════════════
+element.click(): ClickResult                 // Click element
+element.doubleClick(): ClickResult           // Double click
+element.typeText(text, useClipboard?): void  // Type text
+element.pressKey(key): void                  // Press key while focused
+element.setValue(value): void                // Set value directly
+element.text(maxDepth?): string              // Get text content
+element.name(): string | null                // Get element name
+element.role(): string                       // Get element role
+element.bounds(): Bounds                     // Get x, y, width, height
+element.children(): Element[]                // Get child elements
+element.locator(selector): Locator           // Search within element
+
 ⚠️ CRITICAL: Selector Scoping (REQUIRED)
 All desktop.locator() calls MUST include `process:` prefix. Without it, search will error.
 Example: `desktop.locator('process:chrome >> role:Button|name:Submit')`
@@ -3752,6 +3806,10 @@ Use specific names instead: validationMessage, queryResult, tableData, entriesCo
 
 include_logs Parameter:
 Set include_logs: true to capture stdout/stderr output. Default is false for cleaner responses. On errors, logs are always included.
+
+Logging:
+All console.* calls redirect to stderr with [LEVEL] prefix. JSON output only on stdout.
+Set include_logs: true to include captured logs in response.
 
 ═══════════════════════════════════════════════════════════════════
 KV STORAGE (Persistent Key-Value Store)
