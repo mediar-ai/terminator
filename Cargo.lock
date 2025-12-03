@@ -5353,6 +5353,7 @@ dependencies = [
  "async-stream",
  "criterion",
  "futures",
+ "log",
  "notify",
  "rand 0.8.5",
  "rdev",
