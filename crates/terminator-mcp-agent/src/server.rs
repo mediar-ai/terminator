@@ -8411,7 +8411,7 @@ console.info = function(...args) {
 
             // 1. Capture screenshot of target window
             let screenshot_result = self.capture_window_for_computer_use(&args.process).await;
-            let (base64_image, window_bounds, dpi_scale, resize_scale) = match screenshot_result {
+            let (base64_image, window_bounds, dpi_scale, resize_scale, _initial_url) = match screenshot_result {
                 Ok(data) => data,
                 Err(e) => {
                     warn!("[gemini_computer_use] Failed to capture screenshot: {}", e);
@@ -8498,12 +8498,12 @@ console.info = function(...args) {
                 .await;
 
             // 7. Capture new screenshot after action for next iteration
-            let post_action_screenshot = match self
+            let (post_action_screenshot, post_action_url) = match self
                 .capture_window_for_computer_use(&args.process)
                 .await
             {
-                Ok((img, _, _, _)) => img,
-                Err(_) => base64_image.clone(), // Fallback to previous screenshot
+                Ok((img, _, _, _, url)) => (img, url),
+                Err(_) => (base64_image.clone(), None), // Fallback to previous screenshot
             };
 
             // 8. Record action with result and new screenshot for next call
@@ -8519,6 +8519,7 @@ console.info = function(...args) {
                     error: error_msg,
                 },
                 screenshot: post_action_screenshot,
+                url: post_action_url,
             });
 
             // Small delay for UI to settle after action
@@ -8567,11 +8568,11 @@ console.info = function(...args) {
 }
 
 impl DesktopWrapper {
-    /// Capture window screenshot for computer use, returning base64 image and metadata for coord conversion
+    /// Capture window screenshot for computer use, returning base64 image, metadata, and URL
     async fn capture_window_for_computer_use(
         &self,
         process: &str,
-    ) -> Result<(String, (f64, f64, f64, f64), f64, f64), String> {
+    ) -> Result<(String, (f64, f64, f64, f64), f64, f64, Option<String>), String> {
         // Find the window element for this process using sysinfo to match process names
         let apps = self
             .desktop
@@ -8598,6 +8599,9 @@ impl DesktopWrapper {
                 }
             })
             .ok_or_else(|| format!("No window found for process '{process}'"))?;
+
+        // Get browser URL if available (for Gemini Computer Use API requirement)
+        let browser_url = window_element.url();
 
         // Get window bounds (absolute screen coordinates)
         let bounds = window_element
@@ -8662,7 +8666,88 @@ impl DesktopWrapper {
             (window_x, window_y, final_width as f64, final_height as f64),
             dpi_scale_w,
             resize_scale,
+            browser_url,
         ))
+    }
+
+    /// Translate Gemini Computer Use key format to uiautomation format
+    /// Gemini: "enter", "control+a", "Meta+Shift+T"
+    /// uiautomation: "{Enter}", "{Ctrl}a", "{Win}{Shift}t"
+    fn translate_gemini_keys(gemini_keys: &str) -> Result<String, String> {
+        let parts: Vec<&str> = gemini_keys.split('+').collect();
+        let mut result = String::new();
+
+        for (i, part) in parts.iter().enumerate() {
+            let lower = part.trim().to_lowercase();
+            let is_last = i == parts.len() - 1;
+
+            let translated: &str = match lower.as_str() {
+                // Modifiers
+                "control" | "ctrl" => "{Ctrl}",
+                "alt" => "{Alt}",
+                "shift" => "{Shift}",
+                "meta" | "cmd" | "command" | "win" | "windows" | "super" => "{Win}",
+
+                // Common special keys
+                "enter" | "return" => "{Enter}",
+                "tab" => "{Tab}",
+                "escape" | "esc" => "{Escape}",
+                "backspace" | "back" => "{Backspace}",
+                "delete" | "del" => "{Delete}",
+                "space" => "{Space}",
+                "insert" | "ins" => "{Insert}",
+                "home" => "{Home}",
+                "end" => "{End}",
+                "pageup" | "page_up" | "pgup" => "{PageUp}",
+                "pagedown" | "page_down" | "pgdn" => "{PageDown}",
+                "capslock" | "caps" => "{CapsLock}",
+                "numlock" => "{NumLock}",
+                "scrolllock" => "{ScrollLock}",
+                "printscreen" | "prtsc" => "{PrintScreen}",
+                "pause" => "{Pause}",
+
+                // Arrow keys
+                "up" | "arrowup" => "{Up}",
+                "down" | "arrowdown" => "{Down}",
+                "left" | "arrowleft" => "{Left}",
+                "right" | "arrowright" => "{Right}",
+
+                // Function keys - handle dynamically
+                s if s.starts_with('f') && s.len() <= 3 => {
+                    if let Ok(n) = s[1..].parse::<u8>() {
+                        if n >= 1 && n <= 24 {
+                            // Push the F-key and continue
+                            result.push_str(&format!("{{F{}}}", n));
+                            continue;
+                        }
+                    }
+                    return Err(format!(
+                        "Invalid function key '{}' in '{}'. Use f1-f24.",
+                        part, gemini_keys
+                    ));
+                }
+
+                // Single character (a-z, 0-9) - only valid as last part of combination
+                s if s.len() == 1 && is_last => {
+                    result.push_str(s);
+                    continue;
+                }
+
+                // Unknown key
+                unknown => {
+                    return Err(format!(
+                        "Unknown key '{}' in combination '{}'. Valid: enter, tab, escape, \
+                         backspace, delete, space, up/down/left/right, home, end, pageup, \
+                         pagedown, f1-f24, or modifiers (ctrl, alt, shift, meta) with letters.",
+                        unknown, gemini_keys
+                    ));
+                }
+            };
+
+            result.push_str(translated);
+        }
+
+        Ok(result)
     }
 
     /// Execute a computer use action by mapping to MCP tools
@@ -8743,16 +8828,20 @@ impl DesktopWrapper {
                 if press_enter {
                     tokio::time::sleep(Duration::from_millis(50)).await;
                     self.desktop
-                        .press_key("Return")
+                        .press_key("{Enter}")
                         .await
                         .map_err(|e| format!("Press Enter failed: {e}"))?;
                 }
             }
             "key_combination" => {
                 let keys = get_str("keys").ok_or("key_combination requires keys")?;
-                info!("[computer_use] key_combination: {}", keys);
+                let translated = Self::translate_gemini_keys(keys)?;
+                info!(
+                    "[computer_use] key_combination: {} -> {}",
+                    keys, translated
+                );
                 self.desktop
-                    .press_key(keys)
+                    .press_key(&translated)
                     .await
                     .map_err(|e| format!("Key press failed: {e}"))?;
             }
@@ -8818,6 +8907,37 @@ impl DesktopWrapper {
                 self.desktop
                     .open_url(url, None)
                     .map_err(|e| format!("Navigate failed: {e}"))?;
+            }
+            "search" => {
+                // Gemini Computer Use "search" action - performs a web search
+                let query = get_str("query")
+                    .or_else(|| get_str("text"))
+                    .or_else(|| get_str("q"))
+                    .unwrap_or("");
+                info!("[computer_use] search: {}", query);
+                if query.is_empty() {
+                    // No query - just press Enter to submit existing search
+                    self.desktop
+                        .press_key("{Enter}")
+                        .await
+                        .map_err(|e| format!("Press Enter for search failed: {e}"))?;
+                } else {
+                    // Open Google search with the query (simple URL encoding)
+                    let encoded_query: String = query
+                        .chars()
+                        .map(|c| match c {
+                            ' ' => "+".to_string(),
+                            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '~' => {
+                                c.to_string()
+                            }
+                            _ => format!("%{:02X}", c as u32),
+                        })
+                        .collect();
+                    let search_url = format!("https://www.google.com/search?q={}", encoded_query);
+                    self.desktop
+                        .open_url(&search_url, None)
+                        .map_err(|e| format!("Open search URL failed: {e}"))?;
+                }
             }
             _ => {
                 warn!("[computer_use] Unknown action: {}", action);

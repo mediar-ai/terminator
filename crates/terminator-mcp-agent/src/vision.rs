@@ -170,6 +170,8 @@ pub struct ComputerUsePreviousAction {
     pub name: String,
     pub response: ComputerUseActionResponse,
     pub screenshot: String, // base64 PNG
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>, // Current page URL (required by Gemini Computer Use)
 }
 
 /// Response for a previous action
