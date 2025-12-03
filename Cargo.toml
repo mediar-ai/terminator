@@ -80,6 +80,7 @@ codegen-units = 1
 # ~3x faster compile than release, slightly larger binary
 [profile.dev-release]
 inherits = "release"
+opt-level = 1          # Override release's opt-level=3 for faster compile
 lto = false            # No LTO for faster compile
 codegen-units = 256    # Max parallelism
 incremental = true     # Enable incremental compilation
