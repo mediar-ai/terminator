@@ -2819,7 +2819,7 @@ impl WindowsRecorder {
         let concurrent_before = UIA_TRAVERSAL_COUNT.fetch_add(1, Ordering::SeqCst);
         let caller_start = Instant::now();
 
-        info!(
+        log::info!(
             "🔬 [UIA-{}] START deepest traversal at ({}, {}). Concurrent: {} -> {}",
             traversal_id, position.x, position.y, concurrent_before, concurrent_before + 1
         );
@@ -2829,16 +2829,16 @@ impl WindowsRecorder {
             let result = (|| {
                 let auto_start = Instant::now();
                 let automation = Self::create_configured_automation_instance(&config_clone).ok()?;
-                info!("🔬 [UIA-{}] create_automation took {:?}", traversal_id, auto_start.elapsed());
+                log::info!("🔬 [UIA-{}] create_automation took {:?}", traversal_id, auto_start.elapsed());
 
                 let point_start = Instant::now();
                 let point = Point::new(position.x, position.y);
                 let element = automation.element_from_point(point).ok()?;
-                info!("🔬 [UIA-{}] element_from_point took {:?}", traversal_id, point_start.elapsed());
+                log::info!("🔬 [UIA-{}] element_from_point took {:?}", traversal_id, point_start.elapsed());
 
                 let convert_start = Instant::now();
                 let surface_element = convert_uiautomation_element_to_terminator(element);
-                info!("🔬 [UIA-{}] convert took {:?}, surface: '{}' ({})",
+                log::info!("🔬 [UIA-{}] convert took {:?}, surface: '{}' ({})",
                     traversal_id, convert_start.elapsed(),
                     surface_element.name().unwrap_or_default(),
                     surface_element.role()
@@ -2850,7 +2850,7 @@ impl WindowsRecorder {
                 if let Some(deepest) =
                     Self::find_deepest_element_at_coordinates(&surface_element, position)
                 {
-                    info!("🔬 [UIA-{}] find_deepest took {:?}, found: '{}' ({})",
+                    log::info!("🔬 [UIA-{}] find_deepest took {:?}, found: '{}' ({})",
                         traversal_id, deepest_start.elapsed(),
                         deepest.name().unwrap_or_default(),
                         deepest.role()
@@ -2858,14 +2858,14 @@ impl WindowsRecorder {
                     Some(deepest)
                 } else {
                     // Fallback to surface element if deepest search failed
-                    info!("🔬 [UIA-{}] find_deepest took {:?}, using surface fallback", traversal_id, deepest_start.elapsed());
+                    log::info!("🔬 [UIA-{}] find_deepest took {:?}, using surface fallback", traversal_id, deepest_start.elapsed());
                     Some(surface_element)
                 }
             })();
 
             let thread_elapsed = thread_start.elapsed();
             let concurrent_after = UIA_TRAVERSAL_COUNT.fetch_sub(1, Ordering::SeqCst);
-            info!(
+            log::info!(
                 "🔬 [UIA-{}] THREAD DONE in {:?}. Concurrent: {} -> {}. Result: {}",
                 traversal_id, thread_elapsed, concurrent_after, concurrent_after - 1,
                 if result.is_some() { "success" } else { "none" }
@@ -2876,7 +2876,7 @@ impl WindowsRecorder {
 
         match rx.recv_timeout(Duration::from_millis(timeout_ms)) {
             Ok(result) => {
-                info!(
+                log::info!(
                     "🔬 [UIA-{}] RECEIVED in {:?}. Result: {}",
                     traversal_id, caller_start.elapsed(),
                     if result.is_some() { "success" } else { "none" }
@@ -2885,7 +2885,7 @@ impl WindowsRecorder {
             }
             Err(_) => {
                 let concurrent_now = UIA_TRAVERSAL_COUNT.load(Ordering::SeqCst);
-                warn!(
+                log::warn!(
                     "🔬 [UIA-{}] TIMEOUT after {:?} (limit {}ms). Thread still running! Concurrent: {}",
                     traversal_id, caller_start.elapsed(), timeout_ms, concurrent_now
                 );
