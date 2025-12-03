@@ -668,7 +668,23 @@ pub fn build_parent_hierarchy(element: &UIElement) -> Vec<UIElementInfo> {
         let has_name = parent_info.name.as_ref().map(|n| !n.is_empty()).unwrap_or(false);
         let is_window = parent_role == "Window";
 
-        if has_name {
+        // Skip internal browser/app implementation details that shouldn't be in selectors
+        // These are container elements that don't provide semantic value for locating UI elements
+        let is_internal_element = parent_info.name.as_ref().map(|n| {
+            let lower = n.to_lowercase();
+            // Browser internal elements
+            lower.contains("legacy window")
+                || lower.contains("chrome_widgetwin")
+                || lower.contains("intermediate d3d window")
+                // Panes that just mirror the Window title (redundant after process: selector)
+                || (parent_role == "Pane" && (
+                    lower.ends_with(" - google chrome")
+                    || lower.ends_with(" - mozilla firefox")
+                    || lower.ends_with(" - microsoft edge")
+                ))
+        }).unwrap_or(false);
+
+        if has_name && !is_internal_element {
             let name_for_log = parent_info.name.clone();
             hierarchy.push(parent_info);
 
