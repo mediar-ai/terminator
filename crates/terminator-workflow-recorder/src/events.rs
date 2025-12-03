@@ -594,23 +594,57 @@ impl UIElementInfo {
 
 /// Build parent hierarchy for a UI element by walking up the tree
 /// Returns a Vec of UIElementInfo from root (window) down to immediate parent (reversed order)
+///
+/// IMPORTANT: Stops at the application window boundary to ensure selectors stay within
+/// the target process scope. This prevents selectors from including elements outside
+/// the application (like desktop/taskbar elements).
 pub fn build_parent_hierarchy(element: &UIElement) -> Vec<UIElementInfo> {
     let mut hierarchy = Vec::new();
     let mut current = element.parent().ok().flatten();
 
+    // Get the target element's process_id to ensure we stay within the same process
+    let target_process_id = element.process_id().ok();
+
     // Walk up the parent chain, collecting up to 10 NAMED parents to avoid infinite loops
     let max_depth = 10;
     while let Some(parent) = current {
+        // Check if we've crossed a process boundary (exited the target app's UI tree)
+        if let Some(target_pid) = target_process_id {
+            if let Ok(parent_pid) = parent.process_id() {
+                if parent_pid != target_pid {
+                    // We've exited the target application's UI tree - stop here
+                    tracing::debug!(
+                        "Stopping parent hierarchy at process boundary: target_pid={}, parent_pid={}",
+                        target_pid, parent_pid
+                    );
+                    break;
+                }
+            }
+        }
+
+        let parent_role = parent.role();
         let parent_info = UIElementInfo::from_element(&parent);
 
         // Only include parents with meaningful names (skip unnamed elements like generic Panes/Groups)
-        if let Some(ref name) = parent_info.name {
-            if !name.is_empty() {
-                hierarchy.push(parent_info);
+        let has_name = parent_info.name.as_ref().map(|n| !n.is_empty()).unwrap_or(false);
+        let is_window = parent_role == "Window";
 
-                if hierarchy.len() >= max_depth {
-                    break;
-                }
+        if has_name {
+            let name_for_log = parent_info.name.clone();
+            hierarchy.push(parent_info);
+
+            // If we hit a Window role, this is likely the application's main window
+            // Include it but stop going further up (don't include desktop/taskbar)
+            if is_window {
+                tracing::debug!(
+                    "Stopping parent hierarchy at Window role: {:?}",
+                    name_for_log
+                );
+                break;
+            }
+
+            if hierarchy.len() >= max_depth {
+                break;
             }
         }
 
