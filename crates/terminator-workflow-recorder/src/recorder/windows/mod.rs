@@ -12,11 +12,15 @@ use arboard::Clipboard;
 use rdev::{Button, EventType};
 use std::{
     collections::HashMap,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     sync::{Arc, Mutex},
     thread,
     time::{Duration, Instant, SystemTime},
 };
+
+// Debug counter for tracking concurrent UIA traversals
+static UIA_TRAVERSAL_COUNT: AtomicUsize = AtomicUsize::new(0);
+static UIA_TRAVERSAL_TOTAL: AtomicUsize = AtomicUsize::new(0);
 use sysinfo::{Pid, ProcessesToUpdate, System};
 use terminator::{convert_uiautomation_element_to_terminator, UIElement};
 
@@ -1214,6 +1218,25 @@ impl WindowsRecorder {
                             let position = Position { x, y };
 
                             if capture_ui_elements_rdev {
+                                // Emit PendingAction immediately before slow UI capture
+                                let pending_event = crate::PendingActionEvent {
+                                    action_type: crate::PendingActionType::Click,
+                                    position: Some(position),
+                                    button: Some(mouse_button),
+                                    metadata: crate::EventMetadata {
+                                        ui_element: None,
+                                        timestamp: Some(Self::capture_timestamp()),
+                                    },
+                                };
+                                Self::send_filtered_event_static(
+                                    &event_tx,
+                                    &config,
+                                    &performance_last_event_time,
+                                    &performance_events_counter,
+                                    &is_stopping_clone,
+                                    WorkflowEvent::PendingAction(pending_event),
+                                );
+
                                 let request = UIAInputRequest::ButtonPress {
                                     button: mouse_button,
                                     position,
@@ -2666,6 +2689,13 @@ impl WindowsRecorder {
                         }
                     }
 
+                    // Get page URL if this is a browser click
+                    let page_url = if is_browser {
+                        Self::proactive_browser_url_search(element)
+                    } else {
+                        None
+                    };
+
                     // Always emit regular click event
                     let click_event = ClickEvent {
                         element_text: element_name,
@@ -2681,6 +2711,7 @@ impl WindowsRecorder {
                         child_text_content,
                         relative_position,
                         process_name: Self::get_process_name_from_element(element),
+                        page_url,
                         metadata: EventMetadata::with_ui_element_and_timestamp(Some(
                             element.clone(),
                         )),
@@ -2716,6 +2747,7 @@ impl WindowsRecorder {
                 child_text_content: Vec::new(),
                 relative_position: None,
                 process_name: None,
+                page_url: None, // No element available to get URL from
                 metadata: EventMetadata {
                     ui_element: None,
                     timestamp: Some(Self::capture_timestamp()),
@@ -2782,34 +2814,80 @@ impl WindowsRecorder {
         let (tx, rx) = std::sync::mpsc::channel();
         let config_clone = config.clone();
 
+        // Track concurrent traversals for debugging
+        let traversal_id = UIA_TRAVERSAL_TOTAL.fetch_add(1, Ordering::SeqCst);
+        let concurrent_before = UIA_TRAVERSAL_COUNT.fetch_add(1, Ordering::SeqCst);
+        let caller_start = Instant::now();
+
+        info!(
+            "🔬 [UIA-{}] START deepest traversal at ({}, {}). Concurrent: {} -> {}",
+            traversal_id, position.x, position.y, concurrent_before, concurrent_before + 1
+        );
+
         thread::spawn(move || {
+            let thread_start = Instant::now();
             let result = (|| {
+                let auto_start = Instant::now();
                 let automation = Self::create_configured_automation_instance(&config_clone).ok()?;
+                info!("🔬 [UIA-{}] create_automation took {:?}", traversal_id, auto_start.elapsed());
+
+                let point_start = Instant::now();
                 let point = Point::new(position.x, position.y);
                 let element = automation.element_from_point(point).ok()?;
+                info!("🔬 [UIA-{}] element_from_point took {:?}", traversal_id, point_start.elapsed());
+
+                let convert_start = Instant::now();
                 let surface_element = convert_uiautomation_element_to_terminator(element);
+                info!("🔬 [UIA-{}] convert took {:?}, surface: '{}' ({})",
+                    traversal_id, convert_start.elapsed(),
+                    surface_element.name().unwrap_or_default(),
+                    surface_element.role()
+                );
 
                 // Find the deepest element that contains our click point
                 // If this fails/times out, we'll return the surface element as fallback
+                let deepest_start = Instant::now();
                 if let Some(deepest) =
                     Self::find_deepest_element_at_coordinates(&surface_element, position)
                 {
+                    info!("🔬 [UIA-{}] find_deepest took {:?}, found: '{}' ({})",
+                        traversal_id, deepest_start.elapsed(),
+                        deepest.name().unwrap_or_default(),
+                        deepest.role()
+                    );
                     Some(deepest)
                 } else {
                     // Fallback to surface element if deepest search failed
-                    debug!("Deepest element search failed, returning surface element as fallback");
+                    info!("🔬 [UIA-{}] find_deepest took {:?}, using surface fallback", traversal_id, deepest_start.elapsed());
                     Some(surface_element)
                 }
             })();
+
+            let thread_elapsed = thread_start.elapsed();
+            let concurrent_after = UIA_TRAVERSAL_COUNT.fetch_sub(1, Ordering::SeqCst);
+            info!(
+                "🔬 [UIA-{}] THREAD DONE in {:?}. Concurrent: {} -> {}. Result: {}",
+                traversal_id, thread_elapsed, concurrent_after, concurrent_after - 1,
+                if result.is_some() { "success" } else { "none" }
+            );
+
             let _ = tx.send(result);
         });
 
         match rx.recv_timeout(Duration::from_millis(timeout_ms)) {
-            Ok(result) => result, // Result is already Option<UIElement> due to ? operators in closure
+            Ok(result) => {
+                info!(
+                    "🔬 [UIA-{}] RECEIVED in {:?}. Result: {}",
+                    traversal_id, caller_start.elapsed(),
+                    if result.is_some() { "success" } else { "none" }
+                );
+                result
+            }
             Err(_) => {
-                debug!(
-                    "UIA call to get deepest element from point timed out after {}ms.",
-                    timeout_ms
+                let concurrent_now = UIA_TRAVERSAL_COUNT.load(Ordering::SeqCst);
+                warn!(
+                    "🔬 [UIA-{}] TIMEOUT after {:?} (limit {}ms). Thread still running! Concurrent: {}",
+                    traversal_id, caller_start.elapsed(), timeout_ms, concurrent_now
                 );
                 None
             }
@@ -3041,6 +3119,18 @@ impl WindowsRecorder {
                     child_text_content
                 );
 
+                // Check if this is a browser and get URL
+                let app_name = element.application_name().to_lowercase();
+                let is_browser = app_name.contains("chrome")
+                    || app_name.contains("firefox")
+                    || app_name.contains("edge")
+                    || app_name.contains("safari");
+                let page_url = if is_browser {
+                    Self::proactive_browser_url_search(&element)
+                } else {
+                    None
+                };
+
                 let click_event = ClickEvent {
                     element_text: element_name.clone(),
                     interaction_type,
@@ -3058,6 +3148,7 @@ impl WindowsRecorder {
                     child_text_content,
                     relative_position: None, // No relative position for keyboard-triggered clicks
                     process_name: Self::get_process_name_from_element(&element),
+                    page_url,
                     metadata: EventMetadata::with_ui_element_and_timestamp(Some(element.clone())),
                 };
 

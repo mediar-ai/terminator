@@ -356,6 +356,10 @@ pub struct ClickEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub process_name: Option<String>,
 
+    /// Page URL if click occurred in a browser window
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_url: Option<String>,
+
     /// Event metadata with UI element context
     pub metadata: EventMetadata,
 }
@@ -1598,6 +1602,8 @@ pub struct SerializableClickEvent {
     pub relative_position: Option<(f32, f32)>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub process_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_url: Option<String>,
     pub metadata: SerializableEventMetadata,
 }
 
@@ -1613,6 +1619,7 @@ impl From<&ClickEvent> for SerializableClickEvent {
             child_text_content: event.child_text_content.clone(),
             relative_position: event.relative_position,
             process_name: event.process_name.clone(),
+            page_url: event.page_url.clone(),
             metadata: (&event.metadata).into(),
         }
     }
