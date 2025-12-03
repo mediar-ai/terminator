@@ -17,9 +17,9 @@ pub use events::{
     ButtonInteractionType, ClickEvent, ClipboardAction, ClipboardEvent, DomElementInfo,
     DragDropEvent, EnhancedUIElement, EventMetadata, FieldFocusMethod, FileOpenedEvent,
     HotkeyEvent, InteractionContext, KeyboardEvent, McpToolStep, MouseButton, MouseEvent,
-    MouseEventType, Position, RecordedEvent, RecordedWorkflow, Rect, SelectionMethod,
-    SelectorCandidate, TabAction, TabNavigationMethod, TextInputCompletedEvent, TextInputMethod,
-    TextSelectionEvent, UIElementInfo, WorkflowEvent,
+    MouseEventType, PendingActionEvent, PendingActionType, Position, RecordedEvent,
+    RecordedWorkflow, Rect, SelectionMethod, SelectorCandidate, TabAction, TabNavigationMethod,
+    TextInputCompletedEvent, TextInputMethod, TextSelectionEvent, UIElementInfo, WorkflowEvent,
 };
 pub use recorder::*;
 

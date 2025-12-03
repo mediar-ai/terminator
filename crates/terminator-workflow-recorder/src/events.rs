@@ -1634,6 +1634,7 @@ pub enum SerializableWorkflowEvent {
     BrowserClick(BrowserClickEvent),
     BrowserTextInput(BrowserTextInputEvent),
     FileOpened(FileOpenedEvent),
+    PendingAction(PendingActionEvent),
 }
 
 impl From<&WorkflowEvent> for SerializableWorkflowEvent {
@@ -1660,6 +1661,7 @@ impl From<&WorkflowEvent> for SerializableWorkflowEvent {
                 SerializableWorkflowEvent::BrowserTextInput(e.clone())
             }
             WorkflowEvent::FileOpened(e) => SerializableWorkflowEvent::FileOpened(e.clone()),
+            WorkflowEvent::PendingAction(e) => SerializableWorkflowEvent::PendingAction(e.clone()),
         }
     }
 }
