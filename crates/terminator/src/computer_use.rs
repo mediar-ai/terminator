@@ -1,125 +1,29 @@
-//! Gemini Computer Use - AI-powered autonomous desktop automation
+//! Desktop-dependent Computer Use functionality
 //!
-//! This module provides an agentic loop that uses Gemini's vision model
-//! to autonomously control desktop applications to achieve a goal.
+//! This module contains the Desktop-dependent parts of Computer Use:
+//! - Window capture for screenshots
+//! - Action execution that requires Desktop APIs
+//! - The main `gemini_computer_use` method on Desktop
+//!
+//! Types and backend API are in the `terminator-computer-use` crate.
 
 use crate::Desktop;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
 use image::codecs::png::PngEncoder;
 use image::imageops::FilterType;
 use image::{ExtendedColorType, ImageBuffer, ImageEncoder, Rgba};
-use serde::{Deserialize, Serialize};
-use std::env;
 use std::io::Cursor;
 use std::time::Duration;
 use sysinfo::{ProcessesToUpdate, System};
-use tracing::{debug, info, warn};
+use terminator_computer_use::{
+    call_computer_use_backend, convert_normalized_to_screen, translate_gemini_keys,
+    ComputerUseActionResponse, ComputerUsePreviousAction, ComputerUseResult, ComputerUseStep,
+    ProgressCallback,
+};
+use tracing::{info, warn};
 
-// ===== Types =====
-
-/// Function call from Gemini Computer Use model
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ComputerUseFunctionCall {
-    /// Name of the action (e.g., "click_at", "type_text_at", "scroll_document")
-    pub name: String,
-    /// Arguments for the action
-    #[serde(default)]
-    pub args: serde_json::Value,
-    /// Optional ID for the function call
-    pub id: Option<String>,
-}
-
-/// Response from Computer Use backend
-#[derive(Debug, Clone)]
-pub struct ComputerUseResponse {
-    /// True if task is complete (no more actions needed)
-    pub completed: bool,
-    /// Function call if action is needed
-    pub function_call: Option<ComputerUseFunctionCall>,
-    /// Text response from model (reasoning or final answer)
-    pub text: Option<String>,
-    /// Safety decision if confirmation required
-    pub safety_decision: Option<String>,
-}
-
-/// Previous action to send back with screenshot (for multi-step)
-#[derive(Debug, Serialize, Clone)]
-pub struct ComputerUsePreviousAction {
-    /// Action name that was executed
-    pub name: String,
-    /// Result of the action
-    pub response: ComputerUseActionResponse,
-    /// Screenshot after action (base64 PNG)
-    pub screenshot: String,
-    /// Current page URL (for browser contexts)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-}
-
-/// Response for a previous action
-#[derive(Debug, Serialize, Clone)]
-pub struct ComputerUseActionResponse {
-    /// Whether the action succeeded
-    pub success: bool,
-    /// Error message if action failed
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-/// A single step in the computer use execution
-#[derive(Debug, Clone, Serialize)]
-pub struct ComputerUseStep {
-    /// Step number (1-indexed)
-    pub step: u32,
-    /// Action that was executed
-    pub action: String,
-    /// Arguments passed to the action
-    pub args: serde_json::Value,
-    /// Whether the action succeeded
-    pub success: bool,
-    /// Error message if action failed
-    pub error: Option<String>,
-    /// Model's reasoning text for this step
-    pub text: Option<String>,
-}
-
-/// Result of the computer use execution
-#[derive(Debug, Clone, Serialize)]
-pub struct ComputerUseResult {
-    /// Status: "success", "failed", "needs_confirmation", "max_steps_reached"
-    pub status: String,
-    /// The goal that was attempted
-    pub goal: String,
-    /// Number of steps executed
-    pub steps_executed: u32,
-    /// Last action performed
-    pub final_action: String,
-    /// Final text response from model
-    pub final_text: Option<String>,
-    /// History of all steps
-    pub steps: Vec<ComputerUseStep>,
-    /// Pending confirmation info if status is "needs_confirmation"
-    pub pending_confirmation: Option<serde_json::Value>,
-}
-
-/// Callback for progress updates during computer use execution
-pub type ProgressCallback = Box<dyn Fn(&ComputerUseStep) + Send + Sync>;
-
-/// Backend response structure
-#[derive(Debug, Deserialize)]
-struct ComputerUseBackendResponse {
-    completed: bool,
-    #[serde(default)]
-    function_call: Option<ComputerUseFunctionCall>,
-    text: Option<String>,
-    safety_decision: Option<String>,
-    #[allow(dead_code)]
-    duration_ms: Option<u64>,
-    #[allow(dead_code)]
-    model_used: Option<String>,
-    error: Option<String>,
-}
+// ===== Internal Types =====
 
 /// Window capture data for computer use
 struct WindowCaptureData {
@@ -133,149 +37,6 @@ struct WindowCaptureData {
     resize_scale: f64,
     /// Browser URL if available
     browser_url: Option<String>,
-}
-
-// ===== Backend API =====
-
-/// Call the Gemini Computer Use backend to get the next action.
-async fn call_computer_use_backend(
-    base64_image: &str,
-    goal: &str,
-    previous_actions: Option<&[ComputerUsePreviousAction]>,
-) -> Result<ComputerUseResponse> {
-    let backend_url = env::var("GEMINI_COMPUTER_USE_BACKEND_URL")
-        .unwrap_or_else(|_| "https://app.mediar.ai/api/vision/computer-use".to_string());
-
-    info!(
-        "[computer_use] Calling backend at {} (goal: {})",
-        backend_url,
-        &goal[..goal.len().min(50)]
-    );
-
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(300))
-        .build()?;
-
-    let payload = serde_json::json!({
-        "image": base64_image,
-        "goal": goal,
-        "previous_actions": previous_actions.unwrap_or(&[])
-    });
-
-    let resp = client
-        .post(&backend_url)
-        .header("Content-Type", "application/json")
-        .json(&payload)
-        .send()
-        .await?;
-
-    let status = resp.status();
-    if !status.is_success() {
-        let text = resp.text().await.unwrap_or_default();
-        warn!("[computer_use] Backend error: {} - {}", status, text);
-        return Err(anyhow!("Computer Use backend error ({}): {}", status, text));
-    }
-
-    let response_text = resp.text().await?;
-    debug!(
-        "[computer_use] Backend response: {}",
-        &response_text[..response_text.len().min(500)]
-    );
-
-    let backend_response: ComputerUseBackendResponse = serde_json::from_str(&response_text)
-        .map_err(|e| anyhow!("Failed to parse backend response: {}", e))?;
-
-    if let Some(error) = backend_response.error {
-        return Err(anyhow!("Computer Use error: {}", error));
-    }
-
-    Ok(ComputerUseResponse {
-        completed: backend_response.completed,
-        function_call: backend_response.function_call,
-        text: backend_response.text,
-        safety_decision: backend_response.safety_decision,
-    })
-}
-
-// ===== Key Translation =====
-
-/// Translate Gemini Computer Use key format to uiautomation format
-/// Gemini: "enter", "control+a", "Meta+Shift+T"
-/// uiautomation: "{Enter}", "{Ctrl}a", "{Win}{Shift}t"
-fn translate_gemini_keys(gemini_keys: &str) -> Result<String, String> {
-    let parts: Vec<&str> = gemini_keys.split('+').collect();
-    let mut result = String::new();
-
-    for (i, part) in parts.iter().enumerate() {
-        let lower = part.trim().to_lowercase();
-        let is_last = i == parts.len() - 1;
-
-        let translated: &str = match lower.as_str() {
-            // Modifiers
-            "control" | "ctrl" => "{Ctrl}",
-            "alt" => "{Alt}",
-            "shift" => "{Shift}",
-            "meta" | "cmd" | "command" | "win" | "windows" | "super" => "{Win}",
-
-            // Common special keys
-            "enter" | "return" => "{Enter}",
-            "tab" => "{Tab}",
-            "escape" | "esc" => "{Escape}",
-            "backspace" | "back" => "{Backspace}",
-            "delete" | "del" => "{Delete}",
-            "space" => "{Space}",
-            "insert" | "ins" => "{Insert}",
-            "home" => "{Home}",
-            "end" => "{End}",
-            "pageup" | "page_up" | "pgup" => "{PageUp}",
-            "pagedown" | "page_down" | "pgdn" => "{PageDown}",
-            "capslock" | "caps" => "{CapsLock}",
-            "numlock" => "{NumLock}",
-            "scrolllock" => "{ScrollLock}",
-            "printscreen" | "prtsc" => "{PrintScreen}",
-            "pause" => "{Pause}",
-
-            // Arrow keys
-            "up" | "arrowup" => "{Up}",
-            "down" | "arrowdown" => "{Down}",
-            "left" | "arrowleft" => "{Left}",
-            "right" | "arrowright" => "{Right}",
-
-            // Function keys - handle dynamically
-            s if s.starts_with('f') && s.len() <= 3 => {
-                if let Ok(n) = s[1..].parse::<u8>() {
-                    if (1..=24).contains(&n) {
-                        result.push_str(&format!("{{F{}}}", n));
-                        continue;
-                    }
-                }
-                return Err(format!(
-                    "Invalid function key '{}' in '{}'. Use f1-f24.",
-                    part, gemini_keys
-                ));
-            }
-
-            // Single character (a-z, 0-9) - only valid as last part of combination
-            s if s.len() == 1 && is_last => {
-                result.push_str(s);
-                continue;
-            }
-
-            // Unknown key
-            unknown => {
-                return Err(format!(
-                    "Unknown key '{}' in combination '{}'. Valid: enter, tab, escape, \
-                     backspace, delete, space, up/down/left/right, home, end, pageup, \
-                     pagedown, f1-f24, or modifiers (ctrl, alt, shift, meta) with letters.",
-                    unknown, gemini_keys
-                ));
-            }
-        };
-
-        result.push_str(translated);
-    }
-
-    Ok(result)
 }
 
 // ===== Window Capture =====
@@ -379,6 +140,7 @@ fn capture_window_for_computer_use(
         )
         .map_err(|e| format!("Failed to encode PNG: {e}"))?;
 
+    // Base64 encode
     let base64_image = general_purpose::STANDARD.encode(&png_data);
 
     Ok(WindowCaptureData {
@@ -410,19 +172,16 @@ async fn execute_action(
 
     // Helper to convert 0-999 normalized coords to absolute screen coords
     let convert_coord = |norm_x: f64, norm_y: f64| -> (f64, f64) {
-        // Convert 0-999 to screenshot pixels
-        let px_x = (norm_x / 1000.0) * screenshot_w;
-        let px_y = (norm_y / 1000.0) * screenshot_h;
-        // Apply inverse resize scale
-        let px_x = px_x / resize_scale;
-        let px_y = px_y / resize_scale;
-        // Apply DPI conversion (physical to logical)
-        let logical_x = px_x / dpi_scale;
-        let logical_y = px_y / dpi_scale;
-        // Add window offset
-        let screen_x = window_x + logical_x;
-        let screen_y = window_y + logical_y;
-        (screen_x, screen_y)
+        convert_normalized_to_screen(
+            norm_x,
+            norm_y,
+            window_x,
+            window_y,
+            screenshot_w,
+            screenshot_h,
+            dpi_scale,
+            resize_scale,
+        )
     };
 
     match action {
