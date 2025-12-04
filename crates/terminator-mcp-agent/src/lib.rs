@@ -13,12 +13,14 @@ pub mod server_sequence;
 pub mod telemetry;
 pub mod tool_logging;
 pub mod tree_formatter;
-pub mod ui_tree_diff;
 pub mod utils;
 pub mod vision;
 pub mod window_manager;
 pub mod workflow_format;
 pub mod workflow_typescript;
+
+// Re-export ui_tree_diff from terminator crate (single source of truth)
+pub use terminator::ui_tree_diff;
 
 // Re-export the extract_content_json function for testing
 pub use server::extract_content_json;

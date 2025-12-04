@@ -5328,6 +5328,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "similar",
  "sysinfo 0.36.1",
  "thiserror 2.0.16",
  "tiny_http",

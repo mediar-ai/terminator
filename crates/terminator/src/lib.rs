@@ -21,6 +21,7 @@ pub mod selector;
 mod tests;
 pub mod tree_formatter;
 pub mod types;
+pub mod ui_tree_diff;
 pub mod utils;
 
 #[cfg(target_os = "windows")]
