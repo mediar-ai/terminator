@@ -987,7 +987,8 @@ impl DesktopWrapper {
                 return Err(McpError::invalid_params(
                     format!(
                         "Step {} is invalid: missing tool_name or group_name. {}",
-                        step_idx + 1, range_info
+                        step_idx + 1,
+                        range_info
                     ),
                     Some(json!({
                         "error_type": "invalid_step",
@@ -1054,7 +1055,8 @@ impl DesktopWrapper {
                     };
                     SequenceItem::Group { tool_group }
                 } else {
-                    let is_in_range = global_step_idx >= start_from_index && global_step_idx <= end_at_index;
+                    let is_in_range =
+                        global_step_idx >= start_from_index && global_step_idx <= end_at_index;
                     let range_info = if is_in_range {
                         "This step IS in your execution range."
                     } else {

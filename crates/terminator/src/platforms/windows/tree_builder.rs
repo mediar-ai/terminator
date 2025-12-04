@@ -86,7 +86,7 @@ pub(crate) fn build_ui_node_tree_configurable(
     struct WorkItem {
         element: UIElement,
         depth: usize,
-        node_path: Vec<usize>,      // Path of indices to reach this node from root
+        node_path: Vec<usize>, // Path of indices to reach this node from root
         selector_path: Vec<String>, // Accumulated selector segments from ancestors
     }
 
@@ -122,10 +122,7 @@ pub(crate) fn build_ui_node_tree_configurable(
         }
 
         // Build selector segment for this node and create full selector path
-        let current_segment = build_selector_segment(
-            &attributes.role,
-            attributes.name.as_deref(),
-        );
+        let current_segment = build_selector_segment(&attributes.role, attributes.name.as_deref());
         let mut current_selector_path = work_item.selector_path.clone();
         current_selector_path.push(current_segment);
 

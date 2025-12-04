@@ -244,11 +244,7 @@ pub async fn call_computer_use_backend(
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
         warn!("Computer Use backend error: {} - {}", status, text);
-        return Err(anyhow!(
-            "Computer Use backend error ({}): {}",
-            status,
-            text
-        ));
+        return Err(anyhow!("Computer Use backend error ({}): {}", status, text));
     }
 
     let response_text = resp.text().await?;

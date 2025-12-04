@@ -372,13 +372,21 @@ impl From<terminator::ComputerUseStep> for ComputerUseStep {
 
 impl From<terminator::ComputerUseResult> for ComputerUseResult {
     fn from(result: terminator::ComputerUseResult) -> Self {
-        let pending_confirmation = result.pending_confirmation.map(|pc| {
-            ComputerUsePendingConfirmation {
-                action: pc.get("action").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                args: pc.get("args").map(|v| v.to_string()).unwrap_or_default(),
-                text: pc.get("text").and_then(|v| v.as_str()).map(|s| s.to_string()),
-            }
-        });
+        let pending_confirmation =
+            result
+                .pending_confirmation
+                .map(|pc| ComputerUsePendingConfirmation {
+                    action: pc
+                        .get("action")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    args: pc.get("args").map(|v| v.to_string()).unwrap_or_default(),
+                    text: pc
+                        .get("text")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
+                });
 
         ComputerUseResult {
             status: result.status,
@@ -386,7 +394,11 @@ impl From<terminator::ComputerUseResult> for ComputerUseResult {
             steps_executed: result.steps_executed,
             final_action: result.final_action,
             final_text: result.final_text,
-            steps: result.steps.into_iter().map(ComputerUseStep::from).collect(),
+            steps: result
+                .steps
+                .into_iter()
+                .map(ComputerUseStep::from)
+                .collect(),
             pending_confirmation,
         }
     }

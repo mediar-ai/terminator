@@ -681,15 +681,22 @@ pub fn build_parent_hierarchy(element: &UIElement) -> Vec<UIElementInfo> {
         let parent_info = UIElementInfo::from_element(&parent);
 
         // Only include parents with meaningful names (skip unnamed elements like generic Panes/Groups)
-        let has_name = parent_info.name.as_ref().map(|n| !n.is_empty()).unwrap_or(false);
+        let has_name = parent_info
+            .name
+            .as_ref()
+            .map(|n| !n.is_empty())
+            .unwrap_or(false);
         let is_window = parent_role == "Window";
 
         // Skip internal browser/app implementation details that shouldn't be in selectors
         // These are container elements that don't provide semantic value for locating UI elements
-        let is_internal_element = parent_info.name.as_ref().map(|n| {
-            let lower = n.to_lowercase();
-            // Browser internal elements
-            lower.contains("legacy window")
+        let is_internal_element = parent_info
+            .name
+            .as_ref()
+            .map(|n| {
+                let lower = n.to_lowercase();
+                // Browser internal elements
+                lower.contains("legacy window")
                 || lower.contains("chrome_widgetwin")
                 || lower.contains("intermediate d3d window")
                 // Panes that just mirror the Window title (redundant after process: selector)
@@ -700,7 +707,8 @@ pub fn build_parent_hierarchy(element: &UIElement) -> Vec<UIElementInfo> {
                 ))
                 // Skip elements with relative timestamps (dynamic, will break selectors)
                 || contains_relative_time(&lower)
-        }).unwrap_or(false);
+            })
+            .unwrap_or(false);
 
         if has_name && !is_internal_element {
             let name_for_log = parent_info.name.clone();

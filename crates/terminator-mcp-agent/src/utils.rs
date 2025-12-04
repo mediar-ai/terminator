@@ -344,8 +344,11 @@ pub struct DesktopWrapper {
     /// Stores UIA tree index-to-bounds mapping from the last get_window_tree
     /// Key is 1-based index, value is (role, name, bounds, selector)
     #[serde(skip)]
-    pub uia_bounds:
-        Arc<Mutex<std::collections::HashMap<u32, (String, String, (f64, f64, f64, f64), Option<String>)>>>,
+    pub uia_bounds: Arc<
+        Mutex<
+            std::collections::HashMap<u32, (String, String, (f64, f64, f64, f64), Option<String>)>,
+        >,
+    >,
     /// Stores browser DOM index-to-bounds mapping from the last get_window_tree
     /// Key is 1-based index, value is (tag, identifier, (x, y, width, height)) in screen coordinates
     #[serde(skip)]
@@ -1506,9 +1509,7 @@ pub struct GeminiComputerUseArgs {
     #[schemars(description = "The goal to achieve (e.g., 'Open Notepad and type Hello World')")]
     pub goal: String,
 
-    #[schemars(
-        description = "Maximum number of steps to take before stopping. Defaults to 20."
-    )]
+    #[schemars(description = "Maximum number of steps to take before stopping. Defaults to 20.")]
     pub max_steps: Option<u32>,
 
     #[serde(flatten)]

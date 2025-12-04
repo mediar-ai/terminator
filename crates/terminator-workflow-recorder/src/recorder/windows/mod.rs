@@ -579,7 +579,10 @@ impl WindowsRecorder {
         // Try direct URL property first (fast path)
         if let Some(url) = element.url() {
             if !url.is_empty() && (url.starts_with("http://") || url.starts_with("https://")) {
-                info!("✅ [URL-SEARCH] Found valid URL directly on element: {}", url);
+                info!(
+                    "✅ [URL-SEARCH] Found valid URL directly on element: {}",
+                    url
+                );
                 return Some(url);
             } else if !url.is_empty() {
                 info!(
@@ -634,7 +637,10 @@ impl WindowsRecorder {
 
                         // Then try deep search for Documents
                         if let Some(url) = Self::deep_url_search(&parent, 0, 15) {
-                            info!("✅ [URL-SEARCH] Found URL by deep searching browser window: {}", url);
+                            info!(
+                                "✅ [URL-SEARCH] Found URL by deep searching browser window: {}",
+                                url
+                            );
                             return Some(url);
                         }
                         info!("⚠️ [URL-SEARCH] No URL found in browser window, will continue searching up");
@@ -655,7 +661,10 @@ impl WindowsRecorder {
                                     } else {
                                         format!("https://{domain}")
                                     };
-                                    info!("✅ [URL-SEARCH] Extracted URL from modal dialog title: {}", url);
+                                    info!(
+                                        "✅ [URL-SEARCH] Extracted URL from modal dialog title: {}",
+                                        url
+                                    );
                                     return Some(url);
                                 }
                             }
@@ -681,7 +690,10 @@ impl WindowsRecorder {
                             depth
                         );
                         if let Some(url) = Self::deep_url_search(&current, 0, 10) {
-                            info!("✅ [URL-SEARCH] Found URL by searching from highest parent: {}", url);
+                            info!(
+                                "✅ [URL-SEARCH] Found URL by searching from highest parent: {}",
+                                url
+                            );
                             return Some(url);
                         }
                     }
@@ -693,7 +705,10 @@ impl WindowsRecorder {
         // Try parsing from window title as last resort
         let window_title = element.window_title();
         if !window_title.is_empty() {
-            info!("🔍 [URL-SEARCH] Trying window title as last resort: {}", window_title);
+            info!(
+                "🔍 [URL-SEARCH] Trying window title as last resort: {}",
+                window_title
+            );
             // Common patterns: "Page Title - Domain - Browser"
             if let Some(url) = Self::extract_url_from_title(&window_title) {
                 info!("✅ [URL-SEARCH] Extracted URL from window title: {}", url);
@@ -2723,7 +2738,10 @@ impl WindowsRecorder {
                     let page_url = if is_browser {
                         info!("🔍 [CLICK-URL-DEBUG] is_browser=true, calling proactive_browser_url_search...");
                         let url_result = Self::proactive_browser_url_search(element);
-                        info!("🔍 [CLICK-URL-DEBUG] proactive_browser_url_search returned: {:?}", url_result);
+                        info!(
+                            "🔍 [CLICK-URL-DEBUG] proactive_browser_url_search returned: {:?}",
+                            url_result
+                        );
                         url_result
                     } else {
                         info!("🔍 [CLICK-URL-DEBUG] is_browser=false, skipping URL search");
@@ -2855,7 +2873,11 @@ impl WindowsRecorder {
 
         log::info!(
             "🔬 [UIA-{}] START deepest traversal at ({}, {}). Concurrent: {} -> {}",
-            traversal_id, position.x, position.y, concurrent_before, concurrent_before + 1
+            traversal_id,
+            position.x,
+            position.y,
+            concurrent_before,
+            concurrent_before + 1
         );
 
         thread::spawn(move || {
@@ -2863,17 +2885,27 @@ impl WindowsRecorder {
             let result = (|| {
                 let auto_start = Instant::now();
                 let automation = Self::create_configured_automation_instance(&config_clone).ok()?;
-                log::info!("🔬 [UIA-{}] create_automation took {:?}", traversal_id, auto_start.elapsed());
+                log::info!(
+                    "🔬 [UIA-{}] create_automation took {:?}",
+                    traversal_id,
+                    auto_start.elapsed()
+                );
 
                 let point_start = Instant::now();
                 let point = Point::new(position.x, position.y);
                 let element = automation.element_from_point(point).ok()?;
-                log::info!("🔬 [UIA-{}] element_from_point took {:?}", traversal_id, point_start.elapsed());
+                log::info!(
+                    "🔬 [UIA-{}] element_from_point took {:?}",
+                    traversal_id,
+                    point_start.elapsed()
+                );
 
                 let convert_start = Instant::now();
                 let surface_element = convert_uiautomation_element_to_terminator(element);
-                log::info!("🔬 [UIA-{}] convert took {:?}, surface: '{}' ({})",
-                    traversal_id, convert_start.elapsed(),
+                log::info!(
+                    "🔬 [UIA-{}] convert took {:?}, surface: '{}' ({})",
+                    traversal_id,
+                    convert_start.elapsed(),
                     surface_element.name().unwrap_or_default(),
                     surface_element.role()
                 );
@@ -2884,15 +2916,21 @@ impl WindowsRecorder {
                 if let Some(deepest) =
                     Self::find_deepest_element_at_coordinates(&surface_element, position)
                 {
-                    log::info!("🔬 [UIA-{}] find_deepest took {:?}, found: '{}' ({})",
-                        traversal_id, deepest_start.elapsed(),
+                    log::info!(
+                        "🔬 [UIA-{}] find_deepest took {:?}, found: '{}' ({})",
+                        traversal_id,
+                        deepest_start.elapsed(),
                         deepest.name().unwrap_or_default(),
                         deepest.role()
                     );
                     Some(deepest)
                 } else {
                     // Fallback to surface element if deepest search failed
-                    log::info!("🔬 [UIA-{}] find_deepest took {:?}, using surface fallback", traversal_id, deepest_start.elapsed());
+                    log::info!(
+                        "🔬 [UIA-{}] find_deepest took {:?}, using surface fallback",
+                        traversal_id,
+                        deepest_start.elapsed()
+                    );
                     Some(surface_element)
                 }
             })();
@@ -2901,7 +2939,10 @@ impl WindowsRecorder {
             let concurrent_after = UIA_TRAVERSAL_COUNT.fetch_sub(1, Ordering::SeqCst);
             log::info!(
                 "🔬 [UIA-{}] THREAD DONE in {:?}. Concurrent: {} -> {}. Result: {}",
-                traversal_id, thread_elapsed, concurrent_after, concurrent_after - 1,
+                traversal_id,
+                thread_elapsed,
+                concurrent_after,
+                concurrent_after - 1,
                 if result.is_some() { "success" } else { "none" }
             );
 
@@ -2912,7 +2953,8 @@ impl WindowsRecorder {
             Ok(result) => {
                 log::info!(
                     "🔬 [UIA-{}] RECEIVED in {:?}. Result: {}",
-                    traversal_id, caller_start.elapsed(),
+                    traversal_id,
+                    caller_start.elapsed(),
                     if result.is_some() { "success" } else { "none" }
                 );
                 result
@@ -2938,10 +2980,7 @@ impl WindowsRecorder {
 
         debug!(
             "🔍 Checking element '{}' (role: {}) for coordinates ({}, {})",
-            element_name,
-            element_role,
-            position.x,
-            position.y
+            element_name, element_role, position.x, position.y
         );
 
         // Check if this is a container element (unnamed Group/Pane) that may have broken bounds
@@ -3074,8 +3113,7 @@ impl WindowsRecorder {
         // No deeper element found, this is the deepest one
         debug!(
             "   🎯 Using this element as deepest: '{}' (role: {})",
-            element_name,
-            element_role
+            element_name, element_role
         );
         Some(element.clone())
     }
@@ -3109,7 +3147,8 @@ impl WindowsRecorder {
 
             // Recurse into this child's children
             if let Ok(grandchildren) = child.children() {
-                if let Some(found) = Self::find_named_descendant_at_position(&grandchildren, position)
+                if let Some(found) =
+                    Self::find_named_descendant_at_position(&grandchildren, position)
                 {
                     return Some(found);
                 }

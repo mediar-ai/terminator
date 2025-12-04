@@ -100,7 +100,10 @@ fn format_node(
 
         // Store in cache: index → (role, name, bounds, selector)
         let name = node.name.clone().unwrap_or_default();
-        index_to_bounds.insert(idx, (node.role.clone(), name, (x, y, w, h), node.selector.clone()));
+        index_to_bounds.insert(
+            idx,
+            (node.role.clone(), name, (x, y, w, h), node.selector.clone()),
+        );
     } else {
         // No bounds - use dash prefix and [ROLE]
         output.push_str(&format!("- [{}]", node.role));

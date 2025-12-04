@@ -1677,15 +1677,17 @@ impl DesktopWrapper {
                     if let Ok(uia_bounds) = self.uia_bounds.lock() {
                         let elements: Vec<terminator::InspectElement> = uia_bounds
                             .iter()
-                            .map(|(idx, (role, name, bounds, _selector))| terminator::InspectElement {
-                                index: *idx,
-                                role: role.clone(),
-                                name: if name.is_empty() {
-                                    None
-                                } else {
-                                    Some(name.clone())
-                                },
-                                bounds: *bounds,
+                            .map(|(idx, (role, name, bounds, _selector))| {
+                                terminator::InspectElement {
+                                    index: *idx,
+                                    role: role.clone(),
+                                    name: if name.is_empty() {
+                                        None
+                                    } else {
+                                        Some(name.clone())
+                                    },
+                                    bounds: *bounds,
+                                }
                             })
                             .collect();
 
@@ -4198,7 +4200,9 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
                 final_script.push_str(&format!("var variables = {variables_json};\n"));
 
                 // Auto-initialize kv if ORG_TOKEN was injected
-                if accumulated_env_json.contains("\"ORG_TOKEN\"") || explicit_env_json.contains("\"ORG_TOKEN\"") {
+                if accumulated_env_json.contains("\"ORG_TOKEN\"")
+                    || explicit_env_json.contains("\"ORG_TOKEN\"")
+                {
                     final_script.push_str("var kv = createKVClient(ORG_TOKEN);\n");
                     tracing::debug!("[run_command] Auto-initialized kv with ORG_TOKEN");
                 }
@@ -8532,14 +8536,15 @@ console.info = function(...args) {
 
             // 1. Capture screenshot of target window
             let screenshot_result = self.capture_window_for_computer_use(&args.process).await;
-            let (base64_image, window_bounds, dpi_scale, resize_scale, _initial_url) = match screenshot_result {
-                Ok(data) => data,
-                Err(e) => {
-                    warn!("[gemini_computer_use] Failed to capture screenshot: {}", e);
-                    final_status = "failed";
-                    break;
-                }
-            };
+            let (base64_image, window_bounds, dpi_scale, resize_scale, _initial_url) =
+                match screenshot_result {
+                    Ok(data) => data,
+                    Err(e) => {
+                        warn!("[gemini_computer_use] Failed to capture screenshot: {}", e);
+                        final_status = "failed";
+                        break;
+                    }
+                };
 
             // 2. Call backend to get next action (pass previous actions with their screenshots)
             let response_result = call_computer_use_backend(
@@ -8619,13 +8624,11 @@ console.info = function(...args) {
                 .await;
 
             // 7. Capture new screenshot after action for next iteration
-            let (post_action_screenshot, post_action_url) = match self
-                .capture_window_for_computer_use(&args.process)
-                .await
-            {
-                Ok((img, _, _, _, url)) => (img, url),
-                Err(_) => (base64_image.clone(), None), // Fallback to previous screenshot
-            };
+            let (post_action_screenshot, post_action_url) =
+                match self.capture_window_for_computer_use(&args.process).await {
+                    Ok((img, _, _, _, url)) => (img, url),
+                    Err(_) => (base64_image.clone(), None), // Fallback to previous screenshot
+                };
 
             // 8. Record action with result and new screenshot for next call
             let (success, error_msg) = match &execute_result {
@@ -8712,7 +8715,9 @@ impl DesktopWrapper {
                         .process(sysinfo::Pid::from_u32(app_pid))
                         .map(|p| {
                             let process_name = p.name().to_string_lossy().to_string();
-                            process_name.to_lowercase().contains(&process.to_lowercase())
+                            process_name
+                                .to_lowercase()
+                                .contains(&process.to_lowercase())
                         })
                         .unwrap_or(false)
                 } else {
@@ -8750,23 +8755,23 @@ impl DesktopWrapper {
 
         // Resize if needed (max 1920px)
         const MAX_DIM: u32 = 1920;
-        let (final_width, final_height, final_rgba_data, resize_scale) =
-            if original_width > MAX_DIM || original_height > MAX_DIM {
-                let scale =
-                    (MAX_DIM as f32 / original_width.max(original_height) as f32).min(1.0);
-                let new_width = (original_width as f32 * scale).round() as u32;
-                let new_height = (original_height as f32 * scale).round() as u32;
+        let (final_width, final_height, final_rgba_data, resize_scale) = if original_width > MAX_DIM
+            || original_height > MAX_DIM
+        {
+            let scale = (MAX_DIM as f32 / original_width.max(original_height) as f32).min(1.0);
+            let new_width = (original_width as f32 * scale).round() as u32;
+            let new_height = (original_height as f32 * scale).round() as u32;
 
-                let img =
-                    ImageBuffer::<Rgba<u8>, _>::from_raw(original_width, original_height, rgba_data)
-                        .ok_or("Failed to create image buffer")?;
-                let resized =
-                    image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
+            let img =
+                ImageBuffer::<Rgba<u8>, _>::from_raw(original_width, original_height, rgba_data)
+                    .ok_or("Failed to create image buffer")?;
+            let resized =
+                image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
 
-                (new_width, new_height, resized.into_raw(), scale as f64)
-            } else {
-                (original_width, original_height, rgba_data, 1.0)
-            };
+            (new_width, new_height, resized.into_raw(), scale as f64)
+        } else {
+            (original_width, original_height, rgba_data, 1.0)
+        };
 
         // Encode to PNG
         let mut png_data = Vec::new();
@@ -8885,15 +8890,9 @@ impl DesktopWrapper {
         let (window_x, window_y, screenshot_w, screenshot_h) = window_bounds;
 
         // Helper to get f64 from args
-        let get_f64 = |key: &str| -> Option<f64> {
-            args.get(key).and_then(|v| v.as_f64())
-        };
-        let get_str = |key: &str| -> Option<&str> {
-            args.get(key).and_then(|v| v.as_str())
-        };
-        let get_bool = |key: &str| -> Option<bool> {
-            args.get(key).and_then(|v| v.as_bool())
-        };
+        let get_f64 = |key: &str| -> Option<f64> { args.get(key).and_then(|v| v.as_f64()) };
+        let get_str = |key: &str| -> Option<&str> { args.get(key).and_then(|v| v.as_str()) };
+        let get_bool = |key: &str| -> Option<bool> { args.get(key).and_then(|v| v.as_bool()) };
 
         // Helper to convert 0-999 normalized coords to absolute screen coords
         let convert_coord = |norm_x: f64, norm_y: f64| -> (f64, f64) {
@@ -8957,10 +8956,7 @@ impl DesktopWrapper {
             "key_combination" => {
                 let keys = get_str("keys").ok_or("key_combination requires keys")?;
                 let translated = Self::translate_gemini_keys(keys)?;
-                info!(
-                    "[computer_use] key_combination: {} -> {}",
-                    keys, translated
-                );
+                info!("[computer_use] key_combination: {} -> {}", keys, translated);
                 self.desktop
                     .press_key(&translated)
                     .await
@@ -8992,10 +8988,18 @@ impl DesktopWrapper {
             }
             "drag_and_drop" => {
                 // Support both x/y + destination_x/destination_y and start_x/start_y/end_x/end_y
-                let start_x = get_f64("x").or(get_f64("start_x")).ok_or("drag_and_drop requires x/start_x")?;
-                let start_y = get_f64("y").or(get_f64("start_y")).ok_or("drag_and_drop requires y/start_y")?;
-                let end_x = get_f64("destination_x").or(get_f64("end_x")).ok_or("drag_and_drop requires destination_x/end_x")?;
-                let end_y = get_f64("destination_y").or(get_f64("end_y")).ok_or("drag_and_drop requires destination_y/end_y")?;
+                let start_x = get_f64("x")
+                    .or(get_f64("start_x"))
+                    .ok_or("drag_and_drop requires x/start_x")?;
+                let start_y = get_f64("y")
+                    .or(get_f64("start_y"))
+                    .ok_or("drag_and_drop requires y/start_y")?;
+                let end_x = get_f64("destination_x")
+                    .or(get_f64("end_x"))
+                    .ok_or("drag_and_drop requires destination_x/end_x")?;
+                let end_y = get_f64("destination_y")
+                    .or(get_f64("end_y"))
+                    .ok_or("drag_and_drop requires destination_y/end_y")?;
                 let (start_screen_x, start_screen_y) = convert_coord(start_x, start_y);
                 let (end_screen_x, end_screen_y) = convert_coord(end_x, end_y);
                 info!(

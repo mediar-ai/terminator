@@ -741,7 +741,11 @@ mod tokenizer_debug_test {
                     println!("  [{i}] {token:?}");
                 }
                 // Should only have 3 tokens: role:Window, And, and the full text: selector
-                assert_eq!(tokens.len(), 3, "Expected 3 tokens (role, And, text), got: {tokens:?}");
+                assert_eq!(
+                    tokens.len(),
+                    3,
+                    "Expected 3 tokens (role, And, text), got: {tokens:?}"
+                );
             }
             Err(e) => panic!("Tokenization error: {e}"),
         }

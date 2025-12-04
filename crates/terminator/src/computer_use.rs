@@ -7,8 +7,8 @@ use crate::Desktop;
 use anyhow::{anyhow, Result};
 use base64::{engine::general_purpose, Engine as _};
 use image::codecs::png::PngEncoder;
-use image::{ExtendedColorType, ImageBuffer, ImageEncoder, Rgba};
 use image::imageops::FilterType;
+use image::{ExtendedColorType, ImageBuffer, ImageEncoder, Rgba};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::io::Cursor;
@@ -302,7 +302,9 @@ fn capture_window_for_computer_use(
                     .process(sysinfo::Pid::from_u32(app_pid))
                     .map(|p| {
                         let process_name = p.name().to_string_lossy().to_string();
-                        process_name.to_lowercase().contains(&process.to_lowercase())
+                        process_name
+                            .to_lowercase()
+                            .contains(&process.to_lowercase())
                     })
                     .unwrap_or(false)
             } else {
@@ -349,21 +351,21 @@ fn capture_window_for_computer_use(
 
     // Resize if needed (max 1920px)
     const MAX_DIM: u32 = 1920;
-    let (final_width, final_height, final_rgba_data, resize_scale) =
-        if original_width > MAX_DIM || original_height > MAX_DIM {
-            let scale = (MAX_DIM as f32 / original_width.max(original_height) as f32).min(1.0);
-            let new_width = (original_width as f32 * scale).round() as u32;
-            let new_height = (original_height as f32 * scale).round() as u32;
+    let (final_width, final_height, final_rgba_data, resize_scale) = if original_width > MAX_DIM
+        || original_height > MAX_DIM
+    {
+        let scale = (MAX_DIM as f32 / original_width.max(original_height) as f32).min(1.0);
+        let new_width = (original_width as f32 * scale).round() as u32;
+        let new_height = (original_height as f32 * scale).round() as u32;
 
-            let img =
-                ImageBuffer::<Rgba<u8>, _>::from_raw(original_width, original_height, rgba_data)
-                    .ok_or("Failed to create image buffer")?;
-            let resized = image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
+        let img = ImageBuffer::<Rgba<u8>, _>::from_raw(original_width, original_height, rgba_data)
+            .ok_or("Failed to create image buffer")?;
+        let resized = image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
 
-            (new_width, new_height, resized.into_raw(), scale as f64)
-        } else {
-            (original_width, original_height, rgba_data, 1.0)
-        };
+        (new_width, new_height, resized.into_raw(), scale as f64)
+    } else {
+        (original_width, original_height, rgba_data, 1.0)
+    };
 
     // Encode to PNG
     let mut png_data = Vec::new();

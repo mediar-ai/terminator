@@ -4240,10 +4240,8 @@ impl AccessibilityEngine for MacOSEngine {
             };
 
             // Build selector segment for this node
-            let current_segment = build_selector_segment(
-                &attributes.role,
-                attributes.name.as_deref(),
-            );
+            let current_segment =
+                build_selector_segment(&attributes.role, attributes.name.as_deref());
             let mut current_selector_path = selector_path;
             current_selector_path.push(current_segment);
             let selector = build_chained_selector(&current_selector_path);
@@ -4253,8 +4251,12 @@ impl AccessibilityEngine for MacOSEngine {
                 Ok(children) => {
                     for batch in children.chunks(context.config.batch_size.unwrap_or(50)) {
                         for child in batch {
-                            match build_ui_node_tree_configurable(child, current_depth + 1, context, current_selector_path.clone())
-                            {
+                            match build_ui_node_tree_configurable(
+                                child,
+                                current_depth + 1,
+                                context,
+                                current_selector_path.clone(),
+                            ) {
                                 Ok(child_node) => children_nodes.push(child_node),
                                 Err(e) => {
                                     context.errors_encountered += 1;
