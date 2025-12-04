@@ -4289,10 +4289,19 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
                     None
                 };
 
+                // Create shared log buffer for real-time log capture (useful for timeout scenarios)
+                let include_logs = args.include_logs.unwrap_or(false);
+                let log_buffer = if include_logs {
+                    Some(scripting_engine::ScriptLogBuffer::new())
+                } else {
+                    None
+                };
+
                 let execution_future = scripting_engine::execute_javascript_with_nodejs(
                     final_script,
                     cancellation_token,
                     script_working_dir,
+                    log_buffer.clone(),
                 );
 
                 let execution_result = if timeout_ms == 0 {
@@ -4301,13 +4310,25 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
                     match tokio::time::timeout(timeout_duration, execution_future).await {
                         Ok(result) => result?,
                         Err(_) => {
+                            // On timeout, include any logs captured before the timeout if include_logs is true
+                            let mut error_data = json!({
+                                "reason": format!("Execution exceeded timeout of {}ms", timeout_ms),
+                                "engine": "javascript",
+                                "timeout_ms": timeout_ms
+                            });
+                            if let Some(ref buf) = log_buffer {
+                                let partial_logs = buf.get_logs();
+                                let partial_stderr = buf.get_stderr();
+                                if !partial_logs.is_empty() {
+                                    error_data["logs"] = json!(partial_logs);
+                                }
+                                if !partial_stderr.is_empty() {
+                                    error_data["stderr"] = json!(partial_stderr);
+                                }
+                            }
                             return Err(McpError::internal_error(
                                 "JavaScript execution timed out",
-                                Some(json!({
-                                    "reason": format!("Execution exceeded timeout of {}ms", timeout_ms),
-                                    "engine": "javascript",
-                                    "timeout_ms": timeout_ms
-                                })),
+                                Some(error_data),
                             ));
                         }
                     }
@@ -4404,10 +4425,19 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
                     None
                 };
 
+                // Create shared log buffer for real-time log capture (useful for timeout scenarios)
+                let include_logs = args.include_logs.unwrap_or(false);
+                let log_buffer = if include_logs {
+                    Some(scripting_engine::ScriptLogBuffer::new())
+                } else {
+                    None
+                };
+
                 let execution_future = scripting_engine::execute_typescript_with_nodejs(
                     final_script,
                     cancellation_token,
                     script_working_dir,
+                    log_buffer.clone(),
                 );
 
                 let execution_result = if timeout_ms == 0 {
@@ -4416,13 +4446,25 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
                     match tokio::time::timeout(timeout_duration, execution_future).await {
                         Ok(result) => result?,
                         Err(_) => {
+                            // On timeout, include any logs captured before the timeout if include_logs is true
+                            let mut error_data = json!({
+                                "reason": format!("Execution exceeded timeout of {}ms", timeout_ms),
+                                "engine": "typescript",
+                                "timeout_ms": timeout_ms
+                            });
+                            if let Some(ref buf) = log_buffer {
+                                let partial_logs = buf.get_logs();
+                                let partial_stderr = buf.get_stderr();
+                                if !partial_logs.is_empty() {
+                                    error_data["logs"] = json!(partial_logs);
+                                }
+                                if !partial_stderr.is_empty() {
+                                    error_data["stderr"] = json!(partial_stderr);
+                                }
+                            }
                             return Err(McpError::internal_error(
                                 "TypeScript execution timed out",
-                                Some(json!({
-                                    "reason": format!("Execution exceeded timeout of {}ms", timeout_ms),
-                                    "engine": "typescript",
-                                    "timeout_ms": timeout_ms
-                                })),
+                                Some(error_data),
                             ));
                         }
                     }

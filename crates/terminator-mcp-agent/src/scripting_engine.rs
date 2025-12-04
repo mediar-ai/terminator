@@ -1,7 +1,45 @@
 ﻿use rmcp::ErrorData as McpError;
 use serde_json::json;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use tracing::{debug, error, info, trace, warn};
+
+/// Shared buffer for capturing script logs in real-time.
+/// This allows logs to be retrieved even when script execution times out.
+#[derive(Clone, Default)]
+pub struct ScriptLogBuffer {
+    logs: Arc<Mutex<Vec<String>>>,
+    stderr: Arc<Mutex<Vec<String>>>,
+}
+
+impl ScriptLogBuffer {
+    pub fn new() -> Self {
+        Self {
+            logs: Arc::new(Mutex::new(Vec::new())),
+            stderr: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    pub fn push_log(&self, line: String) {
+        if let Ok(mut logs) = self.logs.lock() {
+            logs.push(line);
+        }
+    }
+
+    pub fn push_stderr(&self, line: String) {
+        if let Ok(mut stderr) = self.stderr.lock() {
+            stderr.push(line);
+        }
+    }
+
+    pub fn get_logs(&self) -> Vec<String> {
+        self.logs.lock().map(|l| l.clone()).unwrap_or_default()
+    }
+
+    pub fn get_stderr(&self) -> Vec<String> {
+        self.stderr.lock().map(|s| s.clone()).unwrap_or_default()
+    }
+}
 
 /// Find executable with cross-platform path resolution
 pub fn find_executable(name: &str) -> Option<String> {
@@ -840,10 +878,17 @@ async fn ensure_terminator_js_installed(runtime: &str) -> Result<std::path::Path
 }
 
 /// Execute JavaScript using Node.js/Bun runtime with terminator.js bindings available
+///
+/// # Arguments
+/// * `script` - The JavaScript code to execute
+/// * `cancellation_token` - Optional token to cancel execution
+/// * `working_dir` - Optional working directory for script execution
+/// * `log_buffer` - Optional shared buffer for real-time log capture (useful for timeout scenarios)
 pub async fn execute_javascript_with_nodejs(
     script: String,
     cancellation_token: Option<tokio_util::sync::CancellationToken>,
     working_dir: Option<PathBuf>,
+    log_buffer: Option<ScriptLogBuffer>,
 ) -> Result<serde_json::Value, McpError> {
     // Dev override: allow forcing local bindings via env var
     if std::env::var("TERMINATOR_JS_USE_LOCAL")
@@ -1165,6 +1210,10 @@ try {{
                             && !line.starts_with("__ERROR__")
                             && !line.starts_with("::set-env ") {
                             captured_logs.push(line.clone());
+                            // Also write to shared buffer for real-time access (useful for timeout scenarios)
+                            if let Some(ref buf) = log_buffer {
+                                buf.push_log(line.clone());
+                            }
                         }
                         // Parse GitHub Actions style env updates: ::set-env name=KEY::VALUE
                         if let Some(stripped) = line.strip_prefix("::set-env ") {
@@ -1254,7 +1303,11 @@ try {{
             stderr_line = stderr.next_line() => {
                 match stderr_line {
                     Ok(Some(line)) => {
-                        stderr_output.push(line);
+                        stderr_output.push(line.clone());
+                        // Also write to shared buffer for real-time access (useful for timeout scenarios)
+                        if let Some(ref buf) = log_buffer {
+                            buf.push_stderr(line);
+                        }
                     }
                     Ok(None) => {
                         info!("[Node.js] stderr stream ended");
@@ -1375,10 +1428,17 @@ try {{
 }
 
 /// Execute TypeScript using tsx/ts-node with terminator.js bindings available
+///
+/// # Arguments
+/// * `script` - The TypeScript code to execute
+/// * `cancellation_token` - Optional token to cancel execution
+/// * `working_dir` - Optional working directory for script execution
+/// * `log_buffer` - Optional shared buffer for real-time log capture (useful for timeout scenarios)
 pub async fn execute_typescript_with_nodejs(
     script: String,
     cancellation_token: Option<tokio_util::sync::CancellationToken>,
     working_dir: Option<PathBuf>,
+    log_buffer: Option<ScriptLogBuffer>,
 ) -> Result<serde_json::Value, McpError> {
     use std::process::Stdio;
     use tokio::io::{AsyncBufReadExt, BufReader};
@@ -1644,7 +1704,11 @@ console.log('[TypeScript] Current working directory:', process.cwd());
                                     }
                                 }
                             } else {
-                                captured_logs.push(line);
+                                captured_logs.push(line.clone());
+                                // Also write to shared buffer for real-time access (useful for timeout scenarios)
+                                if let Some(ref buf) = log_buffer {
+                                    buf.push_log(line);
+                                }
                             }
                         }
                         Ok(None) => break,
@@ -1659,7 +1723,11 @@ console.log('[TypeScript] Current working directory:', process.cwd());
                     match line {
                         Ok(Some(line)) => {
                             debug!("[TypeScript] stderr: {}", line);
-                            stderr_output.push(line);
+                            stderr_output.push(line.clone());
+                            // Also write to shared buffer for real-time access (useful for timeout scenarios)
+                            if let Some(ref buf) = log_buffer {
+                                buf.push_stderr(line);
+                            }
                         }
                         Ok(None) => {},
                         Err(e) => {
