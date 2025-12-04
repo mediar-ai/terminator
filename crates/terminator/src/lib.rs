@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
-use tracing::{debug, error, instrument};
+use tracing::{debug, error, info, instrument};
 
 pub mod browser_script;
 pub mod element;
@@ -32,6 +32,7 @@ pub use errors::AutomationError;
 pub use locator::Locator;
 pub use screenshot::ScreenshotResult;
 pub use selector::Selector;
+pub use tokio_util::sync::CancellationToken;
 pub use tree_formatter::{format_tree_as_compact_yaml, format_ui_node_as_compact_yaml};
 pub use types::{FontStyle, HighlightHandle, TextPosition};
 
@@ -243,13 +244,18 @@ impl fmt::Debug for DebugNodeWithDepth<'_> {
 /// The main entry point for UI automation
 pub struct Desktop {
     engine: Arc<dyn platforms::AccessibilityEngine>,
+    /// Cancellation token for stopping execution
+    cancellation_token: CancellationToken,
 }
 
 impl Desktop {
     #[instrument(skip(use_background_apps, activate_app))]
     pub fn new(use_background_apps: bool, activate_app: bool) -> Result<Self, AutomationError> {
         let engine = platforms::create_engine(use_background_apps, activate_app)?;
-        Ok(Self { engine })
+        Ok(Self {
+            engine,
+            cancellation_token: CancellationToken::new(),
+        })
     }
 
     /// Initializet the desktop without arguments
@@ -650,10 +656,18 @@ impl Desktop {
 
     /// Execute JavaScript in the currently focused browser tab.
     /// Automatically finds the active browser window and executes the script.
+    ///
+    /// This method respects cancellation - if `stop_execution()` is called,
+    /// the operation will be interrupted and return an error.
     #[instrument(skip(self, script))]
     pub async fn execute_browser_script(&self, script: &str) -> Result<String, AutomationError> {
         let browser_window = self.engine.get_current_browser_window().await?;
-        browser_window.execute_browser_script(script).await
+        tokio::select! {
+            result = browser_window.execute_browser_script(script) => result,
+            _ = self.cancellation_token.cancelled() => {
+                Err(AutomationError::OperationCancelled("Browser script execution cancelled by stop_execution".into()))
+            }
+        }
     }
 
     #[instrument(skip(self))]
@@ -695,6 +709,8 @@ impl Desktop {
     ///     }
     /// }
     /// ```
+    /// This method respects cancellation - if `stop_execution()` is called,
+    /// the operation will be interrupted and return an error.
     #[instrument(skip(self))]
     pub async fn get_all_applications_tree(&self) -> Result<Vec<UINode>, AutomationError> {
         let applications = self.applications()?;
@@ -730,21 +746,27 @@ impl Desktop {
             })
         });
 
-        let results = futures::future::join_all(futures).await;
+        // Use select to allow cancellation while waiting for all futures
+        tokio::select! {
+            results = futures::future::join_all(futures) => {
+                let trees: Vec<UINode> = results
+                    .into_iter()
+                    .filter_map(|res| match res {
+                        Ok(Some(tree)) => Some(tree),
+                        Ok(None) => None,
+                        Err(e) => {
+                            error!("A task for getting a window tree panicked: {}", e);
+                            None
+                        }
+                    })
+                    .collect();
 
-        let trees: Vec<UINode> = results
-            .into_iter()
-            .filter_map(|res| match res {
-                Ok(Some(tree)) => Some(tree),
-                Ok(None) => None,
-                Err(e) => {
-                    error!("A task for getting a window tree panicked: {}", e);
-                    None
-                }
-            })
-            .collect();
-
-        Ok(trees)
+                Ok(trees)
+            }
+            _ = self.cancellation_token.cancelled() => {
+                Err(AutomationError::OperationCancelled("get_all_applications_tree cancelled by stop_execution".into()))
+            }
+        }
     }
 
     /// Get all window elements for a given application by name
@@ -809,9 +831,16 @@ impl Desktop {
 
     /// Delay execution for a specified number of milliseconds.
     /// Useful for waiting between actions to ensure UI stability.
+    ///
+    /// This method respects cancellation - if `stop_execution()` is called,
+    /// the delay will be interrupted and return an error.
     pub async fn delay(&self, delay_ms: u64) -> Result<(), AutomationError> {
-        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-        Ok(())
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_millis(delay_ms)) => Ok(()),
+            _ = self.cancellation_token.cancelled() => {
+                Err(AutomationError::OperationCancelled("Delay cancelled by stop_execution".into()))
+            }
+        }
     }
 
     /// Sets the zoom level to a specific percentage
@@ -836,12 +865,58 @@ impl Desktop {
     pub async fn set_zoom(&self, percentage: u32) -> Result<(), AutomationError> {
         self.engine.set_zoom(percentage)
     }
+
+    /// Stop all currently executing operations.
+    ///
+    /// This cancels the internal cancellation token, which will cause any
+    /// operations that check `is_cancelled()` to abort. After calling this,
+    /// you should create a new Desktop instance to start fresh.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use terminator::Desktop;
+    ///
+    /// let desktop = Desktop::new_default().unwrap();
+    /// // ... start some operations ...
+    /// desktop.stop_execution();
+    /// ```
+    pub fn stop_execution(&self) {
+        info!("🛑 Stop execution requested - cancelling all operations");
+        self.cancellation_token.cancel();
+    }
+
+    /// Check if execution has been cancelled.
+    ///
+    /// Returns `true` if `stop_execution()` has been called.
+    /// Long-running operations should periodically check this and abort if true.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use terminator::Desktop;
+    ///
+    /// let desktop = Desktop::new_default().unwrap();
+    /// if desktop.is_cancelled() {
+    ///     println!("Execution was cancelled");
+    /// }
+    /// ```
+    pub fn is_cancelled(&self) -> bool {
+        self.cancellation_token.is_cancelled()
+    }
+
+    /// Get a clone of the cancellation token for use in async operations.
+    ///
+    /// This allows external code to wait on cancellation or create child tokens.
+    pub fn cancellation_token(&self) -> CancellationToken {
+        self.cancellation_token.clone()
+    }
 }
 
 impl Clone for Desktop {
     fn clone(&self) -> Self {
         Self {
             engine: self.engine.clone(),
+            // Clone shares the same cancellation token so stop_execution affects all clones
+            cancellation_token: self.cancellation_token.clone(),
         }
     }
 }
