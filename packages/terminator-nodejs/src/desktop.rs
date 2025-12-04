@@ -548,4 +548,23 @@ impl Desktop {
             .map(ComputerUseResult::from)
             .map_err(|e| napi::Error::from_reason(e.to_string()))
     }
+
+    /// Stop all currently executing operations.
+    ///
+    /// This cancels the internal cancellation token, which will cause any
+    /// operations that check `isCancelled()` to abort. After calling this,
+    /// you should create a new Desktop instance to start fresh.
+    #[napi]
+    pub fn stop_execution(&self) {
+        self.inner.stop_execution();
+    }
+
+    /// Check if execution has been cancelled.
+    ///
+    /// Returns `true` if `stopExecution()` has been called.
+    /// Long-running operations should periodically check this and abort if true.
+    #[napi]
+    pub fn is_cancelled(&self) -> bool {
+        self.inner.is_cancelled()
+    }
 }
