@@ -20,6 +20,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 
 # OCR / Vision
 xcap = { workspace = true }
