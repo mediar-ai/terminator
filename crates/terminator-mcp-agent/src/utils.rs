@@ -891,7 +891,7 @@ pub struct RunCommandArgs {
     )]
     pub include_monitor_screenshots: Option<bool>,
     #[schemars(
-        description = "Include execution logs (stdout/stderr) in response. Defaults to false. On errors, logs are always included regardless of this setting."
+        description = "Include execution logs (stdout/stderr) in response. Defaults to true. On errors, logs are always included regardless of this setting."
     )]
     pub include_logs: Option<bool>,
     #[schemars(

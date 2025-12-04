@@ -4290,7 +4290,7 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
                 };
 
                 // Create shared log buffer for real-time log capture (useful for timeout scenarios)
-                let include_logs = args.include_logs.unwrap_or(false);
+                let include_logs = args.include_logs.unwrap_or(true);
                 let log_buffer = if include_logs {
                     Some(scripting_engine::ScriptLogBuffer::new())
                 } else {
@@ -4380,7 +4380,7 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
                 }
 
                 // Build response
-                let include_logs = args.include_logs.unwrap_or(false);
+                let include_logs = args.include_logs.unwrap_or(true);
                 let mut response = json!({
                     "action": "run_command",
                     "mode": "engine",
@@ -4426,7 +4426,7 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
                 };
 
                 // Create shared log buffer for real-time log capture (useful for timeout scenarios)
-                let include_logs = args.include_logs.unwrap_or(false);
+                let include_logs = args.include_logs.unwrap_or(true);
                 let log_buffer = if include_logs {
                     Some(scripting_engine::ScriptLogBuffer::new())
                 } else {
@@ -4505,7 +4505,7 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
                 }
 
                 // Build response
-                let include_logs = args.include_logs.unwrap_or(false);
+                let include_logs = args.include_logs.unwrap_or(true);
                 let mut response = json!({
                     "action": "run_command",
                     "mode": "engine",
@@ -4605,7 +4605,7 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
                 }
 
                 // Build response
-                let include_logs = args.include_logs.unwrap_or(false);
+                let include_logs = args.include_logs.unwrap_or(true);
                 let mut response = json!({
                     "action": "run_command",
                     "mode": "engine",
