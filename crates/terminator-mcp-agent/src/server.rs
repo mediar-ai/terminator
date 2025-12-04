@@ -8252,11 +8252,16 @@ console.info = function(...args) {
             );
 
             // Wrap user script to capture result + logs
-            // The user script becomes the last expression which eval() will return
+            // Use eval() to execute user script - eval returns the last expression's value
+            // This handles multi-statement scripts correctly (e.g., "console.log('x'); document.title")
+            let escaped_script = cleaned_script
+                .replace('\\', "\\\\")
+                .replace('`', "\\`")
+                .replace("${", "\\${");
             final_script.push_str("(function() {\n");
-            final_script.push_str("  var __user_result__ = (");
-            final_script.push_str(&cleaned_script);
-            final_script.push_str(");\n");
+            final_script.push_str("  var __user_result__ = eval(`");
+            final_script.push_str(&escaped_script);
+            final_script.push_str("`);\n");
             final_script.push_str("  return JSON.stringify({\n");
             final_script.push_str("    result: __user_result__,\n");
             final_script.push_str("    logs: __terminator_logs__\n");
