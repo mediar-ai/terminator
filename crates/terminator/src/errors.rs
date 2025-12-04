@@ -54,4 +54,7 @@ pub enum AutomationError {
 
     #[error("Failed to scroll element into view: {0}")]
     ScrollFailed(String),
+
+    #[error("Operation cancelled: {0}")]
+    OperationCancelled(String),
 }
