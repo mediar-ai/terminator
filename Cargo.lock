@@ -5258,7 +5258,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
- "similar",
  "sysinfo 0.33.1",
  "tempfile",
  "terminator-rs",

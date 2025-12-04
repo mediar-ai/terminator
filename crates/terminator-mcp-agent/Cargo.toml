@@ -47,7 +47,6 @@ tokio-util = { version = "0.7", features = ["rt"] }
 uuid = { version = "1.10", features = ["v4", "serde"] }
 
 regex = { workspace = true }
-similar = "2.5"
 tempfile = "3"
 sysinfo = "0.33"
 hostname = "0.4"
