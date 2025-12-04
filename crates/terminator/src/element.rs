@@ -1544,6 +1544,41 @@ impl UIElement {
         self.inner.process_id()
     }
 
+    /// Get the process name of the application containing this element
+    #[cfg(target_os = "windows")]
+    pub fn process_name(&self) -> Result<String, AutomationError> {
+        let pid = self.process_id()?;
+        crate::platforms::windows::get_process_name_by_pid(pid as i32)
+    }
+
+    /// Get the process name of the application containing this element
+    #[cfg(target_os = "macos")]
+    pub fn process_name(&self) -> Result<String, AutomationError> {
+        // macOS: use sysinfo to get process name
+        use sysinfo::{ProcessesToUpdate, System};
+        let pid = self.process_id()?;
+        let mut system = System::new();
+        system.refresh_processes(ProcessesToUpdate::All, true);
+        system
+            .process(sysinfo::Pid::from_u32(pid))
+            .map(|p| p.name().to_string_lossy().to_string())
+            .ok_or_else(|| AutomationError::Unknown(format!("Process {} not found", pid)))
+    }
+
+    /// Get the process name of the application containing this element
+    #[cfg(target_os = "linux")]
+    pub fn process_name(&self) -> Result<String, AutomationError> {
+        // Linux: use sysinfo to get process name
+        use sysinfo::{ProcessesToUpdate, System};
+        let pid = self.process_id()?;
+        let mut system = System::new();
+        system.refresh_processes(ProcessesToUpdate::All, true);
+        system
+            .process(sysinfo::Pid::from_u32(pid))
+            .map(|p| p.name().to_string_lossy().to_string())
+            .ok_or_else(|| AutomationError::Unknown(format!("Process {} not found", pid)))
+    }
+
     /// Recursively build a SerializableUIElement tree from this element.
     ///
     /// # Arguments

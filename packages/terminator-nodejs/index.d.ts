@@ -535,6 +535,12 @@ export declare class Element {
    * @returns {number} The process ID.
    */
   processId(): number
+  /**
+   * Get the process name of the application containing this element.
+   *
+   * @returns {string} The process name (e.g., "chrome", "notepad").
+   */
+  processName(): string
   toString(): string
   /**
    * Sets the transparency of the window.

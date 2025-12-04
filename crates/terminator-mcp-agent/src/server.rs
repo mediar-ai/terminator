@@ -3694,6 +3694,7 @@ DESKTOP API
 desktop.locator(selector): Locator           // Find elements
 desktop.openApplication(name): Element       // Open app
 desktop.activateApplication(name): void      // Activate app
+desktop.applications(): Element[]            // Get all running applications/windows
 desktop.focusedElement(): Element            // Get focused element
 desktop.pressKey(key): Promise<void>         // Global key press
 desktop.delay(ms): Promise<void>             // Wait
@@ -3732,6 +3733,9 @@ element.role(): string                       // Get element role
 element.bounds(): Bounds                     // Get x, y, width, height
 element.children(): Element[]                // Get child elements
 element.locator(selector): Locator           // Search within element
+element.processId(): number                  // Get process ID (PID)
+element.processName(): string                // Get process name (e.g., chrome, notepad)
+element.isFocused(): boolean                 // Check if element has focus
 
 ⚠️ CRITICAL: Selector Scoping (REQUIRED)
 All desktop.locator() calls MUST include `process:` prefix. Without it, search will error.

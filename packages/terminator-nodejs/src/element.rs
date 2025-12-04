@@ -427,6 +427,14 @@ impl Element {
         self.inner.process_id().map_err(map_error)
     }
 
+    /// Get the process name of the application containing this element.
+    ///
+    /// @returns {string} The process name (e.g., "chrome", "notepad").
+    #[napi]
+    pub fn process_name(&self) -> napi::Result<String> {
+        self.inner.process_name().map_err(map_error)
+    }
+
     #[napi]
     pub fn to_string(&self) -> napi::Result<String> {
         let id_part = self.inner.id().map_or("null".to_string(), |id| id);
