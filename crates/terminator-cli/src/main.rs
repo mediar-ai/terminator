@@ -218,6 +218,8 @@ enum Commands {
     Mcp(McpCommands),
     /// Setup Terminator environment (Chrome extension, SDKs, dependencies)
     Setup(commands::setup::SetupCommand),
+    /// Create a new TypeScript workflow project
+    Init(commands::init::InitCommand),
 }
 
 fn main() {
@@ -263,6 +265,19 @@ fn main() {
                 .block_on(async {
                     if let Err(e) = setup_cmd.execute().await {
                         eprintln!("❌ Setup failed: {e}");
+                        std::process::exit(1);
+                    }
+                });
+        }
+        Commands::Init(init_cmd) => {
+            // Init command doesn't require project root
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    if let Err(e) = init_cmd.execute().await {
+                        eprintln!("❌ Init failed: {e}");
                         std::process::exit(1);
                     }
                 });
