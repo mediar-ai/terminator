@@ -384,6 +384,21 @@ export declare class Desktop {
    * @returns {Promise<ComputerUseResult>} Result with status, steps executed, and history
    */
   geminiComputerUse(process: string, goal: string, maxSteps?: number | undefined | null): Promise<ComputerUseResult>
+  /**
+   * Stop all currently executing operations.
+   *
+   * This cancels the internal cancellation token, which will cause any
+   * operations that check `isCancelled()` to abort. After calling this,
+   * you should create a new Desktop instance to start fresh.
+   */
+  stopExecution(): void
+  /**
+   * Check if execution has been cancelled.
+   *
+   * Returns `true` if `stopExecution()` has been called.
+   * Long-running operations should periodically check this and abort if true.
+   */
+  isCancelled(): boolean
 }
 /** A UI element in the accessibility tree. */
 export declare class Element {
