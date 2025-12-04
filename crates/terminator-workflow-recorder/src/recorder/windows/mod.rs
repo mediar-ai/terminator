@@ -2632,8 +2632,9 @@ impl WindowsRecorder {
                                             let _ = tx.send(result);
                                         });
 
+                                        // Wait up to 2500ms for DOM capture (extension bridge has 2s timeout internally)
                                         if let Ok(Some(browser_dom_info)) =
-                                            rx.recv_timeout(Duration::from_millis(200))
+                                            rx.recv_timeout(Duration::from_millis(2500))
                                         {
                                             debug!(
                                                 "✅ DOM element captured: {} with {} selectors",
@@ -2688,8 +2689,9 @@ impl WindowsRecorder {
                                                 let _ = tx.send(result);
                                             });
 
+                                            // Wait up to 2500ms for page context
                                             if let Ok(Some(context)) =
-                                                rx.recv_timeout(Duration::from_millis(100))
+                                                rx.recv_timeout(Duration::from_millis(2500))
                                             {
                                                 (context.url, context.title)
                                             } else {
