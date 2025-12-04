@@ -453,7 +453,7 @@ async fn execute_action(
             tokio::time::sleep(Duration::from_millis(100)).await;
             // Select all (Ctrl+A) to clear existing text before typing
             desktop
-                .press_key("^a")
+                .press_key("{Ctrl}a")
                 .await
                 .map_err(|e| format!("Select all failed: {e}"))?;
             tokio::time::sleep(Duration::from_millis(50)).await;
