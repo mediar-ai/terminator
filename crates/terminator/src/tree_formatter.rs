@@ -29,6 +29,7 @@ fn ui_node_to_serializable(node: &UINode) -> SerializableUIElement {
         is_selected: node.attributes.is_selected,
         child_count: node.attributes.child_count,
         index_in_parent: node.attributes.index_in_parent,
+        selector: None, // UINode doesn't have selector path context
     }
 }
 

@@ -1677,7 +1677,7 @@ impl DesktopWrapper {
                     if let Ok(uia_bounds) = self.uia_bounds.lock() {
                         let elements: Vec<terminator::InspectElement> = uia_bounds
                             .iter()
-                            .map(|(idx, (role, name, bounds))| terminator::InspectElement {
+                            .map(|(idx, (role, name, bounds, _selector))| terminator::InspectElement {
                                 index: *idx,
                                 role: role.clone(),
                                 name: if name.is_empty() {
@@ -2836,6 +2836,9 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                 span.set_attribute("vision_type", format!("{:?}", vision_type));
                 tracing::info!("[click_element] Index mode: {}, {:?}", index, vision_type);
 
+                // Track selector for UI tree clicks (populated in match arm)
+                let mut uia_selector: Option<String> = None;
+
                 let (item_label, bounds) = match vision_type {
                     crate::utils::VisionType::UiTree => {
                         let r = self
@@ -2846,7 +2849,7 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                             })?
                             .get(&index)
                             .cloned();
-                        let Some((role, name, b)) = r else {
+                        let Some((role, name, b, selector)) = r else {
                             span.set_status(false, Some("UIA index not found"));
                             span.end();
                             return Err(McpError::internal_error(
@@ -2857,6 +2860,8 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                                 Some(json!({ "index": index })),
                             ));
                         };
+                        // Store selector for later use in response
+                        uia_selector = selector;
                         (
                             if name.is_empty() {
                                 role
@@ -2973,13 +2978,17 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                             crate::utils::ClickType::Double => "double",
                             crate::utils::ClickType::Right => "right",
                         };
-                        let result_json = json!({
+                        let mut result_json = json!({
                             "action": "click", "mode": "index", "status": "success",
                             "index": index, "vision_type": vt_str, "click_type": ct_str, "label": item_label,
                             "clicked_at": { "x": click_x, "y": click_y },
                             "bounds": { "x": bounds.0, "y": bounds.1, "width": bounds.2, "height": bounds.3 },
                             "timestamp": chrono::Utc::now().to_rfc3339()
                         });
+                        // Add selector if available (UI tree clicks only)
+                        if let Some(ref sel) = uia_selector {
+                            result_json["selector"] = json!(sel);
+                        }
                         span.set_status(true, None);
                         span.end();
                         return Ok(CallToolResult::success(

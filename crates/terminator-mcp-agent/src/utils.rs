@@ -342,10 +342,10 @@ pub struct DesktopWrapper {
     #[serde(skip)]
     pub vision_items: Arc<Mutex<std::collections::HashMap<u32, crate::vision::VisionElement>>>,
     /// Stores UIA tree index-to-bounds mapping from the last get_window_tree
-    /// Key is 1-based index, value is (role, name, (x, y, width, height))
+    /// Key is 1-based index, value is (role, name, bounds, selector)
     #[serde(skip)]
     pub uia_bounds:
-        Arc<Mutex<std::collections::HashMap<u32, (String, String, (f64, f64, f64, f64))>>>,
+        Arc<Mutex<std::collections::HashMap<u32, (String, String, (f64, f64, f64, f64), Option<String>)>>>,
     /// Stores browser DOM index-to-bounds mapping from the last get_window_tree
     /// Key is 1-based index, value is (tag, identifier, (x, y, width, height)) in screen coordinates
     #[serde(skip)]

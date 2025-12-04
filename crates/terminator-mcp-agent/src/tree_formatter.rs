@@ -33,6 +33,7 @@ fn ui_node_to_serializable(node: &UINode) -> SerializableUIElement {
         is_selected: node.attributes.is_selected,
         child_count: node.attributes.child_count,
         index_in_parent: node.attributes.index_in_parent,
+        selector: node.selector.clone(), // Pass through the chained selector from tree building
     }
 }
 
@@ -75,7 +76,7 @@ fn format_node(
     node: &SerializableUIElement,
     indent: usize,
     output: &mut String,
-    index_to_bounds: &mut HashMap<u32, (String, String, (f64, f64, f64, f64))>,
+    index_to_bounds: &mut HashMap<u32, (String, String, (f64, f64, f64, f64), Option<String>)>,
     next_index: &mut u32,
 ) {
     // Build the indent string
@@ -97,9 +98,9 @@ fn format_node(
         // Format: [ROLE]
         output.push_str(&format!("[{}]", node.role));
 
-        // Store in cache: index → (role, name, bounds)
+        // Store in cache: index → (role, name, bounds, selector)
         let name = node.name.clone().unwrap_or_default();
-        index_to_bounds.insert(idx, (node.role.clone(), name, (x, y, w, h)));
+        index_to_bounds.insert(idx, (node.role.clone(), name, (x, y, w, h), node.selector.clone()));
     } else {
         // No bounds - use dash prefix and [ROLE]
         output.push_str(&format!("- [{}]", node.role));
@@ -186,9 +187,9 @@ fn format_node(
 pub struct UiaFormattingResult {
     /// The formatted YAML string
     pub formatted: String,
-    /// Mapping of index to (role, name, bounds) for click targeting
-    /// Key is 1-based index, value is (role, name, (x, y, width, height))
-    pub index_to_bounds: HashMap<u32, (String, String, (f64, f64, f64, f64))>,
+    /// Mapping of index to (role, name, bounds, selector) for click targeting
+    /// Key is 1-based index, value is (role, name, (x, y, width, height), selector)
+    pub index_to_bounds: HashMap<u32, (String, String, (f64, f64, f64, f64), Option<String>)>,
 }
 
 /// Result of OCR tree formatting - includes both the formatted string and bounds mapping
@@ -947,7 +948,7 @@ pub fn format_clustered_tree(
 /// This is a convenience function that takes the cached bounds from each source
 /// (as stored in DesktopWrapper) and produces a clustered output.
 pub fn format_clustered_tree_from_caches(
-    uia_bounds: &HashMap<u32, (String, String, (f64, f64, f64, f64))>,
+    uia_bounds: &HashMap<u32, (String, String, (f64, f64, f64, f64), Option<String>)>,
     dom_bounds: &HashMap<u32, (String, String, (f64, f64, f64, f64))>,
     ocr_bounds: &HashMap<u32, (String, (f64, f64, f64, f64))>,
     omniparser_items: &HashMap<u32, OmniparserItem>,
@@ -956,7 +957,7 @@ pub fn format_clustered_tree_from_caches(
     let mut all_elements: Vec<UnifiedElement> = Vec::new();
 
     // Add UIA elements from cache
-    for (idx, (role, name, bounds)) in uia_bounds {
+    for (idx, (role, name, bounds, _selector)) in uia_bounds {
         all_elements.push(UnifiedElement {
             source: ElementSource::Uia,
             index: *idx,

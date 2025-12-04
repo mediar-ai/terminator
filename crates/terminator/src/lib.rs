@@ -155,6 +155,9 @@ pub struct UINode {
     pub attributes: UIElementAttributes,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<UINode>,
+    /// Chained selector path from root to this node (e.g., "role:Window && name:App >> role:Button && name:Submit")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selector: Option<String>,
 }
 
 impl fmt::Debug for UINode {

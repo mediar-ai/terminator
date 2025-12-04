@@ -6,6 +6,24 @@ use std::thread;
 use std::time::Duration;
 use tracing::debug;
 
+/// Build a selector segment for a single element (e.g., "role:Button && name:Submit")
+/// Only includes name if it's non-empty and meaningful
+fn build_selector_segment(role: &str, name: Option<&str>) -> String {
+    match name {
+        Some(n) if !n.is_empty() => format!("role:{} && name:{}", role, n),
+        _ => format!("role:{}", role),
+    }
+}
+
+/// Build a chained selector from a list of segments (e.g., "role:Window && name:App >> role:Button && name:Submit")
+fn build_chained_selector(segments: &[String]) -> Option<String> {
+    if segments.is_empty() {
+        None
+    } else {
+        Some(segments.join(" >> "))
+    }
+}
+
 /// Configuration for tree building operations
 pub(crate) struct TreeBuildingConfig {
     pub(crate) timeout_per_operation_ms: u64,
@@ -56,17 +74,20 @@ impl TreeBuildingContext {
 }
 
 /// Build a UI node tree with configurable properties and performance tuning
+/// The `selector_path` parameter accumulates selector segments from ancestors for building chained selectors
 pub(crate) fn build_ui_node_tree_configurable(
     element: &UIElement,
     current_depth: usize,
     context: &mut TreeBuildingContext,
+    selector_path: Vec<String>,
 ) -> Result<crate::UINode, AutomationError> {
     // Use iterative approach with explicit stack to prevent stack overflow
     // We'll build the tree using a work queue and then assemble it
     struct WorkItem {
         element: UIElement,
         depth: usize,
-        node_path: Vec<usize>, // Path of indices to reach this node from root
+        node_path: Vec<usize>,      // Path of indices to reach this node from root
+        selector_path: Vec<String>, // Accumulated selector segments from ancestors
     }
 
     let mut work_queue = Vec::new();
@@ -76,6 +97,7 @@ pub(crate) fn build_ui_node_tree_configurable(
         element: element.clone(),
         depth: current_depth,
         node_path: vec![],
+        selector_path,
     });
 
     while let Some(work_item) = work_queue.pop() {
@@ -99,11 +121,23 @@ pub(crate) fn build_ui_node_tree_configurable(
             attributes.application_name = context.application_name.clone();
         }
 
+        // Build selector segment for this node and create full selector path
+        let current_segment = build_selector_segment(
+            &attributes.role,
+            attributes.name.as_deref(),
+        );
+        let mut current_selector_path = work_item.selector_path.clone();
+        current_selector_path.push(current_segment);
+
+        // Build the chained selector for this node
+        let selector = build_chained_selector(&current_selector_path);
+
         // Create node without children initially
         let mut node = crate::UINode {
             id: work_item.element.id(),
             attributes,
             children: Vec::new(),
+            selector,
         };
 
         // Check if we should process children
@@ -132,6 +166,7 @@ pub(crate) fn build_ui_node_tree_configurable(
                                     child_element,
                                     work_item.depth + 1,
                                     context,
+                                    current_selector_path.clone(),
                                 ) {
                                     Ok(child_node) => node.children.push(child_node),
                                     Err(e) => {
@@ -148,6 +183,7 @@ pub(crate) fn build_ui_node_tree_configurable(
                                     element: child_element.clone(),
                                     depth: work_item.depth + 1,
                                     node_path: child_path,
+                                    selector_path: current_selector_path.clone(),
                                 });
                             }
                             child_index += 1;

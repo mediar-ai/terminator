@@ -4076,7 +4076,7 @@ impl AccessibilityEngine for WindowsEngine {
             include_all_bounds: config.include_all_bounds,
         };
 
-        let result = build_ui_node_tree_configurable(&window_element_wrapper, 0, &mut context)?;
+        let result = build_ui_node_tree_configurable(&window_element_wrapper, 0, &mut context, vec![])?;
 
         info!(
             "Tree building completed for PID: {}. Stats: elements={}, depth={}, cache_hits={}, fallbacks={}, errors={}",

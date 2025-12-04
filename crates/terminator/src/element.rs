@@ -117,6 +117,9 @@ pub struct SerializableUIElement {
     pub child_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub index_in_parent: Option<usize>,
+    /// Chained selector path from root to this element (e.g., "role:Window && name:App >> role:Button && name:Submit")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selector: Option<String>,
 }
 
 impl From<&UIElement> for SerializableUIElement {
@@ -161,6 +164,7 @@ impl From<&UIElement> for SerializableUIElement {
             is_selected: attrs.is_selected,
             child_count: attrs.child_count,
             index_in_parent: attrs.index_in_parent,
+            selector: None, // Selector is only available when built from tree context
         }
     }
 }
@@ -192,6 +196,7 @@ impl SerializableUIElement {
             is_selected: None,
             child_count: None,
             index_in_parent: None,
+            selector: None,
         }
     }
 

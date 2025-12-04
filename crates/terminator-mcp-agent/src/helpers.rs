@@ -406,8 +406,8 @@ pub fn infer_expected_outcomes(tool_calls: &[ToolCall]) -> Vec<String> {
     outcomes
 }
 
-/// Type alias for UIA bounds cache
-pub type UiaBoundsCache = HashMap<u32, (String, String, (f64, f64, f64, f64))>;
+/// Type alias for UIA bounds cache - includes selector for index-to-selector conversion
+pub type UiaBoundsCache = HashMap<u32, (String, String, (f64, f64, f64, f64), Option<String>)>;
 
 // Helper to optionally attach UI tree to response
 // Returns the UIA bounds cache if tree was formatted in CompactYaml mode
