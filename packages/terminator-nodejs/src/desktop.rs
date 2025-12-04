@@ -1,4 +1,4 @@
-use crate::types::{Monitor, MonitorScreenshotPair};
+use crate::types::{ComputerUseResult, Monitor, MonitorScreenshotPair};
 use crate::Selector;
 use crate::{
     map_error, CommandOutput, Element, Locator, ScreenshotResult, TreeBuildConfig, UINode,
@@ -523,5 +523,29 @@ impl Desktop {
     #[napi]
     pub async fn set_zoom(&self, percentage: u32) -> napi::Result<()> {
         self.inner.set_zoom(percentage).await.map_err(map_error)
+    }
+
+    /// (async) Run Gemini Computer Use agentic loop.
+    ///
+    /// Provide a goal and target process, and this will autonomously take actions
+    /// (click, type, scroll, etc.) until the goal is achieved or max_steps is reached.
+    /// Uses Gemini's vision model to analyze screenshots and decide actions.
+    ///
+    /// @param {string} process - Process name of the target application (e.g., "chrome", "notepad")
+    /// @param {string} goal - What to achieve (e.g., "Open Notepad and type Hello World")
+    /// @param {number} [maxSteps=20] - Maximum number of steps before stopping
+    /// @returns {Promise<ComputerUseResult>} Result with status, steps executed, and history
+    #[napi]
+    pub async fn gemini_computer_use(
+        &self,
+        process: String,
+        goal: String,
+        max_steps: Option<u32>,
+    ) -> napi::Result<ComputerUseResult> {
+        self.inner
+            .gemini_computer_use(&process, &goal, max_steps, None)
+            .await
+            .map(ComputerUseResult::from)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))
     }
 }

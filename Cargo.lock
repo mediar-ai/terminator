@@ -5313,6 +5313,7 @@ dependencies = [
  "atspi-common",
  "atspi-proxies",
  "axum 0.8.4",
+ "base64 0.22.1",
  "blake3",
  "core-foundation 0.10.1",
  "core-graphics 0.24.0",

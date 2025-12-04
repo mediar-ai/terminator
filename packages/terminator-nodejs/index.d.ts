@@ -101,6 +101,47 @@ export interface FontStyle {
   bold: boolean
   color: number
 }
+/** A single step in the computer use execution */
+export interface ComputerUseStep {
+  /** Step number (1-indexed) */
+  step: number
+  /** Action that was executed */
+  action: string
+  /** Arguments passed to the action (as JSON string) */
+  args: string
+  /** Whether the action succeeded */
+  success: boolean
+  /** Error message if action failed */
+  error?: string
+  /** Model's reasoning text for this step */
+  text?: string
+}
+/** Pending confirmation info when safety check triggers */
+export interface ComputerUsePendingConfirmation {
+  /** Action that needs confirmation */
+  action: string
+  /** Arguments for the action (as JSON string) */
+  args: string
+  /** Model's explanation text */
+  text?: string
+}
+/** Result of the computer use execution */
+export interface ComputerUseResult {
+  /** Status: "success", "failed", "needs_confirmation", "max_steps_reached" */
+  status: string
+  /** The goal that was attempted */
+  goal: string
+  /** Number of steps executed */
+  stepsExecuted: number
+  /** Last action performed */
+  finalAction: string
+  /** Final text response from model */
+  finalText?: string
+  /** History of all steps */
+  steps: Array<ComputerUseStep>
+  /** Pending confirmation info if status is "needs_confirmation" */
+  pendingConfirmation?: ComputerUsePendingConfirmation
+}
 /** Main entry point for desktop automation. */
 export declare class Desktop {
   /**
@@ -330,6 +371,19 @@ export declare class Desktop {
    * @param {number} percentage - The zoom percentage (e.g., 100 for 100%, 150 for 150%, 50 for 50%).
    */
   setZoom(percentage: number): Promise<void>
+  /**
+   * (async) Run Gemini Computer Use agentic loop.
+   *
+   * Provide a goal and target process, and this will autonomously take actions
+   * (click, type, scroll, etc.) until the goal is achieved or max_steps is reached.
+   * Uses Gemini's vision model to analyze screenshots and decide actions.
+   *
+   * @param {string} process - Process name of the target application (e.g., "chrome", "notepad")
+   * @param {string} goal - What to achieve (e.g., "Open Notepad and type Hello World")
+   * @param {number} [maxSteps=20] - Maximum number of steps before stopping
+   * @returns {Promise<ComputerUseResult>} Result with status, steps executed, and history
+   */
+  geminiComputerUse(process: string, goal: string, maxSteps?: number | undefined | null): Promise<ComputerUseResult>
 }
 /** A UI element in the accessibility tree. */
 export declare class Element {

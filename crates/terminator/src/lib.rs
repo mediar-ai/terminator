@@ -23,6 +23,9 @@ pub mod tree_formatter;
 pub mod types;
 pub mod utils;
 
+#[cfg(target_os = "windows")]
+pub mod computer_use;
+
 pub use element::{OcrElement, SerializableUIElement, UIElement, UIElementAttributes};
 pub use errors::AutomationError;
 pub use locator::Locator;
@@ -30,6 +33,12 @@ pub use screenshot::ScreenshotResult;
 pub use selector::Selector;
 pub use tree_formatter::{format_tree_as_compact_yaml, format_ui_node_as_compact_yaml};
 pub use types::{FontStyle, HighlightHandle, TextPosition};
+
+#[cfg(target_os = "windows")]
+pub use computer_use::{
+    ComputerUseActionResponse, ComputerUseFunctionCall, ComputerUsePreviousAction,
+    ComputerUseResponse, ComputerUseResult, ComputerUseStep, ProgressCallback,
+};
 
 /// Recommend to use any of these: ["Default", "Chrome", "Firefox", "Edge", "Brave", "Opera", "Vivaldi"]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
