@@ -27,6 +27,7 @@ Both do **substring matching** by default. Wildcards (`*`, `?`) are NOT supporte
 *   **`text:`** - Case-sensitive, bypasses parser (any character allowed, e.g., `text:Gemini (Tested)!`)
 *   **`name:`** - Case-insensitive, cannot contain `()!&&||` (use `&&` to split: `name:Gemini && name:Tested`)
     *   **Boolean Logic:** Use `&&` (AND), `||` (OR), `!` (NOT), `( )` for complex logic (e.g., `role:Button && (name:Save || name:Submit)`).
+*   **`..`** - Navigate to parent element (chain with `>>`, e.g., `role:Button|name:Submit >> ..` for parent, `>> .. >> ..` for grandparent).
 
 **Common Process Names**
 *   **Browsers:** `chrome`, `msedge`, `firefox`, `brave`, `opera`

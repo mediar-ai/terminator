@@ -3743,6 +3743,7 @@ element.name(): string | null                // Get element name
 element.role(): string                       // Get element role
 element.bounds(): Bounds                     // Get x, y, width, height
 element.children(): Element[]                // Get child elements
+element.parent(): Element | null             // Get parent element
 element.locator(selector): Locator           // Search within element
 element.processId(): number                  // Get process ID (PID)
 element.processName(): string                // Get process name (e.g., chrome, notepad)
