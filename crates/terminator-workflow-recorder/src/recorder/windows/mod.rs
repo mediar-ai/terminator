@@ -2588,6 +2588,11 @@ impl WindowsRecorder {
                         || app_name.contains("edge")
                         || app_name.contains("safari");
 
+                    info!(
+                        "🔍 [CLICK-URL-DEBUG] app_name='{}', is_browser={}, element_role='{}', element_name='{:?}'",
+                        app_name, is_browser, element.role(), element.name()
+                    );
+
                     // Try to capture DOM element if in browser
                     let mut dom_element = None;
                     if is_browser {
@@ -2716,8 +2721,12 @@ impl WindowsRecorder {
 
                     // Get page URL if this is a browser click
                     let page_url = if is_browser {
-                        Self::proactive_browser_url_search(element)
+                        info!("🔍 [CLICK-URL-DEBUG] is_browser=true, calling proactive_browser_url_search...");
+                        let url_result = Self::proactive_browser_url_search(element);
+                        info!("🔍 [CLICK-URL-DEBUG] proactive_browser_url_search returned: {:?}", url_result);
+                        url_result
                     } else {
+                        info!("🔍 [CLICK-URL-DEBUG] is_browser=false, skipping URL search");
                         None
                     };
 
