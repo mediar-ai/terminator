@@ -8353,6 +8353,19 @@ console.info = function(...args) {
                                 })),
                             ));
                         }
+                        // Check for chrome:// URL errors (new tab, settings, extensions pages)
+                        if msg.contains("chrome://") || msg.contains("Cannot access a chrome") {
+                            self.restore_window_management(should_restore).await;
+                            return Err(McpError::invalid_params(
+                                "Navigate to a regular website first",
+                                Some(json!({
+                                    "error_type": "chrome_internal_page",
+                                    "message": "Cannot execute script on chrome:// page (new tab, settings, extensions). The Chrome DevTools debugger cannot attach to internal browser pages.",
+                                    "selector": args.selector.selector,
+                                    "suggestion": "Navigate to a regular website (http:// or https://) before executing browser scripts."
+                                })),
+                            ));
+                        }
                     }
 
                     // For other errors, treat as element not found
