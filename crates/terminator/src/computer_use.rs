@@ -451,7 +451,13 @@ async fn execute_action(
                 .click_at_coordinates(screen_x, screen_y)
                 .map_err(|e| format!("Click before type failed: {e}"))?;
             tokio::time::sleep(Duration::from_millis(100)).await;
-            // Type text using root element
+            // Select all (Ctrl+A) to clear existing text before typing
+            desktop
+                .press_key("^a")
+                .await
+                .map_err(|e| format!("Select all failed: {e}"))?;
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            // Type text using root element (this will replace selected text)
             let root = desktop.root();
             root.type_text(text, false)
                 .map_err(|e| format!("Type text failed: {e}"))?;
@@ -711,14 +717,7 @@ impl Desktop {
             )
             .await;
 
-            // 7. Capture new screenshot after action for next iteration
-            let (post_action_screenshot, post_action_url) =
-                match capture_window_for_computer_use(self, process) {
-                    Ok(data) => (data.base64_image, data.browser_url),
-                    Err(_) => (capture_data.base64_image.clone(), None),
-                };
-
-            // 8. Record action with result
+            // 7. Record action result
             let (success, error_msg) = match &execute_result {
                 Ok(_) => (true, None),
                 Err(e) => (false, Some(e.to_string())),
@@ -740,6 +739,17 @@ impl Desktop {
 
             steps.push(step);
 
+            // 8. Wait for UI to settle before capturing post-action screenshot
+            // This is critical for actions that cause page navigation (e.g., press Enter on search)
+            tokio::time::sleep(Duration::from_millis(1000)).await;
+
+            // 9. Capture new screenshot after action for next iteration
+            let (post_action_screenshot, post_action_url) =
+                match capture_window_for_computer_use(self, process) {
+                    Ok(data) => (data.base64_image, data.browser_url),
+                    Err(_) => (capture_data.base64_image.clone(), None),
+                };
+
             previous_actions.push(ComputerUsePreviousAction {
                 name: function_call.name,
                 response: ComputerUseActionResponse {
@@ -750,8 +760,10 @@ impl Desktop {
                 url: post_action_url,
             });
 
-            // Small delay for UI to settle after action
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            // 10. Limit previous_actions to last 3 to avoid payload too large errors
+            if previous_actions.len() > 3 {
+                previous_actions.remove(0);
+            }
         }
 
         info!(
