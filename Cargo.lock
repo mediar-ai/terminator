@@ -5333,6 +5333,7 @@ dependencies = [
  "tiny_http",
  "tokio",
  "tokio-tungstenite 0.23.1",
+ "tokio-util",
  "tower-http",
  "tracing",
  "tracing-subscriber",
