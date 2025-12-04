@@ -570,8 +570,8 @@ impl WindowsRecorder {
 
     /// Proactively search for URL in browser window
     fn proactive_browser_url_search(element: &UIElement) -> Option<String> {
-        warn!(
-            "🔍 Starting proactive URL search from element: role={}, name={:?}",
+        info!(
+            "🔍 [URL-SEARCH] Starting from element: role={}, name={:?}",
             element.role(),
             element.name()
         );
@@ -579,16 +579,16 @@ impl WindowsRecorder {
         // Try direct URL property first (fast path)
         if let Some(url) = element.url() {
             if !url.is_empty() && (url.starts_with("http://") || url.starts_with("https://")) {
-                warn!("✅ Found valid URL directly on element: {}", url);
+                info!("✅ [URL-SEARCH] Found valid URL directly on element: {}", url);
                 return Some(url);
             } else if !url.is_empty() {
-                warn!(
-                    "⚠️ Found non-HTTP URL on element: {} - continuing search",
+                info!(
+                    "⚠️ [URL-SEARCH] Found non-HTTP URL on element: {} - continuing search",
                     url
                 );
             }
         }
-        warn!("❌ No direct valid URL on element, starting deep search");
+        info!("❌ [URL-SEARCH] No direct valid URL on element, starting deep search");
 
         // Deep recursive search for URL (handles deeply nested browser UIs)
         if let Some(url) = Self::deep_url_search(element, 0, 10) {
@@ -596,7 +596,7 @@ impl WindowsRecorder {
         }
 
         // If we still haven't found a URL, try to navigate up to the window root
-        warn!("🔍 Attempting to find window root for comprehensive search");
+        info!("🔍 [URL-SEARCH] Attempting to find window root for comprehensive search");
         let mut current = element.clone();
         let mut depth = 0;
         const MAX_PARENT_DEPTH: usize = 10;
@@ -605,8 +605,8 @@ impl WindowsRecorder {
         while depth < MAX_PARENT_DEPTH {
             if let Ok(Some(parent)) = current.parent() {
                 let parent_role = parent.role();
-                warn!(
-                    "📍 Parent at depth {}: role={}, name={:?}",
+                info!(
+                    "📍 [URL-SEARCH] Parent at depth {}: role={}, name={:?}",
                     depth,
                     parent_role,
                     parent.name()
@@ -621,23 +621,23 @@ impl WindowsRecorder {
                         || window_name.to_lowercase().contains("safari");
 
                     if is_browser_window {
-                        warn!(
-                            "🎯 Found browser Window element: {}, searching from window root",
+                        info!(
+                            "🎯 [URL-SEARCH] Found browser Window: {}, searching from window root",
                             window_name
                         );
 
                         // First try to find the address bar directly (more reliable for Chrome)
                         if let Some(url) = Self::find_address_bar_url(&parent, 0, 10) {
-                            warn!("✅ Found URL in address bar");
+                            info!("✅ [URL-SEARCH] Found URL in address bar: {}", url);
                             return Some(url);
                         }
 
                         // Then try deep search for Documents
                         if let Some(url) = Self::deep_url_search(&parent, 0, 15) {
-                            warn!("✅ Found URL by deep searching browser window");
+                            info!("✅ [URL-SEARCH] Found URL by deep searching browser window: {}", url);
                             return Some(url);
                         }
-                        warn!("⚠️ No URL found in browser window, will continue searching up");
+                        info!("⚠️ [URL-SEARCH] No URL found in browser window, will continue searching up");
                     } else {
                         // Check if this is a modal dialog from a website
                         if window_name.contains(" says") || window_name.contains(" alert") {
@@ -655,13 +655,13 @@ impl WindowsRecorder {
                                     } else {
                                         format!("https://{domain}")
                                     };
-                                    warn!("✅ Extracted URL from modal dialog title: {}", url);
+                                    info!("✅ [URL-SEARCH] Extracted URL from modal dialog title: {}", url);
                                     return Some(url);
                                 }
                             }
                         }
-                        warn!(
-                            "⚠️ Found non-browser Window: {} - continuing up",
+                        info!(
+                            "⚠️ [URL-SEARCH] Found non-browser Window: {} - continuing up",
                             window_name
                         );
                     }
@@ -674,14 +674,14 @@ impl WindowsRecorder {
                 if depth > 0 {
                     let current_name = current.name().unwrap_or_default();
                     if current_name.contains("Desktop") {
-                        warn!("⚠️ Reached Desktop level - stopping search to avoid traversing entire desktop");
+                        info!("⚠️ [URL-SEARCH] Reached Desktop level - stopping search");
                     } else {
-                        warn!(
-                            "🔍 Reached top of tree at depth {}, searching from highest parent",
+                        info!(
+                            "🔍 [URL-SEARCH] Reached top of tree at depth {}, searching from highest parent",
                             depth
                         );
                         if let Some(url) = Self::deep_url_search(&current, 0, 10) {
-                            warn!("✅ Found URL by searching from highest parent");
+                            info!("✅ [URL-SEARCH] Found URL by searching from highest parent: {}", url);
                             return Some(url);
                         }
                     }
@@ -693,14 +693,15 @@ impl WindowsRecorder {
         // Try parsing from window title as last resort
         let window_title = element.window_title();
         if !window_title.is_empty() {
+            info!("🔍 [URL-SEARCH] Trying window title as last resort: {}", window_title);
             // Common patterns: "Page Title - Domain - Browser"
             if let Some(url) = Self::extract_url_from_title(&window_title) {
-                debug!("Extracted URL from window title: {}", url);
+                info!("✅ [URL-SEARCH] Extracted URL from window title: {}", url);
                 return Some(url);
             }
         }
 
-        warn!("❌ No URL found in any search method");
+        info!("❌ [URL-SEARCH] No URL found after exhaustive search");
         None
     }
 
