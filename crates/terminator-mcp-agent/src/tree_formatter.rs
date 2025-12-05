@@ -1156,6 +1156,7 @@ mod tests {
             is_selected: None,
             child_count: None,
             index_in_parent: None,
+            selector: None,
         };
 
         let result = format_tree_as_compact_yaml(&node, 0);
@@ -1189,6 +1190,7 @@ mod tests {
             is_selected: None,
             child_count: None,
             index_in_parent: None,
+            selector: None,
         };
 
         let parent = SerializableUIElement {
@@ -1213,6 +1215,7 @@ mod tests {
             is_selected: None,
             child_count: None,
             index_in_parent: None,
+            selector: None,
         };
 
         let result = format_tree_as_compact_yaml(&parent, 0);
