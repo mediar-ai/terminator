@@ -6,10 +6,11 @@ pub use crate::utils::DesktopWrapper;
 use crate::utils::{
     get_timeout, ActivateElementArgs, CaptureScreenshotArgs, ClickElementArgs, DelayArgs,
     ExecuteBrowserScriptArgs, ExecuteSequenceArgs, GeminiComputerUseArgs, GetApplicationsArgs,
-    GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs, InvokeElementArgs, MouseDragArgs,
-    NavigateBrowserArgs, OpenApplicationArgs, PressKeyArgs, RunCommandArgs, ScrollElementArgs,
-    SelectOptionArgs, SetSelectedArgs, SetValueArgs, StopHighlightingArgs, TypeIntoElementArgs,
-    ValidateElementArgs, WaitForElementArgs,
+    GetTerminatorApiDocsArgs, GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs,
+    InvokeElementArgs, MouseDragArgs, NavigateBrowserArgs, OpenApplicationArgs, PressKeyArgs,
+    RunCommandArgs, ScrollElementArgs, SearchTerminatorApiArgs, SelectOptionArgs, SetSelectedArgs,
+    SetValueArgs, StopHighlightingArgs, TypeIntoElementArgs, ValidateElementArgs,
+    WaitForElementArgs,
 };
 use image::imageops::FilterType;
 use image::{ExtendedColorType, ImageBuffer, ImageEncoder, Rgba};
@@ -5645,13 +5646,8 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
     async fn hide_inspect_overlay(&self) -> Result<CallToolResult, McpError> {
         #[cfg(target_os = "windows")]
         {
-            // Use the stored handle to close the overlay (thread-safe via atomic flag)
-            if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
-                if let Some(h) = handle.take() {
-                    h.close();
-                    info!("Closed inspect overlay via handle");
-                }
-            }
+            terminator::hide_inspect_overlay();
+            info!("Signaled inspect overlay to close");
         }
 
         Ok(CallToolResult::success(vec![Content::json(json!({
@@ -8709,6 +8705,488 @@ console.info = function(...args) {
 
         Ok(CallToolResult::success(vec![Content::json(result_json)?]))
     }
+
+    // ===== Terminator API Search Tools =====
+
+    #[tool(
+        description = "Search terminator source code content using regex patterns. Returns matching lines with context. Use this to find API usage examples, function implementations, and code patterns in the terminator codebase."
+    )]
+    async fn search_terminator_api(
+        &self,
+        Parameters(args): Parameters<SearchTerminatorApiArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        use std::fs;
+        use std::io::{BufRead, BufReader};
+
+        let source_dir = get_terminator_source_dir();
+
+        if !source_dir.exists() {
+            return Ok(CallToolResult::success(vec![Content::text(
+                "Terminator source not found. It will be downloaded on next MCP server restart, or run: npx terminator-mcp-agent (postinstall downloads source)".to_string(),
+            )]));
+        }
+
+        let pattern = match args.ignore_case.unwrap_or(false) {
+            true => Regex::new(&format!("(?i){}", &args.pattern)),
+            false => Regex::new(&args.pattern),
+        };
+
+        let pattern = match pattern {
+            Ok(p) => p,
+            Err(e) => {
+                return Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Invalid regex pattern: {e}"
+                ))]));
+            }
+        };
+
+        let context_lines = args.context_lines.unwrap_or(2);
+        let max_results = args.max_results.unwrap_or(50);
+
+        // Build glob pattern for file filtering
+        let file_pattern = args.glob.as_deref().unwrap_or("**/*");
+        let glob_pattern = source_dir.join(file_pattern);
+        let glob_str = glob_pattern.to_string_lossy();
+
+        let mut results: Vec<String> = Vec::new();
+        let mut match_count = 0;
+
+        // Use glob to find files matching the pattern
+        let paths = match glob::glob(&glob_str) {
+            Ok(paths) => paths,
+            Err(e) => {
+                return Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Invalid glob pattern: {e}"
+                ))]));
+            }
+        };
+
+        'file_loop: for entry in paths.flatten() {
+            if !entry.is_file() {
+                continue;
+            }
+
+            // Skip binary files and common non-text files
+            if let Some(ext) = entry.extension() {
+                let ext = ext.to_string_lossy().to_lowercase();
+                if matches!(
+                    ext.as_str(),
+                    "exe" | "dll" | "so" | "dylib" | "png" | "jpg" | "jpeg" | "gif" | "ico"
+                        | "woff" | "woff2" | "ttf" | "eot" | "pdf" | "zip" | "tar" | "gz"
+                ) {
+                    continue;
+                }
+            }
+
+            let file = match fs::File::open(&entry) {
+                Ok(f) => f,
+                Err(_) => continue,
+            };
+
+            let reader = BufReader::new(file);
+            let lines: Vec<String> = reader.lines().map_while(Result::ok).collect();
+
+            for (line_num, line) in lines.iter().enumerate() {
+                if pattern.is_match(line) {
+                    match_count += 1;
+                    if match_count > max_results {
+                        results.push(format!("\n... (truncated, {} more matches)", match_count - max_results));
+                        break 'file_loop;
+                    }
+
+                    let rel_path = entry
+                        .strip_prefix(&source_dir)
+                        .unwrap_or(&entry)
+                        .display();
+
+                    // Add context
+                    let start = line_num.saturating_sub(context_lines);
+                    let end = (line_num + context_lines + 1).min(lines.len());
+
+                    results.push(format!("\n--- {}:{} ---", rel_path, line_num + 1));
+                    for i in start..end {
+                        let marker = if i == line_num { ">" } else { " " };
+                        results.push(format!("{}{:4}: {}", marker, i + 1, &lines[i]));
+                    }
+                }
+            }
+        }
+
+        if results.is_empty() {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "No matches found for pattern '{}' in {}",
+                args.pattern,
+                file_pattern
+            ))]))
+        } else {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Found {} matches:\n{}",
+                match_count.min(max_results),
+                results.join("\n")
+            ))]))
+        }
+    }
+
+    #[tool(
+        description = "Get terminator API documentation. If path is a file, returns its content. If path is a directory or glob pattern, returns file list. Use this to read READMEs, source files, and explore the terminator codebase structure."
+    )]
+    async fn get_terminator_api_docs(
+        &self,
+        Parameters(args): Parameters<GetTerminatorApiDocsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        use std::fs;
+        use std::io::{BufRead, BufReader};
+
+        let source_dir = get_terminator_source_dir();
+
+        if !source_dir.exists() {
+            return Ok(CallToolResult::success(vec![Content::text(
+                "Terminator source not found. It will be downloaded on next MCP server restart, or run: npx terminator-mcp-agent (postinstall downloads source)".to_string(),
+            )]));
+        }
+
+        let target_path = source_dir.join(&args.path);
+
+        // Check if it's a file
+        if target_path.is_file() {
+            let file = match fs::File::open(&target_path) {
+                Ok(f) => f,
+                Err(e) => {
+                    return Ok(CallToolResult::success(vec![Content::text(format!(
+                        "Failed to open file: {e}"
+                    ))]));
+                }
+            };
+
+            let reader = BufReader::new(file);
+            let offset = args.offset.unwrap_or(1).saturating_sub(1); // Convert to 0-indexed
+            let limit = args.limit.unwrap_or(200);
+
+            let lines: Vec<String> = reader
+                .lines()
+                .skip(offset)
+                .take(limit)
+                .enumerate()
+                .map(|(i, line)| {
+                    format!(
+                        "{:5}: {}",
+                        offset + i + 1,
+                        line.unwrap_or_else(|_| "[binary content]".to_string())
+                    )
+                })
+                .collect();
+
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "File: {}\nLines {}-{}:\n{}",
+                args.path,
+                offset + 1,
+                offset + lines.len(),
+                lines.join("\n")
+            ))]));
+        }
+
+        // Check if it's a directory
+        if target_path.is_dir() {
+            let mut entries: Vec<String> = Vec::new();
+
+            for entry in walkdir::WalkDir::new(&target_path)
+                .max_depth(3)
+                .into_iter()
+                .filter_map(|e| e.ok())
+            {
+                let rel_path = entry
+                    .path()
+                    .strip_prefix(&source_dir)
+                    .unwrap_or(entry.path());
+
+                let suffix = if entry.file_type().is_dir() { "/" } else { "" };
+                entries.push(format!("{}{}", rel_path.display(), suffix));
+            }
+
+            entries.sort();
+
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "Directory listing for '{}' ({} entries):\n{}",
+                args.path,
+                entries.len(),
+                entries.join("\n")
+            ))]));
+        }
+
+        // Try as glob pattern
+        let glob_pattern = source_dir.join(&args.path);
+        let glob_str = glob_pattern.to_string_lossy();
+
+        let paths: Vec<_> = match glob::glob(&glob_str) {
+            Ok(paths) => paths.flatten().collect(),
+            Err(e) => {
+                return Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Invalid glob pattern: {e}"
+                ))]));
+            }
+        };
+
+        if paths.is_empty() {
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "No files found matching '{}'. Try:\n- README.md\n- crates/\n- packages/\n- **/*.rs\n- **/*.ts",
+                args.path
+            ))]));
+        }
+
+        let mut entries: Vec<String> = paths
+            .iter()
+            .take(100)
+            .map(|p| {
+                let rel = p.strip_prefix(&source_dir).unwrap_or(p);
+                let suffix = if p.is_dir() { "/" } else { "" };
+                format!("{}{}", rel.display(), suffix)
+            })
+            .collect();
+
+        entries.sort();
+
+        let truncated = if paths.len() > 100 {
+            format!("\n... and {} more files", paths.len() - 100)
+        } else {
+            String::new()
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "Files matching '{}' ({} total):\n{}{}",
+            args.path,
+            paths.len(),
+            entries.join("\n"),
+            truncated
+        ))]))
+    }
+}
+
+/// Get the path to the terminator source directory
+fn get_terminator_source_dir() -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        std::env::var("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                dirs::home_dir()
+                    .unwrap_or_else(|| PathBuf::from("."))
+                    .join("AppData")
+                    .join("Local")
+            })
+            .join("mediar")
+            .join("terminator-source")
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("Library")
+            .join("Application Support")
+            .join("mediar")
+            .join("terminator-source")
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        std::env::var("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                dirs::home_dir()
+                    .unwrap_or_else(|| PathBuf::from("."))
+                    .join(".local")
+                    .join("share")
+            })
+            .join("mediar")
+            .join("terminator-source")
+    }
+}
+
+/// Check if terminator source needs to be downloaded/updated
+pub fn check_terminator_source() {
+    let source_dir = get_terminator_source_dir();
+    let marker_file = source_dir.join(".terminator-source-meta.json");
+
+    let needs_update = if !source_dir.exists() || !marker_file.exists() {
+        true
+    } else {
+        // Check if older than 24 hours
+        match std::fs::read_to_string(&marker_file) {
+            Ok(content) => {
+                if let Ok(meta) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(updated) = meta.get("updated").and_then(|v| v.as_str()) {
+                        if let Ok(updated_time) = chrono::DateTime::parse_from_rfc3339(updated) {
+                            let hours_since = (chrono::Utc::now() - updated_time.with_timezone(&chrono::Utc))
+                                .num_hours();
+                            hours_since > 24
+                        } else {
+                            true
+                        }
+                    } else {
+                        true
+                    }
+                } else {
+                    true
+                }
+            }
+            Err(_) => true,
+        }
+    };
+
+    if needs_update {
+        info!("[terminator-source] Source needs update, triggering download...");
+        // Run the download script asynchronously in background
+        std::thread::spawn(|| {
+            download_terminator_source();
+        });
+    } else {
+        info!("[terminator-source] Source is up to date");
+    }
+}
+
+/// Download terminator source from GitHub releases
+fn download_terminator_source() {
+    use std::process::Command;
+
+    // Try to find the download script
+    // First check if we're in a development environment
+    let script_paths = [
+        // npm package location
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.join("scripts").join("download-source.js"))),
+        // Development location
+        Some(PathBuf::from("scripts/download-source.js")),
+    ];
+
+    for path_opt in script_paths.iter().flatten() {
+        if path_opt.exists() {
+            info!("[terminator-source] Running download script: {}", path_opt.display());
+            match Command::new("node").arg(path_opt).output() {
+                Ok(output) => {
+                    if !output.status.success() {
+                        warn!(
+                            "[terminator-source] Download script failed: {}",
+                            String::from_utf8_lossy(&output.stderr)
+                        );
+                    } else {
+                        info!(
+                            "[terminator-source] Download completed: {}",
+                            String::from_utf8_lossy(&output.stderr)
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!("[terminator-source] Failed to run download script: {}", e);
+                }
+            }
+            return;
+        }
+    }
+
+    // Fallback: download directly using reqwest (blocking)
+    info!("[terminator-source] Download script not found, using direct download...");
+    if let Err(e) = download_terminator_source_direct() {
+        warn!("[terminator-source] Direct download failed: {}", e);
+    }
+}
+
+/// Direct download without Node.js dependency
+fn download_terminator_source_direct() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use std::fs;
+    use std::io::Write;
+
+    let source_dir = get_terminator_source_dir();
+    let mediar_dir = source_dir.parent().unwrap();
+
+    // Create mediar directory if needed
+    fs::create_dir_all(mediar_dir)?;
+
+    // Get latest release info
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("terminator-mcp-agent")
+        .build()?;
+
+    let release: serde_json::Value = client
+        .get("https://api.github.com/repos/mediar-ai/terminator/releases/latest")
+        .send()?
+        .json()?;
+
+    let tag = release["tag_name"]
+        .as_str()
+        .ok_or("No tag_name in release")?;
+    let zip_url = release["zipball_url"]
+        .as_str()
+        .ok_or("No zipball_url in release")?;
+
+    info!("[terminator-source] Downloading {} from {}", tag, zip_url);
+
+    // Download zip
+    let zip_path = mediar_dir.join("terminator-source.zip");
+    let response = client.get(zip_url).send()?;
+    let bytes = response.bytes()?;
+    fs::write(&zip_path, &bytes)?;
+
+    // Extract zip
+    let temp_dir = mediar_dir.join("terminator-source-temp");
+    if temp_dir.exists() {
+        fs::remove_dir_all(&temp_dir)?;
+    }
+    fs::create_dir_all(&temp_dir)?;
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("powershell")
+            .args([
+                "-Command",
+                &format!(
+                    "Expand-Archive -Path '{}' -DestinationPath '{}' -Force",
+                    zip_path.display(),
+                    temp_dir.display()
+                ),
+            ])
+            .output()?;
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::process::Command::new("unzip")
+            .args(["-q", &zip_path.to_string_lossy(), "-d", &temp_dir.to_string_lossy()])
+            .output()?;
+    }
+
+    // Find extracted folder
+    let extracted = fs::read_dir(&temp_dir)?
+        .filter_map(|e| e.ok())
+        .find(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with("mediar-ai-terminator-")
+        })
+        .ok_or("Could not find extracted folder")?;
+
+    // Move to final location
+    if source_dir.exists() {
+        fs::remove_dir_all(&source_dir)?;
+    }
+    fs::rename(extracted.path(), &source_dir)?;
+
+    // Cleanup
+    fs::remove_dir_all(&temp_dir)?;
+    fs::remove_file(&zip_path)?;
+
+    // Write metadata
+    let marker_file = source_dir.join(".terminator-source-meta.json");
+    let meta = serde_json::json!({
+        "tag": tag,
+        "updated": chrono::Utc::now().to_rfc3339(),
+        "source": "github-release"
+    });
+    let mut file = fs::File::create(&marker_file)?;
+    file.write_all(serde_json::to_string_pretty(&meta)?.as_bytes())?;
+
+    info!("[terminator-source] Installed {} to {}", tag, source_dir.display());
+    Ok(())
 }
 
 impl DesktopWrapper {
@@ -9466,6 +9944,24 @@ impl DesktopWrapper {
                     }
                     Err(e) => Err(McpError::invalid_params(
                         "Invalid arguments for gemini_computer_use",
+                        Some(json!({"error": e.to_string()})),
+                    )),
+                }
+            }
+            "search_terminator_api" => {
+                match serde_json::from_value::<SearchTerminatorApiArgs>(arguments.clone()) {
+                    Ok(args) => self.search_terminator_api(Parameters(args)).await,
+                    Err(e) => Err(McpError::invalid_params(
+                        "Invalid arguments for search_terminator_api",
+                        Some(json!({"error": e.to_string()})),
+                    )),
+                }
+            }
+            "get_terminator_api_docs" => {
+                match serde_json::from_value::<GetTerminatorApiDocsArgs>(arguments.clone()) {
+                    Ok(args) => self.get_terminator_api_docs(Parameters(args)).await,
+                    Err(e) => Err(McpError::invalid_params(
+                        "Invalid arguments for get_terminator_api_docs",
                         Some(json!({"error": e.to_string()})),
                     )),
                 }

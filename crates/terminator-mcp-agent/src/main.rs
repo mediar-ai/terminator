@@ -28,7 +28,7 @@ use std::{
 };
 use sysinfo::{ProcessesToUpdate, System};
 use terminator_mcp_agent::cancellation::RequestManager;
-use terminator_mcp_agent::server;
+use terminator_mcp_agent::server::{self, check_terminator_source};
 use terminator_mcp_agent::utils::init_logging;
 use tower_http::cors::CorsLayer;
 use tracing::{debug, error, info};
@@ -346,6 +346,9 @@ async fn main() -> Result<()> {
             watch_pid(pid).await;
         });
     }
+
+    // Check and download terminator source if needed (for search tools)
+    check_terminator_source();
 
     tracing::info!("Initializing Terminator MCP server...");
     tracing::info!("Transport mode: {:?}", args.transport);

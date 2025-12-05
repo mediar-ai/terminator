@@ -12,7 +12,8 @@
   },
   "files": [
     "index.js",
-    "config.js"
+    "config.js",
+    "scripts/download-source.js"
   ],
   "name": "terminator-mcp-agent",
   "optionalDependencies": {
@@ -27,6 +28,7 @@
     "url": "https://github.com/mediar-ai/terminator"
   },
   "scripts": {
+    "postinstall": "node ./scripts/download-source.js",
     "build": "node ./utils/build-server.js --release",
     "build:debug": "node ./utils/build-server.js --debug",
     "sync-version": "node ./utils/sync-version.js",

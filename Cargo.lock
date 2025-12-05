@@ -5253,6 +5253,7 @@ dependencies = [
  "clap",
  "dirs",
  "futures",
+ "glob",
  "hostname",
  "image",
  "libc",
@@ -5285,6 +5286,7 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "uuid",
+ "walkdir",
  "windows 0.58.0",
 ]
 

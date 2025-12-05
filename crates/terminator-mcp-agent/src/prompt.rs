@@ -50,6 +50,12 @@ Both do **substring matching** by default. Wildcards (`*`, `?`) are NOT supporte
 *   **Hyperlink container clicks don't navigate:** On search results, a `role:Hyperlink` container often wraps a composite group; target the child anchor instead: tighten `name:` (title or destination domain), add `|nth:0` if needed, or use numeric `#id`. Prefer `invoke_element` or focus target then `press_key` \"{{Enter}}\"; always verify with postconditions (address bar/title/tab or destination element).
 *   **Unable to understand UI state or debug issues:** Use `capture_element_screenshot` to visually inspect problematic elements when tree data is insufficient.
 
+**Missing or Empty Tool Output (Escape Hatch)**
+*   If a tool returns empty results, null, or no meaningful data, explicitly state \"Tool returned no output\" - do not invent or assume what happened.
+*   If you cannot see logs or execution results from a workflow, tell the user \"I cannot verify what occurred - logs are missing or empty.\"
+*   Never hallucinate success or failure - only report what you can actually observe in the tool response.
+*   When uncertain about execution outcome, ask the user to check logs manually or re-run with verbose output.
+
 **execute_sequence Tool Restrictions**
 Only desktop automation tools from the MCP server can be used inside `execute_sequence` steps. Valid tool names for execute_sequence:
 {mcp_tools}
