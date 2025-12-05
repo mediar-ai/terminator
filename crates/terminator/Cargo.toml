@@ -69,6 +69,7 @@ core-foundation = { workspace = true }
 core-graphics = { workspace = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+terminator-computer-use = { workspace = true }
 windows = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_System_Diagnostics_ToolHelp",
