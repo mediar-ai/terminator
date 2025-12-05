@@ -2,6 +2,7 @@ import { KVClient, KVConfig } from './types';
 import { RedisKV } from './adapters/redis';
 import { FileKV } from './adapters/file';
 import { MemoryKV } from './adapters/memory';
+import { HttpKV } from './adapters/http';
 
 export * from './types';
 
@@ -10,15 +11,21 @@ export * from './types';
  *
  * Backend selection logic:
  * 1. `config.backend` if specified.
- * 2. `config.url` protocol (redis://, file://, memory://).
+ * 2. `config.url` protocol (redis://, file://, memory://, http://, https://).
  * 3. Environment variables (`KV_URL`, `REDIS_URL`).
  * 4. Defaults to `file://./terminator-kv.json` (or memory in test environment).
+ *
+ * For HTTP backend:
+ * - Set KV_URL=https://app.mediar.ai/api/kv
+ * - Pass token in config: createClient({ token: input.ORG_TOKEN })
+ * - Or set ORG_TOKEN env var as fallback
  */
 export function createClient(config: KVConfig = {}): KVClient {
   // 1. Check for explicit backend selection
   if (config.backend === 'redis') return new RedisKV(config);
   if (config.backend === 'file') return new FileKV(config);
   if (config.backend === 'memory') return new MemoryKV();
+  if (config.backend === 'http') return new HttpKV(config);
 
   // 2. Check for URL in config
   if (config.url) {
@@ -51,6 +58,9 @@ function createClientFromUrl(url: string, config: KVConfig): KVClient {
   }
   if (url.startsWith('memory:')) {
     return new MemoryKV();
+  }
+  if (url.startsWith('http:') || url.startsWith('https:')) {
+    return new HttpKV({ ...config, url });
   }
 
   throw new Error(`[KV] Unsupported URL scheme in: ${url}`);

@@ -54,5 +54,8 @@ pub fn map_error(err: AutomationError) -> napi::Error {
         AutomationError::ScrollFailed(msg) => {
             napi::Error::new(Status::GenericFailure, format!("SCROLL_FAILED: {msg}"))
         }
+        AutomationError::OperationCancelled(msg) => {
+            napi::Error::new(Status::Cancelled, format!("OPERATION_CANCELLED: {msg}"))
+        }
     }
 }

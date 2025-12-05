@@ -584,21 +584,26 @@ impl WindowsEngine {
                     return Ok(false);
                 }
 
-                // Check name if specified
+                // Check name if specified (case-insensitive partial match)
                 if let Some(expected_name) = name {
                     let element_name = win_element.get_name().unwrap_or_default();
-                    Ok(element_name.contains(expected_name))
+                    Ok(element_name
+                        .to_lowercase()
+                        .contains(&expected_name.to_lowercase()))
                 } else {
                     Ok(true)
                 }
             }
             Selector::Name(expected_name) => {
+                // name: is case-insensitive partial match
                 let element_name = win_element.get_name().unwrap_or_default();
-                Ok(element_name.contains(expected_name))
+                Ok(element_name
+                    .to_lowercase()
+                    .contains(&expected_name.to_lowercase()))
             }
             Selector::Text(expected_text) => {
+                // text: is case-sensitive partial match
                 let element_name = win_element.get_name().unwrap_or_default();
-                // Value property might not exist for all elements, check if it's a text-like element
                 Ok(element_name.contains(expected_text))
             }
             Selector::ClassName(expected_class) => {
@@ -692,8 +697,10 @@ impl WindowsEngine {
     ///
     /// # Arguments
     /// * `screenshot` - The screenshot to perform OCR on
-    /// * `window_x` - X offset of the window on screen (to convert to absolute coords)
-    /// * `window_y` - Y offset of the window on screen (to convert to absolute coords)
+    /// * `window_x` - X offset of the window on screen in logical coordinates
+    /// * `window_y` - Y offset of the window on screen in logical coordinates
+    /// * `dpi_scale_x` - DPI scale factor for X (screenshot_width / window_logical_width)
+    /// * `dpi_scale_y` - DPI scale factor for Y (screenshot_height / window_logical_height)
     ///
     /// # Returns
     /// An OcrElement tree with bounds in absolute screen coordinates
@@ -702,6 +709,8 @@ impl WindowsEngine {
         screenshot: &ScreenshotResult,
         window_x: f64,
         window_y: f64,
+        dpi_scale_x: f64,
+        dpi_scale_y: f64,
     ) -> Result<OcrElement, AutomationError> {
         use windows::Graphics::Imaging::{BitmapPixelFormat, SoftwareBitmap};
         use windows::Storage::Streams::DataWriter;
@@ -776,15 +785,17 @@ impl WindowsEngine {
                 let word_text = word.Text().map(|s| s.to_string()).unwrap_or_default();
 
                 // Get bounding rectangle and convert to absolute screen coordinates
+                // OCR returns physical pixel coords in screenshot space
+                // We need to convert to logical screen coords: physical/dpi_scale + window_logical_offset
                 let rect = word.BoundingRect().map_err(|e| {
                     AutomationError::PlatformError(format!("Failed to get word bounds: {e}"))
                 })?;
 
                 let word_bounds = (
-                    window_x + rect.X as f64,
-                    window_y + rect.Y as f64,
-                    rect.Width as f64,
-                    rect.Height as f64,
+                    window_x + (rect.X as f64 / dpi_scale_x),
+                    window_y + (rect.Y as f64 / dpi_scale_y),
+                    rect.Width as f64 / dpi_scale_x,
+                    rect.Height as f64 / dpi_scale_y,
                 );
 
                 // Update line bounds to encompass all words
@@ -1269,13 +1280,18 @@ impl AccessibilityEngine for WindowsEngine {
             }
             Selector::Name(name) => {
                 debug!("searching element by name: {}", name);
-
+                // name: selector is case-insensitive partial match
+                let filter = NameFilter {
+                    value: String::from(name),
+                    casesensitive: false,
+                    partial: true,
+                };
                 let matcher = self
                     .automation
                     .0
                     .create_matcher()
                     .from_ref(root_ele)
-                    .contains_name(name)
+                    .filter(Box::new(filter))
                     .depth(depth.unwrap_or(50) as u32)
                     .timeout(timeout_ms as u64);
 
@@ -1294,24 +1310,19 @@ impl AccessibilityEngine for WindowsEngine {
                     .collect())
             }
             Selector::Text(text) => {
-                let filter = OrFilter {
-                    left: Box::new(NameFilter {
-                        value: String::from(text),
-                        casesensitive: false,
-                        partial: true,
-                    }),
-                    right: Box::new(ControlTypeFilter {
-                        control_type: ControlType::Text,
-                    }),
+                // text: selector is case-sensitive partial match + bypasses boolean parser
+                let filter = NameFilter {
+                    value: String::from(text),
+                    casesensitive: true,
+                    partial: true,
                 };
-                // Create a matcher that uses contains_name which is more reliable for text searching
                 let matcher = self
                     .automation
                     .0
                     .create_matcher()
                     .from_ref(root_ele)
-                    .filter(Box::new(filter)) // This is the key improvement from the example
-                    .depth(depth.unwrap_or(50) as u32) // Search deep enough to find most elements
+                    .filter(Box::new(filter))
+                    .depth(depth.unwrap_or(50) as u32)
                     .timeout(timeout_ms as u64); // Allow enough time for search
 
                 // Get the first matching element
@@ -2012,16 +2023,19 @@ impl AccessibilityEngine for WindowsEngine {
                 })))
             }
             Selector::Name(name) => {
-                // find use create matcher api
-
                 debug!("searching element by name: {}", name);
-
+                // name: selector is case-insensitive partial match
+                let filter = NameFilter {
+                    value: String::from(name),
+                    casesensitive: false,
+                    partial: true,
+                };
                 let matcher = self
                     .automation
                     .0
                     .create_matcher()
                     .from_ref(root_ele)
-                    .contains_name(name)
+                    .filter(Box::new(filter))
                     .depth(50)
                     .timeout(timeout_ms as u64);
 
@@ -2036,27 +2050,21 @@ impl AccessibilityEngine for WindowsEngine {
                 })))
             }
             Selector::Text(text) => {
-                let filter = OrFilter {
-                    left: Box::new(NameFilter {
-                        value: String::from(text),
-                        casesensitive: false,
-                        partial: true,
-                    }),
-                    right: Box::new(ControlTypeFilter {
-                        control_type: ControlType::Text,
-                    }),
+                // text: selector is case-sensitive partial match + bypasses boolean parser
+                let filter = NameFilter {
+                    value: String::from(text),
+                    casesensitive: true,
+                    partial: true,
                 };
-                // Create a matcher that uses contains_name which is more reliable for text searching
                 let matcher = self
                     .automation
                     .0
                     .create_matcher()
                     .from_ref(root_ele)
-                    .filter(Box::new(filter)) // This is the key improvement from the example
-                    .depth(50) // Search deep enough to find most elements
-                    .timeout(timeout_ms as u64); // Allow enough time for search
+                    .filter(Box::new(filter))
+                    .depth(50)
+                    .timeout(timeout_ms as u64);
 
-                // Get the first matching element
                 let element = matcher.find_first().map_err(|e| {
                     AutomationError::ElementNotFound(format!(
                         "Text: '{text}', Root: {root:?}, Err: {e}"
@@ -3508,9 +3516,18 @@ impl AccessibilityEngine for WindowsEngine {
         screenshot: &ScreenshotResult,
         window_x: f64,
         window_y: f64,
+        dpi_scale_x: f64,
+        dpi_scale_y: f64,
     ) -> Result<OcrElement, AutomationError> {
         // Delegate to the implementation in impl WindowsEngine
-        WindowsEngine::ocr_screenshot_with_bounds(self, screenshot, window_x, window_y)
+        WindowsEngine::ocr_screenshot_with_bounds(
+            self,
+            screenshot,
+            window_x,
+            window_y,
+            dpi_scale_x,
+            dpi_scale_y,
+        )
     }
 
     fn click_at_coordinates(&self, x: f64, y: f64) -> Result<(), AutomationError> {
@@ -3576,6 +3593,98 @@ impl AccessibilityEngine for WindowsEngine {
             SendInput(&[move_input], std::mem::size_of::<INPUT>() as i32);
             SendInput(&[down_input], std::mem::size_of::<INPUT>() as i32);
             SendInput(&[up_input], std::mem::size_of::<INPUT>() as i32);
+        }
+
+        Ok(())
+    }
+
+    fn click_at_coordinates_with_type(
+        &self,
+        x: f64,
+        y: f64,
+        click_type: crate::ClickType,
+    ) -> Result<(), AutomationError> {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN,
+            MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
+            MOUSEINPUT,
+        };
+        use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+
+        // Convert screen coordinates to absolute input coordinates (0-65535 range)
+        let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+        let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+        let abs_x = ((x / screen_w as f64) * 65535.0).round() as i32;
+        let abs_y = ((y / screen_h as f64) * 65535.0).round() as i32;
+
+        // Move mouse to position
+        let move_input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx: abs_x,
+                    dy: abs_y,
+                    mouseData: 0,
+                    dwFlags: MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+
+        unsafe {
+            SendInput(&[move_input], std::mem::size_of::<INPUT>() as i32);
+        }
+
+        // Determine button flags based on click type
+        let (down_flag, up_flag) = match click_type {
+            crate::ClickType::Left | crate::ClickType::Double => {
+                (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP)
+            }
+            crate::ClickType::Right => (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
+        };
+
+        // Create button down input
+        let down_input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx: 0,
+                    dy: 0,
+                    mouseData: 0,
+                    dwFlags: down_flag,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+
+        // Create button up input
+        let up_input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx: 0,
+                    dy: 0,
+                    mouseData: 0,
+                    dwFlags: up_flag,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+
+        // Send click(s)
+        unsafe {
+            SendInput(&[down_input], std::mem::size_of::<INPUT>() as i32);
+            SendInput(&[up_input], std::mem::size_of::<INPUT>() as i32);
+
+            // For double-click, send another click sequence
+            if click_type == crate::ClickType::Double {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                SendInput(&[down_input], std::mem::size_of::<INPUT>() as i32);
+                SendInput(&[up_input], std::mem::size_of::<INPUT>() as i32);
+            }
         }
 
         Ok(())
@@ -3964,9 +4073,11 @@ impl AccessibilityEngine for WindowsEngine {
             fallback_calls: 0,
             errors_encountered: 0,
             application_name, // Cache application name for all nodes in tree
+            include_all_bounds: config.include_all_bounds,
         };
 
-        let result = build_ui_node_tree_configurable(&window_element_wrapper, 0, &mut context)?;
+        let result =
+            build_ui_node_tree_configurable(&window_element_wrapper, 0, &mut context, vec![])?;
 
         info!(
             "Tree building completed for PID: {}. Stats: elements={}, depth={}, cache_hits={}, fallbacks={}, errors={}",

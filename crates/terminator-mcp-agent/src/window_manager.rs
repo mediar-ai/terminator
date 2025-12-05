@@ -2,16 +2,17 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Mutex;
-use windows::Win32::Foundation::HWND;
+use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::System::Threading::{
     AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
     PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, GetForegroundWindow, GetTopWindow, GetWindow, GetWindowLongPtrW,
-    GetWindowPlacement, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
-    IsZoomed, SetForegroundWindow, SetWindowPlacement, ShowWindow, GWL_EXSTYLE, GW_HWNDNEXT,
-    SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SW_SHOW, WINDOWPLACEMENT, WS_EX_TOPMOST,
+    GetWindowPlacement, GetWindowThreadProcessId, IsIconic, IsWindowVisible, IsZoomed,
+    SendMessageTimeoutW, SetForegroundWindow, SetWindowPlacement, ShowWindow, GWL_EXSTYLE,
+    GW_HWNDNEXT, SMTO_ABORTIFHUNG, SMTO_BLOCK, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SW_SHOW,
+    WINDOWPLACEMENT, WM_GETTEXT, WS_EX_TOPMOST,
 };
 
 #[derive(Clone, Debug)]
@@ -250,6 +251,12 @@ impl WindowManager {
     // Bring window to front (BringWindowToTop + SetForegroundWindow)
     // Uses AttachThreadInput trick to bypass Windows' focus-stealing prevention
     pub async fn bring_window_to_front(&self, hwnd: isize) -> Result<bool, String> {
+        // Track this window as the target for restoration
+        {
+            let mut cache = self.window_cache.lock().await;
+            cache.target_window = Some(hwnd);
+        }
+
         unsafe {
             let hwnd_win = HWND(hwnd as *mut _);
 
@@ -391,23 +398,15 @@ impl WindowManager {
         }
 
         // Determine which windows need restoration
-        // If minimized_windows is empty AND no target window, restore all (backward compatibility)
-        let windows_to_restore: Vec<&WindowInfo> =
-            if cache.minimized_windows.is_empty() && cache.target_window.is_none() {
-                // Legacy behavior: restore all original states
-                cache.original_states.iter().collect()
-            } else {
-                // New optimized behavior: restore windows we minimized + target window
-                cache
-                    .original_states
-                    .iter()
-                    .filter(|w| {
-                        // Restore if this window was minimized OR if it's the target window
-                        cache.minimized_windows.contains(&w.hwnd)
-                            || (cache.target_window == Some(w.hwnd))
-                    })
-                    .collect()
-            };
+        // Only restore windows we actually modified (minimized or target)
+        let windows_to_restore: Vec<&WindowInfo> = cache
+            .original_states
+            .iter()
+            .filter(|w| {
+                // Restore if this window was minimized OR if it's the target window
+                cache.minimized_windows.contains(&w.hwnd) || (cache.target_window == Some(w.hwnd))
+            })
+            .collect();
 
         // Restore in reverse order (bottommost first) to preserve Z-order
         // This ensures topmost windows end up on top after restoration
@@ -661,13 +660,42 @@ impl WindowManager {
         }
     }
 
-    // Get window title
+    // Get window title with timeout to avoid blocking on unresponsive windows
+    // Uses SendMessageTimeoutW instead of GetWindowTextW which can block indefinitely
     fn get_window_title(hwnd: HWND) -> String {
         unsafe {
             let mut title = vec![0u16; 512];
-            let len = GetWindowTextW(hwnd, &mut title);
-            if len > 0 {
-                String::from_utf16_lossy(&title[..len as usize])
+            let mut char_count: usize = 0;
+
+            // Use SendMessageTimeoutW with 100ms timeout and SMTO_ABORTIFHUNG flag
+            // This prevents blocking on unresponsive windows (e.g., hung Chrome)
+            // Returns LRESULT: 0 = timeout/failure, non-zero = success
+            let status = SendMessageTimeoutW(
+                hwnd,
+                WM_GETTEXT,
+                WPARAM(title.len()),
+                LPARAM(title.as_mut_ptr() as isize),
+                SMTO_ABORTIFHUNG | SMTO_BLOCK,
+                100, // 100ms timeout
+                Some(&mut char_count),
+            );
+
+            // LRESULT.0 == 0 means failure (timeout or error)
+            if status.0 == 0 {
+                // Check if it was actually an error vs just empty title
+                let error = windows::Win32::Foundation::GetLastError();
+                if error.0 != 0 {
+                    tracing::debug!(
+                        "[get_window_title] Timeout or hung window detected for hwnd {:?}, error: {:?}",
+                        hwnd.0,
+                        error
+                    );
+                }
+                return String::new();
+            }
+
+            if char_count > 0 {
+                String::from_utf16_lossy(&title[..char_count])
             } else {
                 String::new()
             }

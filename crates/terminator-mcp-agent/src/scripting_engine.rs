@@ -1,7 +1,45 @@
 ﻿use rmcp::ErrorData as McpError;
 use serde_json::json;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use tracing::{debug, error, info, trace, warn};
+
+/// Shared buffer for capturing script logs in real-time.
+/// This allows logs to be retrieved even when script execution times out.
+#[derive(Clone, Default)]
+pub struct ScriptLogBuffer {
+    logs: Arc<Mutex<Vec<String>>>,
+    stderr: Arc<Mutex<Vec<String>>>,
+}
+
+impl ScriptLogBuffer {
+    pub fn new() -> Self {
+        Self {
+            logs: Arc::new(Mutex::new(Vec::new())),
+            stderr: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    pub fn push_log(&self, line: String) {
+        if let Ok(mut logs) = self.logs.lock() {
+            logs.push(line);
+        }
+    }
+
+    pub fn push_stderr(&self, line: String) {
+        if let Ok(mut stderr) = self.stderr.lock() {
+            stderr.push(line);
+        }
+    }
+
+    pub fn get_logs(&self) -> Vec<String> {
+        self.logs.lock().map(|l| l.clone()).unwrap_or_default()
+    }
+
+    pub fn get_stderr(&self) -> Vec<String> {
+        self.stderr.lock().map(|s| s.clone()).unwrap_or_default()
+    }
+}
 
 /// Find executable with cross-platform path resolution
 pub fn find_executable(name: &str) -> Option<String> {
@@ -840,10 +878,17 @@ async fn ensure_terminator_js_installed(runtime: &str) -> Result<std::path::Path
 }
 
 /// Execute JavaScript using Node.js/Bun runtime with terminator.js bindings available
+///
+/// # Arguments
+/// * `script` - The JavaScript code to execute
+/// * `cancellation_token` - Optional token to cancel execution
+/// * `working_dir` - Optional working directory for script execution
+/// * `log_buffer` - Optional shared buffer for real-time log capture (useful for timeout scenarios)
 pub async fn execute_javascript_with_nodejs(
     script: String,
     cancellation_token: Option<tokio_util::sync::CancellationToken>,
     working_dir: Option<PathBuf>,
+    log_buffer: Option<ScriptLogBuffer>,
 ) -> Result<serde_json::Value, McpError> {
     // Dev override: allow forcing local bindings via env var
     if std::env::var("TERMINATOR_JS_USE_LOCAL")
@@ -958,6 +1003,24 @@ const {{ Desktop }} = require('@mediar-ai/terminator');
 global.desktop = new Desktop();
 global.log = console.log;
 global.sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Initialize KV client helper
+// Usage: const kv = createKVClient(ORG_TOKEN);
+try {{
+    const {{ createClient }} = require('@mediar-ai/kv');
+    global.createKVClient = (token) => {{
+        if (!token) {{
+            throw new Error('KV requires ORG_TOKEN. Pass it as: createKVClient(ORG_TOKEN)');
+        }}
+        return createClient({{
+            url: process.env.KV_URL || 'https://app.mediar.ai/api/kv',
+            token: token
+        }});
+    }};
+}} catch (e) {{
+    // KV package not available
+    global.createKVClient = () => {{ throw new Error('@mediar-ai/kv package not installed'); }};
+}}
 
 // Execute user script
 (async () => {{
@@ -1147,6 +1210,10 @@ global.sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
                             && !line.starts_with("__ERROR__")
                             && !line.starts_with("::set-env ") {
                             captured_logs.push(line.clone());
+                            // Also write to shared buffer for real-time access (useful for timeout scenarios)
+                            if let Some(ref buf) = log_buffer {
+                                buf.push_log(line.clone());
+                            }
                         }
                         // Parse GitHub Actions style env updates: ::set-env name=KEY::VALUE
                         if let Some(stripped) = line.strip_prefix("::set-env ") {
@@ -1210,7 +1277,14 @@ global.sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
                                 return Err(McpError::internal_error(
                                     detailed_message,
-                                    Some(error_data),
+                                    {
+                                    // Strip stack trace from error data (already logged)
+                                    let mut clean_data = error_data.clone();
+                                    if let Some(obj) = clean_data.as_object_mut() {
+                                        obj.remove("stack");
+                                    }
+                                    Some(clean_data)
+                                },
                                 ));
                             }
                             break;
@@ -1229,7 +1303,11 @@ global.sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
             stderr_line = stderr.next_line() => {
                 match stderr_line {
                     Ok(Some(line)) => {
-                        stderr_output.push(line);
+                        stderr_output.push(line.clone());
+                        // Also write to shared buffer for real-time access (useful for timeout scenarios)
+                        if let Some(ref buf) = log_buffer {
+                            buf.push_stderr(line);
+                        }
                     }
                     Ok(None) => {
                         info!("[Node.js] stderr stream ended");
@@ -1350,10 +1428,17 @@ global.sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /// Execute TypeScript using tsx/ts-node with terminator.js bindings available
+///
+/// # Arguments
+/// * `script` - The TypeScript code to execute
+/// * `cancellation_token` - Optional token to cancel execution
+/// * `working_dir` - Optional working directory for script execution
+/// * `log_buffer` - Optional shared buffer for real-time log capture (useful for timeout scenarios)
 pub async fn execute_typescript_with_nodejs(
     script: String,
     cancellation_token: Option<tokio_util::sync::CancellationToken>,
     working_dir: Option<PathBuf>,
+    log_buffer: Option<ScriptLogBuffer>,
 ) -> Result<serde_json::Value, McpError> {
     use std::process::Stdio;
     use tokio::io::{AsyncBufReadExt, BufReader};
@@ -1434,6 +1519,25 @@ const setEnv = (updates: Record<string, any>) => {{
         console.log(`::set-env name=${{key}}::${{value}}`);
     }}
 }};
+
+// Initialize KV client helper
+// Usage: const kv = createKVClient(ORG_TOKEN);
+let createKVClient: (token: string) => any;
+try {{
+    const {{ createClient }} = require('@mediar-ai/kv');
+    createKVClient = (token: string) => {{
+        if (!token) {{
+            throw new Error('KV requires ORG_TOKEN. Pass it as: createKVClient(ORG_TOKEN)');
+        }}
+        return createClient({{
+            url: process.env.KV_URL || 'https://app.mediar.ai/api/kv',
+            token: token
+        }});
+    }};
+}} catch (e) {{
+    // KV package not available
+    createKVClient = () => {{ throw new Error('@mediar-ai/kv package not installed'); }};
+}}
 
 console.log('[TypeScript] Current working directory:', process.cwd());
 
@@ -1574,7 +1678,14 @@ console.log('[TypeScript] Current working directory:', process.cwd());
 
                                     return Err(McpError::internal_error(
                                         detailed_message,
-                                        Some(error_data),
+                                        {
+                                    // Strip stack trace from error data (already logged)
+                                    let mut clean_data = error_data.clone();
+                                    if let Some(obj) = clean_data.as_object_mut() {
+                                        obj.remove("stack");
+                                    }
+                                    Some(clean_data)
+                                },
                                     ));
                                 }
 
@@ -1593,7 +1704,11 @@ console.log('[TypeScript] Current working directory:', process.cwd());
                                     }
                                 }
                             } else {
-                                captured_logs.push(line);
+                                captured_logs.push(line.clone());
+                                // Also write to shared buffer for real-time access (useful for timeout scenarios)
+                                if let Some(ref buf) = log_buffer {
+                                    buf.push_log(line);
+                                }
                             }
                         }
                         Ok(None) => break,
@@ -1608,7 +1723,11 @@ console.log('[TypeScript] Current working directory:', process.cwd());
                     match line {
                         Ok(Some(line)) => {
                             debug!("[TypeScript] stderr: {}", line);
-                            stderr_output.push(line);
+                            stderr_output.push(line.clone());
+                            // Also write to shared buffer for real-time access (useful for timeout scenarios)
+                            if let Some(ref buf) = log_buffer {
+                                buf.push_stderr(line);
+                            }
                         }
                         Ok(None) => {},
                         Err(e) => {
@@ -1915,9 +2034,14 @@ asyncio.run(__runner__())
                             .get("message")
                             .and_then(|m| m.as_str())
                             .unwrap_or("Unknown error");
+                        // Strip stack trace from error data
+                        let mut clean_data = error_data.clone();
+                        if let Some(obj) = clean_data.as_object_mut() {
+                            obj.remove("stack");
+                        }
                         return Err(McpError::internal_error(
                             format!("Python execution error: {error_message}"),
-                            Some(error_data),
+                            Some(clean_data),
                         ));
                     }
                 }
@@ -1998,7 +2122,14 @@ asyncio.run(__runner__())
 
                                 return Err(McpError::internal_error(
                                     detailed_message,
-                                    Some(error_data),
+                                    {
+                                    // Strip stack trace from error data (already logged)
+                                    let mut clean_data = error_data.clone();
+                                    if let Some(obj) = clean_data.as_object_mut() {
+                                        obj.remove("stack");
+                                    }
+                                    Some(clean_data)
+                                },
                                 ));
                             }
 
@@ -2546,7 +2677,14 @@ pub async fn execute_javascript_with_local_bindings(
                     format!("JavaScript execution error with local bindings: {error_message}")
                 };
 
-                return Err(McpError::internal_error(detailed_message, Some(error_data)));
+                {
+                    // Strip stack trace from error data
+                    let mut clean_data = error_data.clone();
+                    if let Some(obj) = clean_data.as_object_mut() {
+                        obj.remove("stack");
+                    }
+                    return Err(McpError::internal_error(detailed_message, Some(clean_data)));
+                }
             }
             break;
         } else {

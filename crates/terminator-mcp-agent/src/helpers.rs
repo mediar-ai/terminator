@@ -5,6 +5,7 @@ use crate::utils::ToolCall;
 use regex::Regex;
 use rmcp::ErrorData as McpError;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::time::Duration;
 use terminator::{AutomationError, Desktop, Selector, UIElement};
 
@@ -119,6 +120,23 @@ pub fn build_element_not_found_error(
     McpError::invalid_params("Element not found", Some(error_payload))
 }
 
+/// Converts a variable path to a JSON pointer.
+/// Supports dot notation and array indexing.
+/// Examples:
+///   "url" -> "/url"
+///   "nested.field" -> "/nested/field"
+///   "keywords[0]" -> "/keywords/0"
+///   "data.items[2].name" -> "/data/items/2/name"
+///   "arr[0][1]" -> "/arr/0/1"
+fn variable_path_to_pointer(path: &str) -> String {
+    // First replace dots with slashes
+    let result = path.replace('.', "/");
+    // Then replace [N] with /N using regex
+    let bracket_re = Regex::new(r"\[(\d+)\]").unwrap();
+    let result = bracket_re.replace_all(&result, "/$1");
+    format!("/{}", result)
+}
+
 /// Substitutes `{{variable}}` placeholders in a JSON value.
 pub fn substitute_variables(args: &mut Value, variables: &Value) {
     use tracing::debug;
@@ -156,13 +174,18 @@ pub fn substitute_variables(args: &mut Value, variables: &Value) {
                         s, inner_str
                     );
 
-                    // Check if it's a simple variable path.
-                    let is_simple_var = inner_str
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.');
+                    // Check if it's a simple variable path (supports array indexing like [0]).
+                    let is_simple_var = inner_str.chars().all(|c| {
+                        c.is_ascii_alphanumeric()
+                            || c == '_'
+                            || c == '-'
+                            || c == '.'
+                            || c == '['
+                            || c == ']'
+                    });
 
                     if is_simple_var {
-                        let pointer = format!("/{}", inner_str.replace('.', "/"));
+                        let pointer = variable_path_to_pointer(inner_str);
                         debug!("Looking up simple variable with pointer: '{}'", pointer);
                         if let Some(replacement_val) = variables.pointer(&pointer) {
                             debug!("Found replacement value: {}", replacement_val);
@@ -207,12 +230,17 @@ pub fn substitute_variables(args: &mut Value, variables: &Value) {
                         inner_str
                     );
 
-                    let is_simple_var = inner_str
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.');
+                    let is_simple_var = inner_str.chars().all(|c| {
+                        c.is_ascii_alphanumeric()
+                            || c == '_'
+                            || c == '-'
+                            || c == '.'
+                            || c == '['
+                            || c == ']'
+                    });
 
                     if is_simple_var {
-                        let pointer = format!("/{}", inner_str.replace('.', "/"));
+                        let pointer = variable_path_to_pointer(inner_str);
                         debug!("Looking up simple variable with pointer: '{}'", pointer);
                         if let Some(val) = variables.pointer(&pointer) {
                             if val.is_string() {
@@ -378,7 +406,11 @@ pub fn infer_expected_outcomes(tool_calls: &[ToolCall]) -> Vec<String> {
     outcomes
 }
 
+/// Type alias for UIA bounds cache - includes selector for index-to-selector conversion
+pub type UiaBoundsCache = HashMap<u32, (String, String, (f64, f64, f64, f64), Option<String>)>;
+
 // Helper to optionally attach UI tree to response
+// Returns the UIA bounds cache if tree was formatted in CompactYaml mode
 #[allow(clippy::too_many_arguments)]
 pub async fn maybe_attach_tree(
     desktop: &Desktop,
@@ -390,23 +422,25 @@ pub async fn maybe_attach_tree(
     pid_opt: Option<u32>,
     result_json: &mut Value,
     found_element: Option<&terminator::UIElement>,
-) {
+    include_all_bounds: bool,
+) -> Option<UiaBoundsCache> {
     use std::time::Duration;
     use terminator::Selector;
 
     // Check if tree should be included
     if !include_tree_after_action {
-        return;
+        return None;
     }
 
     // Add delay for UI to stabilize (same as ui_diff_before_after mode)
     // This ensures we capture the tree after animations/transitions complete
+    tracing::info!("[PERF] ui_settle_delay (maybe_attach_tree): 1500ms");
     tokio::time::sleep(Duration::from_millis(1500)).await;
 
     // Only proceed if we have a PID
     let pid = match pid_opt {
         Some(p) => p,
-        None => return,
+        None => return None,
     };
 
     // Build tree config with max_depth and other options
@@ -422,19 +456,26 @@ pub async fn maybe_attach_tree(
         yield_every_n_elements: Some(25),
         batch_size: Some(25),
         max_depth: tree_max_depth,
+        include_all_bounds,
     };
 
     // Determine output format (default to CompactYaml)
     let format = tree_output_format.unwrap_or(TreeOutputFormat::CompactYaml);
 
+    // Track the bounds cache to return
+    let mut bounds_cache: Option<UiaBoundsCache> = None;
+
     // Helper function to format tree based on output format
-    let format_tree = |tree: terminator::element::SerializableUIElement| -> Result<Value, String> {
+    // Returns (json_value, Option<bounds_cache>)
+    let format_tree = |tree: terminator::element::SerializableUIElement| -> (Result<Value, String>, Option<UiaBoundsCache>) {
         match format {
-            TreeOutputFormat::CompactYaml => {
-                let yaml_string = format_tree_as_compact_yaml(&tree, 0);
-                Ok(json!(yaml_string))
+            TreeOutputFormat::CompactYaml | TreeOutputFormat::ClusteredYaml => {
+                // For ClusteredYaml, we still output individual trees in CompactYaml format
+                // The clustering happens later after all trees are collected
+                let result = format_tree_as_compact_yaml(&tree, 0);
+                (Ok(json!(result.formatted)), Some(result.index_to_bounds))
             }
-            TreeOutputFormat::VerboseJson => serde_json::to_value(tree).map_err(|e| e.to_string()),
+            TreeOutputFormat::VerboseJson => (serde_json::to_value(tree).map_err(|e| e.to_string()), None),
         }
     };
 
@@ -445,13 +486,15 @@ pub async fn maybe_attach_tree(
             if let Some(element) = found_element {
                 let max_depth = tree_max_depth.unwrap_or(100);
                 let subtree = element.to_serializable_tree(max_depth);
-                if let Ok(tree_val) = format_tree(subtree) {
+                let (tree_result, cache) = format_tree(subtree);
+                if let Ok(tree_val) = tree_result {
                     if let Some(obj) = result_json.as_object_mut() {
                         obj.insert("ui_tree".to_string(), tree_val);
                         obj.insert("tree_type".to_string(), json!("subtree"));
                     }
+                    bounds_cache = cache;
                 }
-                return;
+                return bounds_cache;
             }
         } else {
             // New behavior: treat from_selector as an actual selector string
@@ -463,7 +506,8 @@ pub async fn maybe_attach_tree(
                     // Build tree from this different element
                     let max_depth = tree_max_depth.unwrap_or(100);
                     let subtree = from_element.to_serializable_tree(max_depth);
-                    if let Ok(tree_val) = format_tree(subtree) {
+                    let (tree_result, cache) = format_tree(subtree);
+                    if let Ok(tree_val) = tree_result {
                         if let Some(obj) = result_json.as_object_mut() {
                             obj.insert("ui_tree".to_string(), tree_val);
                             obj.insert("tree_type".to_string(), json!("subtree"));
@@ -472,8 +516,9 @@ pub async fn maybe_attach_tree(
                                 json!(from_selector_value),
                             );
                         }
+                        bounds_cache = cache;
                     }
-                    return;
+                    return bounds_cache;
                 }
                 Err(e) => {
                     // Log warning and return with error info
@@ -489,22 +534,28 @@ pub async fn maybe_attach_tree(
                         );
                         obj.insert("tree_type".to_string(), json!("none"));
                     }
-                    return;
+                    return None;
                 }
             }
         }
     }
 
     // Default: get the full window tree
+    let tree_capture_start = std::time::Instant::now();
     if let Ok(tree) = desktop.get_window_tree(pid, None, Some(tree_config)) {
+        tracing::info!(
+            "[PERF] maybe_attach_tree (get_window_tree): {}ms",
+            tree_capture_start.elapsed().as_millis()
+        );
         // Format UINode based on output format
-        let tree_val_result = match format {
-            TreeOutputFormat::CompactYaml => {
+        let (tree_val_result, cache) = match format {
+            TreeOutputFormat::CompactYaml | TreeOutputFormat::ClusteredYaml => {
                 // Convert UINode to SerializableUIElement and use compact formatter
-                let yaml_string = format_ui_node_as_compact_yaml(&tree, 0);
-                Ok(json!(yaml_string))
+                // For ClusteredYaml, we still output individual trees in CompactYaml format
+                let result = format_ui_node_as_compact_yaml(&tree, 0);
+                (Ok(json!(result.formatted)), Some(result.index_to_bounds))
             }
-            TreeOutputFormat::VerboseJson => serde_json::to_value(tree),
+            TreeOutputFormat::VerboseJson => (serde_json::to_value(tree), None),
         };
 
         if let Ok(tree_val) = tree_val_result {
@@ -512,8 +563,16 @@ pub async fn maybe_attach_tree(
                 obj.insert("ui_tree".to_string(), tree_val);
                 obj.insert("tree_type".to_string(), json!("full_window"));
             }
+            bounds_cache = cache;
         }
+    } else {
+        tracing::info!(
+            "[PERF] maybe_attach_tree (get_window_tree FAILED): {}ms",
+            tree_capture_start.elapsed().as_millis()
+        );
     }
+
+    bounds_cache
 }
 
 /// Result structure for UI tree diff computation
@@ -528,7 +587,9 @@ pub struct UiDiffResult {
 /// Helper to format tree based on output format
 fn format_tree_string(tree: &terminator::UINode, format: TreeOutputFormat) -> String {
     match format {
-        TreeOutputFormat::CompactYaml => format_ui_node_as_compact_yaml(tree, 0),
+        TreeOutputFormat::CompactYaml | TreeOutputFormat::ClusteredYaml => {
+            format_ui_node_as_compact_yaml(tree, 0).formatted
+        }
         TreeOutputFormat::VerboseJson => {
             serde_json::to_string_pretty(tree).unwrap_or_else(|_| "{}".to_string())
         }
@@ -571,6 +632,7 @@ where
         yield_every_n_elements: Some(25),
         batch_size: Some(25),
         max_depth: tree_max_depth,
+        include_all_bounds: false,
     };
 
     // Capture BEFORE tree
@@ -583,8 +645,8 @@ where
     // Execute action
     let result = action().await?;
 
-    // Small delay for UI to settle (150ms similar to mediar-app)
-    tokio::time::sleep(Duration::from_millis(150)).await;
+    // Delay for UI to settle (1500ms - same as maybe_attach_tree and find_and_execute_with_ui_diff)
+    tokio::time::sleep(Duration::from_millis(1500)).await;
 
     // Capture AFTER tree
     tracing::debug!("Capturing UI tree after action (PID: {})", pid);
@@ -719,16 +781,24 @@ where
                         yield_every_n_elements: Some(25),
                         batch_size: Some(25),
                         max_depth: tree_max_depth,
+                        include_all_bounds: false,
                     };
 
                     // Capture BEFORE tree
                     tracing::debug!("[ui_diff] Capturing UI tree before action (PID: {})", pid);
+                    let tree_before_start = std::time::Instant::now();
                     let tree_before = match desktop.get_window_tree(
                         pid,
                         None,
                         Some(tree_config.clone()),
                     ) {
-                        Ok(tree) => tree,
+                        Ok(tree) => {
+                            tracing::info!(
+                                "[PERF] capture_tree_before: {}ms",
+                                tree_before_start.elapsed().as_millis()
+                            );
+                            tree
+                        }
                         Err(e) => {
                             tracing::warn!("[ui_diff] Failed to capture tree before action: {}. Continuing without diff.", e);
                             // Execute action without diff
@@ -757,9 +827,15 @@ where
                     let before_str = format_tree_string(&tree_before, tree_output_format);
 
                     // Execute action
+                    let action_start = std::time::Instant::now();
                     match action(element.clone()).await {
                         Ok(result) => {
+                            tracing::info!(
+                                "[PERF] action_execution: {}ms",
+                                action_start.elapsed().as_millis()
+                            );
                             // Small delay for UI to settle (1500ms - same delay used in maybe_attach_tree)
+                            tracing::info!("[PERF] ui_settle_delay (after_action): 1500ms");
                             tokio::time::sleep(Duration::from_millis(1500)).await;
 
                             // Capture AFTER tree
@@ -767,12 +843,19 @@ where
                                 "[ui_diff] Capturing UI tree after action (PID: {})",
                                 pid
                             );
+                            let tree_after_start = std::time::Instant::now();
                             let tree_after = match desktop.get_window_tree(
                                 pid,
                                 None,
                                 Some(tree_config),
                             ) {
-                                Ok(tree) => tree,
+                                Ok(tree) => {
+                                    tracing::info!(
+                                        "[PERF] capture_tree_after: {}ms",
+                                        tree_after_start.elapsed().as_millis()
+                                    );
+                                    tree
+                                }
                                 Err(e) => {
                                     tracing::warn!("[ui_diff] Failed to capture tree after action: {}. Returning result without diff.", e);
                                     return Ok(((result, element), successful_selector, None));
@@ -782,6 +865,7 @@ where
                             let after_str = format_tree_string(&tree_after, tree_output_format);
 
                             // Compute diff using the ui_tree_diff module
+                            let diff_start = std::time::Instant::now();
                             let diff_result = match crate::ui_tree_diff::simple_ui_tree_diff(
                                 &before_str,
                                 &after_str,
@@ -812,6 +896,10 @@ where
                                     None
                                 }
                             };
+                            tracing::info!(
+                                "[PERF] compute_ui_diff: {}ms",
+                                diff_start.elapsed().as_millis()
+                            );
 
                             return Ok(((result, element), successful_selector, diff_result));
                         }
@@ -869,7 +957,6 @@ pub fn should_add_focus_check(tool_calls: &[ToolCall], current_index: usize) -> 
         prev_tool.as_str(),
         "navigate_browser"
             | "open_application"
-            | "close_element"
             | "get_window_tree"
             | "get_applications_and_windows_list"
             | "activate_element"
@@ -882,9 +969,7 @@ pub fn is_state_changing_action(tool_name: &str) -> bool {
         "click_element"
             | "type_into_element"
             | "select_option"
-            | "set_toggled"
             | "set_selected"
-            | "set_range_value"
             | "invoke_element"
             | "press_key"
             | "mouse_drag"
@@ -1009,6 +1094,11 @@ pub async fn verify_post_action(
         }
 
         if verification_element.is_none() {
+            tracing::info!(
+                "[PERF] verify_element_exists: {}ms (FAILED selector: {})",
+                start.elapsed().as_millis(),
+                exists_selector
+            );
             return Err(anyhow::anyhow!(
                 "Verification failed: expected element '{}' not found after {}ms",
                 exists_selector,
@@ -1016,6 +1106,11 @@ pub async fn verify_post_action(
             ));
         }
 
+        tracing::info!(
+            "[PERF] verify_element_exists: {}ms (selector: {})",
+            start.elapsed().as_millis(),
+            exists_selector
+        );
         return Ok(VerificationResult {
             passed: true,
             method: method.to_string(),
@@ -1063,6 +1158,11 @@ pub async fn verify_post_action(
         match search_result {
             Ok(_) => {
                 // Element found - this is a verification failure!
+                tracing::info!(
+                    "[PERF] verify_element_not_exists: {}ms (FAILED - element found: {})",
+                    start.elapsed().as_millis(),
+                    not_exists_selector
+                );
                 return Err(anyhow::anyhow!(
                     "Verification failed: element '{}' should not exist but was found",
                     not_exists_selector
@@ -1070,6 +1170,11 @@ pub async fn verify_post_action(
             }
             Err(_) => {
                 // Element not found - this is what we wanted!
+                tracing::info!(
+                    "[PERF] verify_element_not_exists: {}ms (selector: {})",
+                    start.elapsed().as_millis(),
+                    not_exists_selector
+                );
                 return Ok(VerificationResult {
                     passed: true,
                     method: method.to_string(),
@@ -1761,5 +1866,101 @@ mod tests {
 
         // The if condition should remain as text
         assert_eq!(args["steps"][1]["if"], "!contains(user_roles, 'Premium')");
+    }
+
+    // Tests for array indexing support
+    #[test]
+    fn test_variable_path_to_pointer_simple() {
+        assert_eq!(variable_path_to_pointer("url"), "/url");
+        assert_eq!(variable_path_to_pointer("nested.field"), "/nested/field");
+    }
+
+    #[test]
+    fn test_variable_path_to_pointer_array_indexing() {
+        assert_eq!(variable_path_to_pointer("keywords[0]"), "/keywords/0");
+        assert_eq!(variable_path_to_pointer("items[2]"), "/items/2");
+        assert_eq!(variable_path_to_pointer("data.items[0]"), "/data/items/0");
+        assert_eq!(
+            variable_path_to_pointer("nested[0].field"),
+            "/nested/0/field"
+        );
+        assert_eq!(variable_path_to_pointer("arr[0][1]"), "/arr/0/1");
+        assert_eq!(
+            variable_path_to_pointer("deep.nested[0].array[1].value"),
+            "/deep/nested/0/array/1/value"
+        );
+    }
+
+    #[test]
+    fn test_substitute_array_index_full_replacement() {
+        let mut args = json!({"keyword": "{{keywords[0]}}"});
+        let vars = json!({"keywords": ["rpa", "desktop automation", "computer use"]});
+        substitute_variables(&mut args, &vars);
+        assert_eq!(args["keyword"], "rpa");
+    }
+
+    #[test]
+    fn test_substitute_array_index_second_element() {
+        let mut args = json!({"keyword": "{{keywords[1]}}"});
+        let vars = json!({"keywords": ["rpa", "desktop automation", "computer use"]});
+        substitute_variables(&mut args, &vars);
+        assert_eq!(args["keyword"], "desktop automation");
+    }
+
+    #[test]
+    fn test_substitute_array_index_partial_replacement() {
+        let mut args = json!({"text": "Search for: {{keywords[0]}}"});
+        let vars = json!({"keywords": ["rpa", "desktop automation"]});
+        substitute_variables(&mut args, &vars);
+        assert_eq!(args["text"], "Search for: rpa");
+    }
+
+    #[test]
+    fn test_substitute_nested_array_index() {
+        let mut args = json!({"value": "{{data.items[0]}}"});
+        let vars = json!({"data": {"items": ["first", "second", "third"]}});
+        substitute_variables(&mut args, &vars);
+        assert_eq!(args["value"], "first");
+    }
+
+    #[test]
+    fn test_substitute_array_index_with_nested_field() {
+        let mut args = json!({"name": "{{users[0].name}}"});
+        let vars = json!({"users": [{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]});
+        substitute_variables(&mut args, &vars);
+        assert_eq!(args["name"], "Alice");
+    }
+
+    #[test]
+    fn test_substitute_array_index_out_of_bounds() {
+        // When array index is out of bounds, the placeholder should remain unchanged
+        let mut args = json!({"keyword": "{{keywords[99]}}"});
+        let vars = json!({"keywords": ["rpa"]});
+        substitute_variables(&mut args, &vars);
+        assert_eq!(args["keyword"], "{{keywords[99]}}");
+    }
+
+    #[test]
+    fn test_substitute_array_index_github_actions_style() {
+        let mut args = json!({"keyword": "${{keywords[0]}}"});
+        let vars = json!({"keywords": ["rpa", "desktop automation"]});
+        substitute_variables(&mut args, &vars);
+        assert_eq!(args["keyword"], "rpa");
+    }
+
+    #[test]
+    fn test_substitute_array_returns_number() {
+        let mut args = json!({"count": "{{counts[0]}}"});
+        let vars = json!({"counts": [42, 100, 200]});
+        substitute_variables(&mut args, &vars);
+        assert_eq!(args["count"], 42);
+    }
+
+    #[test]
+    fn test_substitute_array_returns_object() {
+        let mut args = json!({"user": "{{users[0]}}"});
+        let vars = json!({"users": [{"name": "Alice", "age": 30}]});
+        substitute_variables(&mut args, &vars);
+        assert_eq!(args["user"], json!({"name": "Alice", "age": 30}));
     }
 }

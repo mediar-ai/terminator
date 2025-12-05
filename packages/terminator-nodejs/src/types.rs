@@ -272,6 +272,7 @@ impl From<TreeBuildConfig> for terminator::platforms::TreeBuildConfig {
             yield_every_n_elements: config.yield_every_n_elements.map(|x| x as usize),
             batch_size: config.batch_size.map(|x| x as usize),
             max_depth: None, // Not exposed in nodejs bindings yet
+            include_all_bounds: false,
         }
     }
 }
@@ -304,5 +305,101 @@ pub(crate) fn serializable_to_ui_node(elem: &terminator::SerializableUIElement) 
         id: elem.id.clone(),
         attributes: attrs,
         children,
+    }
+}
+
+// ===== Computer Use Types =====
+
+/// A single step in the computer use execution
+#[napi(object)]
+pub struct ComputerUseStep {
+    /// Step number (1-indexed)
+    pub step: u32,
+    /// Action that was executed
+    pub action: String,
+    /// Arguments passed to the action (as JSON string)
+    pub args: String,
+    /// Whether the action succeeded
+    pub success: bool,
+    /// Error message if action failed
+    pub error: Option<String>,
+    /// Model's reasoning text for this step
+    pub text: Option<String>,
+}
+
+/// Pending confirmation info when safety check triggers
+#[napi(object)]
+pub struct ComputerUsePendingConfirmation {
+    /// Action that needs confirmation
+    pub action: String,
+    /// Arguments for the action (as JSON string)
+    pub args: String,
+    /// Model's explanation text
+    pub text: Option<String>,
+}
+
+/// Result of the computer use execution
+#[napi(object)]
+pub struct ComputerUseResult {
+    /// Status: "success", "failed", "needs_confirmation", "max_steps_reached"
+    pub status: String,
+    /// The goal that was attempted
+    pub goal: String,
+    /// Number of steps executed
+    pub steps_executed: u32,
+    /// Last action performed
+    pub final_action: String,
+    /// Final text response from model
+    pub final_text: Option<String>,
+    /// History of all steps
+    pub steps: Vec<ComputerUseStep>,
+    /// Pending confirmation info if status is "needs_confirmation"
+    pub pending_confirmation: Option<ComputerUsePendingConfirmation>,
+}
+
+impl From<terminator::ComputerUseStep> for ComputerUseStep {
+    fn from(step: terminator::ComputerUseStep) -> Self {
+        ComputerUseStep {
+            step: step.step,
+            action: step.action,
+            args: step.args.to_string(),
+            success: step.success,
+            error: step.error,
+            text: step.text,
+        }
+    }
+}
+
+impl From<terminator::ComputerUseResult> for ComputerUseResult {
+    fn from(result: terminator::ComputerUseResult) -> Self {
+        let pending_confirmation =
+            result
+                .pending_confirmation
+                .map(|pc| ComputerUsePendingConfirmation {
+                    action: pc
+                        .get("action")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    args: pc.get("args").map(|v| v.to_string()).unwrap_or_default(),
+                    text: pc
+                        .get("text")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
+                });
+
+        ComputerUseResult {
+            status: result.status,
+            goal: result.goal,
+            steps_executed: result.steps_executed,
+            final_action: result.final_action,
+            final_text: result.final_text,
+            steps: result
+                .steps
+                .into_iter()
+                .map(ComputerUseStep::from)
+                .collect(),
+            pending_confirmation,
+        }
     }
 }

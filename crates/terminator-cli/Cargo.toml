@@ -2,6 +2,15 @@
 name = "terminator-cli"
 version.workspace = true
 edition.workspace = true
+description = "CLI for AI-native desktop automation - control any app with MCP"
+authors = ["Mediar AI"]
+repository = "https://github.com/mediar-ai/terminator"
+homepage = "https://mediar.ai"
+documentation = "https://github.com/mediar-ai/terminator"
+readme = "../../README.md"
+keywords = ["automation", "gui", "desktop", "mcp", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+license-file.workspace = true
 
 [[bin]]
 name = "terminator"
@@ -25,7 +34,7 @@ tokio = { version = "1", features = [
 ] }
 anyhow = "1.0"
 
-rmcp = { version = "=0.6.3", features = [
+rmcp = { version = "0.9", features = [
     "transport-child-process",
     "client",
     "transport-streamable-http-client-reqwest",
@@ -54,9 +63,6 @@ dirs = "5.0"
 regex = "1.10"
 
 # Simple HTTP server for receiving telemetry
-axum = "0.7"
 bytes = "1.5"
 
 # Protobuf support for parsing OTLP data
-prost = "0.13"
-opentelemetry-proto = "0.27"

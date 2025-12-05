@@ -4,13 +4,12 @@ use crate::telemetry::StepSpan;
 use crate::utils::find_and_execute_with_retry_with_fallback;
 pub use crate::utils::DesktopWrapper;
 use crate::utils::{
-    get_timeout, ActivateElementArgs, CaptureElementScreenshotArgs, ClickElementArgs,
-    ClickOcrIndexArgs, CloseElementArgs, DelayArgs, ExecuteBrowserScriptArgs, ExecuteSequenceArgs,
-    GetApplicationsArgs, GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs, LocatorArgs,
-    MaximizeWindowArgs, MinimizeWindowArgs, MouseDragArgs, NavigateBrowserArgs,
-    OpenApplicationArgs, PressKeyArgs, RunCommandArgs, ScrollElementArgs, SelectOptionArgs,
-    SetRangeValueArgs, SetSelectedArgs, SetToggledArgs, SetValueArgs, SetZoomArgs,
-    StopHighlightingArgs, TypeIntoElementArgs, ValidateElementArgs, WaitForElementArgs,
+    get_timeout, ActivateElementArgs, CaptureScreenshotArgs, ClickElementArgs, DelayArgs,
+    ExecuteBrowserScriptArgs, ExecuteSequenceArgs, GeminiComputerUseArgs, GetApplicationsArgs,
+    GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs, InvokeElementArgs, MouseDragArgs,
+    NavigateBrowserArgs, OpenApplicationArgs, PressKeyArgs, RunCommandArgs, ScrollElementArgs,
+    SelectOptionArgs, SetSelectedArgs, SetValueArgs, StopHighlightingArgs, TypeIntoElementArgs,
+    ValidateElementArgs, WaitForElementArgs,
 };
 use image::imageops::FilterType;
 use image::{ExtendedColorType, ImageBuffer, ImageEncoder, Rgba};
@@ -31,7 +30,7 @@ use sysinfo::{ProcessesToUpdate, System};
 use terminator::element::UIElementImpl;
 use terminator::{AutomationError, Browser, Desktop, Selector, UIElement};
 use tokio::sync::Mutex;
-use tracing::{info, warn};
+use tracing::{info, warn, Instrument};
 
 // New imports for image encoding
 use base64::{engine::general_purpose, Engine as _};
@@ -758,6 +757,13 @@ impl DesktopWrapper {
             window_manager: Arc::new(crate::window_manager::WindowManager::new()),
             in_sequence: Arc::new(std::sync::Mutex::new(false)),
             ocr_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            omniparser_items: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            vision_items: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            uia_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            dom_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            clustered_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            #[cfg(target_os = "windows")]
+            inspect_overlay_handle: Arc::new(std::sync::Mutex::new(None)),
         })
     }
 
@@ -765,7 +771,7 @@ impl DesktopWrapper {
     fn detect_browser_by_pid(pid: u32) -> bool {
         const KNOWN_BROWSER_PROCESS_NAMES: &[&str] = &[
             "chrome", "firefox", "msedge", "edge", "iexplore", "opera", "brave", "vivaldi",
-            "browser", "arc", "explorer",
+            "browser", "arc",
         ];
 
         #[cfg(target_os = "windows")]
@@ -788,12 +794,35 @@ impl DesktopWrapper {
     }
 
     /// Capture all visible DOM elements from the current browser tab
-    async fn capture_browser_dom_elements(&self) -> Result<Vec<serde_json::Value>, String> {
+    /// Returns (elements, viewport_offset_x, viewport_offset_y) for screen coordinate conversion
+    /// The viewport offset is derived from the UIA Document element's screen bounds
+    async fn capture_browser_dom_elements(
+        &self,
+        max_elements: u32,
+    ) -> Result<(Vec<serde_json::Value>, f64, f64), String> {
+        // First, find the Document element to get viewport screen position
+        // This is more reliable than JavaScript window properties (which break with DPI scaling)
+        let viewport_offset = match self
+            .desktop
+            .locator("role:Document")
+            .first(Some(Duration::from_millis(2000)))
+            .await
+        {
+            Ok(doc_element) => {
+                match doc_element.bounds() {
+                    Ok((x, y, _w, _h)) => (x, y),
+                    Err(_) => (0.0, 0.0), // Fallback
+                }
+            }
+            Err(_) => (0.0, 0.0), // Fallback
+        };
         // Script to extract ALL visible elements using TreeWalker
-        let script = r#"
-(function() {
+        let script = format!(
+            r#"
+(function() {{
     const elements = [];
-    const maxElements = 100; // Limit to prevent huge responses
+    const maxElements = {max_elements}; // Configurable limit"#
+        ) + r#"
 
     // Use TreeWalker to traverse ALL elements in the DOM
     const walker = document.createTreeWalker(
@@ -839,10 +868,11 @@ impl DesktopWrapper {
             placeholder: node.placeholder || null,
             aria_label: node.getAttribute('aria-label'),
             role: node.getAttribute('role'),
-            x: Math.round(rect.x),
-            y: Math.round(rect.y),
-            width: Math.round(rect.width),
-            height: Math.round(rect.height)
+            // Scale by devicePixelRatio to convert CSS pixels to physical pixels
+            x: Math.round(rect.x * window.devicePixelRatio),
+            y: Math.round(rect.y * window.devicePixelRatio),
+            width: Math.round(rect.width * window.devicePixelRatio),
+            height: Math.round(rect.height * window.devicePixelRatio)
         });
     }
 
@@ -850,24 +880,309 @@ impl DesktopWrapper {
         elements: elements,
         total_found: elements.length,
         page_url: window.location.href,
-        page_title: document.title
+        page_title: document.title,
+        devicePixelRatio: window.devicePixelRatio
     });
 })()
 "#;
 
-        match self.desktop.execute_browser_script(script).await {
-            Ok(result_str) => match serde_json::from_str::<serde_json::Value>(&result_str) {
-                Ok(result) => {
-                    if let Some(elements) = result.get("elements").and_then(|v| v.as_array()) {
-                        Ok(elements.clone())
-                    } else {
-                        Ok(vec![])
+        let script_result = self.desktop.execute_browser_script(&script).await;
+        info!(
+            "[capture_browser_dom] execute_browser_script returned, is_ok={}",
+            script_result.is_ok()
+        );
+        match script_result {
+            Ok(result_str) => {
+                info!(
+                    "[capture_browser_dom] Got result_str, len={}",
+                    result_str.len()
+                );
+                match serde_json::from_str::<serde_json::Value>(&result_str) {
+                    Ok(result) => {
+                        info!("[capture_browser_dom] JSON parsed successfully");
+                        let elements = result
+                            .get("elements")
+                            .and_then(|v| v.as_array())
+                            .cloned()
+                            .unwrap_or_default();
+                        info!(
+                            "[capture_browser_dom] Returning {} elements",
+                            elements.len()
+                        );
+                        // Use UIA-based viewport offset (more reliable than JS due to DPI scaling)
+                        Ok((elements, viewport_offset.0, viewport_offset.1))
+                    }
+                    Err(e) => {
+                        warn!("[capture_browser_dom] JSON parse failed: {e}");
+                        Err(format!("Failed to parse DOM elements: {e}"))
                     }
                 }
-                Err(e) => Err(format!("Failed to parse DOM elements: {e}")),
-            },
-            Err(e) => Err(format!("Failed to execute browser script: {e}")),
+            }
+            Err(e) => {
+                warn!("[capture_browser_dom] execute_browser_script failed: {e}");
+                Err(format!("Failed to execute browser script: {e}"))
+            }
         }
+    }
+
+    /// Perform Omniparser V2 detection on a window by its process ID
+    async fn perform_omniparser_for_process(
+        &self,
+        pid: u32,
+    ) -> Result<Vec<crate::omniparser::OmniparserItem>, String> {
+        // Find the window element for this process
+        let apps = self
+            .desktop
+            .applications()
+            .map_err(|e| format!("Failed to get applications: {e}"))?;
+
+        let window_element = apps
+            .into_iter()
+            .find(|app| app.process_id().unwrap_or(0) == pid)
+            .ok_or_else(|| format!("No window found for PID {pid}"))?;
+
+        // Get window bounds (absolute screen coordinates)
+        let bounds = window_element
+            .bounds()
+            .map_err(|e| format!("Failed to get window bounds: {e}"))?;
+        let (window_x, window_y, win_w, win_h) = bounds;
+
+        // Capture screenshot of the window
+        let screenshot = window_element
+            .capture()
+            .map_err(|e| format!("Failed to capture window screenshot: {e}"))?;
+
+        // Get original screenshot dimensions
+        let original_width = screenshot.width;
+        let original_height = screenshot.height;
+
+        // DPI DEBUG: Compare logical window bounds vs physical screenshot size
+        let dpi_scale_w = original_width as f64 / win_w;
+        let dpi_scale_h = original_height as f64 / win_h;
+        info!(
+            "OMNIPARSER DPI DEBUG: window_bounds(logical)=({:.0},{:.0},{:.0},{:.0}), screenshot(physical)={}x{}, dpi_scale=({:.3},{:.3})",
+            window_x, window_y, win_w, win_h, original_width, original_height, dpi_scale_w, dpi_scale_h
+        );
+
+        // Convert BGRA to RGBA (xcap returns BGRA format)
+        let rgba_data: Vec<u8> = screenshot
+            .image_data
+            .chunks_exact(4)
+            .flat_map(|bgra| [bgra[2], bgra[1], bgra[0], bgra[3]]) // B,G,R,A -> R,G,B,A
+            .collect();
+
+        // Apply resize if needed (max 1920px to match Replicate's imgsz limit)
+        const MAX_DIM: u32 = 1920;
+        let (final_width, final_height, final_rgba_data, scale_factor) = if original_width > MAX_DIM
+            || original_height > MAX_DIM
+        {
+            // Calculate new dimensions maintaining aspect ratio
+            let scale = (MAX_DIM as f32 / original_width.max(original_height) as f32).min(1.0);
+            let new_width = (original_width as f32 * scale).round() as u32;
+            let new_height = (original_height as f32 * scale).round() as u32;
+
+            // Create ImageBuffer from RGBA data and resize
+            let img =
+                ImageBuffer::<Rgba<u8>, _>::from_raw(original_width, original_height, rgba_data)
+                    .ok_or_else(|| {
+                        "Failed to create image buffer from screenshot data".to_string()
+                    })?;
+
+            let resized =
+                image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
+
+            info!(
+                "OmniParser: Resized screenshot from {}x{} to {}x{} (scale: {:.2})",
+                original_width, original_height, new_width, new_height, scale
+            );
+
+            (new_width, new_height, resized.into_raw(), scale as f64)
+        } else {
+            (original_width, original_height, rgba_data, 1.0)
+        };
+
+        // Encode to PNG
+        let mut png_data = Vec::new();
+        let encoder = PngEncoder::new(Cursor::new(&mut png_data));
+        encoder
+            .write_image(
+                &final_rgba_data,
+                final_width,
+                final_height,
+                ExtendedColorType::Rgba8,
+            )
+            .map_err(|e| format!("Failed to encode screenshot to PNG: {e}"))?;
+
+        let base64_image = general_purpose::STANDARD.encode(&png_data);
+
+        info!(
+            "OmniParser: Sending {}x{} image ({} KB)",
+            final_width,
+            final_height,
+            png_data.len() / 1024
+        );
+
+        // Call OmniParser backend with imgsz=1920 for best detection
+        let (items, _raw_json) = crate::omniparser::parse_image_with_backend(
+            &base64_image,
+            final_width,
+            final_height,
+            Some(MAX_DIM), // Use max imgsz for best detection quality
+        )
+        .await
+        .map_err(|e| format!("Omniparser failed: {e}"))?;
+
+        // Convert coordinates to absolute screen coordinates
+        // If image was resized, scale coordinates back to original size first
+        // Then apply DPI scaling to convert from physical to logical coordinates
+        let mut absolute_items = Vec::new();
+        for item in items {
+            let mut new_item = item.clone();
+            if let Some(box_2d) = new_item.box_2d {
+                // box_2d is [x_min, y_min, x_max, y_max] relative to the (possibly resized) screenshot
+                // 1. Scale back to original screenshot size if image was resized (inv_scale)
+                // 2. Convert from physical to logical coords (divide by dpi_scale)
+                // 3. Add logical window offset
+                let inv_scale = 1.0 / scale_factor;
+                new_item.box_2d = Some([
+                    window_x + (box_2d[0] * inv_scale / dpi_scale_w),
+                    window_y + (box_2d[1] * inv_scale / dpi_scale_h),
+                    window_x + (box_2d[2] * inv_scale / dpi_scale_w),
+                    window_y + (box_2d[3] * inv_scale / dpi_scale_h),
+                ]);
+            }
+            absolute_items.push(new_item);
+        }
+
+        Ok(absolute_items)
+    }
+
+    /// Perform Gemini Vision detection on a window by its process ID
+    async fn perform_gemini_vision_for_process(
+        &self,
+        pid: u32,
+    ) -> Result<Vec<crate::vision::VisionElement>, String> {
+        // Find the window element for this process
+        let apps = self
+            .desktop
+            .applications()
+            .map_err(|e| format!("Failed to get applications: {e}"))?;
+
+        let window_element = apps
+            .into_iter()
+            .find(|app| app.process_id().unwrap_or(0) == pid)
+            .ok_or_else(|| format!("No window found for PID {pid}"))?;
+
+        // Get window bounds (absolute screen coordinates)
+        let bounds = window_element
+            .bounds()
+            .map_err(|e| format!("Failed to get window bounds: {e}"))?;
+        let (window_x, window_y, win_w, win_h) = bounds;
+
+        // Capture screenshot of the window
+        let screenshot = window_element
+            .capture()
+            .map_err(|e| format!("Failed to capture window screenshot: {e}"))?;
+
+        // Get original screenshot dimensions
+        let original_width = screenshot.width;
+        let original_height = screenshot.height;
+
+        // DPI DEBUG: Compare logical window bounds vs physical screenshot size
+        let dpi_scale_w = original_width as f64 / win_w;
+        let dpi_scale_h = original_height as f64 / win_h;
+        info!(
+            "GEMINI VISION DPI DEBUG: window_bounds(logical)=({:.0},{:.0},{:.0},{:.0}), screenshot(physical)={}x{}, dpi_scale=({:.3},{:.3})",
+            window_x, window_y, win_w, win_h, original_width, original_height, dpi_scale_w, dpi_scale_h
+        );
+
+        // Convert BGRA to RGBA (xcap returns BGRA format)
+        let rgba_data: Vec<u8> = screenshot
+            .image_data
+            .chunks_exact(4)
+            .flat_map(|bgra| [bgra[2], bgra[1], bgra[0], bgra[3]]) // B,G,R,A -> R,G,B,A
+            .collect();
+
+        // Apply resize if needed (max 1920px for reasonable upload size)
+        const MAX_DIM: u32 = 1920;
+        let (final_width, final_height, final_rgba_data, scale_factor) = if original_width > MAX_DIM
+            || original_height > MAX_DIM
+        {
+            // Calculate new dimensions maintaining aspect ratio
+            let scale = (MAX_DIM as f32 / original_width.max(original_height) as f32).min(1.0);
+            let new_width = (original_width as f32 * scale).round() as u32;
+            let new_height = (original_height as f32 * scale).round() as u32;
+
+            // Create ImageBuffer from RGBA data and resize
+            let img =
+                ImageBuffer::<Rgba<u8>, _>::from_raw(original_width, original_height, rgba_data)
+                    .ok_or_else(|| {
+                        "Failed to create image buffer from screenshot data".to_string()
+                    })?;
+
+            let resized =
+                image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
+
+            info!(
+                "Gemini Vision: Resized screenshot from {}x{} to {}x{} (scale: {:.2})",
+                original_width, original_height, new_width, new_height, scale
+            );
+
+            (new_width, new_height, resized.into_raw(), scale as f64)
+        } else {
+            (original_width, original_height, rgba_data, 1.0)
+        };
+
+        // Encode to PNG
+        let mut png_data = Vec::new();
+        let encoder = PngEncoder::new(Cursor::new(&mut png_data));
+        encoder
+            .write_image(
+                &final_rgba_data,
+                final_width,
+                final_height,
+                ExtendedColorType::Rgba8,
+            )
+            .map_err(|e| format!("Failed to encode screenshot to PNG: {e}"))?;
+
+        let base64_image = general_purpose::STANDARD.encode(&png_data);
+
+        info!(
+            "Gemini Vision: Sending {}x{} image ({} KB)",
+            final_width,
+            final_height,
+            png_data.len() / 1024
+        );
+
+        // Call Gemini Vision backend
+        let (items, _raw_json) =
+            crate::vision::parse_image_with_gemini(&base64_image, final_width, final_height)
+                .await
+                .map_err(|e| format!("Gemini Vision failed: {e}"))?;
+
+        // Convert coordinates to absolute screen coordinates
+        // If image was resized, scale coordinates back to original size first
+        // Then apply DPI scaling to convert from physical to logical coordinates
+        let mut absolute_items = Vec::new();
+        for item in items {
+            let mut new_item = item.clone();
+            if let Some(box_2d) = new_item.box_2d {
+                // box_2d is [x_min, y_min, x_max, y_max] relative to the (possibly resized) screenshot
+                // 1. Scale back to original screenshot size if image was resized (inv_scale)
+                // 2. Convert from physical to logical coords (divide by dpi_scale)
+                // 3. Add logical window offset
+                let inv_scale = 1.0 / scale_factor;
+                new_item.box_2d = Some([
+                    window_x + (box_2d[0] * inv_scale / dpi_scale_w),
+                    window_y + (box_2d[1] * inv_scale / dpi_scale_h),
+                    window_x + (box_2d[2] * inv_scale / dpi_scale_w),
+                    window_y + (box_2d[3] * inv_scale / dpi_scale_h),
+                ]);
+            }
+            absolute_items.push(new_item);
+        }
+
+        Ok(absolute_items)
     }
 
     /// Perform OCR on a window by its process ID and return structured results with bounding boxes
@@ -889,16 +1204,25 @@ impl DesktopWrapper {
             .bounds()
             .map_err(|e| format!("Failed to get window bounds: {e}"))?;
 
-        let (window_x, window_y, _width, _height) = bounds;
+        let (window_x, window_y, win_w, win_h) = bounds;
 
         // Capture screenshot of the window
         let screenshot = window_element
             .capture()
             .map_err(|e| format!("Failed to capture window screenshot: {e}"))?;
 
+        // Calculate DPI scale factors (physical screenshot pixels / logical window size)
+        let dpi_scale_w = screenshot.width as f64 / win_w;
+        let dpi_scale_h = screenshot.height as f64 / win_h;
+        info!(
+            "OCR DPI: window_bounds(logical)=({:.0},{:.0},{:.0},{:.0}), screenshot(physical)={}x{}, dpi_scale=({:.3},{:.3})",
+            window_x, window_y, win_w, win_h, screenshot.width, screenshot.height, dpi_scale_w, dpi_scale_h
+        );
+
         // Perform OCR with bounding boxes using Desktop's method
+        // Pass DPI scale factors to convert physical OCR coords to logical screen coords
         self.desktop
-            .ocr_screenshot_with_bounds(&screenshot, window_x, window_y)
+            .ocr_screenshot_with_bounds(&screenshot, window_x, window_y, dpi_scale_w, dpi_scale_h)
             .map_err(|e| format!("OCR failed: {e}"))
     }
 
@@ -908,7 +1232,7 @@ impl DesktopWrapper {
     }
 
     #[tool(
-        description = "Get the complete UI tree for an application by process name (e.g., 'chrome', 'msedge', 'notepad'). Returns tree for the first matching process found. Returns detailed element information (role, name, id, enabled state, bounds, children). This is your primary tool for understanding the application's current state. Supports tree optimization: tree_max_depth (e.g., 30) to limit tree depth when you only need shallow inspection, tree_from_selector to get subtrees starting from a specific element, include_detailed_attributes to control verbosity (defaults to true). Use `include_ocr: true` to perform OCR and get indexed words (e.g., [OcrWord] #1 \"Submit\") for click targeting with `click_ocr_index`. This is a read-only operation."
+        description = "Inspection tool to understand the UI layout of an application by process name (e.g., 'chrome', 'msedge', 'notepad'). There is no single tree type that is most reliable for all scenarios - request one type at a time based on your needs. Returns tree for the first matching process found. Returns detailed element information (role, name, id, enabled state, bounds, children). This is your primary tool for understanding the application's current state. Supports tree optimization: tree_max_depth (e.g., 30) to limit tree depth when you only need shallow inspection, tree_from_selector to get subtrees starting from a specific element, include_detailed_attributes to control verbosity (defaults to true). For browser windows (chrome, msedge, firefox), use `include_browser_dom: true` to capture HTML DOM elements via Chrome extension (returned in `browser_dom` field). Use `browser_dom_max_elements` to control how many DOM elements to capture (default: 200). The DOM format follows `tree_output_format` (compact YAML by default). Use `include_gemini_vision: true` for Gemini vision model UI element detection - returns a structured 'vision_tree' field with all elements, their roles, and bounds indexed for click targeting with vision_type='gemini'. Use `include_omniparser: true` to detect icons and UI fields that lack accessibility labels - returns indexed items for click targeting with vision_type='omniparser'. Use `include_ocr: true` to perform OCR and get indexed words (e.g., [OcrWord] #1 \"Submit\") for click targeting with `click_ocr_index`. This is a read-only operation."
     )]
     pub async fn get_window_tree(
         &self,
@@ -1004,7 +1328,7 @@ impl DesktopWrapper {
             "title": args.title,
             "detailed_attributes": args.tree.include_detailed_attributes.unwrap_or(true),
             "timestamp": chrono::Utc::now().to_rfc3339(),
-            "recommendation": "Prefer role|name selectors (e.g., 'button|Submit'). Use the element ID (e.g., '#12345') as a fallback if the name is missing or generic. For large trees, use tree_max_depth: 30 to limit depth or tree_from_selector: \"role:Dialog\" to focus on specific UI regions."
+            "recommendation": "Prefer role|name selectors (e.g., 'button|Submit'). For large trees, use tree_from_selector: \"role:Dialog\" to focus on specific UI regions."
         });
 
         // Add browser detection metadata
@@ -1012,24 +1336,104 @@ impl DesktopWrapper {
             result_json["is_browser"] = json!(true);
             info!("Browser window detected for PID {}", pid);
 
-            // Try to capture DOM elements from browser
-            match self.capture_browser_dom_elements().await {
-                Ok(dom_elements) if !dom_elements.is_empty() => {
-                    result_json["browser_dom_elements"] = json!(dom_elements);
-                    result_json["browser_dom_count"] = json!(dom_elements.len());
-                    info!("Captured {} DOM elements from browser", dom_elements.len());
-                }
-                Ok(_) => {
-                    info!("Browser detected but no DOM elements captured (extension may not be available)");
-                }
-                Err(e) => {
-                    warn!("Failed to capture browser DOM: {}", e);
+            // Try to capture DOM elements from browser (if enabled)
+            // Use timeout to prevent indefinite hangs (default 15 seconds)
+            if args.include_browser_dom {
+                let max_dom_elements = args.browser_dom_max_elements.unwrap_or(200);
+                let dom_timeout = std::time::Duration::from_secs(15);
+                let dom_result = tokio::time::timeout(
+                    dom_timeout,
+                    self.capture_browser_dom_elements(max_dom_elements),
+                )
+                .await;
+
+                match dom_result {
+                    Err(_timeout) => {
+                        warn!(
+                            "[get_window_tree] DOM capture timed out after {}s",
+                            dom_timeout.as_secs()
+                        );
+                        result_json["browser_dom_error"] = json!(format!(
+                            "DOM capture timed out after {}s",
+                            dom_timeout.as_secs()
+                        ));
+                    }
+                    Ok(Err(e)) => {
+                        warn!("Failed to capture browser DOM: {}", e);
+                        result_json["browser_dom_error"] = json!(e.to_string());
+                    }
+                    Ok(Ok((dom_elements, viewport_offset_x, viewport_offset_y))) => {
+                        if dom_elements.is_empty() {
+                            info!("Browser detected but no DOM elements captured (extension may not be available)");
+                            result_json["browser_dom_error"] = json!(
+                                "No DOM elements captured - Chrome extension may not be installed or active"
+                            );
+                        } else {
+                            // Format based on tree_output_format
+                            let format = args
+                                .tree
+                                .tree_output_format
+                                .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
+
+                            match format {
+                                crate::mcp_types::TreeOutputFormat::CompactYaml
+                                | crate::mcp_types::TreeOutputFormat::ClusteredYaml => {
+                                    let dom_result =
+                                        crate::tree_formatter::format_browser_dom_as_compact_yaml(
+                                            &dom_elements,
+                                        );
+                                    result_json["browser_dom"] = json!(dom_result.formatted);
+
+                                    // Store DOM bounds with screen coordinates applied
+                                    if let Ok(mut cache) = self.dom_bounds.lock() {
+                                        cache.clear();
+                                        let mut first_logged = false;
+                                        for (index, (tag, identifier, (x, y, w, h))) in
+                                            dom_result.index_to_bounds
+                                        {
+                                            // Convert viewport-relative to screen coordinates
+                                            let screen_x = x + viewport_offset_x;
+                                            let screen_y = y + viewport_offset_y;
+                                            // DPI DEBUG: Log first element conversion
+                                            if !first_logged {
+                                                info!(
+                                                    "DOM DPI DEBUG: viewport_offset=({:.0},{:.0}), first_elem viewport_rel=({:.0},{:.0}), screen=({:.0},{:.0})",
+                                                    viewport_offset_x, viewport_offset_y, x, y, screen_x, screen_y
+                                                );
+                                                first_logged = true;
+                                            }
+                                            cache.insert(
+                                                index,
+                                                (tag, identifier, (screen_x, screen_y, w, h)),
+                                            );
+                                        }
+                                        info!(
+                                            "Stored {} DOM element bounds for click_index",
+                                            cache.len()
+                                        );
+                                    }
+                                }
+                                crate::mcp_types::TreeOutputFormat::VerboseJson => {
+                                    result_json["browser_dom"] = json!(dom_elements);
+                                }
+                            }
+                            result_json["browser_dom_count"] = json!(dom_elements.len());
+                            info!("Captured {} DOM elements from browser", dom_elements.len());
+                        }
+                    }
                 }
             }
         }
 
         // Use maybe_attach_tree to handle tree extraction with from_selector support
-        crate::helpers::maybe_attach_tree(
+        // Store the returned bounds cache for click_index tool
+        // Enable include_all_bounds when showing ui_tree overlay (need bounds for all elements)
+        let include_all_bounds = args
+            .show_overlay
+            .as_ref()
+            .map(|s| s == "ui_tree")
+            .unwrap_or(false);
+        if let Some(bounds_cache) = crate::helpers::maybe_attach_tree(
             &self.desktop,
             args.tree.include_tree_after_action,
             args.tree.tree_max_depth,
@@ -1039,8 +1443,14 @@ impl DesktopWrapper {
             Some(pid),
             &mut result_json,
             None, // No found element for window tree
+            include_all_bounds,
         )
-        .await;
+        .await
+        {
+            if let Ok(mut cache) = self.uia_bounds.lock() {
+                *cache = bounds_cache;
+            }
+        }
 
         // Perform OCR if requested
         if args.include_ocr {
@@ -1053,7 +1463,8 @@ impl DesktopWrapper {
                         .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
 
                     match format {
-                        crate::mcp_types::TreeOutputFormat::CompactYaml => {
+                        crate::mcp_types::TreeOutputFormat::CompactYaml
+                        | crate::mcp_types::TreeOutputFormat::ClusteredYaml => {
                             let ocr_formatting_result =
                                 crate::tree_formatter::format_ocr_tree_as_compact_yaml(
                                     &ocr_result,
@@ -1070,12 +1481,506 @@ impl DesktopWrapper {
                                 serde_json::to_value(&ocr_result).unwrap_or_default();
                         }
                     }
-                    result_json["ocr_text"] = json!(ocr_result.text);
                     info!("OCR completed for PID {}", pid);
                 }
                 Err(e) => {
                     warn!("OCR failed for PID {}: {}", pid, e);
                     result_json["ocr_error"] = json!(e.to_string());
+                }
+            }
+        }
+
+        // Perform Omniparser if requested
+        if args.include_omniparser {
+            match self.perform_omniparser_for_process(pid).await {
+                Ok(items) => {
+                    // Format Omniparser tree based on tree_output_format (same as UI tree)
+                    let format = args
+                        .tree
+                        .tree_output_format
+                        .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
+
+                    match format {
+                        crate::mcp_types::TreeOutputFormat::CompactYaml
+                        | crate::mcp_types::TreeOutputFormat::ClusteredYaml => {
+                            let (formatted, cache) =
+                                crate::tree_formatter::format_omniparser_tree_as_compact_yaml(
+                                    &items,
+                                );
+                            if let Ok(mut locked_cache) = self.omniparser_items.lock() {
+                                *locked_cache = cache;
+                            }
+                            result_json["omniparser_tree"] = json!(formatted);
+                        }
+                        crate::mcp_types::TreeOutputFormat::VerboseJson => {
+                            let mut omniparser_tree = Vec::new();
+                            let mut cache = HashMap::new();
+
+                            for (i, item) in items.iter().enumerate() {
+                                let index = (i + 1) as u32;
+                                cache.insert(index, item.clone());
+
+                                omniparser_tree.push(json!({
+                                    "index": index,
+                                    "label": item.label,
+                                    "content": item.content,
+                                    "bounds": item.box_2d,
+                                }));
+                            }
+
+                            if let Ok(mut locked_cache) = self.omniparser_items.lock() {
+                                *locked_cache = cache;
+                            }
+
+                            result_json["omniparser_tree"] = json!(omniparser_tree);
+                        }
+                    }
+                    info!("Omniparser completed for PID {}", pid);
+                }
+                Err(e) => {
+                    warn!("Omniparser failed for PID {}: {}", pid, e);
+                    result_json["omniparser_error"] = json!(e.to_string());
+                }
+            }
+        }
+
+        // Perform Gemini Vision if requested
+        if args.include_gemini_vision {
+            match self.perform_gemini_vision_for_process(pid).await {
+                Ok(items) => {
+                    // Format Vision tree based on tree_output_format (same as UI tree)
+                    let format = args
+                        .tree
+                        .tree_output_format
+                        .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
+
+                    match format {
+                        crate::mcp_types::TreeOutputFormat::CompactYaml
+                        | crate::mcp_types::TreeOutputFormat::ClusteredYaml => {
+                            let (formatted, cache) =
+                                crate::tree_formatter::format_vision_tree_as_compact_yaml(&items);
+                            if let Ok(mut locked_cache) = self.vision_items.lock() {
+                                *locked_cache = cache;
+                            }
+                            result_json["vision_tree"] = json!(formatted);
+                        }
+                        crate::mcp_types::TreeOutputFormat::VerboseJson => {
+                            let mut vision_tree = Vec::new();
+                            let mut cache = HashMap::new();
+
+                            for (i, item) in items.iter().enumerate() {
+                                let index = (i + 1) as u32;
+                                cache.insert(index, item.clone());
+
+                                vision_tree.push(json!({
+                                    "index": index,
+                                    "type": item.element_type,
+                                    "content": item.content,
+                                    "description": item.description,
+                                    "interactivity": item.interactivity,
+                                    "bounds": item.box_2d,
+                                }));
+                            }
+
+                            if let Ok(mut locked_cache) = self.vision_items.lock() {
+                                *locked_cache = cache;
+                            }
+
+                            result_json["vision_tree"] = json!(vision_tree);
+                        }
+                    }
+                    result_json["include_gemini_vision"] = json!(true);
+                    info!("Gemini Vision completed for PID {}", pid);
+                }
+                Err(e) => {
+                    warn!("Gemini Vision failed for PID {}: {}", pid, e);
+                    result_json["vision_error"] = json!(e.to_string());
+                }
+            }
+        }
+
+        // Generate clustered output if requested
+        if args
+            .tree
+            .tree_output_format
+            .map(|f| matches!(f, crate::mcp_types::TreeOutputFormat::ClusteredYaml))
+            .unwrap_or(false)
+        {
+            // Gather cached bounds from each source
+            let uia_bounds_snapshot = self
+                .uia_bounds
+                .lock()
+                .map(|g| g.clone())
+                .unwrap_or_default();
+            let dom_bounds_snapshot = self
+                .dom_bounds
+                .lock()
+                .map(|g| g.clone())
+                .unwrap_or_default();
+            let ocr_bounds_snapshot = self
+                .ocr_bounds
+                .lock()
+                .map(|g| g.clone())
+                .unwrap_or_default();
+            let omniparser_snapshot = self
+                .omniparser_items
+                .lock()
+                .map(|g| g.clone())
+                .unwrap_or_default();
+            let vision_snapshot = self
+                .vision_items
+                .lock()
+                .map(|g| g.clone())
+                .unwrap_or_default();
+
+            // Cluster and format all elements from all sources
+            let clustered_result = crate::tree_formatter::format_clustered_tree_from_caches(
+                &uia_bounds_snapshot,
+                &dom_bounds_snapshot,
+                &ocr_bounds_snapshot,
+                &omniparser_snapshot,
+                &vision_snapshot,
+            );
+
+            result_json["clustered_tree"] = json!(clustered_result.formatted);
+
+            // Store the clustered bounds cache
+            let element_count = clustered_result.index_to_source_and_bounds.len();
+            if let Ok(mut cache) = self.clustered_bounds.lock() {
+                *cache = clustered_result.index_to_source_and_bounds;
+            }
+
+            info!("Clustered tree generated with {} elements", element_count);
+        }
+
+        // Handle show_overlay request
+        #[cfg(target_os = "windows")]
+        if let Some(ref overlay_type) = args.show_overlay {
+            // Parse display mode from args
+            let display_mode = match args.overlay_display_mode.as_deref() {
+                Some("rectangles") => terminator::OverlayDisplayMode::Rectangles,
+                Some("index") | None => terminator::OverlayDisplayMode::Index,
+                Some("role") => terminator::OverlayDisplayMode::Role,
+                Some("index_role") => terminator::OverlayDisplayMode::IndexRole,
+                Some("name") => terminator::OverlayDisplayMode::Name,
+                Some("index_name") => terminator::OverlayDisplayMode::IndexName,
+                Some("full") => terminator::OverlayDisplayMode::Full,
+                Some(other) => {
+                    result_json["overlay_error"] = json!(format!("Unknown overlay_display_mode: '{}'. Valid options: rectangles, index, role, index_role, name, index_name, full", other));
+                    terminator::OverlayDisplayMode::Index // fallback to default
+                }
+            };
+
+            match overlay_type.as_str() {
+                "ui_tree" => {
+                    // Use UIA bounds from uia_bounds cache (like OCR/DOM do)
+                    if let Ok(uia_bounds) = self.uia_bounds.lock() {
+                        let elements: Vec<terminator::InspectElement> = uia_bounds
+                            .iter()
+                            .map(|(idx, (role, name, bounds, _selector))| {
+                                terminator::InspectElement {
+                                    index: *idx,
+                                    role: role.clone(),
+                                    name: if name.is_empty() {
+                                        None
+                                    } else {
+                                        Some(name.clone())
+                                    },
+                                    bounds: *bounds,
+                                }
+                            })
+                            .collect();
+
+                        if !elements.is_empty() {
+                            if let Ok(apps) = self.desktop.applications() {
+                                if let Some(app) =
+                                    apps.iter().find(|a| a.process_id().ok() == Some(pid))
+                                {
+                                    if let Ok((x, y, w, h)) = app.bounds() {
+                                        if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
+                                            *handle = None;
+                                        }
+                                        terminator::hide_inspect_overlay();
+
+                                        match terminator::show_inspect_overlay(
+                                            elements,
+                                            (x as i32, y as i32, w as i32, h as i32),
+                                            display_mode,
+                                        ) {
+                                            Ok(new_handle) => {
+                                                if let Ok(mut handle) =
+                                                    self.inspect_overlay_handle.lock()
+                                                {
+                                                    *handle = Some(new_handle);
+                                                }
+                                                result_json["overlay_shown"] = json!("ui_tree");
+                                                info!("Inspect overlay shown for ui_tree");
+                                            }
+                                            Err(e) => {
+                                                warn!("Failed to show inspect overlay: {}", e);
+                                                result_json["overlay_error"] = json!(e.to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            result_json["overlay_error"] = json!("No UI elements with bounds in cache - ensure include_tree_after_action is true");
+                        }
+                    }
+                }
+                "ocr" => {
+                    // Use OCR bounds from ocr_bounds cache
+                    if let Ok(ocr_bounds) = self.ocr_bounds.lock() {
+                        let elements: Vec<terminator::InspectElement> = ocr_bounds
+                            .iter()
+                            .map(|(idx, (text, bounds))| terminator::InspectElement {
+                                index: *idx,
+                                role: "OCR".to_string(),
+                                name: Some(text.clone()),
+                                bounds: *bounds,
+                            })
+                            .collect();
+
+                        if !elements.is_empty() {
+                            // DPI DEBUG: Log sample element bounds for OCR
+                            if let Some(first) = elements.first() {
+                                info!(
+                                    "OCR OVERLAY DEBUG: first_element bounds=({:.0},{:.0},{:.0},{:.0})",
+                                    first.bounds.0, first.bounds.1, first.bounds.2, first.bounds.3
+                                );
+                            }
+                            if let Ok(apps) = self.desktop.applications() {
+                                if let Some(app) =
+                                    apps.iter().find(|a| a.process_id().ok() == Some(pid))
+                                {
+                                    if let Ok((x, y, w, h)) = app.bounds() {
+                                        info!(
+                                            "OCR OVERLAY DEBUG: window_bounds for overlay=({:.0},{:.0},{:.0},{:.0})",
+                                            x, y, w, h
+                                        );
+                                        if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
+                                            *handle = None;
+                                        }
+                                        terminator::hide_inspect_overlay();
+
+                                        match terminator::show_inspect_overlay(
+                                            elements,
+                                            (x as i32, y as i32, w as i32, h as i32),
+                                            display_mode,
+                                        ) {
+                                            Ok(new_handle) => {
+                                                if let Ok(mut handle) =
+                                                    self.inspect_overlay_handle.lock()
+                                                {
+                                                    *handle = Some(new_handle);
+                                                }
+                                                result_json["overlay_shown"] = json!("ocr");
+                                            }
+                                            Err(e) => {
+                                                result_json["overlay_error"] = json!(e.to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                "omniparser" => {
+                    // Use omniparser items from cache
+                    if let Ok(omni_items) = self.omniparser_items.lock() {
+                        let elements: Vec<terminator::InspectElement> = omni_items
+                            .iter()
+                            .filter_map(|(idx, item)| {
+                                // Convert box_2d [x_min, y_min, x_max, y_max] to (x, y, width, height)
+                                item.box_2d.map(|b| terminator::InspectElement {
+                                    index: *idx,
+                                    role: item.label.clone(),
+                                    name: item.content.clone(),
+                                    bounds: (b[0], b[1], b[2] - b[0], b[3] - b[1]),
+                                })
+                            })
+                            .collect();
+
+                        if !elements.is_empty() {
+                            // DPI DEBUG: Log sample element bounds for omniparser
+                            if let Some(first) = elements.first() {
+                                info!(
+                                    "OMNIPARSER OVERLAY DEBUG: first_element bounds=({:.0},{:.0},{:.0},{:.0})",
+                                    first.bounds.0, first.bounds.1, first.bounds.2, first.bounds.3
+                                );
+                            }
+                            if let Ok(apps) = self.desktop.applications() {
+                                if let Some(app) =
+                                    apps.iter().find(|a| a.process_id().ok() == Some(pid))
+                                {
+                                    if let Ok((x, y, w, h)) = app.bounds() {
+                                        info!(
+                                            "OMNIPARSER OVERLAY DEBUG: window_bounds for overlay=({:.0},{:.0},{:.0},{:.0})",
+                                            x, y, w, h
+                                        );
+                                        if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
+                                            *handle = None;
+                                        }
+                                        terminator::hide_inspect_overlay();
+
+                                        match terminator::show_inspect_overlay(
+                                            elements,
+                                            (x as i32, y as i32, w as i32, h as i32),
+                                            display_mode,
+                                        ) {
+                                            Ok(new_handle) => {
+                                                if let Ok(mut handle) =
+                                                    self.inspect_overlay_handle.lock()
+                                                {
+                                                    *handle = Some(new_handle);
+                                                }
+                                                result_json["overlay_shown"] = json!("omniparser");
+                                            }
+                                            Err(e) => {
+                                                result_json["overlay_error"] = json!(e.to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                "dom" => {
+                    // Use DOM bounds from dom_bounds cache (populated by include_browser_dom)
+                    if let Ok(dom_bounds) = self.dom_bounds.lock() {
+                        let elements: Vec<terminator::InspectElement> = dom_bounds
+                            .iter()
+                            .map(
+                                |(idx, (tag, identifier, bounds))| terminator::InspectElement {
+                                    index: *idx,
+                                    role: tag.clone(),
+                                    name: if identifier.is_empty() {
+                                        None
+                                    } else {
+                                        Some(identifier.clone())
+                                    },
+                                    bounds: *bounds,
+                                },
+                            )
+                            .collect();
+
+                        if !elements.is_empty() {
+                            // DPI DEBUG: Log sample element bounds for DOM
+                            if let Some(first) = elements.first() {
+                                info!(
+                                    "DOM OVERLAY DEBUG: first_element bounds=({:.0},{:.0},{:.0},{:.0})",
+                                    first.bounds.0, first.bounds.1, first.bounds.2, first.bounds.3
+                                );
+                            }
+                            if let Ok(apps) = self.desktop.applications() {
+                                if let Some(app) =
+                                    apps.iter().find(|a| a.process_id().ok() == Some(pid))
+                                {
+                                    if let Ok((x, y, w, h)) = app.bounds() {
+                                        info!(
+                                            "DOM OVERLAY DEBUG: window_bounds for overlay=({:.0},{:.0},{:.0},{:.0})",
+                                            x, y, w, h
+                                        );
+                                        if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
+                                            *handle = None;
+                                        }
+                                        terminator::hide_inspect_overlay();
+
+                                        match terminator::show_inspect_overlay(
+                                            elements,
+                                            (x as i32, y as i32, w as i32, h as i32),
+                                            display_mode,
+                                        ) {
+                                            Ok(new_handle) => {
+                                                if let Ok(mut handle) =
+                                                    self.inspect_overlay_handle.lock()
+                                                {
+                                                    *handle = Some(new_handle);
+                                                }
+                                                result_json["overlay_shown"] = json!("dom");
+                                                info!("Inspect overlay shown for DOM elements");
+                                            }
+                                            Err(e) => {
+                                                result_json["overlay_error"] = json!(e.to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            result_json["overlay_error"] = json!("No DOM elements in cache - ensure include_browser_dom is true and browser extension is active");
+                        }
+                    }
+                }
+                "gemini" => {
+                    // Use Gemini vision items from cache
+                    if let Ok(vision_items) = self.vision_items.lock() {
+                        let elements: Vec<terminator::InspectElement> = vision_items
+                            .iter()
+                            .filter_map(|(idx, item)| {
+                                // Convert box_2d [x_min, y_min, x_max, y_max] to (x, y, width, height)
+                                item.box_2d.map(|b| terminator::InspectElement {
+                                    index: *idx,
+                                    role: item.element_type.clone(),
+                                    name: item.content.clone(),
+                                    bounds: (b[0], b[1], b[2] - b[0], b[3] - b[1]),
+                                })
+                            })
+                            .collect();
+
+                        if !elements.is_empty() {
+                            // DPI DEBUG: Log sample element bounds for vision
+                            if let Some(first) = elements.first() {
+                                info!(
+                                    "VISION OVERLAY DEBUG: first_element bounds=({:.0},{:.0},{:.0},{:.0})",
+                                    first.bounds.0, first.bounds.1, first.bounds.2, first.bounds.3
+                                );
+                            }
+                            if let Ok(apps) = self.desktop.applications() {
+                                if let Some(app) =
+                                    apps.iter().find(|a| a.process_id().ok() == Some(pid))
+                                {
+                                    if let Ok((x, y, w, h)) = app.bounds() {
+                                        info!(
+                                            "VISION OVERLAY DEBUG: window_bounds for overlay=({:.0},{:.0},{:.0},{:.0})",
+                                            x, y, w, h
+                                        );
+                                        if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
+                                            *handle = None;
+                                        }
+                                        terminator::hide_inspect_overlay();
+
+                                        match terminator::show_inspect_overlay(
+                                            elements,
+                                            (x as i32, y as i32, w as i32, h as i32),
+                                            display_mode,
+                                        ) {
+                                            Ok(new_handle) => {
+                                                if let Ok(mut handle) =
+                                                    self.inspect_overlay_handle.lock()
+                                                {
+                                                    *handle = Some(new_handle);
+                                                }
+                                                result_json["overlay_shown"] = json!("gemini");
+                                            }
+                                            Err(e) => {
+                                                result_json["overlay_error"] = json!(e.to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            result_json["overlay_error"] = json!("No Gemini elements in cache - use include_gemini_vision=true first");
+                        }
+                    }
+                }
+                _ => {
+                    result_json["overlay_error"] =
+                        json!(format!("Unknown overlay type: {}", overlay_type));
                 }
             }
         }
@@ -1441,10 +2346,17 @@ impl DesktopWrapper {
 
     /// Ensures element is visible and applies highlighting before action with hardcoded defaults
     fn ensure_visible_and_apply_highlight(element: &UIElement, action_name: &str) {
+        let start = std::time::Instant::now();
+
         // Always ensure element is in view first (for all actions, not just when highlighting)
+        let scroll_start = std::time::Instant::now();
         if let Err(e) = Self::ensure_element_in_view(element) {
             tracing::warn!("Failed to ensure element is in view for {action_name} action: {e}");
         }
+        tracing::info!(
+            "[PERF] ensure_element_in_view: {}ms",
+            scroll_start.elapsed().as_millis()
+        );
 
         // Hardcoded highlight configuration
         let duration = Some(std::time::Duration::from_millis(500));
@@ -1482,6 +2394,11 @@ impl DesktopWrapper {
         } else {
             tracing::warn!("Failed to apply highlighting before {action_name} action");
         }
+
+        tracing::info!(
+            "[PERF] ensure_visible_and_apply_highlight: {}ms",
+            start.elapsed().as_millis()
+        );
     }
 
     #[tool(
@@ -1491,6 +2408,7 @@ impl DesktopWrapper {
         &self,
         Parameters(args): Parameters<TypeIntoElementArgs>,
     ) -> Result<CallToolResult, McpError> {
+        let operation_start = std::time::Instant::now();
         let mut span = StepSpan::new("type_into_element", None);
 
         // Add comprehensive telemetry attributes
@@ -1783,7 +2701,7 @@ impl DesktopWrapper {
             }
         }
 
-        // Attach UI diff if captured
+        // Attach UI diff if captured (action tools only support diff, not standalone tree)
         if let Some(diff_result) = ui_diff {
             tracing::debug!(
                 "[type_into_element] Attaching UI diff to result (has_changes: {})",
@@ -1792,28 +2710,24 @@ impl DesktopWrapper {
             span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
 
             result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["tree_before"] = json!(diff_result.tree_before);
-            result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-        } else {
-            // Normal tree attachment when diff not requested
-            maybe_attach_tree(
-                &self.desktop,
-                args.tree.include_tree_after_action,
-                args.tree.tree_max_depth,
-                args.tree.tree_from_selector.as_deref(),
-                args.tree.include_detailed_attributes,
-                Some(tree_output_format),
-                Some(element.process_id().unwrap_or(0)),
-                &mut result_json,
-                Some(&element),
-            )
-            .await;
+            if args
+                .tree
+                .ui_diff_include_full_trees_in_response
+                .unwrap_or(false)
+            {
+                result_json["tree_before"] = json!(diff_result.tree_before);
+                result_json["tree_after"] = json!(diff_result.tree_after);
+            }
         }
 
         // Restore windows after typing into element
         self.restore_window_management(should_restore).await;
 
+        tracing::info!(
+            "[PERF] type_into_element total: {}ms",
+            operation_start.elapsed().as_millis()
+        );
         span.set_status(true, None);
         span.end();
         Ok(CallToolResult::success(
@@ -1827,309 +2741,507 @@ impl DesktopWrapper {
     }
 
     #[tool(
-        description = "Clicks a UI element using Playwright-style actionability validation. Performs comprehensive pre-action checks: element must be visible (non-zero bounds), enabled, in viewport, and have stable bounds (3 consecutive checks at 16ms intervals, max ~800ms wait). Returns success with 'validated=true' in click_result.details when all checks pass. Fails explicitly with specific errors: ElementNotVisible (zero-size bounds/offscreen/not in viewport), ElementNotEnabled (disabled/grayed out), ElementNotStable (bounds still animating after 800ms), ElementDetached (no longer in UI tree), ElementObscured (covered by another element), or ScrollFailed (could not scroll into view). For buttons, prefer invoke_element (uses UI Automation's native invoke pattern, doesn't require viewport visibility). Use click_element for links, hover-sensitive elements, or UI requiring actual mouse interaction. REQUIRED: click_position parameter - use x_percentage: 50, y_percentage: 50 for center click (most common). This action requires the application to be focused and may change the UI."
+        description = "Unified click tool with three modes. IMPORTANT: Use exactly ONE mode - do not mix parameters from different modes.
+
+**Mode 1 - Selector** (process + selector): Find element by selector and click.
+  Example: {\"process\": \"notepad\", \"selector\": \"role:Button|name:Save\", \"click_type\": \"left\"}
+
+**Mode 2 - Index** (index + vision_type): Click indexed item from get_window_tree.
+  Example: {\"index\": 5, \"vision_type\": \"ui_tree\", \"click_type\": \"double\"}
+
+**Mode 3 - Coordinates** (x + y): Click at absolute screen coordinates.
+  Example: {\"x\": 500, \"y\": 300, \"click_type\": \"right\"}
+
+Click types: 'left' (default), 'double', 'right'. Selector mode uses actionability validation. Index mode requires get_window_tree first."
     )]
     pub async fn click_element(
         &self,
         Parameters(args): Parameters<ClickElementArgs>,
     ) -> Result<CallToolResult, McpError> {
-        // Start telemetry span
+        use crate::utils::ClickMode;
+
         let mut span = StepSpan::new("click_element", None);
-        span.set_attribute("selector", args.selector.selector.clone());
 
-        tracing::info!(
-            "[click_element] Called with selector: '{}'",
-            args.selector.selector
-        );
-
-        // Record retry configuration
-        if let Some(retries) = args.action.retries {
-            span.set_attribute("retry.max_attempts", retries.to_string());
-        }
-
-        span.set_attribute(
-            "click.position_x",
-            args.click_position.x_percentage.to_string(),
-        );
-        span.set_attribute(
-            "click.position_y",
-            args.click_position.y_percentage.to_string(),
-        );
-        tracing::info!(
-            "[click_element] Click position: {}%, {}%",
-            args.click_position.x_percentage,
-            args.click_position.y_percentage
-        );
-
-        // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            let flag_value = *in_sequence;
-            let should_restore_value = !flag_value;
-            tracing::info!(
-                "[click_element] Flag check: in_sequence={}, should_restore={}",
-                flag_value,
-                should_restore_value
-            );
-            should_restore_value
+        let mode = match args.determine_mode() {
+            Ok(m) => m,
+            Err(e) => {
+                span.set_status(false, Some(&e));
+                span.end();
+                return Err(McpError::invalid_params(e, None));
+            }
         };
 
-        if should_restore {
-            tracing::info!(
-                "[click_element] Direct MCP call detected - performing window management"
-            );
-            let _ = self
-                .prepare_window_management(
-                    &args.selector.process,
-                    None,
-                    None,
-                    None,
-                    &args.window_mgmt,
+        span.set_attribute("mode", format!("{:?}", mode));
+        span.set_attribute("click_type", format!("{:?}", args.click_type));
+        tracing::info!(
+            "[click_element] Mode: {:?}, click_type: {:?}",
+            mode,
+            args.click_type
+        );
+
+        let terminator_click_type = match args.click_type {
+            crate::utils::ClickType::Left => terminator::ClickType::Left,
+            crate::utils::ClickType::Double => terminator::ClickType::Double,
+            crate::utils::ClickType::Right => terminator::ClickType::Right,
+        };
+
+        match mode {
+            ClickMode::Coordinates => {
+                let x = args.x.unwrap();
+                let y = args.y.unwrap();
+                span.set_attribute("click_x", x.to_string());
+                span.set_attribute("click_y", y.to_string());
+                tracing::info!("[click_element] Coordinate mode: ({}, {})", x, y);
+
+                match self
+                    .desktop
+                    .click_at_coordinates_with_type(x, y, terminator_click_type)
+                {
+                    Ok(()) => {
+                        let ct_str = match args.click_type {
+                            crate::utils::ClickType::Left => "left",
+                            crate::utils::ClickType::Double => "double",
+                            crate::utils::ClickType::Right => "right",
+                        };
+                        let result_json = json!({
+                            "action": "click", "mode": "coordinates", "status": "success",
+                            "click_type": ct_str,
+                            "clicked_at": { "x": x, "y": y },
+                            "timestamp": chrono::Utc::now().to_rfc3339()
+                        });
+                        span.set_status(true, None);
+                        span.end();
+                        return Ok(CallToolResult::success(
+                            append_monitor_screenshots_if_enabled(
+                                &self.desktop,
+                                vec![Content::json(result_json)?],
+                                args.monitor.include_monitor_screenshots,
+                            )
+                            .await,
+                        ));
+                    }
+                    Err(e) => {
+                        span.set_status(false, Some(&e.to_string()));
+                        span.end();
+                        return Err(McpError::internal_error(
+                            format!("Failed to click at ({}, {}): {}", x, y, e),
+                            Some(json!({ "x": x, "y": y })),
+                        ));
+                    }
+                }
+            }
+
+            ClickMode::Index => {
+                let index = args.index.unwrap();
+                let vision_type = args.get_vision_type();
+                span.set_attribute("index", index.to_string());
+                span.set_attribute("vision_type", format!("{:?}", vision_type));
+                tracing::info!("[click_element] Index mode: {}, {:?}", index, vision_type);
+
+                // Track selector for UI tree clicks (populated in match arm)
+                let mut uia_selector: Option<String> = None;
+
+                let (item_label, bounds) = match vision_type {
+                    crate::utils::VisionType::UiTree => {
+                        let r = self
+                            .uia_bounds
+                            .lock()
+                            .map_err(|e| {
+                                McpError::internal_error(format!("Lock error: {e}"), None)
+                            })?
+                            .get(&index)
+                            .cloned();
+                        let Some((role, name, b, selector)) = r else {
+                            span.set_status(false, Some("UIA index not found"));
+                            span.end();
+                            return Err(McpError::internal_error(
+                                format!(
+                                    "UI tree index {} not found. Call get_window_tree first.",
+                                    index
+                                ),
+                                Some(json!({ "index": index })),
+                            ));
+                        };
+                        // Store selector for later use in response
+                        uia_selector = selector;
+                        (
+                            if name.is_empty() {
+                                role
+                            } else {
+                                format!("{role}: {name}")
+                            },
+                            b,
+                        )
+                    }
+                    crate::utils::VisionType::Ocr => {
+                        let r = self
+                            .ocr_bounds
+                            .lock()
+                            .map_err(|e| {
+                                McpError::internal_error(format!("Lock error: {e}"), None)
+                            })?
+                            .get(&index)
+                            .cloned();
+                        let Some((text, b)) = r else {
+                            span.set_status(false, Some("OCR index not found"));
+                            span.end();
+                            return Err(McpError::internal_error(
+                                format!("OCR index {} not found.", index),
+                                Some(json!({ "index": index })),
+                            ));
+                        };
+                        (text, b)
+                    }
+                    crate::utils::VisionType::Omniparser => {
+                        let r = self
+                            .omniparser_items
+                            .lock()
+                            .map_err(|e| {
+                                McpError::internal_error(format!("Lock error: {e}"), None)
+                            })?
+                            .get(&index)
+                            .cloned();
+                        let Some(item) = r else {
+                            span.set_status(false, Some("Omniparser index not found"));
+                            span.end();
+                            return Err(McpError::internal_error(
+                                format!("Omniparser index {} not found.", index),
+                                Some(json!({ "index": index })),
+                            ));
+                        };
+                        let b = item
+                            .box_2d
+                            .ok_or_else(|| McpError::internal_error("No bounds", None))?;
+                        (item.label, (b[0], b[1], b[2] - b[0], b[3] - b[1]))
+                    }
+                    crate::utils::VisionType::Gemini => {
+                        let r = self
+                            .vision_items
+                            .lock()
+                            .map_err(|e| {
+                                McpError::internal_error(format!("Lock error: {e}"), None)
+                            })?
+                            .get(&index)
+                            .cloned();
+                        let Some(item) = r else {
+                            span.set_status(false, Some("Gemini index not found"));
+                            span.end();
+                            return Err(McpError::internal_error(
+                                format!("Gemini index {} not found.", index),
+                                Some(json!({ "index": index })),
+                            ));
+                        };
+                        let b = item
+                            .box_2d
+                            .ok_or_else(|| McpError::internal_error("No bounds", None))?;
+                        (item.element_type, (b[0], b[1], b[2] - b[0], b[3] - b[1]))
+                    }
+                    crate::utils::VisionType::Dom => {
+                        let r = self
+                            .dom_bounds
+                            .lock()
+                            .map_err(|e| {
+                                McpError::internal_error(format!("Lock error: {e}"), None)
+                            })?
+                            .get(&index)
+                            .cloned();
+                        let Some((tag, id, b)) = r else {
+                            span.set_status(false, Some("DOM index not found"));
+                            span.end();
+                            return Err(McpError::internal_error(
+                                format!("DOM index {} not found.", index),
+                                Some(json!({ "index": index })),
+                            ));
+                        };
+                        (
+                            if id.is_empty() {
+                                tag
+                            } else {
+                                format!("{tag}: {id}")
+                            },
+                            b,
+                        )
+                    }
+                };
+
+                let click_x = bounds.0 + bounds.2 / 2.0;
+                let click_y = bounds.1 + bounds.3 / 2.0;
+                span.set_attribute("label", item_label.clone());
+
+                match self.desktop.click_at_coordinates_with_type(
+                    click_x,
+                    click_y,
+                    terminator_click_type,
+                ) {
+                    Ok(()) => {
+                        let vt_str = format!("{:?}", vision_type).to_lowercase();
+                        let ct_str = match args.click_type {
+                            crate::utils::ClickType::Left => "left",
+                            crate::utils::ClickType::Double => "double",
+                            crate::utils::ClickType::Right => "right",
+                        };
+                        let mut result_json = json!({
+                            "action": "click", "mode": "index", "status": "success",
+                            "index": index, "vision_type": vt_str, "click_type": ct_str, "label": item_label,
+                            "clicked_at": { "x": click_x, "y": click_y },
+                            "bounds": { "x": bounds.0, "y": bounds.1, "width": bounds.2, "height": bounds.3 },
+                            "timestamp": chrono::Utc::now().to_rfc3339()
+                        });
+                        // Add selector if available (UI tree clicks only)
+                        if let Some(ref sel) = uia_selector {
+                            result_json["selector"] = json!(sel);
+                        }
+                        span.set_status(true, None);
+                        span.end();
+                        return Ok(CallToolResult::success(
+                            append_monitor_screenshots_if_enabled(
+                                &self.desktop,
+                                vec![Content::json(result_json)?],
+                                args.monitor.include_monitor_screenshots,
+                            )
+                            .await,
+                        ));
+                    }
+                    Err(e) => {
+                        span.set_status(false, Some(&e.to_string()));
+                        span.end();
+                        return Err(McpError::internal_error(
+                            format!("Failed to click index {}: {e}", index),
+                            Some(json!({ "index": index, "label": item_label })),
+                        ));
+                    }
+                }
+            }
+
+            ClickMode::Selector => {
+                let full_selector = args.build_full_selector();
+                let click_position = args.get_click_position();
+                span.set_attribute("selector", full_selector.clone());
+                span.set_attribute("click.position_x", click_position.x_percentage.to_string());
+                span.set_attribute("click.position_y", click_position.y_percentage.to_string());
+                tracing::info!(
+                    "[click_element] Selector mode: '{}', position: {}%, {}%",
+                    full_selector,
+                    click_position.x_percentage,
+                    click_position.y_percentage
+                );
+
+                if let Some(retries) = args.action.retries {
+                    span.set_attribute("retry.max_attempts", retries.to_string());
+                }
+
+                let should_restore = {
+                    let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+                    !*in_sequence
+                };
+
+                if should_restore {
+                    if let Some(ref process) = args.process {
+                        let _ = self
+                            .prepare_window_management(process, None, None, None, &args.window_mgmt)
+                            .await;
+                    }
+                }
+
+                let highlight_before = args.highlight.highlight_before_action;
+                let click_type = args.click_type;
+                let action = {
+                    let click_position = click_position.clone();
+                    move |element: UIElement| {
+                        let click_position = click_position.clone();
+                        async move {
+                            if highlight_before {
+                                Self::ensure_visible_and_apply_highlight(&element, "click");
+                            }
+                            match element.bounds() {
+                                Ok(bounds) => {
+                                    let x = bounds.0
+                                        + (bounds.2 * click_position.x_percentage as f64 / 100.0);
+                                    let y = bounds.1
+                                        + (bounds.3 * click_position.y_percentage as f64 / 100.0);
+                                    tracing::debug!("[click_element] Clicking at ({}, {})", x, y);
+
+                                    match click_type {
+                                        crate::utils::ClickType::Left => {
+                                            element.mouse_click_and_hold(x, y)?;
+                                            element.mouse_release()?;
+                                        }
+                                        crate::utils::ClickType::Double => {
+                                            element.mouse_click_and_hold(x, y)?;
+                                            element.mouse_release()?;
+                                            element.mouse_click_and_hold(x, y)?;
+                                            element.mouse_release()?;
+                                        }
+                                        crate::utils::ClickType::Right => {
+                                            element.mouse_move(x, y)?;
+                                            element.right_click()?;
+                                        }
+                                    }
+
+                                    use terminator::ClickResult;
+                                    Ok(ClickResult {
+                                        coordinates: Some((x, y)),
+                                        method: "Position Click".to_string(),
+                                        details: format!(
+                                            "Clicked at {}%, {}%",
+                                            click_position.x_percentage,
+                                            click_position.y_percentage
+                                        ),
+                                    })
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "[click_element] Failed to get bounds: {}. Falling back.",
+                                        e
+                                    );
+                                    element.click()
+                                }
+                            }
+                        }
+                    }
+                };
+
+                let operation_start = std::time::Instant::now();
+                let tree_output_format = args
+                    .tree
+                    .tree_output_format
+                    .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
+
+                let result = crate::helpers::find_and_execute_with_ui_diff(
+                    &self.desktop,
+                    &full_selector,
+                    args.build_alternative_selectors().as_deref(),
+                    args.build_fallback_selectors().as_deref(),
+                    args.action.timeout_ms,
+                    args.action.retries,
+                    action,
+                    args.tree.ui_diff_before_after,
+                    args.tree.tree_max_depth,
+                    args.tree.include_detailed_attributes,
+                    tree_output_format,
                 )
                 .await;
-        } else {
-            tracing::debug!("[click_element] In sequence - skipping window management (dispatch_tool handles it)");
-        }
 
-        let highlight_before = args.highlight.highlight_before_action;
-        let action = {
-            let click_position = args.click_position.clone();
-            move |element: UIElement| {
-                let click_position = click_position.clone();
-                async move {
-                    // Ensure element is visible and apply highlighting if enabled
-                    if highlight_before {
-                        Self::ensure_visible_and_apply_highlight(&element, "click");
+                let operation_time_ms = operation_start.elapsed().as_millis() as i64;
+                span.set_attribute("operation.duration_ms", operation_time_ms.to_string());
+                tracing::info!("[PERF] click_element total: {}ms", operation_time_ms);
+
+                let ((click_result, element), successful_selector, ui_diff) = match result {
+                    Ok(((result, element), selector, diff)) => {
+                        span.set_attribute("selector.used", selector.clone());
+                        span.set_attribute("element.found", "true".to_string());
+                        if diff.is_some() {
+                            span.set_attribute("ui_diff.captured", "true".to_string());
+                        }
+                        ((result, element), selector, diff)
                     }
+                    Err(e) => {
+                        span.set_attribute("element.found", "false".to_string());
+                        span.set_status(false, Some(&e.to_string()));
+                        span.end();
+                        return Err(build_element_not_found_error(
+                            &full_selector,
+                            args.build_alternative_selectors().as_deref(),
+                            args.build_fallback_selectors().as_deref(),
+                            e,
+                        ));
+                    }
+                };
 
-                    // Click at specified position
-                    // Get element bounds to calculate absolute position
-                    match element.bounds() {
-                        Ok(bounds) => {
-                            // Calculate absolute coordinates from percentages
-                            let x =
-                                bounds.0 + (bounds.2 * click_position.x_percentage as f64 / 100.0);
-                            let y =
-                                bounds.1 + (bounds.3 * click_position.y_percentage as f64 / 100.0);
+                span.set_attribute("element.role", element.role());
+                if let Some(name) = element.name() {
+                    span.set_attribute("element.name", name);
+                }
 
-                            tracing::debug!(
-                                "[click_element] Clicking at absolute position ({}, {}) within bounds ({}, {}, {}, {})",
-                                x, y, bounds.0, bounds.1, bounds.2, bounds.3
-                            );
+                let element_info = build_element_info(&element);
+                let ct_str = match args.click_type {
+                    crate::utils::ClickType::Left => "left",
+                    crate::utils::ClickType::Double => "double",
+                    crate::utils::ClickType::Right => "right",
+                };
 
-                            // Perform click at specific position
-                            element.mouse_click_and_hold(x, y)?;
-                            element.mouse_release()?;
+                let mut result_json = json!({
+                    "action": "click", "mode": "selector", "status": "success",
+                    "selector_used": successful_selector,
+                    "click_type": ct_str,
+                    "click_result": { "method": click_result.method, "coordinates": click_result.coordinates, "details": click_result.details },
+                    "element": element_info,
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                });
 
-                            // Return a ClickResult
-                            use terminator::ClickResult;
-                            Ok(ClickResult {
-                                coordinates: Some((x, y)),
-                                method: "Position Click".to_string(),
-                                details: format!(
-                                    "Clicked at {}%, {}%",
-                                    click_position.x_percentage, click_position.y_percentage
-                                ),
-                            })
+                if !args.action.verify_element_exists.is_empty()
+                    || !args.action.verify_element_not_exists.is_empty()
+                {
+                    let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
+                    let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
+                        None
+                    } else {
+                        Some(args.action.verify_element_exists.as_str())
+                    };
+                    let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty()
+                    {
+                        None
+                    } else {
+                        Some(args.action.verify_element_not_exists.as_str())
+                    };
+
+                    match crate::helpers::verify_post_action(
+                        &self.desktop,
+                        &element,
+                        verify_exists_opt,
+                        verify_not_exists_opt,
+                        verify_timeout_ms,
+                        &successful_selector,
+                    )
+                    .await
+                    {
+                        Ok(verification_result) => {
+                            span.set_attribute("verification.passed", "true".to_string());
+                            let verification_json = json!({ "passed": verification_result.passed, "method": verification_result.method, "details": verification_result.details, "elapsed_ms": verification_result.elapsed_ms });
+                            if let Some(obj) = result_json.as_object_mut() {
+                                obj.insert("verification".to_string(), verification_json);
+                            }
                         }
                         Err(e) => {
-                            tracing::warn!("[click_element] Failed to get bounds for position click: {}. Falling back to center click.", e);
-                            element.click()
+                            span.set_status(false, Some("Verification failed"));
+                            span.end();
+                            return Err(McpError::internal_error(
+                                format!("Post-action verification failed: {e}"),
+                                Some(json!({ "selector_used": successful_selector })),
+                            ));
                         }
                     }
                 }
-            }
-        };
 
-        // Track search and action time
-        let operation_start = std::time::Instant::now();
-
-        // Store tree config to avoid move issues (Option<TreeOutputFormat> is Copy since TreeOutputFormat is Copy)
-        let tree_output_format = args
-            .tree
-            .tree_output_format
-            .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
-
-        // Use new wrapper that supports UI diff capture
-        let result = crate::helpers::find_and_execute_with_ui_diff(
-            &self.desktop,
-            &args.selector.build_full_selector(),
-            args.selector.build_alternative_selectors().as_deref(),
-            args.selector.build_fallback_selectors().as_deref(),
-            args.action.timeout_ms,
-            args.action.retries,
-            action,
-            args.tree.ui_diff_before_after,
-            args.tree.tree_max_depth,
-            args.tree.include_detailed_attributes,
-            tree_output_format,
-        )
-        .await;
-
-        let operation_time_ms = operation_start.elapsed().as_millis() as i64;
-        span.set_attribute("operation.duration_ms", operation_time_ms.to_string());
-
-        let ((click_result, element), successful_selector, ui_diff) = match result {
-            Ok(((result, element), selector, diff)) => {
-                span.set_attribute("selector.used", selector.clone());
-                span.set_attribute("element.found", "true".to_string());
-                if diff.is_some() {
-                    span.set_attribute("ui_diff.captured", "true".to_string());
-                }
-                ((result, element), selector, diff)
-            }
-            Err(e) => {
-                span.set_attribute("element.found", "false".to_string());
-                span.set_status(false, Some(&e.to_string()));
-                span.end();
-                return Err(build_element_not_found_error(
-                    &args.selector.build_full_selector(),
-                    args.selector.build_alternative_selectors().as_deref(),
-                    args.selector.build_fallback_selectors().as_deref(),
-                    e,
-                ));
-            }
-        };
-
-        // Track element metadata in telemetry
-        span.set_attribute("element.role", element.role());
-        if let Some(name) = element.name() {
-            span.set_attribute("element.name", name);
-        }
-        let window_title = element.window_title();
-        if !window_title.is_empty() {
-            span.set_attribute("element.window_title", window_title.clone());
-        }
-
-        let element_info = build_element_info(&element);
-
-        let mut result_json = json!({
-            "action": "click",
-            "status": "success",
-            "selector_used": successful_selector,
-            "click_result": {
-                "method": click_result.method,
-                "coordinates": click_result.coordinates,
-                "details": click_result.details,
-            },
-            "element": element_info,
-            "timestamp": chrono::Utc::now().to_rfc3339()
-        });
-
-        // POST-ACTION VERIFICATION
-        if !args.action.verify_element_exists.is_empty()
-            || !args.action.verify_element_not_exists.is_empty()
-        {
-            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
-
-            let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
-                None
-            } else {
-                Some(args.action.verify_element_exists.as_str())
-            };
-            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() {
-                None
-            } else {
-                Some(args.action.verify_element_not_exists.as_str())
-            };
-
-            match crate::helpers::verify_post_action(
-                &self.desktop,
-                &element,
-                verify_exists_opt,
-                verify_not_exists_opt,
-                verify_timeout_ms,
-                &successful_selector,
-            )
-            .await
-            {
-                Ok(verification_result) => {
-                    tracing::info!(
-                        "[click_element] Verification passed: method={}, details={}",
-                        verification_result.method,
-                        verification_result.details
-                    );
-                    span.set_attribute("verification.passed", "true".to_string());
-                    span.set_attribute("verification.method", verification_result.method.clone());
-                    span.set_attribute(
-                        "verification.elapsed_ms",
-                        verification_result.elapsed_ms.to_string(),
-                    );
-
-                    let verification_json = json!({
-                        "passed": verification_result.passed,
-                        "method": verification_result.method,
-                        "details": verification_result.details,
-                        "elapsed_ms": verification_result.elapsed_ms,
-                        "timestamp": chrono::Utc::now().to_rfc3339(),
-                    });
-
-                    if let Some(obj) = result_json.as_object_mut() {
-                        obj.insert("verification".to_string(), verification_json);
+                if let Some(diff_result) = ui_diff {
+                    span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
+                    result_json["ui_diff"] = json!(diff_result.diff);
+                    result_json["has_ui_changes"] = json!(diff_result.has_changes);
+                    if args
+                        .tree
+                        .ui_diff_include_full_trees_in_response
+                        .unwrap_or(false)
+                    {
+                        result_json["tree_before"] = json!(diff_result.tree_before);
+                        result_json["tree_after"] = json!(diff_result.tree_after);
                     }
                 }
-                Err(e) => {
-                    tracing::error!("[click_element] Verification failed: {}", e);
-                    span.set_attribute("verification.passed", "false".to_string());
-                    span.set_status(false, Some("Verification failed"));
-                    span.end();
-                    return Err(McpError::internal_error(
-                        format!("Post-action verification failed: {e}"),
-                        Some(json!({
-                            "selector_used": successful_selector,
-                            "verify_exists": args.action.verify_element_exists,
-                            "verify_not_exists": args.action.verify_element_not_exists,
-                            "timeout_ms": verify_timeout_ms,
-                        })),
-                    ));
-                }
+
+                self.restore_window_management(should_restore).await;
+                span.set_status(true, None);
+                span.end();
+
+                Ok(CallToolResult::success(
+                    append_monitor_screenshots_if_enabled(
+                        &self.desktop,
+                        vec![Content::json(result_json)?],
+                        args.monitor.include_monitor_screenshots,
+                    )
+                    .await,
+                ))
             }
         }
-
-        // Attach UI diff if captured
-        if let Some(diff_result) = ui_diff {
-            tracing::debug!(
-                "[click_element] Attaching UI diff to result (has_changes: {})",
-                diff_result.has_changes
-            );
-            span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
-
-            result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["tree_before"] = json!(diff_result.tree_before);
-            result_json["tree_after"] = json!(diff_result.tree_after);
-            result_json["has_ui_changes"] = json!(diff_result.has_changes);
-
-            // When diff is enabled, we already have the tree, so don't capture again
-            // But respect include_tree if user also wants it attached separately
-        } else {
-            // Normal tree attachment when diff not requested
-            maybe_attach_tree(
-                &self.desktop,
-                args.tree.include_tree_after_action,
-                args.tree.tree_max_depth,
-                args.tree.tree_from_selector.as_deref(),
-                args.tree.include_detailed_attributes,
-                Some(tree_output_format),
-                Some(element.process_id().unwrap_or(0)),
-                &mut result_json,
-                Some(&element),
-            )
-            .await;
-        }
-
-        // Restore windows if this was a direct MCP call
-        self.restore_window_management(should_restore).await;
-
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                args.monitor.include_monitor_screenshots,
-            )
-            .await,
-        ))
     }
-
     #[tool(
         description = "Sends a key press to a UI element. Use curly brace format: '{Ctrl}c', '{Alt}{F4}', '{Enter}', '{PageDown}', '{Tab}', etc. This action requires the application to be focused and may change the UI.
 
@@ -2353,7 +3465,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
             }
         }
 
-        // Attach UI diff if captured
+        // Attach UI diff if captured (action tools only support diff, not standalone tree)
         if let Some(diff_result) = ui_diff {
             tracing::debug!(
                 "[press_key] Attaching UI diff to result (has_changes: {})",
@@ -2362,23 +3474,15 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
             span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
 
             result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["tree_before"] = json!(diff_result.tree_before);
-            result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-        } else {
-            // Normal tree attachment when diff not requested
-            maybe_attach_tree(
-                &self.desktop,
-                args.tree.include_tree_after_action,
-                args.tree.tree_max_depth,
-                args.tree.tree_from_selector.as_deref(),
-                args.tree.include_detailed_attributes,
-                Some(tree_output_format),
-                element.process_id().ok(),
-                &mut result_json,
-                Some(&element),
-            )
-            .await;
+            if args
+                .tree
+                .ui_diff_include_full_trees_in_response
+                .unwrap_or(false)
+            {
+                result_json["tree_before"] = json!(diff_result.tree_before);
+                result_json["tree_after"] = json!(diff_result.tree_after);
+            }
         }
 
         // Restore windows after pressing key
@@ -2566,18 +3670,8 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
             }
         }
 
-        maybe_attach_tree(
-            &self.desktop,
-            args.tree.include_tree_after_action,
-            args.tree.tree_max_depth,
-            args.tree.tree_from_selector.as_deref(),
-            args.tree.include_detailed_attributes,
-            None,
-            element.process_id().ok(),
-            &mut result_json,
-            Some(&element),
-        )
-        .await;
+        // Action tools only support UI diff, not standalone tree attachment
+        // (use ui_diff_before_after: true to capture before/after tree)
 
         span.set_status(true, None);
         span.end();
@@ -2596,14 +3690,77 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
 
 Executes a shell command (GitHub Actions-style) OR runs inline code via an engine. Use 'run' for shell commands. Or set 'engine' to 'node'/'bun'/'javascript'/'typescript'/'ts' for JS/TS with terminator.js and provide the code in 'run' or 'script_file'. TypeScript is supported with automatic transpilation. When using engine mode, you can pass data to subsequent workflow steps by returning { set_env: { key: value } } or using console.log('::set-env name=key::value'). Access variables in later steps using direct syntax (e.g., 'key' in conditions or {{key}} in substitutions). NEW: Use 'script_file' to load scripts from files, 'env' to inject environment variables as 'var env = {...}'.
 
-⚠️ CRITICAL: Pattern for Optional Element Detection
-For optional UI elements (dialogs, popups, confirmations) that may or may not appear, use desktop.locator() with try/catch to check existence. This prevents timeout errors and enables conditional execution.
+═══════════════════════════════════════════════════════════════════
+INJECTED GLOBALS (engine mode)
+═══════════════════════════════════════════════════════════════════
+desktop: Desktop      // Terminator SDK instance
+log: console.log      // Shorthand for logging
+sleep(ms): Promise    // Delay execution
+setEnv({key: value})  // Pass data to next steps
+createKVClient(token) // KV client (when @mediar-ai/kv installed)
+
+═══════════════════════════════════════════════════════════════════
+DESKTOP API
+═══════════════════════════════════════════════════════════════════
+desktop.locator(selector): Locator           // Find elements
+desktop.openApplication(name): Element       // Open app
+desktop.activateApplication(name): void      // Activate app
+desktop.applications(): Element[]            // Get all running applications/windows
+desktop.focusedElement(): Element            // Get focused element
+desktop.pressKey(key): Promise<void>         // Global key press
+desktop.delay(ms): Promise<void>             // Wait
+desktop.run(cmd, shell?, workingDir?): Promise<CommandOutput>  // Shell command
+desktop.executeBrowserScript(script): Promise<string>          // Browser JS (see execute_browser_script tool for patterns)
+  ↳ Must JSON.stringify return values, use typeof checks for injected vars, 30KB limit
+desktop.navigateBrowser(url, browser?): Element                // Navigate browser
+desktop.ocrScreenshot(screenshot): Promise<string>             // OCR
+
+═══════════════════════════════════════════════════════════════════
+LOCATOR API
+═══════════════════════════════════════════════════════════════════
+locator.first(timeoutMs): Promise<Element>        // Get first match (REQUIRED timeout)
+locator.all(timeoutMs, depth?): Promise<Element[]> // Get all matches (REQUIRED timeout)
+locator.validate(timeoutMs): Promise<ValidationResult>  // Check exists without throwing
+locator.timeout(timeoutMs): Locator               // Set default timeout
+locator.within(element): Locator                  // Scope search to element
+locator.locator(selector): Locator                // Chain selectors
+
+IMPORTANT: .first() and .all() require mandatory timeout in milliseconds:
+- .first(0) - immediate search, no retry
+- .first(1000) - retry for 1 second
+- .first(5000) - retry for 5 seconds (slow UI)
+
+═══════════════════════════════════════════════════════════════════
+ELEMENT API
+═══════════════════════════════════════════════════════════════════
+element.click(): ClickResult                 // Click element
+element.doubleClick(): ClickResult           // Double click
+element.typeText(text, useClipboard?): void  // Type text
+element.pressKey(key): void                  // Press key while focused
+element.setValue(value): void                // Set value directly
+element.text(maxDepth?): string              // Get text content
+element.name(): string | null                // Get element name
+element.role(): string                       // Get element role
+element.bounds(): Bounds                     // Get x, y, width, height
+element.children(): Element[]                // Get child elements
+element.parent(): Element | null             // Get parent element
+element.locator(selector): Locator           // Search within element
+element.processId(): number                  // Get process ID (PID)
+element.processName(): string                // Get process name (e.g., chrome, notepad)
+element.isFocused(): boolean                 // Check if element has focus
+
+⚠️ CRITICAL: Selector Scoping (REQUIRED)
+All desktop.locator() calls MUST include `process:` prefix. Without it, search will error.
+Example: `desktop.locator('process:chrome >> role:Button|name:Submit')`
+
+Pattern for Optional Element Detection:
+For optional UI elements (dialogs, popups) that may or may not appear, use try/catch:
 
 ✅ RECOMMENDED Pattern - Window-Scoped (Most Accurate):
 // Step 1: Check if optional element exists in specific window
 try {
   // Scope to specific window first to avoid false positives
-  const chromeWindow = await desktop.locator('role:Window|name:SAP Business One - Google Chrome').first();
+  const chromeWindow = await desktop.locator('process:chrome >> role:Window|name:SAP Business One').first();
   // Then search within that window
   await chromeWindow.locator('role:Button|name:Leave').first();
   return JSON.stringify({
@@ -2616,28 +3773,14 @@ try {
   });
 }
 
-✅ ALTERNATIVE Pattern - Desktop-Wide Search:
-// When element could be in any window
-try {
-  await desktop.locator('role:Button|name:Leave').first();
-  return JSON.stringify({
-    dialog_exists: 'true'
-  });
-} catch (e) {
-  return JSON.stringify({
-    dialog_exists: 'false'
-  });
-}
-
 // Step 2: In next workflow step, use 'if' condition:
 // if: 'dialog_exists == \"true\"'
 
 Performance Note: Using .first() with try/catch is ~8x faster than .all() for existence checks (1.3s vs 10.8s).
 
 Important Scoping Pattern:
-- desktop.locator() searches ALL windows/applications
-- element.locator() searches only within that element's subtree
-- Always scope to specific window when checking for window-specific dialogs
+- desktop.locator('process:X >> selector') scopes search to process X's windows
+- element.locator('selector') searches only within that element's subtree
 
 This pattern:
 - Never fails the step (always returns data)
@@ -2679,6 +3822,61 @@ Use specific names instead: validationMessage, queryResult, tableData, entriesCo
 
 include_logs Parameter:
 Set include_logs: true to capture stdout/stderr output. Default is false for cleaner responses. On errors, logs are always included.
+
+Logging:
+All console.* calls redirect to stderr with [LEVEL] prefix. JSON output only on stdout.
+Set include_logs: true to include captured logs in response.
+
+═══════════════════════════════════════════════════════════════════
+KV STORAGE (Persistent Key-Value Store)
+═══════════════════════════════════════════════════════════════════
+
+The 'kv' variable is auto-initialized when ORG_TOKEN is present (desktop app/VM).
+Just use 'kv' directly - no need to call createKVClient().
+
+When to use KV:
+- Workflow processes files from folder → track processed filenames to skip duplicates
+- Workflow runs on schedule (cron) → persist state between scheduled runs
+- Workflow runs on multiple VMs → use locks to prevent concurrent execution
+- Workflow has loops/iterations → checkpoint progress for resume on failure
+
+Basic Usage:
+await kv.set('myKey', 'myValue');           // Set a value
+const val = await kv.get('myKey');          // Get a value
+await kv.del('myKey');                      // Delete a key
+
+With Options:
+await kv.set('lock', 'active', { ex: 60 }); // Expires in 60 seconds
+await kv.set('key', 'val', { nx: true });   // Only set if NOT exists (for locks)
+await kv.set('key', 'val', { xx: true });   // Only set if EXISTS (for updates)
+
+Counters:
+await kv.incr('counter');                   // Increment by 1
+
+Lists (Queues):
+await kv.lpush('queue', 'item1', 'item2');  // Add to front
+await kv.rpush('queue', 'item3');           // Add to back
+const item = await kv.lpop('queue');        // Remove from front
+const item = await kv.rpop('queue');        // Remove from back
+
+Hashes (Objects):
+await kv.hset('user:123', { name: 'Alice', score: 100 });
+const name = await kv.hget('user:123', 'name');
+const all = await kv.hgetall('user:123');   // { name: 'Alice', score: '100' }
+await kv.hincrby('user:123', 'score', 10);  // Increment field
+
+Common Patterns:
+// Duplicate check
+const processed = await kv.get('processed:' + fileHash);
+if (processed) return { skip: true, reason: 'Already processed' };
+
+// Distributed lock
+const locked = await kv.set('lock:resource', 'active', { nx: true, ex: 300 });
+if (!locked) return { error: 'Resource locked by another process' };
+try { /* do work */ } finally { await kv.del('lock:resource'); }
+
+// Progress tracking
+await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
 "
     )]
     async fn run_command(
@@ -2699,6 +3897,10 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         // Engine-based execution path (provides SDK bindings)
         if let Some(engine_value) = args.engine.as_ref() {
             let engine = engine_value.to_ascii_lowercase();
+
+            // Default timeout: 2 minutes (120000ms), 0 means no timeout
+            let timeout_ms = args.timeout_ms.unwrap_or(120_000);
+            let timeout_duration = std::time::Duration::from_millis(timeout_ms);
 
             // Track resolved script path for working directory determination
             let mut resolved_script_path: Option<PathBuf> = None;
@@ -2997,6 +4199,15 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
                 // Inject variables
                 final_script.push_str(&format!("var variables = {variables_json};\n"));
+
+                // Auto-initialize kv if ORG_TOKEN was injected
+                if accumulated_env_json.contains("\"ORG_TOKEN\"")
+                    || explicit_env_json.contains("\"ORG_TOKEN\"")
+                {
+                    final_script.push_str("var kv = createKVClient(ORG_TOKEN);\n");
+                    tracing::debug!("[run_command] Auto-initialized kv with ORG_TOKEN");
+                }
+
                 tracing::debug!("[run_command] Injected accumulated env, explicit env, individual vars, and workflow variables for JavaScript");
             } else if matches!(engine.as_str(), "python" | "py") {
                 // For Python, inject as dictionaries
@@ -3092,12 +4303,50 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     None
                 };
 
-                let execution_result = scripting_engine::execute_javascript_with_nodejs(
+                // Create shared log buffer for real-time log capture (useful for timeout scenarios)
+                let include_logs = args.include_logs.unwrap_or(true);
+                let log_buffer = if include_logs {
+                    Some(scripting_engine::ScriptLogBuffer::new())
+                } else {
+                    None
+                };
+
+                let execution_future = scripting_engine::execute_javascript_with_nodejs(
                     final_script,
                     cancellation_token,
                     script_working_dir,
-                )
-                .await?;
+                    log_buffer.clone(),
+                );
+
+                let execution_result = if timeout_ms == 0 {
+                    execution_future.await?
+                } else {
+                    match tokio::time::timeout(timeout_duration, execution_future).await {
+                        Ok(result) => result?,
+                        Err(_) => {
+                            // On timeout, include any logs captured before the timeout if include_logs is true
+                            let mut error_data = json!({
+                                "reason": format!("Execution exceeded timeout of {}ms", timeout_ms),
+                                "engine": "javascript",
+                                "timeout_ms": timeout_ms
+                            });
+                            if let Some(ref buf) = log_buffer {
+                                let partial_logs = buf.get_logs();
+                                let partial_stderr = buf.get_stderr();
+                                if !partial_logs.is_empty() {
+                                    error_data["logs"] = json!(partial_logs);
+                                }
+                                if !partial_stderr.is_empty() {
+                                    error_data["stderr"] = json!(partial_stderr);
+                                }
+                            }
+                            return Err(McpError::internal_error(
+                                "JavaScript execution timed out",
+                                Some(error_data),
+                            ));
+                        }
+                    }
+                };
 
                 // Extract logs, stderr, and actual result
                 let logs = execution_result.get("logs").cloned();
@@ -3145,7 +4394,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 }
 
                 // Build response
-                let include_logs = args.include_logs.unwrap_or(false);
+                let include_logs = args.include_logs.unwrap_or(true);
                 let mut response = json!({
                     "action": "run_command",
                     "mode": "engine",
@@ -3190,12 +4439,50 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     None
                 };
 
-                let execution_result = scripting_engine::execute_typescript_with_nodejs(
+                // Create shared log buffer for real-time log capture (useful for timeout scenarios)
+                let include_logs = args.include_logs.unwrap_or(true);
+                let log_buffer = if include_logs {
+                    Some(scripting_engine::ScriptLogBuffer::new())
+                } else {
+                    None
+                };
+
+                let execution_future = scripting_engine::execute_typescript_with_nodejs(
                     final_script,
                     cancellation_token,
                     script_working_dir,
-                )
-                .await?;
+                    log_buffer.clone(),
+                );
+
+                let execution_result = if timeout_ms == 0 {
+                    execution_future.await?
+                } else {
+                    match tokio::time::timeout(timeout_duration, execution_future).await {
+                        Ok(result) => result?,
+                        Err(_) => {
+                            // On timeout, include any logs captured before the timeout if include_logs is true
+                            let mut error_data = json!({
+                                "reason": format!("Execution exceeded timeout of {}ms", timeout_ms),
+                                "engine": "typescript",
+                                "timeout_ms": timeout_ms
+                            });
+                            if let Some(ref buf) = log_buffer {
+                                let partial_logs = buf.get_logs();
+                                let partial_stderr = buf.get_stderr();
+                                if !partial_logs.is_empty() {
+                                    error_data["logs"] = json!(partial_logs);
+                                }
+                                if !partial_stderr.is_empty() {
+                                    error_data["stderr"] = json!(partial_stderr);
+                                }
+                            }
+                            return Err(McpError::internal_error(
+                                "TypeScript execution timed out",
+                                Some(error_data),
+                            ));
+                        }
+                    }
+                };
 
                 // Extract logs, stderr, and actual result (same as JS)
                 let logs = execution_result.get("logs").cloned();
@@ -3232,7 +4519,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 }
 
                 // Build response
-                let include_logs = args.include_logs.unwrap_or(false);
+                let include_logs = args.include_logs.unwrap_or(true);
                 let mut response = json!({
                     "action": "run_command",
                     "mode": "engine",
@@ -3277,11 +4564,28 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     None
                 };
 
-                let execution_result = scripting_engine::execute_python_with_bindings(
+                let execution_future = scripting_engine::execute_python_with_bindings(
                     final_script,
                     script_working_dir,
-                )
-                .await?;
+                );
+
+                let execution_result = if timeout_ms == 0 {
+                    execution_future.await?
+                } else {
+                    match tokio::time::timeout(timeout_duration, execution_future).await {
+                        Ok(result) => result?,
+                        Err(_) => {
+                            return Err(McpError::internal_error(
+                                "Python execution timed out",
+                                Some(json!({
+                                    "reason": format!("Execution exceeded timeout of {}ms", timeout_ms),
+                                    "engine": "python",
+                                    "timeout_ms": timeout_ms
+                                })),
+                            ));
+                        }
+                    }
+                };
 
                 // Extract logs, stderr, and actual result (same structure as JS/TS now)
                 let logs = execution_result.get("logs").cloned();
@@ -3315,7 +4619,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 }
 
                 // Build response
-                let include_logs = args.include_logs.unwrap_or(false);
+                let include_logs = args.include_logs.unwrap_or(true);
                 let mut response = json!({
                     "action": "run_command",
                     "mode": "engine",
@@ -3567,21 +4871,46 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             (None, Some(unix_cmd))
         };
 
-        let output = self
+        // Default timeout: 2 minutes (120000ms), 0 means no timeout
+        let timeout_ms = args.timeout_ms.unwrap_or(120_000);
+        let command_future = self
             .desktop
-            .run_command(windows_cmd.as_deref(), unix_cmd.as_deref())
-            .await
-            .map_err(|e| {
-                McpError::internal_error(
-                    "Failed to run command",
-                    Some(json!({
-                        "reason": e.to_string(),
-                        "command": run_str,
-                        "shell": args.shell,
-                        "working_directory": args.working_directory
-                    })),
-                )
-            })?;
+            .run_command(windows_cmd.as_deref(), unix_cmd.as_deref());
+
+        let output = if timeout_ms == 0 {
+            // No timeout
+            command_future.await
+        } else {
+            // Apply timeout
+            match tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), command_future)
+                .await
+            {
+                Ok(result) => result,
+                Err(_) => {
+                    return Err(McpError::internal_error(
+                        "Shell command timed out",
+                        Some(json!({
+                            "reason": format!("Command exceeded timeout of {}ms", timeout_ms),
+                            "command": run_str,
+                            "shell": args.shell,
+                            "working_directory": args.working_directory,
+                            "timeout_ms": timeout_ms
+                        })),
+                    ));
+                }
+            }
+        }
+        .map_err(|e| {
+            McpError::internal_error(
+                "Failed to run command",
+                Some(json!({
+                    "reason": e.to_string(),
+                    "command": run_str,
+                    "shell": args.shell,
+                    "working_directory": args.working_directory
+                })),
+            )
+        })?;
 
         span.set_status(true, None);
         span.end();
@@ -3759,6 +5088,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             Some(element.process_id().unwrap_or(0)),
             &mut result_json,
             Some(&element),
+            false,
         )
         .await;
 
@@ -3960,18 +5290,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             }
         }
 
-        maybe_attach_tree(
-            &self.desktop,
-            args.tree.include_tree_after_action,
-            args.tree.tree_max_depth,
-            args.tree.tree_from_selector.as_deref(),
-            args.tree.include_detailed_attributes,
-            None,
-            element.process_id().ok(),
-            &mut result_json,
-            Some(&element),
-        )
-        .await;
+        // Action tools only support UI diff, not standalone tree attachment
 
         self.restore_window_management(should_restore).await;
 
@@ -3986,84 +5305,6 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             )
             .await,
         ))
-    }
-
-    #[tool(
-        description = "Clicks on an OCR-detected word by its index number. First call get_window_tree with include_ocr=true to get the OCR tree with indexed words (e.g., [OcrWord] #1 \"Submit\"). Then use this tool with the index number to click that word. This action does not require an element selector."
-    )]
-    async fn click_ocr_index(
-        &self,
-        Parameters(args): Parameters<ClickOcrIndexArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        // Start telemetry span
-        let mut span = StepSpan::new("click_ocr_index", None);
-        span.set_attribute("index", args.index.to_string());
-
-        // Look up the bounds for this index
-        let bounds_result = {
-            let bounds = self.ocr_bounds.lock().map_err(|e| {
-                McpError::internal_error(format!("Failed to lock OCR bounds: {e}"), None)
-            })?;
-            bounds.get(&args.index).cloned()
-        };
-
-        let Some((text, (x, y, width, height))) = bounds_result else {
-            span.set_status(false, Some("Index not found"));
-            span.end();
-            return Err(McpError::internal_error(
-                format!("OCR index {} not found. Call get_window_tree with include_ocr=true first to get indexed OCR words.", args.index),
-                Some(json!({ "index": args.index })),
-            ));
-        };
-
-        // Calculate center of the bounds
-        let click_x = x + width / 2.0;
-        let click_y = y + height / 2.0;
-
-        span.set_attribute("text", text.clone());
-        span.set_attribute("click_x", click_x.to_string());
-        span.set_attribute("click_y", click_y.to_string());
-
-        // Perform the click
-        match self.desktop.click_at_coordinates(click_x, click_y) {
-            Ok(()) => {
-                let result_json = json!({
-                    "action": "click_ocr_index",
-                    "status": "success",
-                    "index": args.index,
-                    "text": text,
-                    "clicked_at": { "x": click_x, "y": click_y },
-                    "bounds": { "x": x, "y": y, "width": width, "height": height },
-                });
-
-                span.set_status(true, None);
-                span.end();
-
-                Ok(CallToolResult::success(
-                    append_monitor_screenshots_if_enabled(
-                        &self.desktop,
-                        vec![Content::json(result_json)?],
-                        args.monitor.include_monitor_screenshots,
-                    )
-                    .await,
-                ))
-            }
-            Err(e) => {
-                span.set_status(false, Some(&e.to_string()));
-                span.end();
-
-                Err(McpError::internal_error(
-                    format!(
-                        "Failed to click OCR index {} (\"{}\"): {e}",
-                        args.index, text
-                    ),
-                    Some(json!({
-                        "index": args.index,
-                        "text": text,
-                    })),
-                ))
-            }
-        }
     }
 
     #[tool(
@@ -4156,6 +5397,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                     element.process_id().ok(),
                     &mut result_json,
                     Some(&element),
+                    false,
                 )
                 .await;
 
@@ -4336,11 +5578,14 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         }
         let active_highlights_clone = self.active_highlights.clone();
         let expire_after = args.duration_ms.unwrap_or(1000);
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(expire_after)).await;
-            let mut list = active_highlights_clone.lock().await;
-            let _ = list.pop();
-        });
+        tokio::spawn(
+            async move {
+                tokio::time::sleep(Duration::from_millis(expire_after)).await;
+                let mut list = active_highlights_clone.lock().await;
+                let _ = list.pop();
+            }
+            .in_current_span(),
+        );
 
         // Build minimal response by default; gate heavy element info behind flag
         let mut result_json = json!({
@@ -4358,18 +5603,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             let element_info = build_element_info(&element);
             result_json["element"] = element_info;
         }
-        maybe_attach_tree(
-            &self.desktop,
-            args.tree.include_tree_after_action,
-            args.tree.tree_max_depth,
-            args.tree.tree_from_selector.as_deref(),
-            args.tree.include_detailed_attributes,
-            None,
-            element.process_id().ok(),
-            &mut result_json,
-            Some(&element),
-        )
-        .await;
+        // Action tools only support UI diff, not standalone tree attachment
 
         self.restore_window_management(should_restore).await;
 
@@ -4384,6 +5618,28 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             )
             .await,
         ))
+    }
+
+    #[tool(
+        description = "Hide any active inspect overlay that was shown via get_window_tree with show_overlay parameter."
+    )]
+    async fn hide_inspect_overlay(&self) -> Result<CallToolResult, McpError> {
+        #[cfg(target_os = "windows")]
+        {
+            // Use the stored handle to close the overlay (thread-safe via atomic flag)
+            if let Ok(mut handle) = self.inspect_overlay_handle.lock() {
+                if let Some(h) = handle.take() {
+                    h.close();
+                    info!("Closed inspect overlay via handle");
+                }
+            }
+        }
+
+        Ok(CallToolResult::success(vec![Content::json(json!({
+            "action": "hide_inspect_overlay",
+            "status": "success",
+            "message": "Inspect overlay hidden"
+        }))?]))
     }
 
     #[tool(
@@ -4467,6 +5723,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                         element.process_id().ok(),
                         &mut result_json,
                         Some(&element),
+                        false,
                     )
                     .await;
 
@@ -4620,6 +5877,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                             element.process_id().ok(),
                             &mut result_json,
                             Some(&element),
+                            false,
                         )
                         .await;
 
@@ -4659,12 +5917,13 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
     }
 
     #[tool(
-        description = "Opens a URL in the specified browser (uses SDK's built-in browser automation). This is the RECOMMENDED method for browser navigation - more reliable than manually manipulating the address bar with keyboard/mouse actions. Handles page loading, waiting, and error recovery automatically. Requires verify_element_exists and verify_element_not_exists parameters (use empty string \"\" to skip verification)."
+        description = "Opens a URL in the specified browser (uses SDK's built-in browser automation). This is the RECOMMENDED method for browser navigation - more reliable than manually manipulating the address bar with keyboard/mouse actions. Handles page loading, waiting, and error recovery automatically. Requires verify_element_exists and verify_element_not_exists parameters (use empty string \"\" to skip verification). Always use include_tree_after_action: true to get the UI tree of elements after navigation."
     )]
     pub async fn navigate_browser(
         &self,
         Parameters(args): Parameters<NavigateBrowserArgs>,
     ) -> Result<CallToolResult, McpError> {
+        let operation_start = std::time::Instant::now();
         // Start telemetry span
         let mut span = StepSpan::new("navigate_browser", None);
 
@@ -4708,20 +5967,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
 
-        maybe_attach_tree(
-            &self.desktop,
-            args.tree.include_tree_after_action,
-            args.tree.tree_max_depth,
-            args.tree.tree_from_selector.as_deref(),
-            args.tree.include_detailed_attributes,
-            None,
-            ui_element.process_id().ok(),
-            &mut result_json,
-            Some(&ui_element),
-        )
-        .await;
-
-        // POST-ACTION VERIFICATION
+        // POST-ACTION VERIFICATION (must happen BEFORE tree capture so page content is loaded)
         if !args.verify_element_exists.is_empty() || !args.verify_element_not_exists.is_empty() {
             let verify_exists_opt = if args.verify_element_exists.is_empty() {
                 None
@@ -4782,8 +6028,27 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             }
         }
 
+        // Capture tree AFTER verification passes (page content should be loaded now)
+        maybe_attach_tree(
+            &self.desktop,
+            args.tree.include_tree_after_action,
+            args.tree.tree_max_depth,
+            args.tree.tree_from_selector.as_deref(),
+            args.tree.include_detailed_attributes,
+            None,
+            ui_element.process_id().ok(),
+            &mut result_json,
+            Some(&ui_element),
+            false,
+        )
+        .await;
+
         self.restore_window_management(should_restore).await;
 
+        tracing::info!(
+            "[PERF] navigate_browser total: {}ms",
+            operation_start.elapsed().as_millis()
+        );
         span.set_status(true, None);
         span.end();
 
@@ -4819,7 +6084,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         })?;
 
         let process_id = ui_element.process_id().unwrap_or(0);
-        let window_title = ui_element.window_title();
+        let _window_title = ui_element.window_title();
 
         // Check if we need to perform window management (only for direct MCP calls, not sequences)
         let should_restore = {
@@ -4859,23 +6124,23 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             "status": "success",
             "app_name": args.app_name,
             "application": element_info,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-            "recommendation": "Application opened successfully. Use get_window_tree with tree_from_selector using the process name (e.g., 'process:chrome') to get the full UI structure for reliable element targeting."
+            "timestamp": chrono::Utc::now().to_rfc3339()
         });
 
-        // Always attach the full UI tree for newly opened applications
-        if process_id > 0 {
-            if let Ok(tree) =
-                self.desktop
-                    .get_window_tree(process_id, Some(window_title.as_str()), None)
-            {
-                if let Ok(tree_val) = serde_json::to_value(tree) {
-                    if let Some(obj) = result_json.as_object_mut() {
-                        obj.insert("ui_tree".to_string(), tree_val);
-                    }
-                }
-            }
-        }
+        // Attach UI tree if requested
+        maybe_attach_tree(
+            &self.desktop,
+            args.tree.include_tree_after_action,
+            args.tree.tree_max_depth,
+            args.tree.tree_from_selector.as_deref(),
+            args.tree.include_detailed_attributes,
+            args.tree.tree_output_format,
+            Some(process_id),
+            &mut result_json,
+            Some(&ui_element),
+            false,
+        )
+        .await;
 
         // POST-ACTION VERIFICATION
         if !args.verify_element_exists.is_empty() || !args.verify_element_not_exists.is_empty() {
@@ -4952,87 +6217,6 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             )
             .await,
         ))
-    }
-
-    #[tool(
-        description = "Closes a UI element (window, application, dialog, etc.) if it's closable."
-    )]
-    pub async fn close_element(
-        &self,
-        Parameters(args): Parameters<CloseElementArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        // Start telemetry span
-        let mut span = StepSpan::new("close_element", None);
-
-        // Add comprehensive telemetry attributes
-        span.set_attribute("selector", args.selector.selector.clone());
-        if let Some(retries) = args.action.retries {
-            span.set_attribute("retry.max_attempts", retries.to_string());
-        }
-
-        // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            !*in_sequence
-        };
-
-        if should_restore {
-            tracing::info!(
-                "[close_element] Direct MCP call detected - performing window management"
-            );
-            let _ = self
-                .prepare_window_management(
-                    &args.selector.process,
-                    None,
-                    None,
-                    None,
-                    &args.window_mgmt,
-                )
-                .await;
-        } else {
-            tracing::debug!("[close_element] In sequence - skipping window management (dispatch_tool handles it)");
-        }
-
-        let ((_result, element), successful_selector) =
-            match find_and_execute_with_retry_with_fallback(
-                &self.desktop,
-                &args.selector.build_full_selector(),
-                args.selector.build_alternative_selectors().as_deref(),
-                args.selector.build_fallback_selectors().as_deref(),
-                args.action.timeout_ms,
-                args.action.retries,
-                |element| async move { element.close() },
-            )
-            .await
-            {
-                Ok(((result, element), selector)) => Ok(((result, element), selector)),
-                Err(e) => {
-                    // Restore windows before returning error
-                    self.restore_window_management(should_restore).await;
-                    Err(build_element_not_found_error(
-                        &args.selector.build_full_selector(),
-                        args.selector.build_alternative_selectors().as_deref(),
-                        args.selector.build_fallback_selectors().as_deref(),
-                        e,
-                    ))
-                }
-            }?;
-
-        let element_info = build_element_info(&element);
-
-        self.restore_window_management(should_restore).await;
-
-        span.set_status(true, None);
-        span.end();
-
-        Ok(CallToolResult::success(append_monitor_screenshots_if_enabled(&self.desktop, vec![Content::json(json!({
-            "action": "close_element",
-            "status": "success",
-            "element": element_info,
-            "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
-            "timestamp": chrono::Utc::now().to_rfc3339()
-        }))?], None).await))
     }
 
     #[tool(description = "Scrolls a UI element in the specified direction by the given amount.")]
@@ -5235,23 +6419,15 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
 
             result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["tree_before"] = json!(diff_result.tree_before);
-            result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-        } else {
-            // Normal tree attachment when diff not requested
-            maybe_attach_tree(
-                &self.desktop,
-                args.tree.include_tree_after_action,
-                args.tree.tree_max_depth,
-                args.tree.tree_from_selector.as_deref(),
-                args.tree.include_detailed_attributes,
-                Some(tree_output_format),
-                element.process_id().ok(),
-                &mut result_json,
-                Some(&element),
-            )
-            .await;
+            if args
+                .tree
+                .ui_diff_include_full_trees_in_response
+                .unwrap_or(false)
+            {
+                result_json["tree_before"] = json!(diff_result.tree_before);
+                result_json["tree_after"] = json!(diff_result.tree_after);
+            }
         }
 
         self.restore_window_management(should_restore).await;
@@ -5383,643 +6559,15 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
 
             result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["tree_before"] = json!(diff_result.tree_before);
-            result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-        } else {
-            // Normal tree attachment when diff not requested
-            maybe_attach_tree(
-                &self.desktop,
-                args.tree.include_tree_after_action,
-                args.tree.tree_max_depth,
-                args.tree.tree_from_selector.as_deref(),
-                args.tree.include_detailed_attributes,
-                Some(tree_output_format),
-                element.process_id().ok(),
-                &mut result_json,
-                Some(&element),
-            )
-            .await;
-        }
-
-        self.restore_window_management(should_restore).await;
-
-        span.set_status(true, None);
-        span.end();
-
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                None,
-            )
-            .await,
-        ))
-    }
-
-    #[tool(
-        description = "Lists all available option strings from a dropdown, list box, or similar control. This is a read-only operation."
-    )]
-    async fn list_options(
-        &self,
-        Parameters(args): Parameters<LocatorArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        // Start telemetry span
-        let mut span = StepSpan::new("list_options", None);
-
-        // Add comprehensive telemetry attributes
-        span.set_attribute("selector", args.selector.selector.clone());
-        if let Some(retries) = args.action.retries {
-            span.set_attribute("retry.max_attempts", retries.to_string());
-        }
-
-        // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            let flag_value = *in_sequence;
-            let should_restore_value = !flag_value;
-            tracing::info!(
-                "[list_options] Flag check: in_sequence={}, should_restore={}",
-                flag_value,
-                should_restore_value
-            );
-            should_restore_value
-        };
-
-        if should_restore {
-            tracing::info!(
-                "[list_options] Direct MCP call detected - performing window management"
-            );
-            let _ = self
-                .prepare_window_management(
-                    &args.selector.process,
-                    None,
-                    None,
-                    None,
-                    &args.window_mgmt,
-                )
-                .await;
-        } else {
-            tracing::debug!("[list_options] In sequence - skipping window management (dispatch_tool handles it)");
-        }
-
-        let ((options, element), successful_selector) =
-            match find_and_execute_with_retry_with_fallback(
-                &self.desktop,
-                &args.selector.build_full_selector(),
-                args.selector.build_alternative_selectors().as_deref(),
-                args.selector.build_fallback_selectors().as_deref(),
-                args.action.timeout_ms,
-                args.action.retries,
-                |element| async move { element.list_options() },
-            )
-            .await
+            if args
+                .tree
+                .ui_diff_include_full_trees_in_response
+                .unwrap_or(false)
             {
-                Ok(((result, element), selector)) => Ok(((result, element), selector)),
-                Err(e) => {
-                    // Restore windows before returning error
-                    self.restore_window_management(should_restore).await;
-                    Err(build_element_not_found_error(
-                        &args.selector.build_full_selector(),
-                        args.selector.build_alternative_selectors().as_deref(),
-                        args.selector.build_fallback_selectors().as_deref(),
-                        e,
-                    ))
-                }
-            }?;
-
-        let element_info = build_element_info(&element);
-
-        let mut result_json = json!({
-            "action": "list_options",
-            "status": "success",
-            "element": element_info,
-            "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
-            "options": options,
-            "count": options.len(),
-        });
-        maybe_attach_tree(
-            &self.desktop,
-            args.tree.include_tree_after_action,
-            args.tree.tree_max_depth,
-            args.tree.tree_from_selector.as_deref(),
-            args.tree.include_detailed_attributes,
-            None,
-            element.process_id().ok(),
-            &mut result_json,
-            Some(&element),
-        )
-        .await;
-
-        // Restore windows after listing options
-        self.restore_window_management(should_restore).await;
-
-        span.set_status(true, None);
-        span.end();
-
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                None,
-            )
-            .await,
-        ))
-    }
-
-    #[tool(
-        description = "Sets the state of a toggleable control (e.g., checkbox, switch). This action requires the application to be focused and may change the UI."
-    )]
-    async fn set_toggled(
-        &self,
-        Parameters(args): Parameters<SetToggledArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        // Start telemetry span
-        let mut span = StepSpan::new("set_toggled", None);
-
-        // Add comprehensive telemetry attributes
-        span.set_attribute("selector", args.selector.selector.clone());
-        span.set_attribute("state", args.state.to_string());
-        if let Some(retries) = args.action.retries {
-            span.set_attribute("retry.max_attempts", retries.to_string());
-        }
-
-        // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            !*in_sequence
-        };
-
-        if should_restore {
-            tracing::info!("[set_toggled] Direct MCP call detected - performing window management");
-            let _ = self
-                .prepare_window_management(
-                    &args.selector.process,
-                    None,
-                    None,
-                    None,
-                    &args.window_mgmt,
-                )
-                .await;
-        } else {
-            tracing::debug!(
-                "[set_toggled] In sequence - skipping window management (dispatch_tool handles it)"
-            );
-        }
-
-        let state = args.state;
-        let action = move |element: UIElement| async move {
-            // Ensure element is visible before interaction
-            if let Err(e) = Self::ensure_element_in_view(&element) {
-                tracing::warn!("Failed to ensure element is in view for set_toggled: {e}");
+                result_json["tree_before"] = json!(diff_result.tree_before);
+                result_json["tree_after"] = json!(diff_result.tree_after);
             }
-            element.set_toggled_with_state(state)
-        };
-
-        // Store tree config to avoid move issues
-        let tree_output_format = args
-            .tree
-            .tree_output_format
-            .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
-
-        let ((result, element), successful_selector, ui_diff) =
-            match crate::helpers::find_and_execute_with_ui_diff(
-                &self.desktop,
-                &args.selector.build_full_selector(),
-                None, // SetToggled doesn't have alternative selectors
-                args.selector.build_fallback_selectors().as_deref(),
-                args.action.timeout_ms,
-                args.action.retries,
-                action,
-                args.tree.ui_diff_before_after,
-                args.tree.tree_max_depth,
-                args.tree.include_detailed_attributes,
-                tree_output_format,
-            )
-            .await
-            {
-                Ok(((result, element), selector, diff)) => {
-                    if diff.is_some() {
-                        span.set_attribute("ui_diff.captured", "true".to_string());
-                    }
-                    Ok(((result, element), selector, diff))
-                }
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.build_full_selector(),
-                    None,
-                    args.selector.build_fallback_selectors().as_deref(),
-                    e,
-                )),
-            }?;
-
-        let element_info = build_element_info(&element);
-
-        let mut result_json = json!({
-            "action": "set_toggled",
-            "status": "success",
-            "action_result": {
-                "action": result.action,
-                "details": result.details,
-                "data": result.data,
-            },
-            "element": element_info,
-            "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), None, args.selector.build_fallback_selectors().as_deref()),
-            "state_set_to": args.state,
-        });
-
-        // POST-ACTION VERIFICATION: Magic auto-verification or explicit verification
-        let should_auto_verify = args.action.verify_element_exists.is_empty()
-            && args.action.verify_element_not_exists.is_empty();
-
-        if should_auto_verify {
-            // MAGIC AUTO-VERIFICATION: Verify toggle state was actually set
-            // For toggle state, we do a direct property check (can't use selector)
-            tracing::debug!(
-                "[set_toggled] Auto-verification: checking is_toggled = {}",
-                args.state
-            );
-            span.set_attribute("verification.auto_inferred", "true".to_string());
-
-            // Try direct read first (fast path)
-            let actual_state = element.is_toggled().unwrap_or(!args.state); // Default to opposite if can't read
-
-            if actual_state != args.state {
-                // State mismatch - verification failed
-                tracing::error!(
-                    "[set_toggled] Auto-verification failed: expected {}, got {}",
-                    args.state,
-                    actual_state
-                );
-                span.set_attribute("verification.passed", "false".to_string());
-                span.set_status(false, Some("Toggle state verification failed"));
-                span.end();
-                return Err(McpError::internal_error(
-                    format!(
-                        "Toggle state verification failed: expected {}, got {}",
-                        args.state, actual_state
-                    ),
-                    Some(json!({
-                        "expected_state": args.state,
-                        "actual_state": actual_state,
-                        "selector_used": successful_selector,
-                    })),
-                ));
-            }
-
-            tracing::info!(
-                "[set_toggled] Auto-verification passed: is_toggled = {}",
-                actual_state
-            );
-            span.set_attribute("verification.passed", "true".to_string());
-            span.set_attribute("verification.method", "direct_property_read".to_string());
-
-            if let Some(obj) = result_json.as_object_mut() {
-                obj.insert(
-                    "verification".to_string(),
-                    json!({
-                        "passed": true,
-                        "method": "direct_property_read",
-                        "expected_state": args.state,
-                        "actual_state": actual_state,
-                    }),
-                );
-            }
-        } else if !args.action.verify_element_exists.is_empty()
-            || !args.action.verify_element_not_exists.is_empty()
-        {
-            // Explicit verification using selectors
-            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
-
-            let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
-                None
-            } else {
-                Some(args.action.verify_element_exists.as_str())
-            };
-            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() {
-                None
-            } else {
-                Some(args.action.verify_element_not_exists.as_str())
-            };
-
-            match crate::helpers::verify_post_action(
-                &self.desktop,
-                &element,
-                verify_exists_opt,
-                verify_not_exists_opt,
-                verify_timeout_ms,
-                &successful_selector,
-            )
-            .await
-            {
-                Ok(verification_result) => {
-                    span.set_attribute("verification.passed", "true".to_string());
-                    span.set_attribute("verification.method", verification_result.method.clone());
-
-                    if let Some(obj) = result_json.as_object_mut() {
-                        obj.insert(
-                            "verification".to_string(),
-                            json!({
-                                "passed": verification_result.passed,
-                                "method": verification_result.method,
-                                "details": verification_result.details,
-                                "elapsed_ms": verification_result.elapsed_ms,
-                            }),
-                        );
-                    }
-                }
-                Err(e) => {
-                    span.set_status(false, Some("Verification failed"));
-                    span.end();
-                    return Err(McpError::internal_error(
-                        format!("Post-action verification failed: {e}"),
-                        Some(json!({
-                            "selector_used": successful_selector,
-                            "timeout_ms": verify_timeout_ms,
-                        })),
-                    ));
-                }
-            }
-        }
-
-        // Attach UI diff if captured
-        if let Some(diff_result) = ui_diff {
-            tracing::debug!(
-                "[set_toggled] Attaching UI diff to result (has_changes: {})",
-                diff_result.has_changes
-            );
-            span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
-
-            result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["tree_before"] = json!(diff_result.tree_before);
-            result_json["tree_after"] = json!(diff_result.tree_after);
-            result_json["has_ui_changes"] = json!(diff_result.has_changes);
-        } else {
-            // Normal tree attachment when diff not requested
-            maybe_attach_tree(
-                &self.desktop,
-                args.tree.include_tree_after_action,
-                args.tree.tree_max_depth,
-                args.tree.tree_from_selector.as_deref(),
-                args.tree.include_detailed_attributes,
-                Some(tree_output_format),
-                Some(element.process_id().unwrap_or(0)),
-                &mut result_json,
-                Some(&element),
-            )
-            .await;
-        }
-
-        self.restore_window_management(should_restore).await;
-
-        span.set_status(true, None);
-        span.end();
-
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                None,
-            )
-            .await,
-        ))
-    }
-
-    #[tool(
-        description = "Sets the value of a range-based control like a slider. This action requires the application to be focused and may change the UI."
-    )]
-    async fn set_range_value(
-        &self,
-        Parameters(args): Parameters<SetRangeValueArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        // Start telemetry span
-        let mut span = StepSpan::new("set_range_value", None);
-
-        // Add comprehensive telemetry attributes
-        span.set_attribute("selector", args.selector.selector.clone());
-        span.set_attribute("value", args.value.to_string());
-        if let Some(retries) = args.action.retries {
-            span.set_attribute("retry.max_attempts", retries.to_string());
-        }
-
-        // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            !*in_sequence
-        };
-
-        if should_restore {
-            tracing::info!(
-                "[set_range_value] Direct MCP call detected - performing window management"
-            );
-            let _ = self
-                .prepare_window_management(
-                    &args.selector.process,
-                    None,
-                    None,
-                    None,
-                    &args.window_mgmt,
-                )
-                .await;
-        } else {
-            tracing::debug!("[set_range_value] In sequence - skipping window management (dispatch_tool handles it)");
-        }
-
-        let value = args.value;
-        let action = move |element: UIElement| async move {
-            // Ensure element is visible before interaction
-            if let Err(e) = Self::ensure_element_in_view(&element) {
-                tracing::warn!("Failed to ensure element is in view for set_range_value: {e}");
-            }
-            element.set_range_value(value)
-        };
-
-        // Store tree config to avoid move issues
-        let tree_output_format = args
-            .tree
-            .tree_output_format
-            .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
-
-        let ((_result, element), successful_selector, ui_diff) =
-            match crate::helpers::find_and_execute_with_ui_diff(
-                &self.desktop,
-                &args.selector.build_full_selector(),
-                None, // SetRangeValue doesn't have alternative selectors
-                args.selector.build_fallback_selectors().as_deref(),
-                args.action.timeout_ms,
-                args.action.retries,
-                action,
-                args.tree.ui_diff_before_after,
-                args.tree.tree_max_depth,
-                args.tree.include_detailed_attributes,
-                tree_output_format,
-            )
-            .await
-            {
-                Ok(((result, element), selector, diff)) => {
-                    if diff.is_some() {
-                        span.set_attribute("ui_diff.captured", "true".to_string());
-                    }
-                    Ok(((result, element), selector, diff))
-                }
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.build_full_selector(),
-                    None,
-                    args.selector.build_fallback_selectors().as_deref(),
-                    e,
-                )),
-            }?;
-
-        let element_info = build_element_info(&element);
-
-        let mut result_json = json!({
-            "action": "set_range_value",
-            "status": "success",
-            "element": element_info,
-            "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), None, args.selector.build_fallback_selectors().as_deref()),
-            "value_set_to": args.value,
-        });
-
-        // POST-ACTION VERIFICATION: Magic auto-verification or explicit verification
-        let should_auto_verify = args.action.verify_element_exists.is_empty()
-            && args.action.verify_element_not_exists.is_empty();
-
-        if should_auto_verify {
-            // MAGIC AUTO-VERIFICATION: Verify range value was actually set
-            tracing::debug!(
-                "[set_range_value] Auto-verification: checking range_value = {}",
-                args.value
-            );
-            span.set_attribute("verification.auto_inferred", "true".to_string());
-
-            let actual_value = element.get_range_value().unwrap_or(f64::NAN);
-            let tolerance = 0.01; // Allow small floating point differences
-
-            if (actual_value - args.value).abs() > tolerance {
-                tracing::error!(
-                    "[set_range_value] Auto-verification failed: expected {}, got {}",
-                    args.value,
-                    actual_value
-                );
-                span.set_attribute("verification.passed", "false".to_string());
-                span.set_status(false, Some("Range value verification failed"));
-                span.end();
-                return Err(McpError::internal_error(
-                    format!(
-                        "Range value verification failed: expected {}, got {}",
-                        args.value, actual_value
-                    ),
-                    Some(json!({
-                        "expected_value": args.value,
-                        "actual_value": actual_value,
-                        "selector_used": successful_selector,
-                    })),
-                ));
-            }
-
-            tracing::info!(
-                "[set_range_value] Auto-verification passed: range_value = {}",
-                actual_value
-            );
-            span.set_attribute("verification.passed", "true".to_string());
-            span.set_attribute("verification.method", "direct_property_read".to_string());
-
-            if let Some(obj) = result_json.as_object_mut() {
-                obj.insert(
-                    "verification".to_string(),
-                    json!({
-                        "passed": true,
-                        "method": "direct_property_read",
-                        "expected_value": args.value,
-                        "actual_value": actual_value,
-                    }),
-                );
-            }
-        } else if !args.action.verify_element_exists.is_empty()
-            || !args.action.verify_element_not_exists.is_empty()
-        {
-            // Explicit verification using selectors
-            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
-
-            let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
-                None
-            } else {
-                Some(args.action.verify_element_exists.as_str())
-            };
-            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() {
-                None
-            } else {
-                Some(args.action.verify_element_not_exists.as_str())
-            };
-
-            match crate::helpers::verify_post_action(
-                &self.desktop,
-                &element,
-                verify_exists_opt,
-                verify_not_exists_opt,
-                verify_timeout_ms,
-                &successful_selector,
-            )
-            .await
-            {
-                Ok(verification_result) => {
-                    span.set_attribute("verification.passed", "true".to_string());
-                    span.set_attribute("verification.method", verification_result.method.clone());
-
-                    if let Some(obj) = result_json.as_object_mut() {
-                        obj.insert(
-                            "verification".to_string(),
-                            json!({
-                                "passed": verification_result.passed,
-                                "method": verification_result.method,
-                                "details": verification_result.details,
-                                "elapsed_ms": verification_result.elapsed_ms,
-                            }),
-                        );
-                    }
-                }
-                Err(e) => {
-                    span.set_status(false, Some("Verification failed"));
-                    span.end();
-                    return Err(McpError::internal_error(
-                        format!("Post-action verification failed: {e}"),
-                        Some(json!({
-                            "selector_used": successful_selector,
-                            "timeout_ms": verify_timeout_ms,
-                        })),
-                    ));
-                }
-            }
-        }
-
-        // Attach UI diff if captured
-        if let Some(diff_result) = ui_diff {
-            tracing::debug!(
-                "[set_range_value] Attaching UI diff to result (has_changes: {})",
-                diff_result.has_changes
-            );
-            span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
-
-            result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["tree_before"] = json!(diff_result.tree_before);
-            result_json["tree_after"] = json!(diff_result.tree_after);
-            result_json["has_ui_changes"] = json!(diff_result.has_changes);
-        } else {
-            // Normal tree attachment when diff not requested
-            maybe_attach_tree(
-                &self.desktop,
-                args.tree.include_tree_after_action,
-                args.tree.tree_max_depth,
-                args.tree.tree_from_selector.as_deref(),
-                args.tree.include_detailed_attributes,
-                Some(tree_output_format),
-                Some(element.process_id().unwrap_or(0)),
-                &mut result_json,
-                Some(&element),
-            )
-            .await;
         }
 
         self.restore_window_management(should_restore).await;
@@ -6253,131 +6801,17 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
 
             result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["tree_before"] = json!(diff_result.tree_before);
-            result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-        } else {
-            // Normal tree attachment when diff not requested
-            maybe_attach_tree(
-                &self.desktop,
-                args.tree.include_tree_after_action,
-                args.tree.tree_max_depth,
-                args.tree.tree_from_selector.as_deref(),
-                args.tree.include_detailed_attributes,
-                Some(tree_output_format),
-                Some(element.process_id().unwrap_or(0)),
-                &mut result_json,
-                Some(&element),
-            )
-            .await;
-        }
-
-        self.restore_window_management(should_restore).await;
-
-        span.set_status(true, None);
-        span.end();
-
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                None,
-            )
-            .await,
-        ))
-    }
-
-    #[tool(
-        description = "Checks if a control (like a checkbox or toggle switch) is currently toggled on. This is a read-only operation."
-    )]
-    async fn is_toggled(
-        &self,
-        Parameters(args): Parameters<LocatorArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        // Start telemetry span
-        let mut span = StepSpan::new("is_toggled", None);
-
-        // Add comprehensive telemetry attributes
-        span.set_attribute("selector", args.selector.selector.clone());
-        if let Some(retries) = args.action.retries {
-            span.set_attribute("retry.max_attempts", retries.to_string());
-        }
-
-        // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            let flag_value = *in_sequence;
-            let should_restore_value = !flag_value;
-            tracing::info!(
-                "[is_toggled] Flag check: in_sequence={}, should_restore={}",
-                flag_value,
-                should_restore_value
-            );
-            should_restore_value
-        };
-
-        if should_restore {
-            tracing::info!("[is_toggled] Direct MCP call detected - performing window management");
-            let _ = self
-                .prepare_window_management(
-                    &args.selector.process,
-                    None,
-                    None,
-                    None,
-                    &args.window_mgmt,
-                )
-                .await;
-        } else {
-            tracing::debug!(
-                "[is_toggled] In sequence - skipping window management (dispatch_tool handles it)"
-            );
-        }
-
-        let ((is_toggled, element), successful_selector) =
-            match find_and_execute_with_retry_with_fallback(
-                &self.desktop,
-                &args.selector.build_full_selector(),
-                args.selector.build_alternative_selectors().as_deref(),
-                args.selector.build_fallback_selectors().as_deref(),
-                args.action.timeout_ms,
-                args.action.retries,
-                |element| async move { element.is_toggled() },
-            )
-            .await
+            if args
+                .tree
+                .ui_diff_include_full_trees_in_response
+                .unwrap_or(false)
             {
-                Ok(((result, element), selector)) => Ok(((result, element), selector)),
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.build_full_selector(),
-                    args.selector.build_alternative_selectors().as_deref(),
-                    args.selector.build_fallback_selectors().as_deref(),
-                    e,
-                )),
-            }?;
+                result_json["tree_before"] = json!(diff_result.tree_before);
+                result_json["tree_after"] = json!(diff_result.tree_after);
+            }
+        }
 
-        let element_info = build_element_info(&element);
-
-        let mut result_json = json!({
-            "action": "is_toggled",
-            "status": "success",
-            "element": element_info,
-            "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
-            "is_toggled": is_toggled,
-        });
-        maybe_attach_tree(
-            &self.desktop,
-            args.tree.include_tree_after_action,
-            args.tree.tree_max_depth,
-            args.tree.tree_from_selector.as_deref(),
-            args.tree.include_detailed_attributes,
-            None,
-            element.process_id().ok(),
-            &mut result_json,
-            Some(&element),
-        )
-        .await;
-
-        // Restore windows after checking if element is toggled
         self.restore_window_management(should_restore).await;
 
         span.set_status(true, None);
@@ -6394,229 +6828,28 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
     }
 
     #[tool(
-        description = "Gets the current value from a range-based control like a slider or progress bar. This is a read-only operation."
+        description = "Captures a screenshot. Three modes: (1) Element - provide process + selector to capture specific element, (2) Window - provide process only to capture entire window, (3) Monitor - provide process + entire_monitor=true to capture the monitor where the window is located. Automatically resizes to max 1920px (customizable via max_dimension parameter) while maintaining aspect ratio."
     )]
-    async fn get_range_value(
+    async fn capture_screenshot(
         &self,
-        Parameters(args): Parameters<LocatorArgs>,
+        Parameters(args): Parameters<CaptureScreenshotArgs>,
     ) -> Result<CallToolResult, McpError> {
         // Start telemetry span
-        let mut span = StepSpan::new("get_range_value", None);
+        let mut span = StepSpan::new("capture_screenshot", None);
 
-        // Add comprehensive telemetry attributes
-        span.set_attribute("selector", args.selector.selector.clone());
-        if let Some(retries) = args.action.retries {
-            span.set_attribute("retry.max_attempts", retries.to_string());
-        }
-
-        // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            let flag_value = *in_sequence;
-            let should_restore_value = !flag_value;
-            tracing::info!(
-                "[get_range_value] Flag check: in_sequence={}, should_restore={}",
-                flag_value,
-                should_restore_value
-            );
-            should_restore_value
-        };
-
-        if should_restore {
-            tracing::info!(
-                "[get_range_value] Direct MCP call detected - performing window management"
-            );
-            let _ = self
-                .prepare_window_management(
-                    &args.selector.process,
-                    None,
-                    None,
-                    None,
-                    &args.window_mgmt,
-                )
-                .await;
+        // Determine capture mode for telemetry
+        let capture_mode = if args.entire_monitor {
+            "monitor"
+        } else if args.selector.selector.is_empty() {
+            "window"
         } else {
-            tracing::debug!("[get_range_value] In sequence - skipping window management (dispatch_tool handles it)");
-        }
-
-        let ((value, element), successful_selector) =
-            match find_and_execute_with_retry_with_fallback(
-                &self.desktop,
-                &args.selector.build_full_selector(),
-                args.selector.build_alternative_selectors().as_deref(),
-                args.selector.build_fallback_selectors().as_deref(),
-                args.action.timeout_ms,
-                args.action.retries,
-                |element| async move { element.get_range_value() },
-            )
-            .await
-            {
-                Ok(((result, element), selector)) => Ok(((result, element), selector)),
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.build_full_selector(),
-                    args.selector.build_alternative_selectors().as_deref(),
-                    args.selector.build_fallback_selectors().as_deref(),
-                    e,
-                )),
-            }?;
-
-        let element_info = build_element_info(&element);
-
-        let mut result_json = json!({
-            "action": "get_range_value",
-            "status": "success",
-            "element": element_info,
-            "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
-            "value": value,
-        });
-        maybe_attach_tree(
-            &self.desktop,
-            args.tree.include_tree_after_action,
-            args.tree.tree_max_depth,
-            args.tree.tree_from_selector.as_deref(),
-            args.tree.include_detailed_attributes,
-            None,
-            element.process_id().ok(),
-            &mut result_json,
-            Some(&element),
-        )
-        .await;
-
-        // Restore windows after getting range value
-        self.restore_window_management(should_restore).await;
-
-        span.set_status(true, None);
-        span.end();
-
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                None,
-            )
-            .await,
-        ))
-    }
-
-    #[tool(
-        description = "Checks if a selectable item (e.g., in a calendar, list, or tab) is currently selected. This is a read-only operation."
-    )]
-    async fn is_selected(
-        &self,
-        Parameters(args): Parameters<LocatorArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        // Start telemetry span
-        let mut span = StepSpan::new("is_selected", None);
-
-        // Add comprehensive telemetry attributes
-        span.set_attribute("selector", args.selector.selector.clone());
-        if let Some(retries) = args.action.retries {
-            span.set_attribute("retry.max_attempts", retries.to_string());
-        }
-
-        // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            let flag_value = *in_sequence;
-            let should_restore_value = !flag_value;
-            tracing::info!(
-                "[is_selected] Flag check: in_sequence={}, should_restore={}",
-                flag_value,
-                should_restore_value
-            );
-            should_restore_value
+            "element"
         };
-
-        if should_restore {
-            tracing::info!("[is_selected] Direct MCP call detected - performing window management");
-            let _ = self
-                .prepare_window_management(
-                    &args.selector.process,
-                    None,
-                    None,
-                    None,
-                    &args.window_mgmt,
-                )
-                .await;
-        } else {
-            tracing::debug!(
-                "[is_selected] In sequence - skipping window management (dispatch_tool handles it)"
-            );
+        span.set_attribute("capture_mode", capture_mode.to_string());
+        span.set_attribute("process", args.selector.process.clone());
+        if !args.selector.selector.is_empty() {
+            span.set_attribute("selector", args.selector.selector.clone());
         }
-
-        let ((is_selected, element), successful_selector) =
-            match find_and_execute_with_retry_with_fallback(
-                &self.desktop,
-                &args.selector.build_full_selector(),
-                args.selector.build_alternative_selectors().as_deref(),
-                args.selector.build_fallback_selectors().as_deref(),
-                args.action.timeout_ms,
-                args.action.retries,
-                |element| async move { element.is_selected() },
-            )
-            .await
-            {
-                Ok(((result, element), selector)) => Ok(((result, element), selector)),
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.build_full_selector(),
-                    args.selector.build_alternative_selectors().as_deref(),
-                    args.selector.build_fallback_selectors().as_deref(),
-                    e,
-                )),
-            }?;
-
-        let element_info = build_element_info(&element);
-
-        let mut result_json = json!({
-            "action": "is_selected",
-            "status": "success",
-            "element": element_info,
-            "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
-            "is_selected": is_selected,
-        });
-        maybe_attach_tree(
-            &self.desktop,
-            args.tree.include_tree_after_action,
-            args.tree.tree_max_depth,
-            args.tree.tree_from_selector.as_deref(),
-            args.tree.include_detailed_attributes,
-            None,
-            element.process_id().ok(),
-            &mut result_json,
-            Some(&element),
-        )
-        .await;
-
-        // Restore windows after checking if element is selected
-        self.restore_window_management(should_restore).await;
-
-        span.set_status(true, None);
-        span.end();
-
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                None,
-            )
-            .await,
-        ))
-    }
-
-    #[tool(
-        description = "Captures a screenshot of a specific UI element. Automatically resizes to max 1920px (customizable via max_dimension parameter) while maintaining aspect ratio. Uses process-scoped selector for reliable element capture."
-    )]
-    async fn capture_element_screenshot(
-        &self,
-        Parameters(args): Parameters<CaptureElementScreenshotArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        // Start telemetry span
-        let mut span = StepSpan::new("capture_element_screenshot", None);
-
-        // Add telemetry attributes
-        span.set_attribute("selector", args.selector.selector.clone());
         if let Some(retries) = args.action.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
@@ -6628,7 +6861,9 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         };
 
         if should_restore {
-            tracing::info!("[capture_element_screenshot] Direct MCP call detected - performing window management");
+            tracing::info!(
+                "[capture_screenshot] Direct MCP call detected - performing window management"
+            );
             let _ = self
                 .prepare_window_management(
                     &args.selector.process,
@@ -6639,12 +6874,57 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 )
                 .await;
         } else {
-            tracing::debug!("[capture_element_screenshot] In sequence - skipping window management (dispatch_tool handles it)");
+            tracing::debug!("[capture_screenshot] In sequence - skipping window management (dispatch_tool handles it)");
         }
 
-        // Capture screenshot using process-scoped selector
-        let ((screenshot_result, element), successful_selector) =
-            match find_and_execute_with_retry_with_fallback(
+        // Capture screenshot based on mode
+        let (screenshot_result, element_info, successful_selector) = if args.entire_monitor {
+            // Monitor mode: find window, get its monitor, capture the monitor
+            let ((element, _), selector) = find_and_execute_with_retry_with_fallback(
+                &self.desktop,
+                &args.selector.build_full_selector(),
+                args.selector.build_alternative_selectors().as_deref(),
+                args.selector.build_fallback_selectors().as_deref(),
+                args.action.timeout_ms,
+                args.action.retries,
+                |element| async move { Ok(element) },
+            )
+            .await
+            .map_err(|e| {
+                build_element_not_found_error(
+                    &args.selector.build_full_selector(),
+                    args.selector.build_alternative_selectors().as_deref(),
+                    args.selector.build_fallback_selectors().as_deref(),
+                    e,
+                )
+            })?;
+
+            // Get the monitor containing this window
+            let monitor = element.monitor().map_err(|e| {
+                McpError::internal_error(
+                    "Failed to get monitor for window",
+                    Some(json!({ "reason": e.to_string() })),
+                )
+            })?;
+
+            // Capture the monitor
+            let screenshot = monitor.capture(&self.desktop).await.map_err(|e| {
+                McpError::internal_error(
+                    "Failed to capture monitor screenshot",
+                    Some(json!({ "reason": e.to_string() })),
+                )
+            })?;
+
+            let info = json!({
+                "type": "monitor",
+                "monitor_name": monitor.name,
+                "monitor_id": monitor.id,
+                "window_process": args.selector.process,
+            });
+            (screenshot, info, selector)
+        } else {
+            // Element/Window mode: capture element directly
+            let ((result, element), selector) = find_and_execute_with_retry_with_fallback(
                 &self.desktop,
                 &args.selector.build_full_selector(),
                 args.selector.build_alternative_selectors().as_deref(),
@@ -6654,15 +6934,18 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
                 |element| async move { element.capture() },
             )
             .await
-            {
-                Ok(((result, element), selector)) => Ok(((result, element), selector)),
-                Err(e) => Err(build_element_not_found_error(
+            .map_err(|e| {
+                build_element_not_found_error(
                     &args.selector.build_full_selector(),
                     args.selector.build_alternative_selectors().as_deref(),
                     args.selector.build_fallback_selectors().as_deref(),
                     e,
-                )),
-            }?;
+                )
+            })?;
+
+            let info = build_element_info(&element);
+            (result, info, selector)
+        };
 
         // Store original dimensions for metadata
         let original_width = screenshot_result.width;
@@ -6725,16 +7008,15 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
 
         let base64_image = general_purpose::STANDARD.encode(&png_data);
 
-        let element_info = build_element_info(&element);
-
         span.set_status(true, None);
         span.end();
 
         // Build metadata with resize information
         let metadata = json!({
-            "action": "capture_element_screenshot",
+            "action": "capture_screenshot",
             "status": "success",
-            "element": element_info,
+            "capture_mode": capture_mode,
+            "target": element_info,
             "selector_used": successful_selector,
             "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "image_format": "png",
@@ -6774,7 +7056,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
     )]
     async fn invoke_element(
         &self,
-        Parameters(args): Parameters<LocatorArgs>,
+        Parameters(args): Parameters<InvokeElementArgs>,
     ) -> Result<CallToolResult, McpError> {
         // Start telemetry span
         let mut span = StepSpan::new("invoke_element", None);
@@ -6947,7 +7229,7 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             }
         }
 
-        // Attach UI diff if captured
+        // Attach UI diff if captured (action tools only support diff, not standalone tree)
         if let Some(diff_result) = ui_diff {
             tracing::debug!(
                 "[invoke_element] Attaching UI diff to result (has_changes: {})",
@@ -6956,23 +7238,15 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
 
             result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["tree_before"] = json!(diff_result.tree_before);
-            result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-        } else {
-            // Normal tree attachment when diff not requested
-            maybe_attach_tree(
-                &self.desktop,
-                args.tree.include_tree_after_action,
-                args.tree.tree_max_depth,
-                args.tree.tree_from_selector.as_deref(),
-                args.tree.include_detailed_attributes,
-                Some(tree_output_format),
-                element.process_id().ok(),
-                &mut result_json,
-                Some(&element),
-            )
-            .await;
+            if args
+                .tree
+                .ui_diff_include_full_trees_in_response
+                .unwrap_or(false)
+            {
+                result_json["tree_before"] = json!(diff_result.tree_before);
+                result_json["tree_after"] = json!(diff_result.tree_after);
+            }
         }
 
         // Restore windows after invoking element
@@ -7050,266 +7324,6 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
         return self
             .execute_sequence_impl(peer, request_context, args)
             .await;
-    }
-
-    #[tool(description = "Maximizes a window.")]
-    async fn maximize_window(
-        &self,
-        Parameters(args): Parameters<MaximizeWindowArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        // Start telemetry span
-        let mut span = StepSpan::new("maximize_window", None);
-
-        // Add comprehensive telemetry attributes
-        span.set_attribute("selector", args.selector.selector.clone());
-        if let Some(retries) = args.action.retries {
-            span.set_attribute("retry.max_attempts", retries.to_string());
-        }
-
-        // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            !*in_sequence
-        };
-
-        if should_restore {
-            tracing::info!(
-                "[maximize_window] Direct MCP call detected - performing window management"
-            );
-            let _ = self
-                .prepare_window_management(
-                    &args.selector.process,
-                    None,
-                    None,
-                    None,
-                    &args.window_mgmt,
-                )
-                .await;
-        } else {
-            tracing::debug!("[maximize_window] In sequence - skipping window management (dispatch_tool handles it)");
-        }
-
-        let ((_result, element), successful_selector) =
-            match find_and_execute_with_retry_with_fallback(
-                &self.desktop,
-                &args.selector.build_full_selector(),
-                args.selector.build_alternative_selectors().as_deref(),
-                args.selector.build_fallback_selectors().as_deref(),
-                args.action.timeout_ms,
-                args.action.retries,
-                |element| async move { element.maximize_window() },
-            )
-            .await
-            {
-                Ok(((result, element), selector)) => Ok(((result, element), selector)),
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.build_full_selector(),
-                    args.selector.build_alternative_selectors().as_deref(),
-                    args.selector.build_fallback_selectors().as_deref(),
-                    e,
-                )),
-            }?;
-
-        let element_info = build_element_info(&element);
-
-        let mut result_json = json!({
-            "action": "maximize_window",
-            "status": "success",
-            "element": element_info,
-            "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        });
-        maybe_attach_tree(
-            &self.desktop,
-            args.tree.include_tree_after_action,
-            args.tree.tree_max_depth,
-            args.tree.tree_from_selector.as_deref(),
-            args.tree.include_detailed_attributes,
-            None,
-            element.process_id().ok(),
-            &mut result_json,
-            Some(&element),
-        )
-        .await;
-
-        self.restore_window_management(should_restore).await;
-
-        span.set_status(true, None);
-        span.end();
-
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                None,
-            )
-            .await,
-        ))
-    }
-
-    #[tool(description = "Minimizes a window.")]
-    async fn minimize_window(
-        &self,
-        Parameters(args): Parameters<MinimizeWindowArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        // Start telemetry span
-        let mut span = StepSpan::new("minimize_window", None);
-
-        // Add comprehensive telemetry attributes
-        span.set_attribute("selector", args.selector.selector.clone());
-        if let Some(retries) = args.action.retries {
-            span.set_attribute("retry.max_attempts", retries.to_string());
-        }
-
-        // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            !*in_sequence
-        };
-
-        if should_restore {
-            tracing::info!(
-                "[minimize_window] Direct MCP call detected - performing window management"
-            );
-            let _ = self
-                .prepare_window_management(
-                    &args.selector.process,
-                    None,
-                    None,
-                    None,
-                    &args.window_mgmt,
-                )
-                .await;
-        } else {
-            tracing::debug!("[minimize_window] In sequence - skipping window management (dispatch_tool handles it)");
-        }
-
-        let ((_result, element), successful_selector) =
-            match find_and_execute_with_retry_with_fallback(
-                &self.desktop,
-                &args.selector.build_full_selector(),
-                args.selector.build_alternative_selectors().as_deref(),
-                args.selector.build_fallback_selectors().as_deref(),
-                args.action.timeout_ms,
-                args.action.retries,
-                |element| async move { element.minimize_window() },
-            )
-            .await
-            {
-                Ok(((result, element), selector)) => Ok(((result, element), selector)),
-                Err(e) => Err(build_element_not_found_error(
-                    &args.selector.build_full_selector(),
-                    args.selector.build_alternative_selectors().as_deref(),
-                    args.selector.build_fallback_selectors().as_deref(),
-                    e,
-                )),
-            }?;
-
-        let element_info = build_element_info(&element);
-
-        let mut result_json = json!({
-            "action": "minimize_window",
-            "status": "success",
-            "element": element_info,
-            "selector_used": successful_selector,
-            "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        });
-        maybe_attach_tree(
-            &self.desktop,
-            args.tree.include_tree_after_action,
-            args.tree.tree_max_depth,
-            args.tree.tree_from_selector.as_deref(),
-            args.tree.include_detailed_attributes,
-            None,
-            element.process_id().ok(),
-            &mut result_json,
-            Some(&element),
-        )
-        .await;
-
-        self.restore_window_management(should_restore).await;
-
-        span.set_status(true, None);
-        span.end();
-
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                None,
-            )
-            .await,
-        ))
-    }
-
-    #[tool(
-        description = "Sets the zoom level to a specific percentage (e.g., 100 for 100%, 150 for 150%, 50 for 50%)."
-    )]
-    async fn set_zoom(
-        &self,
-        Parameters(args): Parameters<SetZoomArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        // Start telemetry span
-        let mut span = StepSpan::new("set_zoom", None);
-
-        // Add comprehensive telemetry attributes
-        span.set_attribute("percentage", args.percentage.to_string());
-
-        // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            !*in_sequence
-        };
-
-        if should_restore {
-            tracing::info!("[set_zoom] Direct MCP call detected - performing window management");
-            // Note: set_zoom operates on browser context, using generic browser process
-            let _ = self
-                .prepare_window_management("chrome", None, None, None, &args.window_mgmt)
-                .await;
-        } else {
-            tracing::debug!(
-                "[set_zoom] In sequence - skipping window management (dispatch_tool handles it)"
-            );
-        }
-
-        self.desktop.set_zoom(args.percentage).await.map_err(|e| {
-            McpError::internal_error("Failed to set zoom", Some(json!({"reason": e.to_string()})))
-        })?;
-        let mut result_json = json!({
-            "action": "set_zoom",
-            "status": "success",
-            "percentage": args.percentage,
-            "note": "Zoom level set to the specified percentage"
-        });
-        maybe_attach_tree(
-            &self.desktop,
-            args.tree.include_tree_after_action,
-            args.tree.tree_max_depth,
-            args.tree.tree_from_selector.as_deref(),
-            args.tree.include_detailed_attributes,
-            None,
-            None, // No specific element for zoom operation
-            &mut result_json,
-            None, // No element available for zoom
-        )
-        .await;
-
-        self.restore_window_management(should_restore).await;
-
-        span.set_status(true, None);
-        span.end();
-
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                None,
-            )
-            .await,
-        ))
     }
 
     #[tool(
@@ -7504,23 +7518,15 @@ Set include_logs: true to capture stdout/stderr output. Default is false for cle
             span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
 
             result_json["ui_diff"] = json!(diff_result.diff);
-            result_json["tree_before"] = json!(diff_result.tree_before);
-            result_json["tree_after"] = json!(diff_result.tree_after);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-        } else {
-            // Normal tree attachment when diff not requested
-            maybe_attach_tree(
-                &self.desktop,
-                args.tree.include_tree_after_action,
-                args.tree.tree_max_depth,
-                args.tree.tree_from_selector.as_deref(),
-                args.tree.include_detailed_attributes,
-                Some(tree_output_format),
-                Some(element.process_id().unwrap_or(0)),
-                &mut result_json,
-                Some(&element),
-            )
-            .await;
+            if args
+                .tree
+                .ui_diff_include_full_trees_in_response
+                .unwrap_or(false)
+            {
+                result_json["tree_before"] = json!(diff_result.tree_before);
+                result_json["tree_after"] = json!(diff_result.tree_after);
+            }
         }
 
         self.restore_window_management(should_restore).await;
@@ -8260,11 +8266,16 @@ console.info = function(...args) {
             );
 
             // Wrap user script to capture result + logs
-            // The user script becomes the last expression which eval() will return
+            // Use eval() to execute user script - eval returns the last expression's value
+            // This handles multi-statement scripts correctly (e.g., "console.log('x'); document.title")
+            let escaped_script = cleaned_script
+                .replace('\\', "\\\\")
+                .replace('`', "\\`")
+                .replace("${", "\\${");
             final_script.push_str("(function() {\n");
-            final_script.push_str("  var __user_result__ = (");
-            final_script.push_str(&cleaned_script);
-            final_script.push_str(");\n");
+            final_script.push_str("  var __user_result__ = eval(`");
+            final_script.push_str(&escaped_script);
+            final_script.push_str("`);\n");
             final_script.push_str("  return JSON.stringify({\n");
             final_script.push_str("    result: __user_result__,\n");
             final_script.push_str("    logs: __terminator_logs__\n");
@@ -8315,7 +8326,7 @@ console.info = function(...args) {
                         e
                     );
 
-                    // Check if this is a JavaScript execution error
+                    // Check if this is a JavaScript execution error or extension bridge error
                     if let Some(AutomationError::PlatformError(msg)) =
                         e.downcast_ref::<AutomationError>()
                     {
@@ -8335,6 +8346,37 @@ console.info = function(...args) {
                                         args.selector.build_fallback_selectors().as_deref(),
                                     ),
                                     "suggestion": "Check the browser console for JavaScript errors. The script may have timed out or encountered an error."
+                                })),
+                            ));
+                        }
+                        // Check for extension bridge connection errors
+                        if msg.contains("extension")
+                            || msg.contains("bridge")
+                            || msg.contains("port")
+                            || msg.contains("bind")
+                            || msg.contains("client")
+                        {
+                            self.restore_window_management(should_restore).await;
+                            return Err(McpError::invalid_params(
+                                "Browser extension connection failed",
+                                Some(json!({
+                                    "error_type": "extension_connection_failure",
+                                    "message": msg.clone(),
+                                    "selector": args.selector.selector,
+                                    "suggestion": "The Chrome extension bridge failed to connect. Try: 1) Kill all terminator-mcp-agent processes, 2) Refresh the browser tab, 3) Check if Terminator Bridge extension is installed and active."
+                                })),
+                            ));
+                        }
+                        // Check for chrome:// URL errors (new tab, settings, extensions pages)
+                        if msg.contains("chrome://") || msg.contains("Cannot access a chrome") {
+                            self.restore_window_management(should_restore).await;
+                            return Err(McpError::invalid_params(
+                                "Navigate to a regular website first",
+                                Some(json!({
+                                    "error_type": "chrome_internal_page",
+                                    "message": "Cannot execute script on chrome:// page (new tab, settings, extensions). The Chrome DevTools debugger cannot attach to internal browser pages.",
+                                    "selector": args.selector.selector,
+                                    "suggestion": "Navigate to a regular website (http:// or https://) before executing browser scripts."
                                 })),
                             ));
                         }
@@ -8415,19 +8457,7 @@ console.info = function(...args) {
             result_json["logs"] = logs;
         }
 
-        // Always attach tree for better context
-        maybe_attach_tree(
-            &self.desktop,
-            args.tree.include_tree_after_action,
-            args.tree.tree_max_depth,
-            args.tree.tree_from_selector.as_deref(),
-            args.tree.include_detailed_attributes,
-            None,
-            None, // Don't filter by process since this could apply to any browser
-            &mut result_json,
-            None, // No specific element
-        )
-        .await;
+        // Note: Tree attachment removed - use ui_diff_before_after for tree context
 
         // Restore windows after executing browser script
         self.restore_window_management(should_restore).await;
@@ -8469,12 +8499,586 @@ console.info = function(...args) {
 
         Ok(CallToolResult::success(vec![Content::json(result_json)?]))
     }
+
+    #[tool(
+        description = "Gemini Computer Use agentic loop. Provide a goal and target process, and the tool will autonomously take actions (click, type, scroll, etc.) until the goal is achieved or max_steps is reached. Uses native Gemini 2.5 Computer Use model with function calling. Returns when: task complete (model returns no function call), needs user confirmation, or max_steps exceeded."
+    )]
+    async fn gemini_computer_use(
+        &self,
+        Parameters(args): Parameters<GeminiComputerUseArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::vision::{
+            call_computer_use_backend, ComputerUseActionResponse, ComputerUsePreviousAction,
+        };
+
+        let mut span = StepSpan::new("gemini_computer_use", None);
+        span.set_attribute("process", args.process.clone());
+        span.set_attribute("goal", args.goal.clone());
+
+        let max_steps = args.max_steps.unwrap_or(20);
+        let mut previous_actions: Vec<ComputerUsePreviousAction> = Vec::new();
+        let mut final_status = "max_steps_reached";
+        let mut final_action = String::new();
+        let mut final_text: Option<String> = None;
+        let mut pending_confirmation: Option<serde_json::Value> = None;
+
+        info!(
+            "[gemini_computer_use] Starting agentic loop for goal: {} (max_steps: {})",
+            args.goal, max_steps
+        );
+
+        // Perform initial window management
+        let _ = self
+            .prepare_window_management(&args.process, None, None, None, &args.window_mgmt)
+            .await;
+
+        for step_num in 1..=max_steps {
+            info!("[gemini_computer_use] Step {}/{}", step_num, max_steps);
+
+            // 1. Capture screenshot of target window
+            let screenshot_result = self.capture_window_for_computer_use(&args.process).await;
+            let (base64_image, window_bounds, dpi_scale, resize_scale, _initial_url) =
+                match screenshot_result {
+                    Ok(data) => data,
+                    Err(e) => {
+                        warn!("[gemini_computer_use] Failed to capture screenshot: {}", e);
+                        final_status = "failed";
+                        break;
+                    }
+                };
+
+            // 2. Call backend to get next action (pass previous actions with their screenshots)
+            let response_result = call_computer_use_backend(
+                &base64_image,
+                &args.goal,
+                if previous_actions.is_empty() {
+                    None
+                } else {
+                    Some(&previous_actions)
+                },
+            )
+            .await;
+
+            let response = match response_result {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!("[gemini_computer_use] Backend error: {}", e);
+                    final_status = "failed";
+                    break;
+                }
+            };
+
+            // Store text response
+            if response.text.is_some() {
+                final_text = response.text.clone();
+            }
+
+            // 3. Check for task completion (no function call = done)
+            if response.completed {
+                final_status = "success";
+                final_action = "completed".to_string();
+                info!(
+                    "[gemini_computer_use] Task completed. Text: {:?}",
+                    response.text
+                );
+                break;
+            }
+
+            // 4. Get function call
+            let function_call = match response.function_call {
+                Some(fc) => fc,
+                None => {
+                    // No function call and not completed - unexpected state
+                    final_status = "success";
+                    final_action = "no_action".to_string();
+                    break;
+                }
+            };
+
+            final_action = function_call.name.clone();
+            info!(
+                "[gemini_computer_use] Action: {} (text: {:?})",
+                function_call.name, response.text
+            );
+
+            // 5. Check for safety confirmation
+            if response.safety_decision.as_deref() == Some("require_confirmation") {
+                final_status = "needs_confirmation";
+                pending_confirmation = Some(json!({
+                    "action": function_call.name,
+                    "args": function_call.args,
+                    "text": response.text,
+                }));
+                break;
+            }
+
+            // 6. Execute action
+            let execute_result = self
+                .execute_computer_use_action(
+                    &args.process,
+                    &function_call.name,
+                    &function_call.args,
+                    window_bounds,
+                    dpi_scale,
+                    resize_scale,
+                )
+                .await;
+
+            // 7. Capture new screenshot after action for next iteration
+            let (post_action_screenshot, post_action_url) =
+                match self.capture_window_for_computer_use(&args.process).await {
+                    Ok((img, _, _, _, url)) => (img, url),
+                    Err(_) => (base64_image.clone(), None), // Fallback to previous screenshot
+                };
+
+            // 8. Record action with result and new screenshot for next call
+            let (success, error_msg) = match &execute_result {
+                Ok(_) => (true, None),
+                Err(e) => (false, Some(e.to_string())),
+            };
+
+            previous_actions.push(ComputerUsePreviousAction {
+                name: function_call.name.clone(),
+                response: ComputerUseActionResponse {
+                    success,
+                    error: error_msg,
+                },
+                screenshot: post_action_screenshot,
+                url: post_action_url,
+            });
+
+            // Small delay for UI to settle after action
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+
+        // Restore windows
+        let _ = self.window_manager.restore_all_windows().await;
+        self.window_manager.clear_captured_state().await;
+
+        span.set_status(final_status == "success", None);
+        span.end();
+
+        // Build history summary for response
+        let history_summary: Vec<serde_json::Value> = previous_actions
+            .iter()
+            .enumerate()
+            .map(|(i, action)| {
+                json!({
+                    "step": i + 1,
+                    "action": action.name,
+                    "success": action.response.success,
+                    "error": action.response.error,
+                })
+            })
+            .collect();
+
+        let result_json = json!({
+            "status": final_status,
+            "goal": args.goal,
+            "steps_executed": previous_actions.len(),
+            "final_action": final_action,
+            "final_text": final_text,
+            "history": history_summary,
+            "pending_confirmation": pending_confirmation,
+        });
+
+        info!(
+            "[gemini_computer_use] Completed with status: {} ({} steps)",
+            final_status,
+            previous_actions.len()
+        );
+
+        Ok(CallToolResult::success(vec![Content::json(result_json)?]))
+    }
+}
+
+impl DesktopWrapper {
+    /// Capture window screenshot for computer use, returning base64 image, metadata, and URL
+    async fn capture_window_for_computer_use(
+        &self,
+        process: &str,
+    ) -> Result<(String, (f64, f64, f64, f64), f64, f64, Option<String>), String> {
+        // Find the window element for this process using sysinfo to match process names
+        let apps = self
+            .desktop
+            .applications()
+            .map_err(|e| format!("Failed to get applications: {e}"))?;
+
+        let mut system = System::new();
+        system.refresh_processes(ProcessesToUpdate::All, true);
+
+        let window_element = apps
+            .into_iter()
+            .find(|app| {
+                let app_pid = app.process_id().unwrap_or(0);
+                if app_pid > 0 {
+                    system
+                        .process(sysinfo::Pid::from_u32(app_pid))
+                        .map(|p| {
+                            let process_name = p.name().to_string_lossy().to_string();
+                            process_name
+                                .to_lowercase()
+                                .contains(&process.to_lowercase())
+                        })
+                        .unwrap_or(false)
+                } else {
+                    false
+                }
+            })
+            .ok_or_else(|| format!("No window found for process '{process}'"))?;
+
+        // Get browser URL if available (for Gemini Computer Use API requirement)
+        let browser_url = window_element.url();
+
+        // Get window bounds (absolute screen coordinates)
+        let bounds = window_element
+            .bounds()
+            .map_err(|e| format!("Failed to get window bounds: {e}"))?;
+        let (window_x, window_y, win_w, win_h) = bounds;
+
+        // Capture screenshot
+        let screenshot = window_element
+            .capture()
+            .map_err(|e| format!("Failed to capture screenshot: {e}"))?;
+
+        let original_width = screenshot.width;
+        let original_height = screenshot.height;
+
+        // Calculate DPI scale
+        let dpi_scale_w = original_width as f64 / win_w;
+
+        // Convert BGRA to RGBA
+        let rgba_data: Vec<u8> = screenshot
+            .image_data
+            .chunks_exact(4)
+            .flat_map(|bgra| [bgra[2], bgra[1], bgra[0], bgra[3]])
+            .collect();
+
+        // Resize if needed (max 1920px)
+        const MAX_DIM: u32 = 1920;
+        let (final_width, final_height, final_rgba_data, resize_scale) = if original_width > MAX_DIM
+            || original_height > MAX_DIM
+        {
+            let scale = (MAX_DIM as f32 / original_width.max(original_height) as f32).min(1.0);
+            let new_width = (original_width as f32 * scale).round() as u32;
+            let new_height = (original_height as f32 * scale).round() as u32;
+
+            let img =
+                ImageBuffer::<Rgba<u8>, _>::from_raw(original_width, original_height, rgba_data)
+                    .ok_or("Failed to create image buffer")?;
+            let resized =
+                image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
+
+            (new_width, new_height, resized.into_raw(), scale as f64)
+        } else {
+            (original_width, original_height, rgba_data, 1.0)
+        };
+
+        // Encode to PNG
+        let mut png_data = Vec::new();
+        let encoder = PngEncoder::new(Cursor::new(&mut png_data));
+        encoder
+            .write_image(
+                &final_rgba_data,
+                final_width,
+                final_height,
+                ExtendedColorType::Rgba8,
+            )
+            .map_err(|e| format!("Failed to encode PNG: {e}"))?;
+
+        let base64_image = general_purpose::STANDARD.encode(&png_data);
+
+        Ok((
+            base64_image,
+            (window_x, window_y, final_width as f64, final_height as f64),
+            dpi_scale_w,
+            resize_scale,
+            browser_url,
+        ))
+    }
+
+    /// Translate Gemini Computer Use key format to uiautomation format
+    /// Gemini: "enter", "control+a", "Meta+Shift+T"
+    /// uiautomation: "{Enter}", "{Ctrl}a", "{Win}{Shift}t"
+    fn translate_gemini_keys(gemini_keys: &str) -> Result<String, String> {
+        let parts: Vec<&str> = gemini_keys.split('+').collect();
+        let mut result = String::new();
+
+        for (i, part) in parts.iter().enumerate() {
+            let lower = part.trim().to_lowercase();
+            let is_last = i == parts.len() - 1;
+
+            let translated: &str = match lower.as_str() {
+                // Modifiers
+                "control" | "ctrl" => "{Ctrl}",
+                "alt" => "{Alt}",
+                "shift" => "{Shift}",
+                "meta" | "cmd" | "command" | "win" | "windows" | "super" => "{Win}",
+
+                // Common special keys
+                "enter" | "return" => "{Enter}",
+                "tab" => "{Tab}",
+                "escape" | "esc" => "{Escape}",
+                "backspace" | "back" => "{Backspace}",
+                "delete" | "del" => "{Delete}",
+                "space" => "{Space}",
+                "insert" | "ins" => "{Insert}",
+                "home" => "{Home}",
+                "end" => "{End}",
+                "pageup" | "page_up" | "pgup" => "{PageUp}",
+                "pagedown" | "page_down" | "pgdn" => "{PageDown}",
+                "capslock" | "caps" => "{CapsLock}",
+                "numlock" => "{NumLock}",
+                "scrolllock" => "{ScrollLock}",
+                "printscreen" | "prtsc" => "{PrintScreen}",
+                "pause" => "{Pause}",
+
+                // Arrow keys
+                "up" | "arrowup" => "{Up}",
+                "down" | "arrowdown" => "{Down}",
+                "left" | "arrowleft" => "{Left}",
+                "right" | "arrowright" => "{Right}",
+
+                // Function keys - handle dynamically
+                s if s.starts_with('f') && s.len() <= 3 => {
+                    if let Ok(n) = s[1..].parse::<u8>() {
+                        if n >= 1 && n <= 24 {
+                            // Push the F-key and continue
+                            result.push_str(&format!("{{F{}}}", n));
+                            continue;
+                        }
+                    }
+                    return Err(format!(
+                        "Invalid function key '{}' in '{}'. Use f1-f24.",
+                        part, gemini_keys
+                    ));
+                }
+
+                // Single character (a-z, 0-9) - only valid as last part of combination
+                s if s.len() == 1 && is_last => {
+                    result.push_str(s);
+                    continue;
+                }
+
+                // Unknown key
+                unknown => {
+                    return Err(format!(
+                        "Unknown key '{}' in combination '{}'. Valid: enter, tab, escape, \
+                         backspace, delete, space, up/down/left/right, home, end, pageup, \
+                         pagedown, f1-f24, or modifiers (ctrl, alt, shift, meta) with letters.",
+                        unknown, gemini_keys
+                    ));
+                }
+            };
+
+            result.push_str(translated);
+        }
+
+        Ok(result)
+    }
+
+    /// Execute a computer use action by mapping to MCP tools
+    /// Handles both old ComputerUseActionArgs and new serde_json::Value args
+    async fn execute_computer_use_action(
+        &self,
+        _process: &str,
+        action: &str,
+        args: &serde_json::Value,
+        window_bounds: (f64, f64, f64, f64),
+        dpi_scale: f64,
+        resize_scale: f64,
+    ) -> Result<(), String> {
+        let (window_x, window_y, screenshot_w, screenshot_h) = window_bounds;
+
+        // Helper to get f64 from args
+        let get_f64 = |key: &str| -> Option<f64> { args.get(key).and_then(|v| v.as_f64()) };
+        let get_str = |key: &str| -> Option<&str> { args.get(key).and_then(|v| v.as_str()) };
+        let get_bool = |key: &str| -> Option<bool> { args.get(key).and_then(|v| v.as_bool()) };
+
+        // Helper to convert 0-999 normalized coords to absolute screen coords
+        let convert_coord = |norm_x: f64, norm_y: f64| -> (f64, f64) {
+            // Convert 0-999 to screenshot pixels
+            let px_x = (norm_x / 1000.0) * screenshot_w;
+            let px_y = (norm_y / 1000.0) * screenshot_h;
+            // Apply inverse resize scale
+            let px_x = px_x / resize_scale;
+            let px_y = px_y / resize_scale;
+            // Apply DPI conversion (physical to logical)
+            let logical_x = px_x / dpi_scale;
+            let logical_y = px_y / dpi_scale;
+            // Add window offset
+            let screen_x = window_x + logical_x;
+            let screen_y = window_y + logical_y;
+            (screen_x, screen_y)
+        };
+
+        match action {
+            "click_at" => {
+                let x = get_f64("x").ok_or("click_at requires x coordinate")?;
+                let y = get_f64("y").ok_or("click_at requires y coordinate")?;
+                let (screen_x, screen_y) = convert_coord(x, y);
+                info!(
+                    "[computer_use] click_at ({}, {}) -> screen ({}, {})",
+                    x, y, screen_x, screen_y
+                );
+                self.desktop
+                    .click_at_coordinates(screen_x, screen_y)
+                    .map_err(|e| format!("Click failed: {e}"))?;
+            }
+            "type_text_at" => {
+                let x = get_f64("x").ok_or("type_text_at requires x coordinate")?;
+                let y = get_f64("y").ok_or("type_text_at requires y coordinate")?;
+                let text = get_str("text").ok_or("type_text_at requires text")?;
+                let press_enter = get_bool("press_enter").unwrap_or(false);
+                let _clear_before = get_bool("clear_before_typing").unwrap_or(false);
+                let (screen_x, screen_y) = convert_coord(x, y);
+                info!(
+                    "[computer_use] type_text_at ({}, {}) -> screen ({}, {}), text: {}",
+                    x, y, screen_x, screen_y, text
+                );
+                // Click first to focus
+                self.desktop
+                    .click_at_coordinates(screen_x, screen_y)
+                    .map_err(|e| format!("Click before type failed: {e}"))?;
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                // Type text using root element
+                let root = self.desktop.root();
+                root.type_text(text, false)
+                    .map_err(|e| format!("Type text failed: {e}"))?;
+                // Press Enter if requested
+                if press_enter {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    self.desktop
+                        .press_key("{Enter}")
+                        .await
+                        .map_err(|e| format!("Press Enter failed: {e}"))?;
+                }
+            }
+            "key_combination" => {
+                let keys = get_str("keys").ok_or("key_combination requires keys")?;
+                let translated = Self::translate_gemini_keys(keys)?;
+                info!("[computer_use] key_combination: {} -> {}", keys, translated);
+                self.desktop
+                    .press_key(&translated)
+                    .await
+                    .map_err(|e| format!("Key press failed: {e}"))?;
+            }
+            "scroll_document" | "scroll_at" => {
+                let direction = get_str("direction").ok_or("scroll requires direction")?;
+                let magnitude = get_f64("magnitude").unwrap_or(3.0);
+                let amount: f64 = match direction {
+                    "up" => -magnitude,
+                    "down" => magnitude,
+                    "left" => -magnitude,
+                    "right" => magnitude,
+                    _ => magnitude,
+                };
+                info!("[computer_use] scroll: {} (amount: {})", direction, amount);
+                // If coordinates provided, click there first to focus
+                if let (Some(x), Some(y)) = (get_f64("x"), get_f64("y")) {
+                    let (screen_x, screen_y) = convert_coord(x, y);
+                    self.desktop
+                        .click_at_coordinates(screen_x, screen_y)
+                        .map_err(|e| format!("Click before scroll failed: {e}"))?;
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                // Scroll using root element
+                let root = self.desktop.root();
+                root.scroll(direction, amount)
+                    .map_err(|e| format!("Scroll failed: {e}"))?;
+            }
+            "drag_and_drop" => {
+                // Support both x/y + destination_x/destination_y and start_x/start_y/end_x/end_y
+                let start_x = get_f64("x")
+                    .or(get_f64("start_x"))
+                    .ok_or("drag_and_drop requires x/start_x")?;
+                let start_y = get_f64("y")
+                    .or(get_f64("start_y"))
+                    .ok_or("drag_and_drop requires y/start_y")?;
+                let end_x = get_f64("destination_x")
+                    .or(get_f64("end_x"))
+                    .ok_or("drag_and_drop requires destination_x/end_x")?;
+                let end_y = get_f64("destination_y")
+                    .or(get_f64("end_y"))
+                    .ok_or("drag_and_drop requires destination_y/end_y")?;
+                let (start_screen_x, start_screen_y) = convert_coord(start_x, start_y);
+                let (end_screen_x, end_screen_y) = convert_coord(end_x, end_y);
+                info!(
+                    "[computer_use] drag_and_drop from ({}, {}) to ({}, {})",
+                    start_screen_x, start_screen_y, end_screen_x, end_screen_y
+                );
+                let root = self.desktop.root();
+                root.mouse_drag(start_screen_x, start_screen_y, end_screen_x, end_screen_y)
+                    .map_err(|e| format!("Drag failed: {e}"))?;
+            }
+            "wait_5_seconds" => {
+                info!("[computer_use] waiting 5 seconds");
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+            "hover_at" => {
+                let x = get_f64("x").ok_or("hover_at requires x coordinate")?;
+                let y = get_f64("y").ok_or("hover_at requires y coordinate")?;
+                let (screen_x, screen_y) = convert_coord(x, y);
+                info!(
+                    "[computer_use] hover_at ({}, {}) -> screen ({}, {})",
+                    x, y, screen_x, screen_y
+                );
+                let root = self.desktop.root();
+                root.mouse_move(screen_x, screen_y)
+                    .map_err(|e| format!("Mouse move failed: {e}"))?;
+            }
+            "navigate" => {
+                let url = get_str("url").ok_or("navigate requires url")?;
+                info!("[computer_use] navigate to: {}", url);
+                self.desktop
+                    .open_url(url, None)
+                    .map_err(|e| format!("Navigate failed: {e}"))?;
+            }
+            "search" => {
+                // Gemini Computer Use "search" action - performs a web search
+                let query = get_str("query")
+                    .or_else(|| get_str("text"))
+                    .or_else(|| get_str("q"))
+                    .unwrap_or("");
+                info!("[computer_use] search: {}", query);
+                if query.is_empty() {
+                    // No query - just press Enter to submit existing search
+                    self.desktop
+                        .press_key("{Enter}")
+                        .await
+                        .map_err(|e| format!("Press Enter for search failed: {e}"))?;
+                } else {
+                    // Open Google search with the query (simple URL encoding)
+                    let encoded_query: String = query
+                        .chars()
+                        .map(|c| match c {
+                            ' ' => "+".to_string(),
+                            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '~' => {
+                                c.to_string()
+                            }
+                            _ => format!("%{:02X}", c as u32),
+                        })
+                        .collect();
+                    let search_url = format!("https://www.google.com/search?q={}", encoded_query);
+                    self.desktop
+                        .open_url(&search_url, None)
+                        .map_err(|e| format!("Open search URL failed: {e}"))?;
+                }
+            }
+            _ => {
+                warn!("[computer_use] Unknown action: {}", action);
+                return Err(format!("Unknown action: {action}"));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl DesktopWrapper {
     pub(crate) async fn dispatch_tool(
         &self,
-        _peer: Peer<RoleServer>,
+        peer: Peer<RoleServer>,
         request_context: RequestContext<RoleServer>,
         tool_name: &str,
         arguments: &serde_json::Value,
@@ -8729,10 +9333,13 @@ impl DesktopWrapper {
 
                     // Link it to the request context cancellation
                     let ct_for_task = request_context.ct.clone();
-                    tokio::spawn(async move {
-                        ct_for_task.cancelled().await;
-                        cancellation_token.cancel();
-                    });
+                    tokio::spawn(
+                        async move {
+                            ct_for_task.cancelled().await;
+                            cancellation_token.cancel();
+                        }
+                        .in_current_span(),
+                    );
 
                     self.run_command_impl(args, Some(child_token)).await
                 }
@@ -8748,29 +9355,11 @@ impl DesktopWrapper {
                     Some(json!({"error": e.to_string()})),
                 )),
             },
-            "click_ocr_index" => {
-                match serde_json::from_value::<ClickOcrIndexArgs>(arguments.clone()) {
-                    Ok(args) => self.click_ocr_index(Parameters(args)).await,
-                    Err(e) => Err(McpError::invalid_params(
-                        "Invalid arguments for click_ocr_index",
-                        Some(json!({"error": e.to_string()})),
-                    )),
-                }
-            }
             "highlight_element" => {
                 match serde_json::from_value::<HighlightElementArgs>(arguments.clone()) {
                     Ok(args) => self.highlight_element(Parameters(args)).await,
                     Err(e) => Err(McpError::invalid_params(
                         "Invalid arguments for highlight_element",
-                        Some(json!({"error": e.to_string()})),
-                    )),
-                }
-            }
-            "close_element" => {
-                match serde_json::from_value::<CloseElementArgs>(arguments.clone()) {
-                    Ok(args) => self.close_element(Parameters(args)).await,
-                    Err(e) => Err(McpError::invalid_params(
-                        "Invalid arguments for close_element",
                         Some(json!({"error": e.to_string()})),
                     )),
                 }
@@ -8784,29 +9373,6 @@ impl DesktopWrapper {
                     )),
                 }
             }
-            "list_options" => match serde_json::from_value::<LocatorArgs>(arguments.clone()) {
-                Ok(args) => self.list_options(Parameters(args)).await,
-                Err(e) => Err(McpError::invalid_params(
-                    "Invalid arguments for list_options",
-                    Some(json!({"error": e.to_string()})),
-                )),
-            },
-            "set_toggled" => match serde_json::from_value::<SetToggledArgs>(arguments.clone()) {
-                Ok(args) => self.set_toggled(Parameters(args)).await,
-                Err(e) => Err(McpError::invalid_params(
-                    "Invalid arguments for set_toggled",
-                    Some(json!({"error": e.to_string()})),
-                )),
-            },
-            "set_range_value" => {
-                match serde_json::from_value::<SetRangeValueArgs>(arguments.clone()) {
-                    Ok(args) => self.set_range_value(Parameters(args)).await,
-                    Err(e) => Err(McpError::invalid_params(
-                        "Invalid arguments for set_range_value",
-                        Some(json!({"error": e.to_string()})),
-                    )),
-                }
-            }
             "set_selected" => match serde_json::from_value::<SetSelectedArgs>(arguments.clone()) {
                 Ok(args) => self.set_selected(Parameters(args)).await,
                 Err(e) => Err(McpError::invalid_params(
@@ -8814,68 +9380,24 @@ impl DesktopWrapper {
                     Some(json!({"error": e.to_string()})),
                 )),
             },
-            "is_toggled" => match serde_json::from_value::<LocatorArgs>(arguments.clone()) {
-                Ok(args) => self.is_toggled(Parameters(args)).await,
-                Err(e) => Err(McpError::invalid_params(
-                    "Invalid arguments for is_toggled",
-                    Some(json!({"error": e.to_string()})),
-                )),
-            },
-            "get_range_value" => match serde_json::from_value::<LocatorArgs>(arguments.clone()) {
-                Ok(args) => self.get_range_value(Parameters(args)).await,
-                Err(e) => Err(McpError::invalid_params(
-                    "Invalid arguments for get_range_value",
-                    Some(json!({"error": e.to_string()})),
-                )),
-            },
-            "is_selected" => match serde_json::from_value::<LocatorArgs>(arguments.clone()) {
-                Ok(args) => self.is_selected(Parameters(args)).await,
-                Err(e) => Err(McpError::invalid_params(
-                    "Invalid arguments for is_selected",
-                    Some(json!({"error": e.to_string()})),
-                )),
-            },
-            "capture_element_screenshot" => {
-                match serde_json::from_value::<CaptureElementScreenshotArgs>(arguments.clone()) {
-                    Ok(args) => self.capture_element_screenshot(Parameters(args)).await,
+            "capture_screenshot" | "capture_element_screenshot" => {
+                match serde_json::from_value::<CaptureScreenshotArgs>(arguments.clone()) {
+                    Ok(args) => self.capture_screenshot(Parameters(args)).await,
                     Err(e) => Err(McpError::invalid_params(
-                        "Invalid arguments for capture_element_screenshot",
+                        "Invalid arguments for capture_screenshot",
                         Some(json!({"error": e.to_string()})),
                     )),
                 }
             }
-            "invoke_element" => match serde_json::from_value::<LocatorArgs>(arguments.clone()) {
-                Ok(args) => self.invoke_element(Parameters(args)).await,
-                Err(e) => Err(McpError::invalid_params(
-                    "Invalid arguments for invoke_element",
-                    Some(json!({"error": e.to_string()})),
-                )),
-            },
-            "maximize_window" => {
-                match serde_json::from_value::<MaximizeWindowArgs>(arguments.clone()) {
-                    Ok(args) => self.maximize_window(Parameters(args)).await,
+            "invoke_element" => {
+                match serde_json::from_value::<InvokeElementArgs>(arguments.clone()) {
+                    Ok(args) => self.invoke_element(Parameters(args)).await,
                     Err(e) => Err(McpError::invalid_params(
-                        "Invalid arguments for maximize_window",
+                        "Invalid arguments for invoke_element",
                         Some(json!({"error": e.to_string()})),
                     )),
                 }
             }
-            "minimize_window" => {
-                match serde_json::from_value::<MinimizeWindowArgs>(arguments.clone()) {
-                    Ok(args) => self.minimize_window(Parameters(args)).await,
-                    Err(e) => Err(McpError::invalid_params(
-                        "Invalid arguments for minimize_window",
-                        Some(json!({"error": e.to_string()})),
-                    )),
-                }
-            }
-            "set_zoom" => match serde_json::from_value::<SetZoomArgs>(arguments.clone()) {
-                Ok(args) => self.set_zoom(Parameters(args)).await,
-                Err(e) => Err(McpError::invalid_params(
-                    "Invalid arguments for set_zoom",
-                    Some(json!({ "error": e.to_string() })),
-                )),
-            },
             "set_value" => match serde_json::from_value::<SetValueArgs>(arguments.clone()) {
                 Ok(args) => self.set_value(Parameters(args)).await,
                 Err(e) => Err(McpError::invalid_params(
@@ -8885,12 +9407,17 @@ impl DesktopWrapper {
             },
             // run_javascript is deprecated and merged into run_command with engine
             "execute_sequence" => {
-                // For execute_sequence, we need peer and request_context
-                // Since we don't have them here, this is a special case that should be handled differently
-                Err(McpError::internal_error(
-                    "execute_sequence requires special handling",
-                    Some(json!({"error": "Cannot dispatch execute_sequence through this method"})),
-                ))
+                // Handle nested execute_sequence calls by delegating to execute_sequence_impl
+                // Use Box::pin to handle async recursion (dispatch_tool -> execute_sequence_impl -> ... -> dispatch_tool)
+                match serde_json::from_value::<ExecuteSequenceArgs>(arguments.clone()) {
+                    Ok(args) => {
+                        Box::pin(self.execute_sequence_impl(peer, request_context, args)).await
+                    }
+                    Err(e) => Err(McpError::invalid_params(
+                        "Invalid arguments for execute_sequence",
+                        Some(json!({ "error": e.to_string() })),
+                    )),
+                }
             }
             "stop_highlighting" => {
                 match serde_json::from_value::<StopHighlightingArgs>(arguments.clone()) {
@@ -8904,6 +9431,25 @@ impl DesktopWrapper {
             "stop_execution" => {
                 // No arguments needed for stop_execution
                 self.stop_execution().await
+            }
+            "gemini_computer_use" => {
+                match serde_json::from_value::<GeminiComputerUseArgs>(arguments.clone()) {
+                    Ok(args) => {
+                        tokio::select! {
+                            result = self.gemini_computer_use(Parameters(args)) => result,
+                            _ = request_context.ct.cancelled() => {
+                                Err(McpError::internal_error(
+                                    format!("{tool_name} cancelled"),
+                                    Some(json!({"code": -32001, "tool": tool_name}))
+                                ))
+                            }
+                        }
+                    }
+                    Err(e) => Err(McpError::invalid_params(
+                        "Invalid arguments for gemini_computer_use",
+                        Some(json!({"error": e.to_string()})),
+                    )),
+                }
             }
             _ => Err(McpError::internal_error(
                 "Unknown tool called",

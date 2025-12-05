@@ -12,11 +12,15 @@ use arboard::Clipboard;
 use rdev::{Button, EventType};
 use std::{
     collections::HashMap,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     sync::{Arc, Mutex},
     thread,
     time::{Duration, Instant, SystemTime},
 };
+
+// Debug counter for tracking concurrent UIA traversals
+static UIA_TRAVERSAL_COUNT: AtomicUsize = AtomicUsize::new(0);
+static UIA_TRAVERSAL_TOTAL: AtomicUsize = AtomicUsize::new(0);
 use sysinfo::{Pid, ProcessesToUpdate, System};
 use terminator::{convert_uiautomation_element_to_terminator, UIElement};
 
@@ -566,8 +570,8 @@ impl WindowsRecorder {
 
     /// Proactively search for URL in browser window
     fn proactive_browser_url_search(element: &UIElement) -> Option<String> {
-        warn!(
-            "🔍 Starting proactive URL search from element: role={}, name={:?}",
+        info!(
+            "🔍 [URL-SEARCH] Starting from element: role={}, name={:?}",
             element.role(),
             element.name()
         );
@@ -575,16 +579,19 @@ impl WindowsRecorder {
         // Try direct URL property first (fast path)
         if let Some(url) = element.url() {
             if !url.is_empty() && (url.starts_with("http://") || url.starts_with("https://")) {
-                warn!("✅ Found valid URL directly on element: {}", url);
+                info!(
+                    "✅ [URL-SEARCH] Found valid URL directly on element: {}",
+                    url
+                );
                 return Some(url);
             } else if !url.is_empty() {
-                warn!(
-                    "⚠️ Found non-HTTP URL on element: {} - continuing search",
+                info!(
+                    "⚠️ [URL-SEARCH] Found non-HTTP URL on element: {} - continuing search",
                     url
                 );
             }
         }
-        warn!("❌ No direct valid URL on element, starting deep search");
+        info!("❌ [URL-SEARCH] No direct valid URL on element, starting deep search");
 
         // Deep recursive search for URL (handles deeply nested browser UIs)
         if let Some(url) = Self::deep_url_search(element, 0, 10) {
@@ -592,7 +599,7 @@ impl WindowsRecorder {
         }
 
         // If we still haven't found a URL, try to navigate up to the window root
-        warn!("🔍 Attempting to find window root for comprehensive search");
+        info!("🔍 [URL-SEARCH] Attempting to find window root for comprehensive search");
         let mut current = element.clone();
         let mut depth = 0;
         const MAX_PARENT_DEPTH: usize = 10;
@@ -601,8 +608,8 @@ impl WindowsRecorder {
         while depth < MAX_PARENT_DEPTH {
             if let Ok(Some(parent)) = current.parent() {
                 let parent_role = parent.role();
-                warn!(
-                    "📍 Parent at depth {}: role={}, name={:?}",
+                info!(
+                    "📍 [URL-SEARCH] Parent at depth {}: role={}, name={:?}",
                     depth,
                     parent_role,
                     parent.name()
@@ -617,23 +624,26 @@ impl WindowsRecorder {
                         || window_name.to_lowercase().contains("safari");
 
                     if is_browser_window {
-                        warn!(
-                            "🎯 Found browser Window element: {}, searching from window root",
+                        info!(
+                            "🎯 [URL-SEARCH] Found browser Window: {}, searching from window root",
                             window_name
                         );
 
                         // First try to find the address bar directly (more reliable for Chrome)
                         if let Some(url) = Self::find_address_bar_url(&parent, 0, 10) {
-                            warn!("✅ Found URL in address bar");
+                            info!("✅ [URL-SEARCH] Found URL in address bar: {}", url);
                             return Some(url);
                         }
 
                         // Then try deep search for Documents
                         if let Some(url) = Self::deep_url_search(&parent, 0, 15) {
-                            warn!("✅ Found URL by deep searching browser window");
+                            info!(
+                                "✅ [URL-SEARCH] Found URL by deep searching browser window: {}",
+                                url
+                            );
                             return Some(url);
                         }
-                        warn!("⚠️ No URL found in browser window, will continue searching up");
+                        info!("⚠️ [URL-SEARCH] No URL found in browser window, will continue searching up");
                     } else {
                         // Check if this is a modal dialog from a website
                         if window_name.contains(" says") || window_name.contains(" alert") {
@@ -651,13 +661,16 @@ impl WindowsRecorder {
                                     } else {
                                         format!("https://{domain}")
                                     };
-                                    warn!("✅ Extracted URL from modal dialog title: {}", url);
+                                    info!(
+                                        "✅ [URL-SEARCH] Extracted URL from modal dialog title: {}",
+                                        url
+                                    );
                                     return Some(url);
                                 }
                             }
                         }
-                        warn!(
-                            "⚠️ Found non-browser Window: {} - continuing up",
+                        info!(
+                            "⚠️ [URL-SEARCH] Found non-browser Window: {} - continuing up",
                             window_name
                         );
                     }
@@ -670,14 +683,17 @@ impl WindowsRecorder {
                 if depth > 0 {
                     let current_name = current.name().unwrap_or_default();
                     if current_name.contains("Desktop") {
-                        warn!("⚠️ Reached Desktop level - stopping search to avoid traversing entire desktop");
+                        info!("⚠️ [URL-SEARCH] Reached Desktop level - stopping search");
                     } else {
-                        warn!(
-                            "🔍 Reached top of tree at depth {}, searching from highest parent",
+                        info!(
+                            "🔍 [URL-SEARCH] Reached top of tree at depth {}, searching from highest parent",
                             depth
                         );
                         if let Some(url) = Self::deep_url_search(&current, 0, 10) {
-                            warn!("✅ Found URL by searching from highest parent");
+                            info!(
+                                "✅ [URL-SEARCH] Found URL by searching from highest parent: {}",
+                                url
+                            );
                             return Some(url);
                         }
                     }
@@ -689,14 +705,18 @@ impl WindowsRecorder {
         // Try parsing from window title as last resort
         let window_title = element.window_title();
         if !window_title.is_empty() {
+            info!(
+                "🔍 [URL-SEARCH] Trying window title as last resort: {}",
+                window_title
+            );
             // Common patterns: "Page Title - Domain - Browser"
             if let Some(url) = Self::extract_url_from_title(&window_title) {
-                debug!("Extracted URL from window title: {}", url);
+                info!("✅ [URL-SEARCH] Extracted URL from window title: {}", url);
                 return Some(url);
             }
         }
 
-        warn!("❌ No URL found in any search method");
+        info!("❌ [URL-SEARCH] No URL found after exhaustive search");
         None
     }
 
@@ -1060,6 +1080,11 @@ impl WindowsRecorder {
 
             let mut active_keys: HashMap<u32, bool> = HashMap::new();
 
+            // Debounce tracker for ButtonPress events to filter OS-level duplicates
+            // Some mouse drivers/Windows configurations send duplicate click events within milliseconds
+            let mut last_button_press: Option<(Instant, Position, rdev::Button)> = None;
+            const BUTTON_PRESS_DEBOUNCE_MS: u128 = 50;
+
             if let Err(error) = rdev::listen(move |event: rdev::Event| {
                 if stop_indicator_clone.load(Ordering::SeqCst) {
                     return;
@@ -1205,15 +1230,53 @@ impl WindowsRecorder {
                     }
                     EventType::ButtonPress(button) => {
                         if let Some((x, y)) = *last_mouse_pos.lock().unwrap() {
+                            let position = Position { x, y };
+                            let now = Instant::now();
+
+                            // Debounce: filter duplicate ButtonPress events within 50ms at same position
+                            if let Some((last_time, last_pos, last_btn)) = last_button_press {
+                                let elapsed = now.duration_since(last_time).as_millis();
+                                if elapsed < BUTTON_PRESS_DEBOUNCE_MS
+                                    && last_pos.x == position.x
+                                    && last_pos.y == position.y
+                                    && last_btn == button
+                                {
+                                    debug!(
+                                        "🔇 Filtering duplicate ButtonPress at ({}, {}) - {}ms since last",
+                                        position.x, position.y, elapsed
+                                    );
+                                    return;
+                                }
+                            }
+                            last_button_press = Some((now, position, button));
+
                             let mouse_button = match button {
                                 Button::Left => MouseButton::Left,
                                 Button::Right => MouseButton::Right,
                                 Button::Middle => MouseButton::Middle,
                                 _ => return,
                             };
-                            let position = Position { x, y };
 
                             if capture_ui_elements_rdev {
+                                // Emit PendingAction immediately before slow UI capture
+                                let pending_event = crate::PendingActionEvent {
+                                    action_type: crate::PendingActionType::Click,
+                                    position: Some(position),
+                                    button: Some(mouse_button),
+                                    metadata: crate::EventMetadata {
+                                        ui_element: None,
+                                        timestamp: Some(Self::capture_timestamp()),
+                                    },
+                                };
+                                Self::send_filtered_event_static(
+                                    &event_tx,
+                                    &config,
+                                    &performance_last_event_time,
+                                    &performance_events_counter,
+                                    &is_stopping_clone,
+                                    WorkflowEvent::PendingAction(pending_event),
+                                );
+
                                 let request = UIAInputRequest::ButtonPress {
                                     button: mouse_button,
                                     position,
@@ -2540,6 +2603,11 @@ impl WindowsRecorder {
                         || app_name.contains("edge")
                         || app_name.contains("safari");
 
+                    info!(
+                        "🔍 [CLICK-URL-DEBUG] app_name='{}', is_browser={}, element_role='{}', element_name='{:?}'",
+                        app_name, is_browser, element.role(), element.name()
+                    );
+
                     // Try to capture DOM element if in browser
                     let mut dom_element = None;
                     if is_browser {
@@ -2564,8 +2632,9 @@ impl WindowsRecorder {
                                             let _ = tx.send(result);
                                         });
 
+                                        // Wait up to 2500ms for DOM capture (extension bridge has 2s timeout internally)
                                         if let Ok(Some(browser_dom_info)) =
-                                            rx.recv_timeout(Duration::from_millis(200))
+                                            rx.recv_timeout(Duration::from_millis(2500))
                                         {
                                             debug!(
                                                 "✅ DOM element captured: {} with {} selectors",
@@ -2620,8 +2689,9 @@ impl WindowsRecorder {
                                                 let _ = tx.send(result);
                                             });
 
+                                            // Wait up to 2500ms for page context
                                             if let Ok(Some(context)) =
-                                                rx.recv_timeout(Duration::from_millis(100))
+                                                rx.recv_timeout(Duration::from_millis(2500))
                                             {
                                                 (context.url, context.title)
                                             } else {
@@ -2666,6 +2736,20 @@ impl WindowsRecorder {
                         }
                     }
 
+                    // Get page URL if this is a browser click
+                    let page_url = if is_browser {
+                        info!("🔍 [CLICK-URL-DEBUG] is_browser=true, calling proactive_browser_url_search...");
+                        let url_result = Self::proactive_browser_url_search(element);
+                        info!(
+                            "🔍 [CLICK-URL-DEBUG] proactive_browser_url_search returned: {:?}",
+                            url_result
+                        );
+                        url_result
+                    } else {
+                        info!("🔍 [CLICK-URL-DEBUG] is_browser=false, skipping URL search");
+                        None
+                    };
+
                     // Always emit regular click event
                     let click_event = ClickEvent {
                         element_text: element_name,
@@ -2681,6 +2765,7 @@ impl WindowsRecorder {
                         child_text_content,
                         relative_position,
                         process_name: Self::get_process_name_from_element(element),
+                        page_url,
                         metadata: EventMetadata::with_ui_element_and_timestamp(Some(
                             element.clone(),
                         )),
@@ -2716,6 +2801,7 @@ impl WindowsRecorder {
                 child_text_content: Vec::new(),
                 relative_position: None,
                 process_name: None,
+                page_url: None, // No element available to get URL from
                 metadata: EventMetadata {
                     ui_element: None,
                     timestamp: Some(Self::capture_timestamp()),
@@ -2782,34 +2868,104 @@ impl WindowsRecorder {
         let (tx, rx) = std::sync::mpsc::channel();
         let config_clone = config.clone();
 
+        // Track concurrent traversals for debugging
+        let traversal_id = UIA_TRAVERSAL_TOTAL.fetch_add(1, Ordering::SeqCst);
+        let concurrent_before = UIA_TRAVERSAL_COUNT.fetch_add(1, Ordering::SeqCst);
+        let caller_start = Instant::now();
+
+        log::info!(
+            "🔬 [UIA-{}] START deepest traversal at ({}, {}). Concurrent: {} -> {}",
+            traversal_id,
+            position.x,
+            position.y,
+            concurrent_before,
+            concurrent_before + 1
+        );
+
         thread::spawn(move || {
+            let thread_start = Instant::now();
             let result = (|| {
+                let auto_start = Instant::now();
                 let automation = Self::create_configured_automation_instance(&config_clone).ok()?;
+                log::info!(
+                    "🔬 [UIA-{}] create_automation took {:?}",
+                    traversal_id,
+                    auto_start.elapsed()
+                );
+
+                let point_start = Instant::now();
                 let point = Point::new(position.x, position.y);
                 let element = automation.element_from_point(point).ok()?;
+                log::info!(
+                    "🔬 [UIA-{}] element_from_point took {:?}",
+                    traversal_id,
+                    point_start.elapsed()
+                );
+
+                let convert_start = Instant::now();
                 let surface_element = convert_uiautomation_element_to_terminator(element);
+                log::info!(
+                    "🔬 [UIA-{}] convert took {:?}, surface: '{}' ({})",
+                    traversal_id,
+                    convert_start.elapsed(),
+                    surface_element.name().unwrap_or_default(),
+                    surface_element.role()
+                );
 
                 // Find the deepest element that contains our click point
                 // If this fails/times out, we'll return the surface element as fallback
+                let deepest_start = Instant::now();
                 if let Some(deepest) =
                     Self::find_deepest_element_at_coordinates(&surface_element, position)
                 {
+                    log::info!(
+                        "🔬 [UIA-{}] find_deepest took {:?}, found: '{}' ({})",
+                        traversal_id,
+                        deepest_start.elapsed(),
+                        deepest.name().unwrap_or_default(),
+                        deepest.role()
+                    );
                     Some(deepest)
                 } else {
                     // Fallback to surface element if deepest search failed
-                    debug!("Deepest element search failed, returning surface element as fallback");
+                    log::info!(
+                        "🔬 [UIA-{}] find_deepest took {:?}, using surface fallback",
+                        traversal_id,
+                        deepest_start.elapsed()
+                    );
                     Some(surface_element)
                 }
             })();
+
+            let thread_elapsed = thread_start.elapsed();
+            let concurrent_after = UIA_TRAVERSAL_COUNT.fetch_sub(1, Ordering::SeqCst);
+            log::info!(
+                "🔬 [UIA-{}] THREAD DONE in {:?}. Concurrent: {} -> {}. Result: {}",
+                traversal_id,
+                thread_elapsed,
+                concurrent_after,
+                concurrent_after - 1,
+                if result.is_some() { "success" } else { "none" }
+            );
+
             let _ = tx.send(result);
         });
 
         match rx.recv_timeout(Duration::from_millis(timeout_ms)) {
-            Ok(result) => result, // Result is already Option<UIElement> due to ? operators in closure
+            Ok(result) => {
+                log::info!(
+                    "🔬 [UIA-{}] RECEIVED in {:?}. Result: {}",
+                    traversal_id,
+                    caller_start.elapsed(),
+                    if result.is_some() { "success" } else { "none" }
+                );
+                result
+            }
             Err(_) => {
-                debug!(
-                    "UIA call to get deepest element from point timed out after {}ms.",
-                    timeout_ms
+                let concurrent_now = UIA_TRAVERSAL_COUNT.load(Ordering::SeqCst);
+                log::warn!(
+                    "🔬 [UIA-{}] TIMEOUT after {:?} (limit {}ms). Thread still running! Concurrent: {}",
+                    traversal_id, caller_start.elapsed(), timeout_ms, concurrent_now
                 );
                 None
             }
@@ -2821,55 +2977,91 @@ impl WindowsRecorder {
         element: &UIElement,
         position: Position,
     ) -> Option<UIElement> {
+        let element_name = element.name().unwrap_or_default();
+        let element_role = element.role();
+
         debug!(
-            "≡ƒöì Checking element '{}' (role: {}) for coordinates ({}, {})",
-            element.name().unwrap_or_default(),
-            element.role(),
-            position.x,
-            position.y
+            "🔍 Checking element '{}' (role: {}) for coordinates ({}, {})",
+            element_name, element_role, position.x, position.y
         );
 
+        // Check if this is a container element (unnamed Group/Pane) that may have broken bounds
+        let is_container = element_name.is_empty()
+            && matches!(
+                element_role.as_str(),
+                "Group" | "Pane" | "GenericContainer" | "Custom"
+            );
+
         // Check current element bounds
-        if let Ok(bounds) = element.bounds() {
+        let bounds_contain_point = if let Ok(bounds) = element.bounds() {
             debug!(
                 "   Element bounds: ({}, {}, {}, {})",
                 bounds.0, bounds.1, bounds.2, bounds.3
             );
 
-            // If current element doesn't contain our point, return None
-            if !(bounds.0 <= position.x as f64
+            bounds.0 <= position.x as f64
                 && position.x as f64 <= bounds.0 + bounds.2
                 && bounds.1 <= position.y as f64
-                && position.y as f64 <= bounds.1 + bounds.3)
-            {
-                debug!("   Γ¥î Point is outside element bounds");
-                return None;
-            }
+                && position.y as f64 <= bounds.1 + bounds.3
         } else {
-            debug!("   ΓÜá∩╕Å Cannot get element bounds");
+            debug!("   ⚠️ Cannot get element bounds");
+            true // If we can't get bounds, assume it contains the point
+        };
+
+        // If bounds don't contain point and this is NOT a container, bail out
+        // Containers may have broken bounds (smaller than children), so we still check their children
+        if !bounds_contain_point && !is_container {
+            debug!("   ❌ Point is outside non-container element bounds");
+            return None;
+        }
+
+        if !bounds_contain_point && is_container {
+            debug!(
+                "   ⚠️ Container bounds don't contain point, but checking children anyway (bounds may be broken)"
+            );
         }
 
         // Try to find a deeper child that contains our point
         if let Ok(children) = element.children() {
             debug!("   Checking {} children for deeper matches", children.len());
 
-            for child in children {
+            for child in &children {
                 if let Some(deeper_element) =
-                    Self::find_deepest_element_at_coordinates(&child, position)
+                    Self::find_deepest_element_at_coordinates(child, position)
                 {
                     debug!(
-                        "   Γ£à Found deeper element: '{}' (role: {})",
+                        "   ✅ Found deeper element: '{}' (role: {})",
                         deeper_element.name().unwrap_or_default(),
                         deeper_element.role()
                     );
                     return Some(deeper_element);
                 }
             }
+
+            // Fallback: If we're a container with broken bounds and normal recursion failed,
+            // search ALL descendants for any named element at the click position
+            if !bounds_contain_point && is_container {
+                debug!(
+                    "   🔎 Container with broken bounds - searching descendants for named element"
+                );
+                if let Some(named_descendant) =
+                    Self::find_named_descendant_at_position(&children, position)
+                {
+                    debug!(
+                        "   ✅ Found named descendant: '{}' (role: {})",
+                        named_descendant.name().unwrap_or_default(),
+                        named_descendant.role()
+                    );
+                    return Some(named_descendant);
+                }
+                // No descendant found, don't return this broken-bounds container
+                debug!("   ❌ No named descendant found in container with broken bounds");
+                return None;
+            }
         }
 
         // Before returning this element, check if it's an empty container
         // with a single child that has content
-        let element_name = element.name().unwrap_or_default();
         if element_name.is_empty() {
             if let Ok(children) = element.children() {
                 // Check for single child with content
@@ -2887,7 +3079,7 @@ impl WindowsRecorder {
                                 && position.y as f64 <= child_bounds.1 + child_bounds.3
                             {
                                 debug!(
-                                    "   ≡ƒÄ» Preferring child with content: '{}' (role: {}) over empty parent",
+                                    "   🎯 Preferring child with content: '{}' (role: {}) over empty parent",
                                     child_name, child.role()
                                 );
                                 return Some(child.clone());
@@ -2909,7 +3101,7 @@ impl WindowsRecorder {
                                 && position.y as f64 <= child_bounds.1 + child_bounds.3
                             {
                                 debug!(
-                                    "   ≡ƒÄ» Found child with content at click position: '{}' (role: {})",
+                                    "   🎯 Found child with content at click position: '{}' (role: {})",
                                     child_name, child.role()
                                 );
                                 return Some(child.clone());
@@ -2922,11 +3114,49 @@ impl WindowsRecorder {
 
         // No deeper element found, this is the deepest one
         debug!(
-            "   ≡ƒÄ» Using this element as deepest: '{}' (role: {})",
-            element_name,
-            element.role()
+            "   🎯 Using this element as deepest: '{}' (role: {})",
+            element_name, element_role
         );
         Some(element.clone())
+    }
+
+    /// Search all descendants for a named element that contains the click position.
+    /// This is used as a fallback when parent containers have broken bounds.
+    fn find_named_descendant_at_position(
+        children: &[UIElement],
+        position: Position,
+    ) -> Option<UIElement> {
+        for child in children {
+            let child_name = child.name().unwrap_or_default();
+
+            // Check if this child has a name AND contains the click point
+            if !child_name.is_empty() {
+                if let Ok(bounds) = child.bounds() {
+                    if bounds.0 <= position.x as f64
+                        && position.x as f64 <= bounds.0 + bounds.2
+                        && bounds.1 <= position.y as f64
+                        && position.y as f64 <= bounds.1 + bounds.3
+                    {
+                        debug!(
+                            "   🔎 Found named descendant at position: '{}' (role: {})",
+                            child_name,
+                            child.role()
+                        );
+                        return Some(child.clone());
+                    }
+                }
+            }
+
+            // Recurse into this child's children
+            if let Ok(grandchildren) = child.children() {
+                if let Some(found) =
+                    Self::find_named_descendant_at_position(&grandchildren, position)
+                {
+                    return Some(found);
+                }
+            }
+        }
+        None
     }
 
     /// Get element from a specific point with a hard timeout (legacy method for compatibility).
@@ -3041,6 +3271,18 @@ impl WindowsRecorder {
                     child_text_content
                 );
 
+                // Check if this is a browser and get URL
+                let app_name = element.application_name().to_lowercase();
+                let is_browser = app_name.contains("chrome")
+                    || app_name.contains("firefox")
+                    || app_name.contains("edge")
+                    || app_name.contains("safari");
+                let page_url = if is_browser {
+                    Self::proactive_browser_url_search(&element)
+                } else {
+                    None
+                };
+
                 let click_event = ClickEvent {
                     element_text: element_name.clone(),
                     interaction_type,
@@ -3058,6 +3300,7 @@ impl WindowsRecorder {
                     child_text_content,
                     relative_position: None, // No relative position for keyboard-triggered clicks
                     process_name: Self::get_process_name_from_element(&element),
+                    page_url,
                     metadata: EventMetadata::with_ui_element_and_timestamp(Some(element.clone())),
                 };
 

@@ -12,7 +12,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 use terminator::{AutomationError, Desktop, UIElement};
 use tokio::sync::Mutex as TokioMutex;
-use tracing::{warn, Level};
+use tracing::{warn, Instrument, Level};
 use tracing_subscriber::{util::SubscriberInitExt, EnvFilter, Layer};
 
 // ===== Composition Base Types for Reducing Duplication =====
@@ -50,9 +50,39 @@ pub struct WindowManagementOptions {
     pub bring_to_front: Option<bool>,
 }
 
-/// Common fields for UI tree inclusion in responses
+/// Tree options for action tools that modify UI - captures diff before/after
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
-pub struct TreeOptions {
+pub struct DiffTreeOptions {
+    #[schemars(
+        description = "REQUIRED: Capture UI tree before and after action execution, then compute and return the diff. Returns ui_diff and has_ui_changes fields. Set include_full_trees: true to also get tree_before and tree_after."
+    )]
+    pub ui_diff_before_after: bool,
+
+    #[schemars(
+        description = "Include full tree_before and tree_after in response. Defaults to false (only ui_diff and has_ui_changes). Set to true for debugging or when you need the complete trees."
+    )]
+    pub ui_diff_include_full_trees_in_response: Option<bool>,
+
+    #[schemars(description = "Maximum depth to traverse when building tree")]
+    pub tree_max_depth: Option<usize>,
+
+    #[schemars(description = "Selector to start tree from instead of window root")]
+    pub tree_from_selector: Option<String>,
+
+    #[schemars(
+        description = "Whether to include detailed element attributes (enabled, focused, selected, etc.). Defaults to true for comprehensive LLM context."
+    )]
+    pub include_detailed_attributes: Option<bool>,
+
+    #[schemars(
+        description = "Output format for UI tree. Options: 'verbose_json' (full JSON with all fields), 'compact_yaml' (minimal YAML: [ROLE] name #id). Defaults to 'compact_yaml'."
+    )]
+    pub tree_output_format: Option<TreeOutputFormat>,
+}
+
+/// Tree options for navigation/read-only tools - captures tree after action
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+pub struct SimpleTreeOptions {
     #[schemars(
         description = "REQUIRED: Whether to include the UI tree in the response (captured after action execution)."
     )]
@@ -77,11 +107,6 @@ pub struct TreeOptions {
         description = "Output format for UI tree. Options: 'verbose_json' (full JSON with all fields), 'compact_yaml' (minimal YAML: [ROLE] name #id). Defaults to 'compact_yaml'."
     )]
     pub tree_output_format: Option<TreeOutputFormat>,
-
-    #[schemars(
-        description = "REQUIRED: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree_after_action behavior."
-    )]
-    pub ui_diff_before_after: bool,
 }
 
 /// Common fields for element selection with alternatives and fallbacks
@@ -98,8 +123,9 @@ pub struct SelectorOptions {
     pub window_selector: Option<String>,
 
     #[schemars(
-        description = "A string selector to locate the element within the scoped process/window. Can be chained with ` >> `."
+        description = "A string selector to locate the element within the scoped process/window. Can be chained with ` >> `. If omitted, targets the window root element."
     )]
+    #[serde(default)]
     pub selector: String,
 
     #[schemars(
@@ -116,7 +142,14 @@ pub struct SelectorOptions {
 impl SelectorOptions {
     /// Build the full selector by combining process (and optionally window_selector) with the main selector
     pub fn build_full_selector(&self) -> String {
-        if let Some(window_sel) = &self.window_selector {
+        if self.selector.is_empty() {
+            // No selector = target window root
+            if let Some(window_sel) = &self.window_selector {
+                format!("process:{} >> {}", self.process, window_sel)
+            } else {
+                format!("process:{}", self.process)
+            }
+        } else if let Some(window_sel) = &self.window_selector {
             // Chain: process -> window -> element
             format!(
                 "process:{} >> {} >> {}",
@@ -183,47 +216,6 @@ pub struct HighlightOptions {
         description = "REQUIRED: Whether to highlight the element before action. When true, shows a green border with element role as text."
     )]
     pub highlight_before_action: bool,
-}
-
-/// Arguments for tools that select elements
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct ElementArgs {
-    #[serde(flatten)]
-    pub selector: SelectorOptions,
-
-    #[serde(flatten)]
-    pub action: ActionOptions,
-
-    #[serde(flatten)]
-    pub tree: TreeOptions,
-
-    #[serde(flatten)]
-    pub monitor: MonitorScreenshotOptions,
-
-    #[serde(flatten)]
-    pub window_mgmt: WindowManagementOptions,
-}
-
-/// Arguments for tools that perform actions on elements with highlighting
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct ActionElementArgs {
-    #[serde(flatten)]
-    pub selector: SelectorOptions,
-
-    #[serde(flatten)]
-    pub action: ActionOptions,
-
-    #[serde(flatten)]
-    pub highlight: HighlightOptions,
-
-    #[serde(flatten)]
-    pub tree: TreeOptions,
-
-    #[serde(flatten)]
-    pub monitor: MonitorScreenshotOptions,
-
-    #[serde(flatten)]
-    pub window_mgmt: WindowManagementOptions,
 }
 
 // Validation helpers for better type safety
@@ -340,6 +332,47 @@ pub struct DesktopWrapper {
     /// Key is 1-based index, value is (text, (x, y, width, height))
     #[serde(skip)]
     pub ocr_bounds: Arc<Mutex<std::collections::HashMap<u32, (String, (f64, f64, f64, f64))>>>,
+    /// Stores Omniparser items from the last get_window_tree with include_omniparser
+    /// Key is 1-based index, value is item details
+    #[serde(skip)]
+    pub omniparser_items:
+        Arc<Mutex<std::collections::HashMap<u32, crate::omniparser::OmniparserItem>>>,
+    /// Stores Vision items from the last get_window_tree with include_gemini_vision
+    /// Key is 1-based index, value is item details
+    #[serde(skip)]
+    pub vision_items: Arc<Mutex<std::collections::HashMap<u32, crate::vision::VisionElement>>>,
+    /// Stores UIA tree index-to-bounds mapping from the last get_window_tree
+    /// Key is 1-based index, value is (role, name, bounds, selector)
+    #[serde(skip)]
+    pub uia_bounds: Arc<
+        Mutex<
+            std::collections::HashMap<u32, (String, String, (f64, f64, f64, f64), Option<String>)>,
+        >,
+    >,
+    /// Stores browser DOM index-to-bounds mapping from the last get_window_tree
+    /// Key is 1-based index, value is (tag, identifier, (x, y, width, height)) in screen coordinates
+    #[serde(skip)]
+    pub dom_bounds:
+        Arc<Mutex<std::collections::HashMap<u32, (String, String, (f64, f64, f64, f64))>>>,
+    /// Stores clustered index-to-bounds mapping from the last get_window_tree with clustered_yaml format
+    /// Key is prefixed index (e.g., "u1", "d2", "o3", "p4", "g5"), value is (source, original_index, bounds)
+    #[serde(skip)]
+    pub clustered_bounds: Arc<
+        Mutex<
+            std::collections::HashMap<
+                String,
+                (
+                    crate::tree_formatter::ElementSource,
+                    u32,
+                    (f64, f64, f64, f64),
+                ),
+            >,
+        >,
+    >,
+    /// Stores the active inspect overlay handle for cleanup
+    #[cfg(target_os = "windows")]
+    #[serde(skip)]
+    pub inspect_overlay_handle: Arc<Mutex<Option<terminator::InspectOverlayHandle>>>,
 }
 
 impl Default for DesktopWrapper {
@@ -380,7 +413,7 @@ pub struct GetWindowTreeArgs {
     #[schemars(description = "Optional window title filter")]
     pub title: Option<String>,
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: SimpleTreeOptions,
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
 
@@ -392,6 +425,39 @@ pub struct GetWindowTreeArgs {
     )]
     #[serde(default)]
     pub include_ocr: bool,
+
+    #[schemars(
+        description = "Whether to use Omniparser V2 to detect icons and fields. Returns an 'omniparser_tree' field with indexed items for click targeting. Defaults to false."
+    )]
+    #[serde(default)]
+    pub include_omniparser: bool,
+
+    #[schemars(
+        description = "Use Gemini vision model for UI element detection. Returns a 'vision_tree' field with indexed elements. More accurate than omniparser for modern UIs."
+    )]
+    #[serde(default)]
+    pub include_gemini_vision: bool,
+
+    #[schemars(
+        description = "Whether to capture browser DOM elements. Returns a 'browser_dom' field with indexed DOM elements for click targeting. Defaults to false."
+    )]
+    #[serde(default)]
+    pub include_browser_dom: bool,
+
+    #[schemars(
+        description = "Maximum number of browser DOM elements to capture. Only applies to browser windows. Defaults to 200."
+    )]
+    pub browser_dom_max_elements: Option<u32>,
+
+    #[schemars(
+        description = "Show visual overlay with indexed elements. Valid values: 'ui_tree', 'dom', 'ocr', 'omniparser', 'vision'. Shows element bounds with [index:role] labels. Only one type can be shown at a time."
+    )]
+    pub show_overlay: Option<String>,
+
+    #[schemars(
+        description = "Display mode for overlay labels when show_overlay is set. Valid values: 'rectangles' (no labels), 'index', 'role', 'index_role', 'name', 'index_name', 'full' (index:role:name). Defaults to 'index'."
+    )]
+    pub overlay_display_mode: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -401,6 +467,7 @@ pub struct GetApplicationsArgs {
     // Use capture_screen if you need screenshots
 }
 
+/// Args for read-only locator tools (is_toggled, is_selected, get_range_value, list_options)
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct LocatorArgs {
     #[serde(flatten)]
@@ -410,7 +477,26 @@ pub struct LocatorArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: SimpleTreeOptions,
+
+    #[serde(flatten)]
+    pub monitor: MonitorScreenshotOptions,
+
+    #[serde(flatten)]
+    pub window_mgmt: WindowManagementOptions,
+}
+
+/// Args for invoke_element action tool (modifies UI, needs diff)
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct InvokeElementArgs {
+    #[serde(flatten)]
+    pub selector: SelectorOptions,
+
+    #[serde(flatten)]
+    pub action: ActionOptions,
+
+    #[serde(flatten)]
+    pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -487,14 +573,61 @@ impl<'de> Deserialize<'de> for ClickPosition {
     }
 }
 
+/// Unified click tool supporting three modes:
+/// 1. Selector mode: provide `process` + `selector` to find and click an element
+/// 2. Index mode: provide `index` (+ optional `vision_type`) to click an indexed item from get_window_tree
+/// 3. Coordinate mode: provide `x` + `y` to click at absolute screen coordinates
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ClickElementArgs {
+    // === MODE 1: Selector-based clicking ===
     #[schemars(
-        description = "REQUIRED: Click position as percentage within element bounds. Use x_percentage: 50, y_percentage: 50 for center click (most common)."
+        description = "Process name to scope the search (e.g., 'chrome', 'notepad'). Required for selector mode."
     )]
-    pub click_position: ClickPosition,
-    #[serde(flatten)]
-    pub selector: SelectorOptions,
+    pub process: Option<String>,
+
+    #[schemars(
+        description = "A string selector to locate the element (e.g., 'role:Button|name:Submit'). Used with process for selector mode."
+    )]
+    pub selector: Option<String>,
+
+    #[schemars(
+        description = "Optional window selector for additional filtering within the process."
+    )]
+    pub window_selector: Option<String>,
+
+    #[schemars(description = "Optional alternative selectors to try in parallel.")]
+    pub alternative_selectors: Option<String>,
+
+    #[schemars(description = "Optional fallback selectors to try sequentially if primary fails.")]
+    pub fallback_selectors: Option<String>,
+
+    #[schemars(
+        description = "Click position as percentage within element bounds (selector mode only). Defaults to center (50, 50)."
+    )]
+    pub click_position: Option<ClickPosition>,
+
+    // === MODE 2: Index-based clicking ===
+    #[schemars(
+        description = "The 1-based index of the item to click (from get_window_tree output, e.g., #1, #2). Used for index mode."
+    )]
+    pub index: Option<u32>,
+
+    #[schemars(
+        description = "Source of the indexed item: 'ui_tree' (default), 'ocr', 'omniparser', 'gemini', or 'dom'. Used with index."
+    )]
+    pub vision_type: Option<VisionType>,
+
+    // === MODE 3: Coordinate-based clicking ===
+    #[schemars(description = "Absolute screen X coordinate. Used with y for coordinate mode.")]
+    pub x: Option<f64>,
+
+    #[schemars(description = "Absolute screen Y coordinate. Used with x for coordinate mode.")]
+    pub y: Option<f64>,
+
+    // === Common options ===
+    #[schemars(description = "Type of click: 'left' (default), 'double', or 'right'.")]
+    #[serde(default)]
+    pub click_type: ClickType,
 
     #[serde(flatten)]
     pub action: ActionOptions,
@@ -503,13 +636,125 @@ pub struct ClickElementArgs {
     pub highlight: HighlightOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
+}
+
+/// Click mode determined from provided arguments
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ClickMode {
+    /// Click element by selector (process + selector)
+    Selector,
+    /// Click by index from get_window_tree
+    Index,
+    /// Click at absolute screen coordinates
+    Coordinates,
+}
+
+impl ClickElementArgs {
+    /// Determine which click mode based on provided arguments
+    pub fn determine_mode(&self) -> Result<ClickMode, String> {
+        let has_selector = self.process.is_some();
+        let has_index = self.index.is_some();
+        let has_coords = self.x.is_some() && self.y.is_some();
+        let has_partial_coords = self.x.is_some() || self.y.is_some();
+
+        // Validate: exactly one mode must be specified
+        let mode_count = [has_selector, has_index, has_coords]
+            .iter()
+            .filter(|&&x| x)
+            .count();
+
+        if mode_count == 0 {
+            // Check for partial coordinates
+            if has_partial_coords {
+                return Err("Coordinate mode requires both 'x' and 'y' parameters".to_string());
+            }
+            return Err(
+                "Must specify one of: (process + selector), (index), or (x + y coordinates)"
+                    .to_string(),
+            );
+        }
+
+        if mode_count > 1 {
+            return Err(
+                "Cannot mix modes: specify only one of (process + selector), (index), or (x + y)"
+                    .to_string(),
+            );
+        }
+
+        if has_selector {
+            Ok(ClickMode::Selector)
+        } else if has_index {
+            Ok(ClickMode::Index)
+        } else {
+            Ok(ClickMode::Coordinates)
+        }
+    }
+
+    /// Build the full selector string (for selector mode)
+    pub fn build_full_selector(&self) -> String {
+        let process = self.process.as_deref().unwrap_or("");
+        let selector = self.selector.as_deref().unwrap_or("");
+
+        if selector.is_empty() {
+            if let Some(window_sel) = &self.window_selector {
+                format!("process:{} >> {}", process, window_sel)
+            } else {
+                format!("process:{}", process)
+            }
+        } else if let Some(window_sel) = &self.window_selector {
+            format!("process:{} >> {} >> {}", process, window_sel, selector)
+        } else {
+            format!("process:{} >> {}", process, selector)
+        }
+    }
+
+    /// Build alternative selectors string (for selector mode)
+    pub fn build_alternative_selectors(&self) -> Option<String> {
+        let process = self.process.as_deref()?;
+        let alternatives = self.alternative_selectors.as_ref()?;
+
+        Some(
+            alternatives
+                .split(',')
+                .map(|s| format!("process:{} >> {}", process, s.trim()))
+                .collect::<Vec<_>>()
+                .join(","),
+        )
+    }
+
+    /// Build fallback selectors string (for selector mode)
+    pub fn build_fallback_selectors(&self) -> Option<String> {
+        let process = self.process.as_deref()?;
+        let fallbacks = self.fallback_selectors.as_ref()?;
+
+        Some(
+            fallbacks
+                .split(',')
+                .map(|s| format!("process:{} >> {}", process, s.trim()))
+                .collect::<Vec<_>>()
+                .join(","),
+        )
+    }
+
+    /// Get click position, defaulting to center (50, 50)
+    pub fn get_click_position(&self) -> ClickPosition {
+        self.click_position.clone().unwrap_or(ClickPosition {
+            x_percentage: 50,
+            y_percentage: 50,
+        })
+    }
+
+    /// Get vision type, defaulting to UiTree
+    pub fn get_vision_type(&self) -> VisionType {
+        self.vision_type.unwrap_or(VisionType::UiTree)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -540,7 +785,7 @@ pub struct TypeIntoElementArgs {
     pub highlight: HighlightOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -573,7 +818,7 @@ pub struct PressKeyArgs {
     pub highlight: HighlightOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -610,7 +855,7 @@ pub struct GlobalKeyArgs {
     pub verify_timeout_ms: Option<u64>,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: DiffTreeOptions,
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
 
@@ -649,9 +894,13 @@ pub struct RunCommandArgs {
     )]
     pub include_monitor_screenshots: Option<bool>,
     #[schemars(
-        description = "Include execution logs (stdout/stderr) in response. Defaults to false. On errors, logs are always included regardless of this setting."
+        description = "Include execution logs (stdout/stderr) in response. Defaults to true. On errors, logs are always included regardless of this setting."
     )]
     pub include_logs: Option<bool>,
+    #[schemars(
+        description = "Timeout in milliseconds for shell command execution (ignored when 'engine' is used). Defaults to 120000 (2 minutes). Set to 0 for no timeout."
+    )]
+    pub timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -671,7 +920,7 @@ pub struct MouseDragArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -680,18 +929,28 @@ pub struct MouseDragArgs {
     pub window_mgmt: WindowManagementOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct ClickOcrIndexArgs {
-    #[schemars(
-        description = "The 1-based index of the OCR word to click (from get_window_tree with include_ocr=true)"
-    )]
-    pub index: u32,
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ClickType {
+    #[default]
+    Left,
+    Double,
+    Right,
+}
 
-    #[serde(flatten)]
-    pub tree: TreeOptions,
-
-    #[serde(flatten)]
-    pub monitor: MonitorScreenshotOptions,
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum VisionType {
+    Ocr,
+    Omniparser,
+    #[serde(alias = "ui_tree")]
+    #[serde(alias = "uitree")]
+    UiTree,
+    #[serde(alias = "dom")]
+    Dom,
+    /// Gemini vision model elements
+    #[serde(alias = "vision")]
+    Gemini,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -703,7 +962,7 @@ pub struct ValidateElementArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: SimpleTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -720,7 +979,7 @@ pub struct ValidateElementArgs {
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct CaptureElementScreenshotArgs {
+pub struct CaptureScreenshotArgs {
     #[serde(flatten)]
     pub selector: SelectorOptions,
 
@@ -728,7 +987,7 @@ pub struct CaptureElementScreenshotArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: SimpleTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -739,6 +998,12 @@ pub struct CaptureElementScreenshotArgs {
         description = "Maximum dimension (width or height) for the screenshot. Screenshots larger than this will be resized while maintaining aspect ratio. Default: 1920px"
     )]
     pub max_dimension: Option<u32>,
+
+    #[schemars(
+        description = "If true, captures the entire monitor where the target window is located instead of the window/element. Defaults to false."
+    )]
+    #[serde(default)]
+    pub entire_monitor: bool,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -767,7 +1032,7 @@ pub struct HighlightElementArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: SimpleTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -787,7 +1052,7 @@ pub struct WaitForElementArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: SimpleTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -821,7 +1086,7 @@ pub struct NavigateBrowserArgs {
     pub verify_timeout_ms: Option<u64>,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: SimpleTreeOptions,
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
 
@@ -845,7 +1110,7 @@ pub struct ExecuteBrowserScriptArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -875,6 +1140,9 @@ pub struct OpenApplicationArgs {
     pub verify_timeout_ms: Option<u64>,
 
     #[serde(flatten)]
+    pub tree: SimpleTreeOptions,
+
+    #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
 
     #[serde(flatten)]
@@ -892,83 +1160,7 @@ pub struct SelectOptionArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
-
-    #[serde(flatten)]
-    pub monitor: MonitorScreenshotOptions,
-
-    #[serde(flatten)]
-    pub window_mgmt: WindowManagementOptions,
-}
-
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct SetToggledArgs {
-    #[schemars(description = "The desired state: true for on, false for off.")]
-    pub state: bool,
-    #[serde(flatten)]
-    pub selector: SelectorOptions,
-
-    #[serde(flatten)]
-    pub action: ActionOptions,
-
-    #[serde(flatten)]
-    pub tree: TreeOptions,
-
-    #[serde(flatten)]
-    pub monitor: MonitorScreenshotOptions,
-
-    #[serde(flatten)]
-    pub window_mgmt: WindowManagementOptions,
-}
-
-#[derive(Debug, serde::Deserialize, JsonSchema)]
-pub struct MaximizeWindowArgs {
-    #[serde(flatten)]
-    pub selector: SelectorOptions,
-
-    #[serde(flatten)]
-    pub action: ActionOptions,
-
-    #[serde(flatten)]
-    pub tree: TreeOptions,
-
-    #[serde(flatten)]
-    pub monitor: MonitorScreenshotOptions,
-
-    #[serde(flatten)]
-    pub window_mgmt: WindowManagementOptions,
-}
-
-#[derive(Debug, serde::Deserialize, JsonSchema)]
-pub struct MinimizeWindowArgs {
-    #[serde(flatten)]
-    pub selector: SelectorOptions,
-
-    #[serde(flatten)]
-    pub action: ActionOptions,
-
-    #[serde(flatten)]
-    pub tree: TreeOptions,
-
-    #[serde(flatten)]
-    pub monitor: MonitorScreenshotOptions,
-
-    #[serde(flatten)]
-    pub window_mgmt: WindowManagementOptions,
-}
-
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct SetRangeValueArgs {
-    #[schemars(description = "The numerical value to set.")]
-    pub value: f64,
-    #[serde(flatten)]
-    pub selector: SelectorOptions,
-
-    #[serde(flatten)]
-    pub action: ActionOptions,
-
-    #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -988,7 +1180,7 @@ pub struct SetValueArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -1008,7 +1200,7 @@ pub struct SetSelectedArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -1036,7 +1228,7 @@ pub struct ScrollElementArgs {
     pub highlight: HighlightOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -1054,7 +1246,7 @@ pub struct ActivateElementArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
-    pub tree: TreeOptions,
+    pub tree: SimpleTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
@@ -1297,25 +1489,6 @@ pub enum SequenceItem {
     Group { tool_group: ToolGroup },
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct CloseElementArgs {
-    #[serde(flatten)]
-    pub selector: SelectorOptions,
-
-    #[serde(flatten)]
-    pub action: ActionOptions,
-
-    #[serde(flatten)]
-    pub tree: TreeOptions,
-
-    #[serde(flatten)]
-    pub monitor: MonitorScreenshotOptions,
-
-    #[serde(flatten)]
-    pub window_mgmt: WindowManagementOptions,
-}
-
 #[derive(Deserialize, JsonSchema, Debug, Clone)]
 pub struct ZoomArgs {
     pub level: u32,
@@ -1325,16 +1498,19 @@ pub struct ZoomArgs {
     pub include_monitor_screenshots: Option<bool>,
 }
 
+/// Arguments for Gemini Computer Use agentic loop tool
 #[derive(Deserialize, JsonSchema, Debug, Clone)]
-pub struct SetZoomArgs {
+pub struct GeminiComputerUseArgs {
     #[schemars(
-        description = "The zoom percentage to set (e.g., 100 for 100%, 150 for 150%, 50 for 50%)"
+        description = "Process name of the target application (e.g., 'chrome', 'notepad', 'explorer')"
     )]
-    pub percentage: u32,
-    #[serde(flatten)]
-    pub tree: TreeOptions,
-    #[serde(flatten)]
-    pub monitor: MonitorScreenshotOptions,
+    pub process: String,
+
+    #[schemars(description = "The goal to achieve (e.g., 'Open Notepad and type Hello World')")]
+    pub goal: String,
+
+    #[schemars(description = "Maximum number of steps to take before stopping. Defaults to 20.")]
+    pub max_steps: Option<u32>,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -1798,16 +1974,31 @@ pub async fn find_element_with_fallbacks(
 ) -> Result<(terminator::UIElement, String), terminator::AutomationError> {
     use tokio::time::Duration;
 
+    let find_start = std::time::Instant::now();
     let timeout_duration = get_timeout(timeout_ms).unwrap_or(Duration::from_millis(3000));
 
     // FAST PATH: If no alternatives or fallbacks are provided, just use the primary selector directly.
     if alternative_selectors.is_none() && fallback_selectors.is_none() {
         let locator = desktop.locator(terminator::Selector::from(primary_selector));
         return match locator.first(Some(timeout_duration)).await {
-            Ok(element) => Ok((element, primary_selector.to_string())),
-            Err(e) => Err(terminator::AutomationError::ElementNotFound(format!(
-                "Primary selector '{primary_selector}' failed: {e}"
-            ))),
+            Ok(element) => {
+                tracing::info!(
+                    "[PERF] find_element_with_fallbacks: {}ms (selector: {})",
+                    find_start.elapsed().as_millis(),
+                    primary_selector
+                );
+                Ok((element, primary_selector.to_string()))
+            }
+            Err(e) => {
+                tracing::info!(
+                    "[PERF] find_element_with_fallbacks: {}ms (FAILED selector: {})",
+                    find_start.elapsed().as_millis(),
+                    primary_selector
+                );
+                Err(terminator::AutomationError::ElementNotFound(format!(
+                    "Primary selector '{primary_selector}' failed: {e}"
+                )))
+            }
         };
     }
 
@@ -1830,13 +2021,16 @@ pub async fn find_element_with_fallbacks(
     // Create primary task
     let desktop_clone = desktop.clone();
     let primary_clone = primary_selector.to_string();
-    let primary_task = tokio::spawn(async move {
-        let locator = desktop_clone.locator(terminator::Selector::from(primary_clone.as_str()));
-        match locator.first(Some(timeout_duration)).await {
-            Ok(element) => Ok((element, primary_clone)),
-            Err(e) => Err((primary_clone, e)),
+    let primary_task = tokio::spawn(
+        async move {
+            let locator = desktop_clone.locator(terminator::Selector::from(primary_clone.as_str()));
+            match locator.first(Some(timeout_duration)).await {
+                Ok(element) => Ok((element, primary_clone)),
+                Err(e) => Err((primary_clone, e)),
+            }
         }
-    });
+        .in_current_span(),
+    );
 
     // Create alternative tasks
     let mut alternative_tasks = Vec::new();
@@ -1844,14 +2038,17 @@ pub async fn find_element_with_fallbacks(
         for selector_str in alternatives {
             let desktop_clone = desktop.clone();
             let selector_clone = selector_str.clone();
-            let task = tokio::spawn(async move {
-                let locator =
-                    desktop_clone.locator(terminator::Selector::from(selector_clone.as_str()));
-                match locator.first(Some(timeout_duration)).await {
-                    Ok(element) => Ok((element, selector_clone)),
-                    Err(e) => Err((selector_clone, e)),
+            let task = tokio::spawn(
+                async move {
+                    let locator =
+                        desktop_clone.locator(terminator::Selector::from(selector_clone.as_str()));
+                    match locator.first(Some(timeout_duration)).await {
+                        Ok(element) => Ok((element, selector_clone)),
+                        Err(e) => Err((selector_clone, e)),
+                    }
                 }
-            });
+                .in_current_span(),
+            );
             alternative_tasks.push(task);
         }
     }
@@ -1875,6 +2072,11 @@ pub async fn find_element_with_fallbacks(
 
                 // Always prefer primary selector (index 0) if it succeeds
                 if index == 0 {
+                    tracing::info!(
+                        "[PERF] find_element_with_fallbacks: {}ms (primary selector: {})",
+                        find_start.elapsed().as_millis(),
+                        selector
+                    );
                     return Ok((element, selector));
                 } else {
                     // Alternative succeeded first, but give primary selector a brief grace period
@@ -1891,10 +2093,16 @@ pub async fn find_element_with_fallbacks(
                     {
                         Ok(Ok(primary_element)) => {
                             // Primary also succeeded within grace period - prefer it
+                            tracing::info!("[PERF] find_element_with_fallbacks: {}ms (primary after grace: {})", find_start.elapsed().as_millis(), primary_selector);
                             return Ok((primary_element, primary_selector.to_string()));
                         }
                         _ => {
                             // Primary didn't succeed quickly, use the alternative that worked
+                            tracing::info!(
+                                "[PERF] find_element_with_fallbacks: {}ms (alternative: {})",
+                                find_start.elapsed().as_millis(),
+                                selector
+                            );
                             return Ok((element, selector));
                         }
                     }
@@ -1948,6 +2156,11 @@ pub async fn find_element_with_fallbacks(
         )
     };
 
+    tracing::info!(
+        "[PERF] find_element_with_fallbacks: {}ms (ALL FAILED: {})",
+        find_start.elapsed().as_millis(),
+        primary_selector
+    );
     Err(terminator::AutomationError::ElementNotFound(combined_error))
 }
 

@@ -42,4 +42,6 @@ mcp.json
 
 # Editor/IDE specific
 .history/
-We believe in the extraordinary capacity of human beings—to think, to create, to solve. But that capacity is wasted when it's spent on repetitive work. Automation should serve human potential, not replace it.
+
+# Windows null device file (created when running >nul in Git Bash)
+nul

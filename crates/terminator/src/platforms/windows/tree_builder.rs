@@ -6,6 +6,24 @@ use std::thread;
 use std::time::Duration;
 use tracing::debug;
 
+/// Build a selector segment for a single element (e.g., "role:Button && name:Submit")
+/// Only includes name if it's non-empty and meaningful
+fn build_selector_segment(role: &str, name: Option<&str>) -> String {
+    match name {
+        Some(n) if !n.is_empty() => format!("role:{} && name:{}", role, n),
+        _ => format!("role:{}", role),
+    }
+}
+
+/// Build a chained selector from a list of segments (e.g., "role:Window && name:App >> role:Button && name:Submit")
+fn build_chained_selector(segments: &[String]) -> Option<String> {
+    if segments.is_empty() {
+        None
+    } else {
+        Some(segments.join(" >> "))
+    }
+}
+
 /// Configuration for tree building operations
 pub(crate) struct TreeBuildingConfig {
     pub(crate) timeout_per_operation_ms: u64,
@@ -24,6 +42,7 @@ pub(crate) struct TreeBuildingContext {
     pub(crate) fallback_calls: usize,
     pub(crate) errors_encountered: usize,
     pub(crate) application_name: Option<String>, // Cached application name for all nodes in tree
+    pub(crate) include_all_bounds: bool, // Include bounds for all elements (not just focusable)
 }
 
 impl TreeBuildingContext {
@@ -55,10 +74,12 @@ impl TreeBuildingContext {
 }
 
 /// Build a UI node tree with configurable properties and performance tuning
+/// The `selector_path` parameter accumulates selector segments from ancestors for building chained selectors
 pub(crate) fn build_ui_node_tree_configurable(
     element: &UIElement,
     current_depth: usize,
     context: &mut TreeBuildingContext,
+    selector_path: Vec<String>,
 ) -> Result<crate::UINode, AutomationError> {
     // Use iterative approach with explicit stack to prevent stack overflow
     // We'll build the tree using a work queue and then assemble it
@@ -66,6 +87,7 @@ pub(crate) fn build_ui_node_tree_configurable(
         element: UIElement,
         depth: usize,
         node_path: Vec<usize>, // Path of indices to reach this node from root
+        selector_path: Vec<String>, // Accumulated selector segments from ancestors
     }
 
     let mut work_queue = Vec::new();
@@ -75,6 +97,7 @@ pub(crate) fn build_ui_node_tree_configurable(
         element: element.clone(),
         depth: current_depth,
         node_path: vec![],
+        selector_path,
     });
 
     while let Some(work_item) = work_queue.pop() {
@@ -87,19 +110,31 @@ pub(crate) fn build_ui_node_tree_configurable(
         }
 
         // Get element attributes with configurable property loading
-        let mut attributes =
-            get_configurable_attributes(&work_item.element, &context.property_mode);
+        let mut attributes = get_configurable_attributes(
+            &work_item.element,
+            &context.property_mode,
+            context.include_all_bounds,
+        );
 
         // Populate application_name from context if available
         if attributes.application_name.is_none() && context.application_name.is_some() {
             attributes.application_name = context.application_name.clone();
         }
 
+        // Build selector segment for this node and create full selector path
+        let current_segment = build_selector_segment(&attributes.role, attributes.name.as_deref());
+        let mut current_selector_path = work_item.selector_path.clone();
+        current_selector_path.push(current_segment);
+
+        // Build the chained selector for this node
+        let selector = build_chained_selector(&current_selector_path);
+
         // Create node without children initially
         let mut node = crate::UINode {
             id: work_item.element.id(),
             attributes,
             children: Vec::new(),
+            selector,
         };
 
         // Check if we should process children
@@ -128,6 +163,7 @@ pub(crate) fn build_ui_node_tree_configurable(
                                     child_element,
                                     work_item.depth + 1,
                                     context,
+                                    current_selector_path.clone(),
                                 ) {
                                     Ok(child_node) => node.children.push(child_node),
                                     Err(e) => {
@@ -144,6 +180,7 @@ pub(crate) fn build_ui_node_tree_configurable(
                                     element: child_element.clone(),
                                     depth: work_item.depth + 1,
                                     node_path: child_path,
+                                    selector_path: current_selector_path.clone(),
                                 });
                             }
                             child_index += 1;
@@ -185,6 +222,7 @@ pub(crate) fn build_ui_node_tree_configurable(
 fn get_configurable_attributes(
     element: &UIElement,
     property_mode: &crate::platforms::PropertyLoadingMode,
+    include_all_bounds: bool,
 ) -> UIElementAttributes {
     let mut attrs = match property_mode {
         crate::platforms::PropertyLoadingMode::Fast => {
@@ -205,8 +243,18 @@ fn get_configurable_attributes(
     if let Ok(is_focusable) = element.is_keyboard_focusable() {
         if is_focusable {
             attrs.is_keyboard_focusable = Some(true);
-            // Only add bounds for keyboard-focusable elements
+            // Add bounds for keyboard-focusable elements
             if let Ok(bounds) = element.bounds() {
+                attrs.bounds = Some(bounds);
+            }
+        }
+    }
+
+    // If include_all_bounds is set, get bounds for ALL elements (for inspect overlay)
+    if include_all_bounds && attrs.bounds.is_none() {
+        if let Ok(bounds) = element.bounds() {
+            // Only include if bounds are valid (non-zero size)
+            if bounds.2 > 0.0 && bounds.3 > 0.0 {
                 attrs.bounds = Some(bounds);
             }
         }

@@ -7,6 +7,220 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.36] - 2025-12-04
+
+### Added
+- CLI: Add `init` command to scaffold TypeScript workflows
+- Tree: Build chained selectors during tree traversal and return in click response
+- SDK: Add `geminiComputerUse` to TypeScript SDK
+- SDK: Add `processName()` method and document `desktop.applications()`
+- Run Command: Default `include_logs` to true for MCP tool
+- Run Command: Include partial logs on timeout when `include_logs` is true
+
+### Fixed
+- CI: Run all unit tests, exclude e2e/integration/mcp tests that require real desktop
+- Browser Script: Improve error message for chrome:// pages
+- MCP: Use `eval()` for multi-statement script execution in browser
+- Computer Use: Use correct key format `{Ctrl}a` instead of `^a`
+- Computer Use: Improve reliability of `type_text_at` and screenshot timing
+- Recorder: Drill through containers with broken bounds to find named elements
+- Build: Add `opt-level=1` to dev-release profile for faster compilation
+
+### Changed
+- Recorder: Change URL search logs from warn to info
+
+### Documentation
+- Run Command: Add TypeScript SDK API documentation
+- Run Command: Fix incorrect `desktop.locator()` scoping documentation
+
+## [0.23.35] - 2025-12-03
+
+### Added
+- Workflow SDK: Add `complete()` function for early workflow exit with success
+- Workflow SDK: Add `PendingAction` event for immediate modal display
+- Workflow Recorder: Add URL capture for Gemini Computer Use API compliance
+- Workflow Recorder: Add UIA debug logging and `page_url` for click events
+
+### Changed
+- Workflow SDK: Replace `throw complete()` pattern with `return success()` for cleaner early exit
+- Workflow Recorder: Use magenta color key and Consolas font for overlay labels
+
+### Fixed
+- Workflow SDK: Use 1-based step index in validation error messages
+- Workflow SDK: Improve validation error messages with step index and execution range
+- Workflow Recorder: Skip elements with relative timestamps in selectors
+- Workflow Recorder: Filter internal browser elements from selector chain
+- Workflow Recorder: Stop parent hierarchy at application window boundary
+- Workflow Recorder: Improve selector parsing and chain generation
+- Workflow Recorder: Use UTF-8 safe string truncation in overlay labels
+- MCP Agent: Always inject `accumulated_env` for `run_command` steps
+- MCP Agent: Improve `get_window_tree` tool description with vision options
+
+### Tests
+- Workflow SDK: Add unit tests for `complete()` early exit functionality
+
+## [0.23.34] - 2025-12-02
+
+### Added
+- Workflow SDK: Add `SuccessResult` type and rename `human` to `summary`
+- MCP Agent: Add `gemini_computer_use` tool for agentic desktop automation using native Gemini 2.5 Computer Use API
+- MCP Agent: Add dynamic MCP tools list to `execute_sequence` instructions
+- MCP Agent: Auto-initialize KV variable when `ORG_TOKEN` is present
+
+### Changed
+- MCP Agent: Rewrite `gemini_computer_use` to use native Gemini 2.5 Computer Use API
+- UI Overlay: Simplify overlay labels to render inside element boxes
+
+### Performance
+- MCP Agent: Add granular PERF logs for MCP tool execution timing
+- Development: Optimize dev build profile
+
+### Fixed
+- MCP Agent: Change premature success log to debug level in `browser_script`
+
+## [0.23.33] - 2025-12-02
+
+### Added
+- Workflow SDK: Add `onSuccess` handler support for direct pattern (steps array)
+- Workflow SDK: Add `lastStepId` and `lastStepIndex` to `WorkflowSuccessContext`
+
+### Changed
+- Style: Run cargo fmt on Rust codebase
+
+### Fixed
+- MCP Agent: Optimize window restoration to only restore modified windows
+
+### Performance
+- MCP Agent: Add PERF timing logs for MCP tool execution breakdown
+
+### Tests
+- Workflow SDK: Add comprehensive tests for onSuccess handler (14 tests)
+- MCP Agent: Add array indexing tests for variable substitution
+
+## [0.23.32] - 2025-12-01
+
+### Fixed
+- MCP Agent: Strip stack traces from error responses
+- TypeScript: Add type assertions to HTTP adapter for strict mode
+
+## [0.23.31] - 2025-12-01
+
+### Added
+- MCP Agent: Add KV storage support for run_command scripts
+- Docs: Add KV storage documentation to run_command tool
+
+### Fixed
+- OCR: Apply DPI scaling to OCR, Omniparser, and Gemini Vision bounds
+
+## [0.23.30] - 2025-11-29
+
+### Added
+- Workflow SDK: Add `retry()` function that can be thrown from `execute()` to re-run step
+- CI: Add workflow package type checking and unit tests
+
+### Fixed
+- Workflow SDK: Fix test type annotations (remove `as any` casts)
+- MCP Agent: Pass execution_id as structured tracing field instead of message prefix
+- MCP Agent: Use SendMessageTimeoutW to avoid blocking on hung windows
+- Recorder: Use `&&` syntax instead of pipe for selectors
+- Recorder: Use `text:` instead of `name:contains:` in selectors
+
+### Changed
+- KV: Rename VM_TOKEN to ORG_TOKEN in HTTP adapter
+
+## [0.23.29] - 2025-11-28
+
+### Added
+- Workflow SDK: Add `retries` option to createStep with configurable delay
+- MCP Agent: Add `include_browser_dom` parameter to get_window_tree
+- MCP Agent: Add index-based clicking for browser DOM elements (`click_index` with `vision_type: 'dom'`)
+- MCP Agent: Add index-based clicking for UI tree elements (`click_index` with `vision_type: 'uia'`)
+- MCP Agent: Add `show_overlay` parameter for visual UI debugging
+- MCP Agent: Add `browser_dom_max_elements` parameter to get_window_tree
+- MCP Agent: Add compact YAML format for omniparser output
+- Inspect Overlay: Add display modes, collision detection, and smaller font
+- Inspect Overlay: Show text content in DOM overlay labels
+
+### Fixed
+- Code: Add missing `include_all_bounds` field and fix clippy warnings
+- Inspect Overlay: Use non-blocking polling loop and cache-based UI tree overlay
+- Inspect Overlay: Fix DPI scaling for browser DOM
+- Inspect Overlay: Improve visual appearance and fix hide functionality
+- Inspect Overlay: Simplify label to show only index number
+
+### Changed
+- Docs: Update selector syntax to use `&&` instead of legacy pipe `|`
+
+## [0.23.28] - 2025-11-27
+
+
+### Added
+- CI: Publish terminator-cli to crates.io on release (`cargo install terminator-cli`)
+- Docs: Add remote-mcp skill for controlling remote machines via MCP
+
+### Fixed
+- Code: Resolve clippy warnings (dead_code, format strings)
+
+## [0.23.27] - 2025-11-27
+
+### Added
+- MCP Agent: Add configurable timeout for run_command execution
+- MCP Agent: Optimize OmniParser image processing for faster inference
+
+### Fixed
+- CLI: Fix authentication on remote MCP
+
+## [0.23.26] - 2025-11-26
+
+### Added
+- MCP Agent: Add telemetry to TypeScript workflow execution
+
+## [0.23.25] - 2025-11-26
+
+### Added
+- Workflow SDK: Add `next` pointer for step branching and loops
+  - Static jumps: `next: 'step_id'`
+  - Dynamic branching: `next: ({ context }) => condition ? 'a' : 'b'`
+  - Retry loops with counter
+  - Infinite loop detection (max 1000 iterations)
+- Workflow SDK: Auto-read name/version/description from package.json
+
+### Changed
+- Workflow SDK: Remove name/version/description from createWorkflow() - now exclusively read from package.json (single source of truth)
+
+### Fixed
+- CLI: Remove unused telemetry receiver
+- Code: Fix clippy warnings (unused imports, extra blank lines)
+
+## [0.23.24] - 2025-11-26
+
+### Added
+- MCP: Stream TypeScript workflow logs through Rust tracing with full OpenTelemetry integration
+- MCP: Add log level prefixes ([ERROR], [WARN], [INFO], [DEBUG]) in TypeScript execution
+- MCP: Add ParsedLogLine struct and parse_log_line function for log parsing
+
+### Fixed
+- Telemetry: TypeScript workflow logs now include trace_id/execution_id for ClickHouse correlation
+
+## [0.23.23] - 2025-11-26
+
+### Added
+- MCP: Add unified click_cv_index tool with vision_type parameter (ocr/omniparser) replacing separate click tools
+- MCP: Add click_type parameter (left/double/right) to click_cv_index for different click actions
+- MCP: Add omniparser support via Replicate API integration
+- MCP: Support nested execute_sequence calls in dispatch_tool
+- UI Automation: Add click_at_coordinates_with_type method supporting left, double, and right clicks
+
+### Fixed
+- Telemetry: Propagate tracing spans to spawned tasks for proper trace correlation
+- Telemetry: Include execution_id and trace_id in log body for ClickHouse filtering
+- Telemetry: Downgrade expected failures from error! to warn!/debug!
+- Code: Address clippy warnings (format strings, needless borrow)
+
+### Changed
+- MCP: Replace click_ocr_index and click_omniparser_index with unified click_cv_index tool
+- Config: Add files.eol setting to enforce LF line endings
+
 ## [0.23.21] - 2025-11-25
 
 ### Added

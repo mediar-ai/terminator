@@ -114,13 +114,20 @@ impl BrowserContextRecorder {
         let script = format!(
             r#"
 (function() {{
-    const x = {};
-    const y = {};
+    const screenX = {};
+    const screenY = {};
 
-    // Get element at coordinates
-    const element = document.elementFromPoint(x, y);
+    // Convert screen coordinates to viewport coordinates
+    // screenX/screenY are the browser window's position on screen
+    // outerHeight - innerHeight gives the browser chrome height (tabs, address bar, etc.)
+    const browserChromeHeight = window.outerHeight - window.innerHeight;
+    const viewportX = screenX - window.screenX;
+    const viewportY = screenY - window.screenY - browserChromeHeight;
+
+    // Get element at viewport coordinates
+    const element = document.elementFromPoint(viewportX, viewportY);
     if (!element) {{
-        return JSON.stringify({{ error: 'No element at coordinates' }});
+        return JSON.stringify({{ error: 'No element at coordinates', debug: {{ screenX, screenY, viewportX, viewportY, windowScreenX: window.screenX, windowScreenY: window.screenY, browserChromeHeight }} }});
     }}
 
     // Helper function to generate XPath (defined at IIFE scope)

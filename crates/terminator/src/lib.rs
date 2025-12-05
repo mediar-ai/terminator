@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
-use tracing::{debug, error, instrument};
+use tracing::{debug, error, info, instrument};
 
 pub mod browser_script;
 pub mod element;
@@ -15,19 +15,34 @@ pub mod extension_bridge;
 pub mod health;
 pub mod locator;
 pub mod platforms;
+pub mod screenshot;
 pub mod selector;
 #[cfg(test)]
 mod tests;
 pub mod tree_formatter;
 pub mod types;
+pub mod ui_tree_diff;
 pub mod utils;
+
+#[cfg(target_os = "windows")]
+pub mod computer_use;
 
 pub use element::{OcrElement, SerializableUIElement, UIElement, UIElementAttributes};
 pub use errors::AutomationError;
 pub use locator::Locator;
+pub use screenshot::ScreenshotResult;
 pub use selector::Selector;
+pub use tokio_util::sync::CancellationToken;
 pub use tree_formatter::{format_tree_as_compact_yaml, format_ui_node_as_compact_yaml};
 pub use types::{FontStyle, HighlightHandle, TextPosition};
+
+// Re-export types from terminator-computer-use crate
+#[cfg(target_os = "windows")]
+pub use terminator_computer_use::{
+    call_computer_use_backend, convert_normalized_to_screen, translate_gemini_keys,
+    ComputerUseActionResponse, ComputerUseFunctionCall, ComputerUsePreviousAction,
+    ComputerUseResponse, ComputerUseResult, ComputerUseStep, ProgressCallback,
+};
 
 /// Recommend to use any of these: ["Default", "Chrome", "Firefox", "Edge", "Brave", "Opera", "Vivaldi"]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,9 +57,22 @@ pub enum Browser {
     Custom(String),
 }
 
+/// Type of mouse click to perform
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ClickType {
+    /// Single left click (default)
+    Left,
+    /// Double left click
+    Double,
+    /// Single right click
+    Right,
+}
+
 #[cfg(target_os = "windows")]
 pub use platforms::windows::{
-    convert_uiautomation_element_to_terminator, get_process_name_by_pid, set_recording_mode,
+    convert_uiautomation_element_to_terminator, get_process_name_by_pid, hide_inspect_overlay,
+    set_recording_mode, show_inspect_overlay, InspectElement, InspectOverlayHandle,
+    OverlayDisplayMode,
 };
 
 // Define a new struct to hold click result information - move to module level
@@ -131,6 +159,9 @@ pub struct UINode {
     pub attributes: UIElementAttributes,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<UINode>,
+    /// Chained selector path from root to this node (e.g., "role:Window && name:App >> role:Button && name:Submit")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selector: Option<String>,
 }
 
 impl fmt::Debug for UINode {
@@ -210,29 +241,23 @@ impl fmt::Debug for DebugNodeWithDepth<'_> {
     }
 }
 
-/// Holds the screenshot data
-#[derive(Debug, Clone)]
-pub struct ScreenshotResult {
-    /// Raw image data (e.g., RGBA)
-    pub image_data: Vec<u8>,
-    /// Width of the image
-    pub width: u32,
-    /// Height of the image
-    pub height: u32,
-    /// Monitor information if captured from a specific monitor
-    pub monitor: Option<Monitor>,
-}
+// Removed struct ScreenshotResult (moved to screenshot.rs)
 
 /// The main entry point for UI automation
 pub struct Desktop {
     engine: Arc<dyn platforms::AccessibilityEngine>,
+    /// Cancellation token for stopping execution
+    cancellation_token: CancellationToken,
 }
 
 impl Desktop {
     #[instrument(skip(use_background_apps, activate_app))]
     pub fn new(use_background_apps: bool, activate_app: bool) -> Result<Self, AutomationError> {
         let engine = platforms::create_engine(use_background_apps, activate_app)?;
-        Ok(Self { engine })
+        Ok(Self {
+            engine,
+            cancellation_token: CancellationToken::new(),
+        })
     }
 
     /// Initializet the desktop without arguments
@@ -577,15 +602,29 @@ impl Desktop {
 
     /// OCR on screenshot with bounding boxes - returns structured OCR elements with absolute screen coordinates
     /// Window coordinates are used to convert OCR bounding boxes to absolute screen positions
+    ///
+    /// # Arguments
+    /// * `screenshot` - The screenshot to perform OCR on
+    /// * `window_x` - X offset of the window on screen in logical coordinates
+    /// * `window_y` - Y offset of the window on screen in logical coordinates
+    /// * `dpi_scale_x` - DPI scale factor for X (screenshot_width / window_logical_width)
+    /// * `dpi_scale_y` - DPI scale factor for Y (screenshot_height / window_logical_height)
     #[instrument(skip(self, screenshot))]
     pub fn ocr_screenshot_with_bounds(
         &self,
         screenshot: &ScreenshotResult,
         window_x: f64,
         window_y: f64,
+        dpi_scale_x: f64,
+        dpi_scale_y: f64,
     ) -> Result<OcrElement, AutomationError> {
-        self.engine
-            .ocr_screenshot_with_bounds(screenshot, window_x, window_y)
+        self.engine.ocr_screenshot_with_bounds(
+            screenshot,
+            window_x,
+            window_y,
+            dpi_scale_x,
+            dpi_scale_y,
+        )
     }
 
     /// Click at absolute screen coordinates
@@ -593,6 +632,18 @@ impl Desktop {
     #[instrument(skip(self))]
     pub fn click_at_coordinates(&self, x: f64, y: f64) -> Result<(), AutomationError> {
         self.engine.click_at_coordinates(x, y)
+    }
+
+    /// Click at absolute screen coordinates with specified click type (left, double, right)
+    /// This is useful for clicking on OCR-detected text elements with different click types
+    #[instrument(skip(self))]
+    pub fn click_at_coordinates_with_type(
+        &self,
+        x: f64,
+        y: f64,
+        click_type: ClickType,
+    ) -> Result<(), AutomationError> {
+        self.engine.click_at_coordinates_with_type(x, y, click_type)
     }
 
     #[instrument(skip(self, title))]
@@ -607,10 +658,18 @@ impl Desktop {
 
     /// Execute JavaScript in the currently focused browser tab.
     /// Automatically finds the active browser window and executes the script.
+    ///
+    /// This method respects cancellation - if `stop_execution()` is called,
+    /// the operation will be interrupted and return an error.
     #[instrument(skip(self, script))]
     pub async fn execute_browser_script(&self, script: &str) -> Result<String, AutomationError> {
         let browser_window = self.engine.get_current_browser_window().await?;
-        browser_window.execute_browser_script(script).await
+        tokio::select! {
+            result = browser_window.execute_browser_script(script) => result,
+            _ = self.cancellation_token.cancelled() => {
+                Err(AutomationError::OperationCancelled("Browser script execution cancelled by stop_execution".into()))
+            }
+        }
     }
 
     #[instrument(skip(self))]
@@ -652,6 +711,8 @@ impl Desktop {
     ///     }
     /// }
     /// ```
+    /// This method respects cancellation - if `stop_execution()` is called,
+    /// the operation will be interrupted and return an error.
     #[instrument(skip(self))]
     pub async fn get_all_applications_tree(&self) -> Result<Vec<UINode>, AutomationError> {
         let applications = self.applications()?;
@@ -687,21 +748,27 @@ impl Desktop {
             })
         });
 
-        let results = futures::future::join_all(futures).await;
+        // Use select to allow cancellation while waiting for all futures
+        tokio::select! {
+            results = futures::future::join_all(futures) => {
+                let trees: Vec<UINode> = results
+                    .into_iter()
+                    .filter_map(|res| match res {
+                        Ok(Some(tree)) => Some(tree),
+                        Ok(None) => None,
+                        Err(e) => {
+                            error!("A task for getting a window tree panicked: {}", e);
+                            None
+                        }
+                    })
+                    .collect();
 
-        let trees: Vec<UINode> = results
-            .into_iter()
-            .filter_map(|res| match res {
-                Ok(Some(tree)) => Some(tree),
-                Ok(None) => None,
-                Err(e) => {
-                    error!("A task for getting a window tree panicked: {}", e);
-                    None
-                }
-            })
-            .collect();
-
-        Ok(trees)
+                Ok(trees)
+            }
+            _ = self.cancellation_token.cancelled() => {
+                Err(AutomationError::OperationCancelled("get_all_applications_tree cancelled by stop_execution".into()))
+            }
+        }
     }
 
     /// Get all window elements for a given application by name
@@ -766,9 +833,16 @@ impl Desktop {
 
     /// Delay execution for a specified number of milliseconds.
     /// Useful for waiting between actions to ensure UI stability.
+    ///
+    /// This method respects cancellation - if `stop_execution()` is called,
+    /// the delay will be interrupted and return an error.
     pub async fn delay(&self, delay_ms: u64) -> Result<(), AutomationError> {
-        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-        Ok(())
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_millis(delay_ms)) => Ok(()),
+            _ = self.cancellation_token.cancelled() => {
+                Err(AutomationError::OperationCancelled("Delay cancelled by stop_execution".into()))
+            }
+        }
     }
 
     /// Sets the zoom level to a specific percentage
@@ -793,12 +867,58 @@ impl Desktop {
     pub async fn set_zoom(&self, percentage: u32) -> Result<(), AutomationError> {
         self.engine.set_zoom(percentage)
     }
+
+    /// Stop all currently executing operations.
+    ///
+    /// This cancels the internal cancellation token, which will cause any
+    /// operations that check `is_cancelled()` to abort. After calling this,
+    /// you should create a new Desktop instance to start fresh.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use terminator::Desktop;
+    ///
+    /// let desktop = Desktop::new_default().unwrap();
+    /// // ... start some operations ...
+    /// desktop.stop_execution();
+    /// ```
+    pub fn stop_execution(&self) {
+        info!("🛑 Stop execution requested - cancelling all operations");
+        self.cancellation_token.cancel();
+    }
+
+    /// Check if execution has been cancelled.
+    ///
+    /// Returns `true` if `stop_execution()` has been called.
+    /// Long-running operations should periodically check this and abort if true.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use terminator::Desktop;
+    ///
+    /// let desktop = Desktop::new_default().unwrap();
+    /// if desktop.is_cancelled() {
+    ///     println!("Execution was cancelled");
+    /// }
+    /// ```
+    pub fn is_cancelled(&self) -> bool {
+        self.cancellation_token.is_cancelled()
+    }
+
+    /// Get a clone of the cancellation token for use in async operations.
+    ///
+    /// This allows external code to wait on cancellation or create child tokens.
+    pub fn cancellation_token(&self) -> CancellationToken {
+        self.cancellation_token.clone()
+    }
 }
 
 impl Clone for Desktop {
     fn clone(&self) -> Self {
         Self {
             engine: self.engine.clone(),
+            // Clone shares the same cancellation token so stop_execution affects all clones
+            cancellation_token: self.cancellation_token.clone(),
         }
     }
 }

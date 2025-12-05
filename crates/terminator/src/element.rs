@@ -117,6 +117,9 @@ pub struct SerializableUIElement {
     pub child_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub index_in_parent: Option<usize>,
+    /// Chained selector path from root to this element (e.g., "role:Window && name:App >> role:Button && name:Submit")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selector: Option<String>,
 }
 
 impl From<&UIElement> for SerializableUIElement {
@@ -161,6 +164,7 @@ impl From<&UIElement> for SerializableUIElement {
             is_selected: attrs.is_selected,
             child_count: attrs.child_count,
             index_in_parent: attrs.index_in_parent,
+            selector: None, // Selector is only available when built from tree context
         }
     }
 }
@@ -192,6 +196,7 @@ impl SerializableUIElement {
             is_selected: None,
             child_count: None,
             index_in_parent: None,
+            selector: None,
         }
     }
 
@@ -1542,6 +1547,41 @@ impl UIElement {
     /// Get the process ID of the application containing this element
     pub fn process_id(&self) -> Result<u32, AutomationError> {
         self.inner.process_id()
+    }
+
+    /// Get the process name of the application containing this element
+    #[cfg(target_os = "windows")]
+    pub fn process_name(&self) -> Result<String, AutomationError> {
+        let pid = self.process_id()?;
+        crate::platforms::windows::get_process_name_by_pid(pid as i32)
+    }
+
+    /// Get the process name of the application containing this element
+    #[cfg(target_os = "macos")]
+    pub fn process_name(&self) -> Result<String, AutomationError> {
+        // macOS: use sysinfo to get process name
+        use sysinfo::{ProcessesToUpdate, System};
+        let pid = self.process_id()?;
+        let mut system = System::new();
+        system.refresh_processes(ProcessesToUpdate::All, true);
+        system
+            .process(sysinfo::Pid::from_u32(pid))
+            .map(|p| p.name().to_string_lossy().to_string())
+            .ok_or_else(|| AutomationError::Internal(format!("Process {} not found", pid)))
+    }
+
+    /// Get the process name of the application containing this element
+    #[cfg(target_os = "linux")]
+    pub fn process_name(&self) -> Result<String, AutomationError> {
+        // Linux: use sysinfo to get process name
+        use sysinfo::{ProcessesToUpdate, System};
+        let pid = self.process_id()?;
+        let mut system = System::new();
+        system.refresh_processes(ProcessesToUpdate::All, true);
+        system
+            .process(sysinfo::Pid::from_u32(pid))
+            .map(|p| p.name().to_string_lossy().to_string())
+            .ok_or_else(|| AutomationError::Internal(format!("Process {} not found", pid)))
     }
 
     /// Recursively build a SerializableUIElement tree from this element.

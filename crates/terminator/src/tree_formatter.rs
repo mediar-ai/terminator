@@ -29,6 +29,7 @@ fn ui_node_to_serializable(node: &UINode) -> SerializableUIElement {
         is_selected: node.attributes.is_selected,
         child_count: node.attributes.child_count,
         index_in_parent: node.attributes.index_in_parent,
+        selector: None, // UINode doesn't have selector path context
     }
 }
 
@@ -176,6 +177,7 @@ mod tests {
             is_selected: None,
             child_count: None,
             index_in_parent: None,
+            selector: None,
         };
 
         let result = format_tree_as_compact_yaml(&node, 0);
@@ -208,6 +210,7 @@ mod tests {
             is_selected: None,
             child_count: None,
             index_in_parent: None,
+            selector: None,
         };
 
         let parent = SerializableUIElement {
@@ -232,6 +235,7 @@ mod tests {
             is_selected: None,
             child_count: None,
             index_in_parent: None,
+            selector: None,
         };
 
         let result = format_tree_as_compact_yaml(&parent, 0);

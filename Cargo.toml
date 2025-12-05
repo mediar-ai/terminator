@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/terminator",
     "crates/terminator-cli",
+    "crates/terminator-computer-use",
     "packages/terminator-python",
     "packages/terminator-nodejs",
     "crates/terminator-mcp-agent",
@@ -12,14 +13,15 @@ members = [
 
 # Shared metadata for workspace members
 [workspace.package]
-version = "0.23.22"
+version = "0.23.36"
 edition = "2021"         # From your original Cargo.toml
 license-file = "LICENSE"
 
 # Centralized dependency definitions
 [workspace.dependencies]
 # Terminator Core library itself (for other members to depend on)
-terminator = { version = "0.23.22", path = "./crates/terminator", package = "terminator-rs" }
+terminator = { version = "0.23.36", path = "./crates/terminator", package = "terminator-rs" }
+terminator-computer-use = { version = "0.23.36", path = "./crates/terminator-computer-use" }
 
 # Common dependencies from your original Cargo.toml
 serde = { version = "1.0.219", features = ["derive"] }
@@ -31,6 +33,7 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter", "time", "lo
 tracing-appender = "0.2.3"
 time = { version = "0.3", features = ["formatting", "local-offset"] }
 tokio = { version = "1.44.2", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
 
 # OCR / Vision
 xcap = "0.6.0"
@@ -75,3 +78,12 @@ strip = "symbols"
 
 # See https://github.com/openai/codex/issues/1411 for details.
 codegen-units = 1
+
+# Fast dev iteration profile - use with: cargo build --profile dev-release
+# ~3x faster compile than release, slightly larger binary
+[profile.dev-release]
+inherits = "release"
+opt-level = 1          # Override release's opt-level=3 for faster compile
+lto = false            # No LTO for faster compile
+codegen-units = 256    # Max parallelism
+incremental = true     # Enable incremental compilation

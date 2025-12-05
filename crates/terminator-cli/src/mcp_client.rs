@@ -116,6 +116,7 @@ pub async fn interactive_chat(transport: Transport) -> Result<()> {
                 client_info: Implementation {
                     name: "terminator-cli".to_string(),
                     version: env!("CARGO_PKG_VERSION").to_string(),
+                    ..Default::default()
                 },
             };
             let service = client_info.serve(transport).await?;
@@ -457,6 +458,7 @@ pub async fn execute_command(
                 client_info: Implementation {
                     name: "terminator-cli".to_string(),
                     version: env!("CARGO_PKG_VERSION").to_string(),
+                    ..Default::default()
                 },
             };
             let service = client_info.serve(transport).await?;
@@ -724,6 +726,7 @@ pub async fn natural_language_chat(transport: Transport) -> Result<()> {
                 client_info: Implementation {
                     name: "terminator-cli-ai".to_string(),
                     version: env!("CARGO_PKG_VERSION").to_string(),
+                    ..Default::default()
                 },
             };
             client_info.serve(transport).await?
@@ -748,6 +751,7 @@ pub async fn natural_language_chat(transport: Transport) -> Result<()> {
                 client_info: Implementation {
                     name: "terminator-cli-ai".to_string(),
                     version: env!("CARGO_PKG_VERSION").to_string(),
+                    ..Default::default()
                 },
             };
             client_info.serve(transport).await?
@@ -1007,22 +1011,6 @@ pub async fn execute_command_with_progress_and_retry(
     use colored::Colorize;
     use tracing::debug;
 
-    // Start telemetry receiver if showing progress for workflows
-    let telemetry_handle = if show_progress && tool == "execute_sequence" {
-        match crate::telemetry_receiver::start_telemetry_receiver().await {
-            Ok(handle) => {
-                debug!("Started telemetry receiver on port 4318");
-                Some(handle)
-            }
-            Err(e) => {
-                debug!("Failed to start telemetry receiver: {}", e);
-                None
-            }
-        }
-    } else {
-        None
-    };
-
     // Special handling for execute_sequence to capture full result
     if tool == "execute_sequence" {
         match transport {
@@ -1035,6 +1023,7 @@ pub async fn execute_command_with_progress_and_retry(
                     client_info: Implementation {
                         name: "terminator-cli".to_string(),
                         version: env!("CARGO_PKG_VERSION").to_string(),
+                        ..Default::default()
                     },
                 };
 
@@ -1163,11 +1152,6 @@ pub async fn execute_command_with_progress_and_retry(
                             {
                                 service.cancel().await?;
 
-                                // Stop telemetry receiver if it was started
-                                if let Some(handle) = telemetry_handle {
-                                    handle.abort();
-                                }
-
                                 return Ok(json_result);
                             }
                         }
@@ -1175,11 +1159,6 @@ pub async fn execute_command_with_progress_and_retry(
                 }
 
                 service.cancel().await?;
-
-                // Stop telemetry receiver if it was started
-                if let Some(handle) = telemetry_handle {
-                    handle.abort();
-                }
 
                 Ok(json!({"status": "unknown", "message": "No parseable result from workflow"}))
             }
@@ -1337,11 +1316,6 @@ pub async fn execute_command_with_progress_and_retry(
                             {
                                 service.cancel().await?;
 
-                                // Stop telemetry receiver if it was started
-                                if let Some(handle) = telemetry_handle {
-                                    handle.abort();
-                                }
-
                                 return Ok(json_result);
                             }
                         }
@@ -1349,11 +1323,6 @@ pub async fn execute_command_with_progress_and_retry(
                 }
 
                 service.cancel().await?;
-
-                // Stop telemetry receiver if it was started
-                if let Some(handle) = telemetry_handle {
-                    handle.abort();
-                }
 
                 Ok(json!({"status": "unknown", "message": "No parseable result from workflow"}))
             }

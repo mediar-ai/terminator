@@ -64,6 +64,22 @@ fn is_empty_string(s: &Option<String>) -> bool {
     }
 }
 
+/// Check if text contains relative time patterns that would make selectors unstable
+/// Examples: "3 hours ago", "5 minutes ago", "yesterday", "just now"
+fn contains_relative_time(text: &str) -> bool {
+    // Common relative time patterns (text is already lowercase)
+    text.contains(" ago")
+        || text.contains("just now")
+        || text.contains("yesterday")
+        || text.contains("today")
+        || text.contains("last week")
+        || text.contains("last month")
+        || text.ends_with(" min")
+        || text.ends_with(" mins")
+        || text.ends_with(" hr")
+        || text.ends_with(" hrs")
+}
+
 /// Represents a position on the screen
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Position {
@@ -290,6 +306,36 @@ pub enum ButtonInteractionType {
     Cancel,
 }
 
+/// Type of pending action being processed
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum PendingActionType {
+    /// A click action is being processed
+    Click,
+    /// A keyboard action is being processed
+    Keyboard,
+    /// A hotkey action is being processed
+    Hotkey,
+}
+
+/// Represents a pending action that is being processed
+/// Emitted immediately when an action is detected, before UI element capture completes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingActionEvent {
+    /// The type of action being processed
+    pub action_type: PendingActionType,
+
+    /// The position where the action occurred (for clicks)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position: Option<Position>,
+
+    /// Which mouse button was used (for clicks)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub button: Option<MouseButton>,
+
+    /// Event metadata
+    pub metadata: EventMetadata,
+}
+
 /// Represents a high-level button click event
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClickEvent {
@@ -325,6 +371,10 @@ pub struct ClickEvent {
     /// Process executable name (e.g., "chrome.exe", "Notepad.exe")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub process_name: Option<String>,
+
+    /// Page URL if click occurred in a browser window
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_url: Option<String>,
 
     /// Event metadata with UI element context
     pub metadata: EventMetadata,
@@ -456,6 +506,9 @@ pub enum WorkflowEvent {
 
     /// File opened event (detected via window title and file system search)
     FileOpened(FileOpenedEvent),
+
+    /// Pending action event - emitted immediately before UI capture completes
+    PendingAction(PendingActionEvent),
 }
 
 impl WorkflowEvent {
@@ -475,6 +528,7 @@ impl WorkflowEvent {
             WorkflowEvent::BrowserClick(e) => &e.metadata,
             WorkflowEvent::BrowserTextInput(e) => &e.metadata,
             WorkflowEvent::FileOpened(e) => &e.metadata,
+            WorkflowEvent::PendingAction(e) => &e.metadata,
         }
     }
 
@@ -494,6 +548,7 @@ impl WorkflowEvent {
             WorkflowEvent::BrowserClick(e) => &mut e.metadata,
             WorkflowEvent::BrowserTextInput(e) => &mut e.metadata,
             WorkflowEvent::FileOpened(e) => &mut e.metadata,
+            WorkflowEvent::PendingAction(e) => &mut e.metadata,
         }
     }
 
@@ -579,7 +634,7 @@ impl UIElementInfo {
 
         // Generate basic selector for this parent element
         let selector = match &name {
-            Some(n) if !n.is_empty() => format!("role:{role}|name:{n}"),
+            Some(n) if !n.is_empty() => format!("role:{role} && text:{n}"),
             _ => format!("role:{role}"),
         };
 
@@ -594,23 +649,83 @@ impl UIElementInfo {
 
 /// Build parent hierarchy for a UI element by walking up the tree
 /// Returns a Vec of UIElementInfo from root (window) down to immediate parent (reversed order)
+///
+/// IMPORTANT: Stops at the application window boundary to ensure selectors stay within
+/// the target process scope. This prevents selectors from including elements outside
+/// the application (like desktop/taskbar elements).
 pub fn build_parent_hierarchy(element: &UIElement) -> Vec<UIElementInfo> {
     let mut hierarchy = Vec::new();
     let mut current = element.parent().ok().flatten();
 
+    // Get the target element's process_id to ensure we stay within the same process
+    let target_process_id = element.process_id().ok();
+
     // Walk up the parent chain, collecting up to 10 NAMED parents to avoid infinite loops
     let max_depth = 10;
     while let Some(parent) = current {
+        // Check if we've crossed a process boundary (exited the target app's UI tree)
+        if let Some(target_pid) = target_process_id {
+            if let Ok(parent_pid) = parent.process_id() {
+                if parent_pid != target_pid {
+                    // We've exited the target application's UI tree - stop here
+                    tracing::debug!(
+                        "Stopping parent hierarchy at process boundary: target_pid={}, parent_pid={}",
+                        target_pid, parent_pid
+                    );
+                    break;
+                }
+            }
+        }
+
+        let parent_role = parent.role();
         let parent_info = UIElementInfo::from_element(&parent);
 
         // Only include parents with meaningful names (skip unnamed elements like generic Panes/Groups)
-        if let Some(ref name) = parent_info.name {
-            if !name.is_empty() {
-                hierarchy.push(parent_info);
+        let has_name = parent_info
+            .name
+            .as_ref()
+            .map(|n| !n.is_empty())
+            .unwrap_or(false);
+        let is_window = parent_role == "Window";
 
-                if hierarchy.len() >= max_depth {
-                    break;
-                }
+        // Skip internal browser/app implementation details that shouldn't be in selectors
+        // These are container elements that don't provide semantic value for locating UI elements
+        let is_internal_element = parent_info
+            .name
+            .as_ref()
+            .map(|n| {
+                let lower = n.to_lowercase();
+                // Browser internal elements
+                lower.contains("legacy window")
+                || lower.contains("chrome_widgetwin")
+                || lower.contains("intermediate d3d window")
+                // Panes that just mirror the Window title (redundant after process: selector)
+                || (parent_role == "Pane" && (
+                    lower.ends_with(" - google chrome")
+                    || lower.ends_with(" - mozilla firefox")
+                    || lower.ends_with(" - microsoft edge")
+                ))
+                // Skip elements with relative timestamps (dynamic, will break selectors)
+                || contains_relative_time(&lower)
+            })
+            .unwrap_or(false);
+
+        if has_name && !is_internal_element {
+            let name_for_log = parent_info.name.clone();
+            hierarchy.push(parent_info);
+
+            // If we hit a Window role, this is likely the application's main window
+            // Include it but stop going further up (don't include desktop/taskbar)
+            if is_window {
+                tracing::debug!(
+                    "Stopping parent hierarchy at Window role: {:?}",
+                    name_for_log
+                );
+                break;
+            }
+
+            if hierarchy.len() >= max_depth {
+                break;
             }
         }
 
@@ -624,8 +739,9 @@ pub fn build_parent_hierarchy(element: &UIElement) -> Vec<UIElementInfo> {
 }
 
 /// Build chained selector from parent hierarchy and target element
-/// Returns selector like: role:Window|name:contains:Chrome >> role:Pane >> role:Button|name:contains:Submit
+/// Returns selector like: role:Pane >> role:Button && text:Submit
 /// Uses only named parents (unnamed parents are already filtered by build_parent_hierarchy)
+/// Note: Skips the first Window element since process:app.exe already targets that window
 pub fn build_chained_selector(
     parent_hierarchy: &[UIElementInfo],
     target_element: &UIElement,
@@ -637,11 +753,22 @@ pub fn build_chained_selector(
     let mut path_parts = Vec::new();
 
     // Add each parent in the hierarchy chain
-    for parent in parent_hierarchy {
+    // Skip the first Window element since process:app.exe already targets that window
+    // The >> operator searches within children, so we don't want to search for the Window again
+    for (i, parent) in parent_hierarchy.iter().enumerate() {
+        // Skip the first element if it's a Window (since process: selector already returns it)
+        if i == 0 && parent.role == "Window" {
+            tracing::debug!(
+                "Skipping first Window element in chain (process: selector already targets it): {:?}",
+                parent.name
+            );
+            continue;
+        }
+
         let selector = if let Some(ref name) = parent.name {
             if !name.is_empty() {
-                // Use contains for more flexible matching
-                format!("role:{}|name:contains:{}", parent.role, name)
+                // text: does case-sensitive substring matching by default
+                format!("role:{} && text:{}", parent.role, name)
             } else {
                 format!("role:{}", parent.role)
             }
@@ -656,7 +783,7 @@ pub fn build_chained_selector(
     let target_name = target_element.name().unwrap_or_default();
 
     let target_selector = if !target_name.is_empty() {
-        format!("role:{target_role}|name:contains:{target_name}")
+        format!("role:{target_role} && text:{target_name}")
     } else {
         format!("role:{target_role}")
     };
@@ -673,7 +800,7 @@ pub struct EnhancedUIElement {
     pub ui_element: UIElement,
     /// Generated selector options for MCP tools
     pub suggested_selectors: Vec<String>,
-    /// Chained selector from parent hierarchy to target element (e.g., "role:Window|name:contains:Chrome >> role:Pane >> role:Button|name:contains:Submit")
+    /// Chained selector from parent hierarchy to target element (e.g., "role:Window && text:Chrome >> role:Pane >> role:Button && text:Submit")
     pub chained_selector: Option<String>,
     /// Interaction context analysis
     pub interaction_context: InteractionContext,
@@ -1517,6 +1644,8 @@ pub struct SerializableClickEvent {
     pub relative_position: Option<(f32, f32)>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub process_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_url: Option<String>,
     pub metadata: SerializableEventMetadata,
 }
 
@@ -1532,6 +1661,7 @@ impl From<&ClickEvent> for SerializableClickEvent {
             child_text_content: event.child_text_content.clone(),
             relative_position: event.relative_position,
             process_name: event.process_name.clone(),
+            page_url: event.page_url.clone(),
             metadata: (&event.metadata).into(),
         }
     }
@@ -1553,6 +1683,7 @@ pub enum SerializableWorkflowEvent {
     BrowserClick(BrowserClickEvent),
     BrowserTextInput(BrowserTextInputEvent),
     FileOpened(FileOpenedEvent),
+    PendingAction(PendingActionEvent),
 }
 
 impl From<&WorkflowEvent> for SerializableWorkflowEvent {
@@ -1579,6 +1710,7 @@ impl From<&WorkflowEvent> for SerializableWorkflowEvent {
                 SerializableWorkflowEvent::BrowserTextInput(e.clone())
             }
             WorkflowEvent::FileOpened(e) => SerializableWorkflowEvent::FileOpened(e.clone()),
+            WorkflowEvent::PendingAction(e) => SerializableWorkflowEvent::PendingAction(e.clone()),
         }
     }
 }

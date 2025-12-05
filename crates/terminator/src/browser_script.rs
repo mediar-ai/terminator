@@ -92,7 +92,7 @@ pub async fn execute_script(
             .await
         {
             Ok(Some(result)) => {
-                info!("✅ Script executed successfully via extension");
+                debug!("Received response from extension, validating result...");
 
                 // Fix 1: Handle JavaScript Promise rejections (ERROR: prefix)
                 if result.trim_start().starts_with("ERROR:") {
@@ -158,6 +158,10 @@ pub async fn execute_script(
                 }
 
                 // If no errors detected, return the result as success
+                info!(
+                    "[browser_script] Returning successful result, len={}",
+                    result.len()
+                );
                 return Ok(result);
             }
             Ok(None) => {

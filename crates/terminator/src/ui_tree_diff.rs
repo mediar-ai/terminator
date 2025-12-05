@@ -34,14 +34,19 @@ pub fn preprocess_tree(json_string: &str) -> Result<String, String> {
         .map_err(|e| format!("Failed to serialize cleaned tree: {e}"))
 }
 
-/// Remove IDs from compact YAML format
-/// Compact YAML format: - [Button] Submit #id123 (focusable)
+/// Remove IDs and bounds from compact YAML format for cleaner diffs
+/// Compact YAML format: - [Button] Submit #id123 (bounds: [10,20,100,30], focusable)
 /// After removal: - [Button] Submit (focusable)
-pub fn remove_ids_from_compact_yaml(yaml_str: &str) -> String {
+pub fn remove_ids_and_bounds_from_compact_yaml(yaml_str: &str) -> String {
     // Remove #id patterns (e.g., #12345, #abc-def-123)
     // This regex matches: space + # + word characters (letters, numbers, hyphens)
-    let re = Regex::new(r" #[\w\-]+").unwrap();
-    re.replace_all(yaml_str, "").to_string()
+    let id_re = Regex::new(r" #[\w\-]+").unwrap();
+    let result = id_re.replace_all(yaml_str, "");
+
+    // Remove bounds patterns: "bounds: [x,y,w,h]" with optional trailing comma/space
+    // Matches: "bounds: [123,456,789,100]" or "bounds: [123,456,789,100], "
+    let bounds_re = Regex::new(r"bounds: \[[^\]]+\],?\s*").unwrap();
+    bounds_re.replace_all(&result, "").to_string()
 }
 
 /// Compute UI tree diff using line-based diffing
@@ -49,7 +54,7 @@ pub fn remove_ids_from_compact_yaml(yaml_str: &str) -> String {
 ///
 /// Supports both JSON and compact YAML formats:
 /// - JSON: Parses and removes id/element_id fields
-/// - Compact YAML: Uses regex to remove #id patterns
+/// - Compact YAML: Uses regex to remove #id patterns and bounds
 pub fn simple_ui_tree_diff(
     old_tree_str: &str,
     new_tree_str: &str,
@@ -57,12 +62,12 @@ pub fn simple_ui_tree_diff(
     // Detect format based on content
     let is_yaml = old_tree_str.trim_start().starts_with("- [");
 
-    // Preprocess both trees to remove volatile fields
+    // Preprocess both trees to remove volatile fields (IDs and bounds)
     let (old_processed, new_processed) = if is_yaml {
-        // Compact YAML format - remove #id patterns with regex
+        // Compact YAML format - remove #id patterns and bounds with regex
         (
-            remove_ids_from_compact_yaml(old_tree_str),
-            remove_ids_from_compact_yaml(new_tree_str),
+            remove_ids_and_bounds_from_compact_yaml(old_tree_str),
+            remove_ids_and_bounds_from_compact_yaml(new_tree_str),
         )
     } else {
         // JSON format - parse and remove id fields
@@ -166,11 +171,20 @@ mod tests {
     }
 
     #[test]
-    fn test_remove_ids_from_compact_yaml() {
-        let input = "- [Button] Submit #id123 (focusable)\n  - [Text] Label #id456";
+    fn test_remove_ids_and_bounds_from_compact_yaml() {
+        let input = "- [Button] Submit #id123 (bounds: [10,20,100,30], focusable)\n  - [Text] Label #id456";
         let expected = "- [Button] Submit (focusable)\n  - [Text] Label";
 
-        let result = remove_ids_from_compact_yaml(input);
+        let result = remove_ids_and_bounds_from_compact_yaml(input);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_remove_bounds_only() {
+        let input = "- [Group] Comment (bounds: [26,472,617,367], focusable)";
+        let expected = "- [Group] Comment (focusable)";
+
+        let result = remove_ids_and_bounds_from_compact_yaml(input);
         assert_eq!(result, expected);
     }
 
@@ -181,6 +195,16 @@ mod tests {
 
         let diff = simple_ui_tree_diff(tree1, tree2).unwrap();
         assert!(diff.is_none()); // IDs are stripped, so no diff
+    }
+
+    #[test]
+    fn test_simple_ui_tree_diff_yaml_bounds_change_no_diff() {
+        // Same structure, only bounds changed (element moved down 118px)
+        let tree1 = "- [Group] Comment from flappy-goose (bounds: [26,472,617,367], focusable)\n  - [Button] Reply (bounds: [128,961,82,34], focusable)";
+        let tree2 = "- [Group] Comment from flappy-goose (bounds: [26,472,617,485], focusable)\n  - [Button] Reply (bounds: [128,1079,82,34], focusable)";
+
+        let diff = simple_ui_tree_diff(tree1, tree2).unwrap();
+        assert!(diff.is_none(), "Bounds-only changes should not produce a diff");
     }
 
     #[test]

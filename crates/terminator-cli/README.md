@@ -111,7 +111,7 @@ arguments:
         url: "https://example.com"
     - tool_name: click_element
       arguments:
-        selector: "role:Button|name:Submit"
+        selector: "role:Button && name:Submit"
     - tool_name: get_applications_and_windows_list
       id: get_apps
     - tool_name: run_command
@@ -215,7 +215,7 @@ Execute individual MCP tools directly:
 terminator mcp exec get_applications
 
 # Execute with arguments
-terminator mcp exec click_element '{"selector": "role:Button|name:OK"}'
+terminator mcp exec click_element '{"selector": "role:Button && name:OK"}'
 
 # Use different MCP server
 terminator mcp exec --url http://localhost:3000/mcp validate_element '{"selector": "#button"}'
@@ -322,7 +322,7 @@ The CLI supports executing code within workflows using the `run_command` tool in
 **Desktop APIs Available:**
 ```javascript
 // Element discovery
-const elements = await desktop.locator('role:button|name:Submit').all();
+const elements = await desktop.locator('role:Button && name:Submit').all();
 const element = await desktop.locator('#button-id').first();
 
 // Element interaction
@@ -347,7 +347,7 @@ await sleep(1000);     // Delay in milliseconds
   arguments:
     engine: "node"
     script: |
-      const submitButton = await desktop.locator('role:button|name:Submit').first();
+      const submitButton = await desktop.locator('role:Button && name:Submit').first();
       const isEnabled = await submitButton.enabled();
       
       if (isEnabled) {

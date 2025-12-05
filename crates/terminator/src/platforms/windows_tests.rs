@@ -445,6 +445,7 @@ fn test_unified_tree_api_with_config() {
         yield_every_n_elements: Some(50),
         batch_size: Some(50),
         max_depth: None,
+        include_all_bounds: false,
     };
 
     let start_fast = std::time::Instant::now();
@@ -458,6 +459,7 @@ fn test_unified_tree_api_with_config() {
         yield_every_n_elements: Some(25),
         batch_size: Some(25),
         max_depth: None,
+        include_all_bounds: false,
     };
 
     let start_full = std::time::Instant::now();

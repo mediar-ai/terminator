@@ -54,6 +54,10 @@ pub enum TreeOutputFormat {
     #[schemars(description = "Compact YAML format: [ROLE] name #id (default)")]
     #[default]
     CompactYaml,
+    #[schemars(
+        description = "Clustered YAML format: groups elements from all sources (UIA, DOM, OCR, Omniparser, Gemini) by spatial proximity with prefixed indices (#u1, #d2, #o3, #p4, #g5)"
+    )]
+    ClusteredYaml,
 }
 
 /// Font styling options for text overlay

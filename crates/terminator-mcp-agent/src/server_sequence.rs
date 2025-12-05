@@ -935,7 +935,7 @@ impl DesktopWrapper {
         let mut sequence_items = Vec::new();
         let empty_steps = Vec::new();
         let steps = args.steps.as_ref().unwrap_or(&empty_steps);
-        for step in steps {
+        for (step_idx, step) in steps.iter().enumerate() {
             let item = if let Some(tool_name) = &step.tool_name {
                 // Parse delay from either delay_ms or human-readable delay field
                 let delay_ms = if let Some(delay_str) = &step.delay {
@@ -978,9 +978,28 @@ impl DesktopWrapper {
                 };
                 SequenceItem::Group { tool_group }
             } else {
+                let is_in_range = step_idx >= start_from_index && step_idx <= end_at_index;
+                let range_info = if is_in_range {
+                    "This step IS in your execution range."
+                } else {
+                    "This step is OUTSIDE your execution range but still blocks execution."
+                };
                 return Err(McpError::invalid_params(
-                    "Each step must have either tool_name (for single tools) or group_name (for groups)",
-                    Some(json!({"invalid_step": step})),
+                    format!(
+                        "Step {} is invalid: missing tool_name or group_name. {}",
+                        step_idx + 1,
+                        range_info
+                    ),
+                    Some(json!({
+                        "error_type": "invalid_step",
+                        "step_index": step_idx + 1,
+                        "step_id": step.id,
+                        "is_in_execution_range": is_in_range,
+                        "execution_range": {
+                            "start": start_from_index + 1,
+                            "end": end_at_index + 1
+                        }
+                    })),
                 ));
             };
             sequence_items.push(item);
@@ -992,7 +1011,8 @@ impl DesktopWrapper {
                 "Adding {} troubleshooting steps to workflow (accessible only via fallback_id)",
                 troubleshooting.len()
             );
-            for step in troubleshooting {
+            for (local_idx, step) in troubleshooting.iter().enumerate() {
+                let global_step_idx = main_steps_len + local_idx;
                 let item = if let Some(tool_name) = &step.tool_name {
                     // Parse delay from either delay_ms or human-readable delay field
                     let delay_ms = if let Some(delay_str) = &step.delay {
@@ -1035,9 +1055,29 @@ impl DesktopWrapper {
                     };
                     SequenceItem::Group { tool_group }
                 } else {
+                    let is_in_range =
+                        global_step_idx >= start_from_index && global_step_idx <= end_at_index;
+                    let range_info = if is_in_range {
+                        "This step IS in your execution range."
+                    } else {
+                        "This step is OUTSIDE your execution range but still blocks execution."
+                    };
                     return Err(McpError::invalid_params(
-                        "Each troubleshooting step must have either tool_name (for single tools) or group_name (for groups)",
-                        Some(json!({"invalid_step": step})),
+                        format!(
+                            "Troubleshooting step {} (global index {}) is invalid: missing tool_name or group_name. {}",
+                            local_idx + 1, global_step_idx + 1, range_info
+                        ),
+                        Some(json!({
+                            "error_type": "invalid_step",
+                            "step_index": global_step_idx + 1,
+                            "troubleshooting_index": local_idx + 1,
+                            "step_id": step.id,
+                            "is_in_execution_range": is_in_range,
+                            "execution_range": {
+                                "start": start_from_index + 1,
+                                "end": end_at_index + 1
+                            }
+                        })),
                     ));
                 };
                 sequence_items.push(item);
@@ -1426,15 +1466,12 @@ impl DesktopWrapper {
                                 );
                             }
 
-                            // Only inject accumulated env if explicitly in verbose/debug mode
-                            if args.include_detailed_results.unwrap_or(false) {
-                                // Add accumulated env from execution context as special key
-                                if let Some(accumulated_env) = execution_context.get("env") {
-                                    env_obj.insert(
-                                        "_accumulated_env".to_string(),
-                                        accumulated_env.clone(),
-                                    );
-                                }
+                            // Always inject accumulated env so scripts can access previous step results
+                            if let Some(accumulated_env) = execution_context.get("env") {
+                                env_obj.insert(
+                                    "_accumulated_env".to_string(),
+                                    accumulated_env.clone(),
+                                );
                             }
 
                             // Update the arguments
@@ -2572,89 +2609,124 @@ impl DesktopWrapper {
         &self,
         url: &str,
         args: ExecuteSequenceArgs,
-        _execution_id: String, // TODO: Add telemetry for TypeScript workflows
+        execution_id: String,
     ) -> Result<CallToolResult, McpError> {
-        info!("Executing TypeScript workflow from URL: {}", url);
+        // Extract trace context for distributed tracing
+        let trace_id_val = args.trace_id.clone().unwrap_or_default();
+        let execution_id_val = args
+            .execution_id
+            .clone()
+            .unwrap_or_else(|| execution_id.clone());
 
-        // Load saved state if resuming
-        let restored_state = if args.start_from_step.is_some() {
-            Self::load_workflow_state(args.workflow_id.as_deref(), Some(url)).await?
-        } else {
-            None
-        };
+        // Create tracing span with execution context
+        // All nested logs (including from TypeScript workflow stderr) will inherit this context
+        let workflow_span = info_span!(
+            "execute_typescript_workflow",
+            trace_id = %trace_id_val,
+            execution_id = %execution_id_val,
+            log_source = "agent",
+            url = %url,
+        );
 
-        // Create TypeScript workflow executor
-        let ts_workflow = TypeScriptWorkflow::new(url)?;
+        // Log start with execution context for ClickHouse filtering
+        info!(
+            log_source = "agent",
+            execution_id = %execution_id_val,
+            trace_id = %trace_id_val,
+            url = %url,
+            "Starting TypeScript workflow execution [execution_id={}, trace_id={}]",
+            execution_id_val, trace_id_val
+        );
 
-        // Execute workflow
-        let result = ts_workflow
-            .execute(
-                args.inputs.unwrap_or(json!({})),
-                args.start_from_step.as_deref(),
-                args.end_at_step.as_deref(),
-                restored_state,
-            )
-            .await?;
+        // Execute within the span context so all nested logs inherit execution_id/trace_id
+        async move {
+            // Load saved state if resuming
+            let restored_state = if args.start_from_step.is_some() {
+                Self::load_workflow_state(args.workflow_id.as_deref(), Some(url)).await?
+            } else {
+                None
+            };
 
-        // Save state for resumption (only if last_step_index is provided by runner-based workflows)
-        if let (Some(ref last_step_id), Some(last_step_index)) =
-            (&result.result.last_step_id, result.result.last_step_index)
-        {
-            Self::save_workflow_state(
-                args.workflow_id.as_deref(),
-                Some(url),
-                Some(last_step_id),
-                last_step_index,
-                &result.state,
-            )
-            .await?;
-        }
+            // Create TypeScript workflow executor
+            let ts_workflow = TypeScriptWorkflow::new(url)?;
 
-        // Return result
-        let mut output = json!({
-            "status": result.result.status,
-            "message": result.result.message,
-            "data": result.result.data,
-            "metadata": result.metadata,
-            "state": result.state,
-            "last_step_id": result.result.last_step_id,
-            "last_step_index": result.result.last_step_index,
-        });
+            // Execute workflow
+            let result = ts_workflow
+                .execute(
+                    args.inputs.unwrap_or(json!({})),
+                    args.start_from_step.as_deref(),
+                    args.end_at_step.as_deref(),
+                    restored_state,
+                    Some(&execution_id_val),
+                )
+                .await?;
 
-        // If there's data from context.data, add it as parsed_output for CLI compatibility
-        if let Some(data) = &result.result.data {
-            if !data.is_null() {
-                if let Some(obj) = output.as_object_mut() {
-                    obj.insert(
-                        "parsed_output".to_string(),
-                        json!({
-                            "data": data
-                        }),
-                    );
+            // Save state for resumption (only if last_step_index is provided by runner-based workflows)
+            if let (Some(ref last_step_id), Some(last_step_index)) =
+                (&result.result.last_step_id, result.result.last_step_index)
+            {
+                Self::save_workflow_state(
+                    args.workflow_id.as_deref(),
+                    Some(url),
+                    Some(last_step_id),
+                    last_step_index,
+                    &result.state,
+                )
+                .await?;
+            }
+
+            // Return result
+            let mut output = json!({
+                "status": result.result.status,
+                "message": result.result.message,
+                "data": result.result.data,
+                "metadata": result.metadata,
+                "state": result.state,
+                "last_step_id": result.result.last_step_id,
+                "last_step_index": result.result.last_step_index,
+            });
+
+            // If there's data from context.data, add it as parsed_output for CLI compatibility
+            if let Some(data) = &result.result.data {
+                if !data.is_null() {
+                    if let Some(obj) = output.as_object_mut() {
+                        obj.insert(
+                            "parsed_output".to_string(),
+                            json!({
+                                "data": data
+                            }),
+                        );
+                    }
                 }
             }
-        }
 
-        // Restore windows after TypeScript workflow completion (success or failure)
-        let window_mgmt_enabled = args.window_mgmt.enable_window_management.unwrap_or(true);
-        if window_mgmt_enabled {
-            if let Err(e) = self.window_manager.restore_all_windows().await {
-                tracing::warn!("Failed to restore windows after TypeScript workflow: {}", e);
+            // Restore windows after TypeScript workflow completion (success or failure)
+            let window_mgmt_enabled = args.window_mgmt.enable_window_management.unwrap_or(true);
+            if window_mgmt_enabled {
+                if let Err(e) = self.window_manager.restore_all_windows().await {
+                    tracing::warn!("Failed to restore windows after TypeScript workflow: {}", e);
+                } else {
+                    tracing::info!(
+                        "Restored all windows to original state after TypeScript workflow"
+                    );
+                }
+                self.window_manager.clear_captured_state().await;
             } else {
-                tracing::info!("Restored all windows to original state after TypeScript workflow");
+                tracing::debug!(
+                    "Window management disabled for TypeScript workflow, skipping restore"
+                );
             }
-            self.window_manager.clear_captured_state().await;
-        } else {
-            tracing::debug!("Window management disabled for TypeScript workflow, skipping restore");
-        }
 
-        Ok(CallToolResult {
-            content: vec![Content::text(
-                serde_json::to_string_pretty(&output).unwrap(),
-            )],
-            is_error: Some(result.result.status != "success"),
-            meta: None,
-            structured_content: None,
-        })
+            Ok(CallToolResult {
+                content: vec![Content::text(
+                    serde_json::to_string_pretty(&output).unwrap(),
+                )],
+                is_error: Some(result.result.status != "success"),
+                meta: None,
+                structured_content: None,
+            })
+        }
+        .instrument(workflow_span)
+        .await
     }
 }

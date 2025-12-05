@@ -330,9 +330,9 @@ desktop.openUrl('https://example.com', 'Chrome');
 // Check if optional dialog/button exists in specific window
 try {
   // Scope to specific window first to avoid false positives
-  const chromeWindow = await desktop.locator('role:Window|name:Chrome').first();
+  const chromeWindow = await desktop.locator('role:Window && name:Chrome').first();
   // Then search within that window
-  const leaveButton = await chromeWindow.locator('role:Button|name:Leave').first();
+  const leaveButton = await chromeWindow.locator('role:Button && name:Leave').first();
 
   console.log('Dialog found, clicking Leave button');
   await leaveButton.click();
@@ -349,7 +349,7 @@ try {
 
 // Alternative: Desktop-wide search (when element could be anywhere)
 try {
-  await desktop.locator('role:Button|name:Leave').first();
+  await desktop.locator('role:Button && name:Leave').first();
   // Element exists
 } catch (e) {
   // Element doesn't exist
@@ -432,7 +432,7 @@ const allTrees = await desktop.getAllApplicationsTree();
 console.log(`Found ${allTrees.length} applications`);
 
 // Get subtree from specific element
-const dialog = await desktop.locator('role:Dialog|name:Settings').first(5000);
+const dialog = await desktop.locator('role:Dialog && name:Settings').first(5000);
 const dialogTree = dialog.getTree(3);  // Limit to 3 levels deep
 console.log(`Dialog has ${dialogTree.children.length} immediate children`);
 ```
