@@ -1567,7 +1567,7 @@ impl UIElement {
         system
             .process(sysinfo::Pid::from_u32(pid))
             .map(|p| p.name().to_string_lossy().to_string())
-            .ok_or_else(|| AutomationError::Unknown(format!("Process {} not found", pid)))
+            .ok_or_else(|| AutomationError::Internal(format!("Process {} not found", pid)))
     }
 
     /// Get the process name of the application containing this element
@@ -1581,7 +1581,7 @@ impl UIElement {
         system
             .process(sysinfo::Pid::from_u32(pid))
             .map(|p| p.name().to_string_lossy().to_string())
-            .ok_or_else(|| AutomationError::Unknown(format!("Process {} not found", pid)))
+            .ok_or_else(|| AutomationError::Internal(format!("Process {} not found", pid)))
     }
 
     /// Recursively build a SerializableUIElement tree from this element.

@@ -56,6 +56,7 @@ atspi = { version = "0.26.3", features = [
 zbus = { version = "5.5", default-features = false }
 atspi-common = { version = "0.10.1", default-features = false }
 atspi-proxies = { version = "0.10.2", default-features = false }
+sysinfo = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 accessibility-sys = { workspace = true }
