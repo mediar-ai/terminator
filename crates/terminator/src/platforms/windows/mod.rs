@@ -14,6 +14,7 @@ pub mod tree_builder;
 pub mod types;
 pub mod utils;
 pub mod virtual_display;
+pub mod window_manager;
 
 // Re-export the main types that external code needs
 pub use element::WindowsUIElement;
@@ -39,3 +40,6 @@ pub use inspect_overlay::{
 pub use virtual_display::{
     is_headless_environment, HeadlessConfig, VirtualDisplayConfig, VirtualDisplayManager,
 };
+
+// Re-export window manager
+pub use window_manager::{WindowCache, WindowInfo, WindowManager, WindowPlacement};

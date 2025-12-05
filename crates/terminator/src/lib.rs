@@ -44,6 +44,12 @@ pub use terminator_computer_use::{
     ComputerUseResponse, ComputerUseResult, ComputerUseStep, ProgressCallback,
 };
 
+// Re-export window manager types (Windows only)
+#[cfg(target_os = "windows")]
+pub use platforms::windows::window_manager::{
+    WindowCache, WindowInfo, WindowManager, WindowPlacement,
+};
+
 /// Recommend to use any of these: ["Default", "Chrome", "Firefox", "Edge", "Brave", "Opera", "Vivaldi"]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Browser {

@@ -1,7 +1,18 @@
+//! Window management utilities for Windows platform
+//!
+//! This module provides window management functionality including:
+//! - Window enumeration with Z-order tracking
+//! - Bringing windows to front (with AttachThreadInput trick)
+//! - Minimizing/maximizing windows
+//! - State capture and restoration for workflows
+//! - Always-on-top window detection and management
+//! - UWP/Modern app detection
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Mutex;
+use tracing::{debug, info, warn};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::System::Threading::{
     AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
@@ -15,19 +26,30 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WINDOWPLACEMENT, WM_GETTEXT, WS_EX_TOPMOST,
 };
 
+/// Information about a window
 #[derive(Clone, Debug)]
 pub struct WindowInfo {
+    /// Window handle
     pub hwnd: isize,
+    /// Process name (e.g., "notepad.exe")
     pub process_name: String,
+    /// Process ID
     pub process_id: u32,
+    /// Z-order position (0 = topmost)
     pub z_order: u32,
+    /// Whether the window is minimized
     pub is_minimized: bool,
+    /// Whether the window is maximized
     pub is_maximized: bool,
+    /// Whether the window has WS_EX_TOPMOST style
     pub is_always_on_top: bool,
+    /// Window placement for restoration
     pub placement: WindowPlacement,
+    /// Window title
     pub title: String,
 }
 
+/// Window placement information for state restoration
 #[derive(Clone, Debug)]
 pub struct WindowPlacement {
     pub flags: u32,
@@ -83,20 +105,29 @@ impl From<WindowPlacement> for WINDOWPLACEMENT {
     }
 }
 
+/// Cache for window information
 pub struct WindowCache {
-    // Map: process_name -> windows sorted by Z-order (first = topmost)
+    /// Map: process_name -> windows sorted by Z-order (first = topmost)
     pub process_windows: HashMap<String, Vec<WindowInfo>>,
-    // All visible (non-minimized) windows
+    /// All visible (non-minimized) windows
     pub visible_windows: Vec<WindowInfo>,
-    // Original state for restoration
+    /// Original state for restoration
     pub original_states: Vec<WindowInfo>,
-    // Windows that were actually minimized (only always-on-top ones)
+    /// Windows that were actually minimized (only always-on-top ones)
     pub minimized_windows: Vec<isize>,
-    // Target window that was maximized (needs restoration too)
+    /// Target window that was maximized (needs restoration too)
     pub target_window: Option<isize>,
+    /// Timestamp of last cache update
     pub last_updated: Instant,
 }
 
+/// Window manager for controlling window states
+///
+/// Provides functionality for:
+/// - Enumerating windows with Z-order tracking
+/// - Bringing windows to front (bypassing Windows focus-stealing prevention)
+/// - Minimizing/maximizing windows
+/// - Capturing and restoring window states for workflows
 pub struct WindowManager {
     window_cache: Arc<Mutex<WindowCache>>,
 }
@@ -108,6 +139,7 @@ impl Default for WindowManager {
 }
 
 impl WindowManager {
+    /// Create a new WindowManager instance
     pub fn new() -> Self {
         Self {
             window_cache: Arc::new(Mutex::new(WindowCache {
@@ -121,8 +153,7 @@ impl WindowManager {
         }
     }
 
-    // Update window cache with current window information
-    // Called on-demand when needed, not by background service
+    /// Update window cache with current window information
     pub async fn update_window_cache(&self) -> Result<(), String> {
         let windows = Self::enumerate_windows_in_z_order()?;
 
@@ -152,7 +183,7 @@ impl WindowManager {
         Ok(())
     }
 
-    // Get topmost window for process (already sorted by Z-order)
+    /// Get topmost window for process (already sorted by Z-order)
     pub async fn get_topmost_window_for_process(&self, process: &str) -> Option<WindowInfo> {
         let cache = self.window_cache.lock().await;
 
@@ -169,7 +200,7 @@ impl WindowManager {
         None
     }
 
-    // Get all visible always-on-top windows
+    /// Get all visible always-on-top windows
     pub async fn get_always_on_top_windows(&self) -> Vec<WindowInfo> {
         let cache = self.window_cache.lock().await;
         cache
@@ -180,8 +211,8 @@ impl WindowManager {
             .collect()
     }
 
-    // Minimize only always-on-top windows (excluding target)
-    // Returns the number of windows minimized
+    /// Minimize only always-on-top windows (excluding target)
+    /// Returns the number of windows minimized
     pub async fn minimize_always_on_top_windows(&self, target_hwnd: isize) -> Result<u32, String> {
         let mut cache = self.window_cache.lock().await;
         let mut minimized_count = 0;
@@ -204,7 +235,7 @@ impl WindowManager {
         Ok(minimized_count)
     }
 
-    // Minimize all visible windows except the target
+    /// Minimize all visible windows except the target
     pub async fn minimize_all_except(&self, target_hwnd: isize) -> Result<u32, String> {
         let cache = self.window_cache.lock().await;
         let mut minimized_count = 0;
@@ -222,7 +253,7 @@ impl WindowManager {
         Ok(minimized_count)
     }
 
-    // Maximize window if not already maximized
+    /// Maximize window if not already maximized
     pub async fn maximize_if_needed(&self, hwnd: isize) -> Result<bool, String> {
         // Track this window as the target that needs restoration
         let mut cache = self.window_cache.lock().await;
@@ -233,23 +264,25 @@ impl WindowManager {
             let hwnd_win = HWND(hwnd as *mut _);
             let was_maximized = IsZoomed(hwnd_win).as_bool();
 
-            tracing::debug!(
+            debug!(
                 "maximize_if_needed: hwnd={:?}, was_maximized={}",
-                hwnd,
-                was_maximized
+                hwnd, was_maximized
             );
 
             if !was_maximized {
                 let _ = ShowWindow(hwnd_win, SW_MAXIMIZE);
-                tracing::debug!("maximize_if_needed: Called ShowWindow(SW_MAXIMIZE)");
+                debug!("maximize_if_needed: Called ShowWindow(SW_MAXIMIZE)");
             }
 
             Ok(!was_maximized)
         }
     }
 
-    // Bring window to front (BringWindowToTop + SetForegroundWindow)
-    // Uses AttachThreadInput trick to bypass Windows' focus-stealing prevention
+    /// Bring window to front using AttachThreadInput trick
+    ///
+    /// This uses AttachThreadInput to bypass Windows' focus-stealing prevention.
+    /// It attaches to both the foreground thread and target thread to gain permission
+    /// to call SetForegroundWindow.
     pub async fn bring_window_to_front(&self, hwnd: isize) -> Result<bool, String> {
         // Track this window as the target for restoration
         {
@@ -264,16 +297,15 @@ impl WindowManager {
             let foreground_before = GetForegroundWindow();
             let was_foreground = foreground_before.0 == hwnd_win.0;
 
-            tracing::debug!(
+            debug!(
                 "bring_window_to_front: hwnd={:?}, was_foreground={}",
-                hwnd,
-                was_foreground
+                hwnd, was_foreground
             );
 
             // If window is minimized, restore it first
             if IsIconic(hwnd_win).as_bool() {
                 let _ = ShowWindow(hwnd_win, SW_RESTORE);
-                tracing::debug!("bring_window_to_front: Restored minimized window");
+                debug!("bring_window_to_front: Restored minimized window");
             }
 
             // Get thread IDs for the AttachThreadInput trick
@@ -281,11 +313,9 @@ impl WindowManager {
             let target_thread_id = GetWindowThreadProcessId(hwnd_win, None);
             let foreground_thread_id = GetWindowThreadProcessId(foreground_before, None);
 
-            tracing::debug!(
+            debug!(
                 "bring_window_to_front: current_thread={}, target_thread={}, foreground_thread={}",
-                current_thread_id,
-                target_thread_id,
-                foreground_thread_id
+                current_thread_id, target_thread_id, foreground_thread_id
             );
 
             // Attach to foreground window's thread to gain permission to set foreground
@@ -297,7 +327,7 @@ impl WindowManager {
                 && AttachThreadInput(current_thread_id, foreground_thread_id, true).as_bool()
             {
                 attached_to_foreground = true;
-                tracing::debug!("bring_window_to_front: Attached to foreground thread");
+                debug!("bring_window_to_front: Attached to foreground thread");
             }
 
             // Also attach to target window's thread
@@ -307,20 +337,20 @@ impl WindowManager {
                 && AttachThreadInput(current_thread_id, target_thread_id, true).as_bool()
             {
                 attached_to_target = true;
-                tracing::debug!("bring_window_to_front: Attached to target thread");
+                debug!("bring_window_to_front: Attached to target thread");
             }
 
             // Now try to bring the window to front
             // First, bring to top of Z-order
             let _ = BringWindowToTop(hwnd_win);
-            tracing::debug!("bring_window_to_front: Called BringWindowToTop");
+            debug!("bring_window_to_front: Called BringWindowToTop");
 
             // Make visible and active
             let _ = ShowWindow(hwnd_win, SW_SHOW);
 
             // Set as foreground window
             let fg_result = SetForegroundWindow(hwnd_win);
-            tracing::debug!(
+            debug!(
                 "bring_window_to_front: SetForegroundWindow returned {}",
                 fg_result.as_bool()
             );
@@ -328,29 +358,27 @@ impl WindowManager {
             // Detach from threads
             if attached_to_target {
                 let _ = AttachThreadInput(current_thread_id, target_thread_id, false);
-                tracing::debug!("bring_window_to_front: Detached from target thread");
+                debug!("bring_window_to_front: Detached from target thread");
             }
             if attached_to_foreground {
                 let _ = AttachThreadInput(current_thread_id, foreground_thread_id, false);
-                tracing::debug!("bring_window_to_front: Detached from foreground thread");
+                debug!("bring_window_to_front: Detached from foreground thread");
             }
 
             // Check if window is foreground after our attempts
             let foreground_after = GetForegroundWindow();
             let is_now_foreground = foreground_after.0 == hwnd_win.0;
 
-            tracing::debug!(
+            debug!(
                 "bring_window_to_front: hwnd={:?}, is_foreground={} (was: {})",
-                hwnd,
-                is_now_foreground,
-                was_foreground
+                hwnd, is_now_foreground, was_foreground
             );
 
             Ok(is_now_foreground)
         }
     }
 
-    // Minimize window if not already minimized
+    /// Minimize window if not already minimized
     pub async fn minimize_if_needed(&self, hwnd: isize) -> Result<bool, String> {
         unsafe {
             let hwnd = HWND(hwnd as *mut _);
@@ -363,12 +391,12 @@ impl WindowManager {
         }
     }
 
-    // Restore windows that were minimized (only always-on-top windows) and target window
+    /// Restore windows that were minimized (only always-on-top windows) and target window
     pub async fn restore_all_windows(&self) -> Result<u32, String> {
         let cache = self.window_cache.lock().await;
         let mut restored_count = 0;
 
-        tracing::info!(
+        info!(
             "restore_all_windows: minimized_windows={}, target_window={:?}, original_states={}",
             cache.minimized_windows.len(),
             cache.target_window,
@@ -379,13 +407,13 @@ impl WindowManager {
         if let Some(target) = cache.target_window {
             let found = cache.original_states.iter().find(|w| w.hwnd == target);
             if found.is_some() {
-                tracing::info!("Target window FOUND in original_states (HWND={})", target);
+                info!("Target window FOUND in original_states (HWND={})", target);
             } else {
-                tracing::warn!(
+                warn!(
                     "Target window NOT FOUND in original_states (HWND={})",
                     target
                 );
-                tracing::warn!(
+                warn!(
                     "Original states HWNDs: {:?}",
                     cache
                         .original_states
@@ -410,19 +438,16 @@ impl WindowManager {
 
         // Restore in reverse order (bottommost first) to preserve Z-order
         // This ensures topmost windows end up on top after restoration
-        tracing::info!("Restoring {} windows", windows_to_restore.len());
+        info!("Restoring {} windows", windows_to_restore.len());
         for window in windows_to_restore.iter().rev() {
             unsafe {
                 let hwnd = HWND(window.hwnd as *mut _);
 
                 // Check if this is a UWP window (SetWindowPlacement doesn't work for UWP)
                 let is_uwp = Self::is_uwp_app_internal(window.process_id);
-                tracing::info!(
+                info!(
                     "Restoring window: PID={}, process={}, is_uwp={}, was_maximized={}",
-                    window.process_id,
-                    window.process_name,
-                    is_uwp,
-                    window.is_maximized
+                    window.process_id, window.process_name, is_uwp, window.is_maximized
                 );
 
                 if is_uwp {
@@ -433,18 +458,21 @@ impl WindowManager {
 
                     if currently_maximized && !should_be_maximized {
                         // Need to restore down from maximized
-                        tracing::info!("Restoring UWP window (PID {}) from maximized state using keyboard (Win+Down)", window.process_id);
+                        info!(
+                            "Restoring UWP window (PID {}) from maximized state using keyboard (Win+Down)",
+                            window.process_id
+                        );
                         Self::restore_uwp_window_keyboard(hwnd);
                         restored_count += 1;
                     } else if !currently_maximized && should_be_maximized {
                         // Edge case: need to maximize (shouldn't happen in normal flow)
-                        tracing::debug!(
+                        debug!(
                             "UWP window (PID {}) already in non-maximized state",
                             window.process_id
                         );
                     } else {
                         // States match, no restoration needed
-                        tracing::debug!(
+                        debug!(
                             "UWP window (PID {}) already in correct state",
                             window.process_id
                         );
@@ -497,6 +525,7 @@ impl WindowManager {
                 },
             ];
             SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+
             std::thread::sleep(std::time::Duration::from_millis(50));
 
             // Release Down + Win
@@ -525,7 +554,7 @@ impl WindowManager {
         }
     }
 
-    // Capture current state before workflow
+    /// Capture current state before workflow
     pub async fn capture_initial_state(&self) -> Result<(), String> {
         let mut cache = self.window_cache.lock().await;
         let windows = Self::enumerate_windows_in_z_order()?;
@@ -558,7 +587,7 @@ impl WindowManager {
         Ok(())
     }
 
-    // Clear captured state
+    /// Clear captured state
     pub async fn clear_captured_state(&self) {
         let mut cache = self.window_cache.lock().await;
         cache.original_states.clear();
@@ -566,13 +595,13 @@ impl WindowManager {
         cache.target_window = None;
     }
 
-    // Enumerate all windows in Z-order (topmost first)
+    /// Enumerate all windows in Z-order (topmost first)
     fn enumerate_windows_in_z_order() -> Result<Vec<WindowInfo>, String> {
         let mut windows = Vec::new();
         let mut z_order = 0u32;
 
         unsafe {
-            let mut hwnd = match GetTopWindow(HWND::default()) {
+            let mut hwnd = match GetTopWindow(None) {
                 Ok(h) => h,
                 Err(_) => return Ok(windows),
             };
@@ -634,7 +663,7 @@ impl WindowManager {
         Ok(windows)
     }
 
-    // Get process name from PID
+    /// Get process name from PID
     fn get_process_name(pid: u32) -> Option<String> {
         unsafe {
             let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
@@ -660,16 +689,13 @@ impl WindowManager {
         }
     }
 
-    // Get window title with timeout to avoid blocking on unresponsive windows
-    // Uses SendMessageTimeoutW instead of GetWindowTextW which can block indefinitely
+    /// Get window title with timeout to avoid blocking on unresponsive windows
     fn get_window_title(hwnd: HWND) -> String {
         unsafe {
             let mut title = vec![0u16; 512];
             let mut char_count: usize = 0;
 
             // Use SendMessageTimeoutW with 100ms timeout and SMTO_ABORTIFHUNG flag
-            // This prevents blocking on unresponsive windows (e.g., hung Chrome)
-            // Returns LRESULT: 0 = timeout/failure, non-zero = success
             let status = SendMessageTimeoutW(
                 hwnd,
                 WM_GETTEXT,
@@ -682,13 +708,11 @@ impl WindowManager {
 
             // LRESULT.0 == 0 means failure (timeout or error)
             if status.0 == 0 {
-                // Check if it was actually an error vs just empty title
                 let error = windows::Win32::Foundation::GetLastError();
                 if error.0 != 0 {
-                    tracing::debug!(
+                    debug!(
                         "[get_window_title] Timeout or hung window detected for hwnd {:?}, error: {:?}",
-                        hwnd.0,
-                        error
+                        hwnd.0, error
                     );
                 }
                 return String::new();
@@ -704,7 +728,7 @@ impl WindowManager {
 
     // ========== UWP Detection ==========
 
-    /// Check if a process is a UWP/Modern app
+    /// Check if a process is a UWP/Modern app (internal)
     fn is_uwp_app_internal(pid: u32) -> bool {
         let process_name = Self::get_process_name(pid).unwrap_or_default();
         let lower_name = process_name.to_lowercase();
@@ -756,7 +780,7 @@ impl WindowManager {
             lower_name.contains("immersivecontrol");
 
         if is_uwp {
-            tracing::info!("PID {} detected as UWP/Modern app ({})", pid, process_name);
+            info!("PID {} detected as UWP/Modern app ({})", pid, process_name);
         }
 
         is_uwp
@@ -767,11 +791,11 @@ impl WindowManager {
         Self::is_uwp_app_internal(pid)
     }
 
-    /// Track a window as the target for restoration (used for UWP apps that can't use maximize_if_needed)
+    /// Track a window as the target for restoration
     pub async fn set_target_window(&self, hwnd: isize) {
         let mut cache = self.window_cache.lock().await;
         cache.target_window = Some(hwnd);
-        tracing::info!("Set target window for restoration: hwnd={}", hwnd);
+        info!("Set target window for restoration: hwnd={}", hwnd);
     }
 
     /// Get topmost window for a specific PID (Win32 only - UWP windows not visible)
@@ -781,7 +805,7 @@ impl WindowManager {
 
         // Check if this is a UWP app FIRST - they're not visible to Win32 enumeration
         if Self::is_uwp_app_internal(pid) {
-            tracing::debug!("PID {} is UWP - skipping Win32 window enumeration", pid);
+            debug!("PID {} is UWP - skipping Win32 window enumeration", pid);
             return None;
         }
 
@@ -795,7 +819,7 @@ impl WindowManager {
             let cache = self.window_cache.lock().await;
 
             if let Some(window) = cache.visible_windows.iter().find(|w| w.process_id == pid) {
-                tracing::debug!(
+                debug!(
                     "Found Win32 window for PID {} on attempt {}",
                     pid,
                     attempt + 1
@@ -804,10 +828,9 @@ impl WindowManager {
             }
         }
 
-        tracing::warn!(
+        warn!(
             "Win32 window for PID {} not found after {} attempts",
-            pid,
-            WIN32_RETRIES
+            pid, WIN32_RETRIES
         );
         None
     }

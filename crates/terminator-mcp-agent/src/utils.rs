@@ -1,7 +1,7 @@
 use crate::cancellation::RequestManager;
 use crate::mcp_types::{FontStyle, TextPosition, TreeOutputFormat};
 use crate::tool_logging::{LogCapture, LogCaptureLayer};
-use crate::window_manager::WindowManager;
+use terminator::WindowManager;
 use anyhow::Result;
 use rmcp::{schemars, schemars::JsonSchema};
 use serde::{Deserialize, Serialize};

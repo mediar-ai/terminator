@@ -142,6 +142,25 @@ export interface ComputerUseResult {
   /** Pending confirmation info if status is "needs_confirmation" */
   pendingConfirmation?: ComputerUsePendingConfirmation
 }
+/** Information about a window */
+export interface WindowInfo {
+  /** Window handle */
+  hwnd: number
+  /** Process name (e.g., "notepad.exe") */
+  processName: string
+  /** Process ID */
+  processId: number
+  /** Z-order position (0 = topmost) */
+  zOrder: number
+  /** Whether the window is minimized */
+  isMinimized: boolean
+  /** Whether the window is maximized */
+  isMaximized: boolean
+  /** Whether the window has WS_EX_TOPMOST style */
+  isAlwaysOnTop: boolean
+  /** Window title */
+  title: string
+}
 /** Main entry point for desktop automation. */
 export declare class Desktop {
   /**
@@ -811,4 +830,62 @@ export declare class Selector {
 }
 export declare class HighlightHandle {
   close(): void
+}
+/**
+ * Window manager for controlling window states
+ *
+ * Provides functionality for:
+ * - Enumerating windows with Z-order tracking
+ * - Bringing windows to front (bypassing Windows focus-stealing prevention)
+ * - Minimizing/maximizing windows
+ * - Capturing and restoring window states for workflows
+ */
+export declare class WindowManager {
+  /** Create a new WindowManager instance */
+  constructor()
+  /** Update window cache with current window information */
+  updateWindowCache(): Promise<void>
+  /** Get topmost window for a process by name */
+  getTopmostWindowForProcess(process: string): Promise<WindowInfo | null>
+  /** Get topmost window for a specific PID */
+  getTopmostWindowForPid(pid: number): Promise<WindowInfo | null>
+  /** Get all visible always-on-top windows */
+  getAlwaysOnTopWindows(): Promise<Array<WindowInfo>>
+  /**
+   * Minimize only always-on-top windows (excluding target)
+   * Returns the number of windows minimized
+   */
+  minimizeAlwaysOnTopWindows(targetHwnd: number): Promise<number>
+  /** Minimize all visible windows except the target */
+  minimizeAllExcept(targetHwnd: number): Promise<number>
+  /**
+   * Maximize window if not already maximized
+   * Returns true if the window was maximized (wasn't already maximized)
+   */
+  maximizeIfNeeded(hwnd: number): Promise<boolean>
+  /**
+   * Bring window to front using AttachThreadInput trick
+   *
+   * This uses AttachThreadInput to bypass Windows' focus-stealing prevention.
+   * Returns true if the window is now in the foreground.
+   */
+  bringWindowToFront(hwnd: number): Promise<boolean>
+  /**
+   * Minimize window if not already minimized
+   * Returns true if the window was minimized (wasn't already minimized)
+   */
+  minimizeIfNeeded(hwnd: number): Promise<boolean>
+  /** Capture current state before workflow */
+  captureInitialState(): Promise<void>
+  /**
+   * Restore windows that were minimized and target window to their original state
+   * Returns the number of windows restored
+   */
+  restoreAllWindows(): Promise<number>
+  /** Clear captured state */
+  clearCapturedState(): Promise<void>
+  /** Check if a process is a UWP/Modern app */
+  isUwpApp(pid: number): Promise<boolean>
+  /** Track a window as the target for restoration */
+  setTargetWindow(hwnd: number): Promise<void>
 }

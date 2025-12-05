@@ -754,7 +754,7 @@ impl DesktopWrapper {
             log_capture,
             current_workflow_dir: Arc::new(Mutex::new(None)),
             current_scripts_base_path: Arc::new(Mutex::new(None)),
-            window_manager: Arc::new(crate::window_manager::WindowManager::new()),
+            window_manager: Arc::new(terminator::WindowManager::new()),
             in_sequence: Arc::new(std::sync::Mutex::new(false)),
             ocr_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             omniparser_items: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
