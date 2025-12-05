@@ -1,6 +1,8 @@
 use napi_derive::napi;
+use serde::Serialize;
 use std::collections::HashMap;
 
+#[derive(Serialize, Clone)]
 #[napi(object, js_name = "Bounds")]
 pub struct Bounds {
     pub x: f64,
@@ -55,6 +57,7 @@ pub struct ScreenshotResult {
     pub monitor: Option<Monitor>,
 }
 
+#[derive(Serialize)]
 #[napi(object, js_name = "UIElementAttributes")]
 pub struct UIElementAttributes {
     pub role: String,
@@ -67,6 +70,7 @@ pub struct UIElementAttributes {
     pub bounds: Option<Bounds>,
 }
 
+#[derive(Serialize)]
 #[napi(object, js_name = "UINode")]
 pub struct UINode {
     pub id: Option<String>,
@@ -110,6 +114,189 @@ pub enum PropertyLoadingMode {
     Smart,
 }
 
+/// Output format for UI tree
+#[napi(string_enum)]
+pub enum TreeOutputFormat {
+    /// Compact YAML format with indexed elements: #1 [ROLE] name
+    CompactYaml,
+    /// Full JSON format with all fields and properties
+    VerboseJson,
+}
+
+/// OCR element representing text detected via optical character recognition.
+/// Hierarchy: OcrResult -> OcrLine -> OcrWord
+#[derive(Serialize)]
+#[napi(object, js_name = "OcrElement")]
+pub struct OcrElement {
+    /// Role type: "OcrResult", "OcrLine", or "OcrWord"
+    pub role: String,
+    /// The recognized text content
+    pub text: Option<String>,
+    /// Bounding box in absolute screen coordinates
+    pub bounds: Option<Bounds>,
+    /// Text rotation angle in degrees (only present on OcrResult)
+    pub text_angle: Option<f64>,
+    /// Confidence score (0.0 to 1.0) if available
+    pub confidence: Option<f64>,
+    /// Child elements (lines for OcrResult, words for OcrLine)
+    pub children: Option<Vec<OcrElement>>,
+}
+
+/// Result of OCR operation with tree and index-to-bounds mapping
+#[napi(object, js_name = "OcrResult")]
+pub struct OcrResult {
+    /// The OCR tree structure
+    pub tree: OcrElement,
+    /// Formatted compact YAML output (if format_output was true)
+    pub formatted: Option<String>,
+    /// Mapping of index to bounds for click targeting (keys are 1-based indices as strings)
+    /// Value contains (text, bounds)
+    pub index_to_bounds: HashMap<String, OcrBoundsEntry>,
+    /// Total count of indexed elements (words with bounds)
+    pub element_count: u32,
+}
+
+/// Entry in OCR index-to-bounds mapping for click targeting
+#[napi(object, js_name = "OcrBoundsEntry")]
+pub struct OcrBoundsEntry {
+    pub text: String,
+    pub bounds: Bounds,
+}
+
+/// Browser DOM element captured from a web page
+#[derive(Serialize)]
+#[napi(object, js_name = "BrowserDomElement")]
+pub struct BrowserDomElement {
+    /// HTML tag name (lowercase)
+    pub tag: String,
+    /// Element id attribute
+    pub id: Option<String>,
+    /// CSS classes
+    pub classes: Vec<String>,
+    /// Visible text content (truncated to 100 chars)
+    pub text: Option<String>,
+    /// href attribute for links
+    pub href: Option<String>,
+    /// type attribute for inputs
+    pub r#type: Option<String>,
+    /// name attribute
+    pub name: Option<String>,
+    /// value attribute for inputs
+    pub value: Option<String>,
+    /// placeholder attribute
+    pub placeholder: Option<String>,
+    /// aria-label attribute
+    pub aria_label: Option<String>,
+    /// role attribute
+    pub role: Option<String>,
+    /// Bounding box in screen coordinates
+    pub bounds: Bounds,
+}
+
+/// Entry in DOM index-to-bounds mapping for click targeting
+#[napi(object, js_name = "DomBoundsEntry")]
+pub struct DomBoundsEntry {
+    /// Display name (text or aria-label or tag)
+    pub name: String,
+    /// HTML tag
+    pub tag: String,
+    /// Bounding box
+    pub bounds: Bounds,
+}
+
+/// Result of browser DOM capture operation
+#[napi(object, js_name = "BrowserDomResult")]
+pub struct BrowserDomResult {
+    /// List of captured DOM elements
+    pub elements: Vec<BrowserDomElement>,
+    /// Formatted compact YAML output (if format_output was true)
+    pub formatted: Option<String>,
+    /// Mapping of index to bounds for click targeting
+    pub index_to_bounds: HashMap<String, DomBoundsEntry>,
+    /// Total count of captured elements
+    pub element_count: u32,
+    /// Page URL
+    pub page_url: String,
+    /// Page title
+    pub page_title: String,
+}
+
+/// UI element detected by Gemini vision model
+#[derive(Serialize, Clone)]
+#[napi(object, js_name = "VisionElement")]
+pub struct VisionElement {
+    /// Element type: text, icon, button, input, checkbox, dropdown, link, image, unknown
+    pub element_type: String,
+    /// Visible text or label on the element
+    pub content: Option<String>,
+    /// AI description of what this element is or does
+    pub description: Option<String>,
+    /// Bounding box in screen coordinates (x, y, width, height)
+    pub bounds: Option<Bounds>,
+    /// Whether the element is interactive/clickable
+    pub interactivity: Option<bool>,
+}
+
+/// Entry in Gemini vision index-to-bounds mapping for click targeting
+#[napi(object, js_name = "VisionBoundsEntry")]
+pub struct VisionBoundsEntry {
+    /// Display name (content or description)
+    pub name: String,
+    /// Element type
+    pub element_type: String,
+    /// Bounding box
+    pub bounds: Bounds,
+}
+
+/// Result of Gemini vision detection operation
+#[napi(object, js_name = "GeminiVisionResult")]
+pub struct GeminiVisionResult {
+    /// List of detected UI elements
+    pub elements: Vec<VisionElement>,
+    /// Formatted compact YAML output (if format_output was true)
+    pub formatted: Option<String>,
+    /// Mapping of index to bounds for click targeting
+    pub index_to_bounds: HashMap<String, VisionBoundsEntry>,
+    /// Total count of detected elements
+    pub element_count: u32,
+}
+
+/// Item detected by Omniparser V2 (icon/field detection)
+#[derive(Serialize, Clone)]
+#[napi(object, js_name = "OmniparserItem")]
+pub struct OmniparserItem {
+    /// Element label: "icon", "text", etc.
+    pub label: String,
+    /// Content or OCR text
+    pub content: Option<String>,
+    /// Bounding box in screen coordinates (x, y, width, height)
+    pub bounds: Option<Bounds>,
+}
+
+/// Entry in Omniparser index-to-bounds mapping for click targeting
+#[napi(object, js_name = "OmniparserBoundsEntry")]
+pub struct OmniparserBoundsEntry {
+    /// Display name (content or label)
+    pub name: String,
+    /// Element label
+    pub label: String,
+    /// Bounding box
+    pub bounds: Bounds,
+}
+
+/// Result of Omniparser detection operation
+#[napi(object, js_name = "OmniparserResult")]
+pub struct OmniparserResult {
+    /// List of detected items
+    pub items: Vec<OmniparserItem>,
+    /// Formatted compact YAML output (if format_output was true)
+    pub formatted: Option<String>,
+    /// Mapping of index to bounds for click targeting
+    pub index_to_bounds: HashMap<String, OmniparserBoundsEntry>,
+    /// Total count of detected items
+    pub item_count: u32,
+}
+
 #[napi(object, js_name = "TreeBuildConfig")]
 pub struct TreeBuildConfig {
     /// Property loading strategy
@@ -124,8 +311,12 @@ pub struct TreeBuildConfig {
     pub max_depth: Option<i32>,
     /// Delay in milliseconds to wait for UI to stabilize before capturing tree
     pub ui_settle_delay_ms: Option<i64>,
-    /// Generate formatted compact YAML output alongside the tree structure
+    /// Generate formatted output alongside the tree structure (defaults to true if tree_output_format is set)
     pub format_output: Option<bool>,
+    /// Output format for tree: 'CompactYaml' (default) or 'VerboseJson'
+    pub tree_output_format: Option<TreeOutputFormat>,
+    /// Selector to start tree from instead of window root (e.g., "role:Dialog" to focus on a dialog)
+    pub tree_from_selector: Option<String>,
 }
 
 impl From<(f64, f64, f64, f64)> for Bounds {
@@ -166,6 +357,26 @@ impl From<terminator::Monitor> for Monitor {
             x: m.x,
             y: m.y,
             scale_factor: m.scale_factor,
+        }
+    }
+}
+
+impl From<terminator::OcrElement> for OcrElement {
+    fn from(e: terminator::OcrElement) -> Self {
+        OcrElement {
+            role: e.role,
+            text: e.text,
+            bounds: e.bounds.map(|(x, y, w, h)| Bounds {
+                x,
+                y,
+                width: w,
+                height: h,
+            }),
+            text_angle: e.text_angle,
+            confidence: e.confidence,
+            children: e.children.map(|children| {
+                children.into_iter().map(OcrElement::from).collect()
+            }),
         }
     }
 }
