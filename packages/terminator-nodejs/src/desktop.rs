@@ -1,4 +1,6 @@
-use crate::types::{ComputerUseResult, Monitor, MonitorScreenshotPair, WindowTreeResult};
+use crate::types::{
+    ComputerUseResult, Monitor, MonitorScreenshotPair, TreeOutputFormat, WindowTreeResult,
+};
 use crate::Selector;
 use crate::{
     map_error, CommandOutput, Element, Locator, ScreenshotResult, TreeBuildConfig, UINode,
@@ -192,6 +194,745 @@ impl Desktop {
             .map_err(map_error)
     }
 
+    /// (async) Perform OCR on a window by PID and return structured results with bounding boxes.
+    /// Returns an OcrResult containing the OCR tree, formatted output, and index-to-bounds mapping
+    /// for click targeting.
+    ///
+    /// @param {number} pid - Process ID of the target window.
+    /// @param {boolean} [formatOutput=true] - Whether to generate formatted compact YAML output.
+    /// @returns {Promise<OcrResult>} Complete OCR result with tree, formatted output, and bounds mapping.
+    #[napi]
+    #[cfg(target_os = "windows")]
+    pub async fn perform_ocr_for_process(
+        &self,
+        pid: u32,
+        format_output: Option<bool>,
+    ) -> napi::Result<crate::types::OcrResult> {
+        let format_output = format_output.unwrap_or(true);
+
+        // Find the application element by PID
+        let apps = self.inner.applications().map_err(map_error)?;
+        let window_element = apps
+            .into_iter()
+            .find(|app| app.process_id().ok() == Some(pid))
+            .ok_or_else(|| napi::Error::from_reason(format!("No window found for PID {}", pid)))?;
+
+        // Get window bounds (absolute screen coordinates)
+        let bounds = window_element.bounds().map_err(map_error)?;
+        let (window_x, window_y, win_w, win_h) = bounds;
+
+        // Capture screenshot of the window
+        let screenshot = window_element.capture().map_err(map_error)?;
+
+        // Calculate DPI scale factors (physical screenshot pixels / logical window size)
+        let dpi_scale_w = screenshot.width as f64 / win_w;
+        let dpi_scale_h = screenshot.height as f64 / win_h;
+
+        // Perform OCR with bounding boxes
+        let ocr_element = self
+            .inner
+            .ocr_screenshot_with_bounds(&screenshot, window_x, window_y, dpi_scale_w, dpi_scale_h)
+            .map_err(map_error)?;
+
+        // Format the OCR tree if requested
+        let (formatted, index_to_bounds) = if format_output {
+            let result = terminator::format_ocr_tree_as_compact_yaml(&ocr_element, 0);
+            let bounds_map: std::collections::HashMap<String, crate::types::OcrBoundsEntry> = result
+                .index_to_bounds
+                .into_iter()
+                .map(|(idx, (text, (x, y, w, h)))| {
+                    (
+                        idx.to_string(),
+                        crate::types::OcrBoundsEntry {
+                            text,
+                            bounds: crate::types::Bounds {
+                                x,
+                                y,
+                                width: w,
+                                height: h,
+                            },
+                        },
+                    )
+                })
+                .collect();
+            (Some(result.formatted), bounds_map)
+        } else {
+            (None, std::collections::HashMap::new())
+        };
+
+        let element_count = index_to_bounds.len() as u32;
+
+        Ok(crate::types::OcrResult {
+            tree: crate::types::OcrElement::from(ocr_element),
+            formatted,
+            index_to_bounds,
+            element_count,
+        })
+    }
+
+    /// (async) Perform OCR on a window by PID (non-Windows stub).
+    #[napi]
+    #[cfg(not(target_os = "windows"))]
+    pub async fn perform_ocr_for_process(
+        &self,
+        _pid: u32,
+        _format_output: Option<bool>,
+    ) -> napi::Result<crate::types::OcrResult> {
+        Err(napi::Error::from_reason(
+            "OCR with bounding boxes is currently only supported on Windows",
+        ))
+    }
+
+    /// (async) Capture DOM elements from the current browser tab.
+    ///
+    /// Extracts visible DOM elements with their properties and screen coordinates.
+    /// Uses JavaScript injection via Chrome extension to traverse the DOM tree.
+    ///
+    /// @param {number} [maxElements=200] - Maximum number of elements to capture.
+    /// @param {boolean} [formatOutput=true] - Whether to include formatted compact YAML output.
+    /// @returns {Promise<BrowserDomResult>} DOM elements with bounds for click targeting.
+    #[napi]
+    pub async fn capture_browser_dom(
+        &self,
+        max_elements: Option<u32>,
+        format_output: Option<bool>,
+    ) -> napi::Result<crate::types::BrowserDomResult> {
+        use std::collections::HashMap;
+        use std::time::Duration;
+
+        let max_elements = max_elements.unwrap_or(200);
+        let format_output = format_output.unwrap_or(true);
+
+        // Get viewport offset from Document element (more reliable than JS due to DPI scaling)
+        let viewport_offset = match self
+            .inner
+            .locator("role:Document")
+            .first(Some(Duration::from_millis(2000)))
+            .await
+        {
+            Ok(doc_element) => match doc_element.bounds() {
+                Ok((x, y, _w, _h)) => (x, y),
+                Err(_) => (0.0, 0.0),
+            },
+            Err(_) => (0.0, 0.0),
+        };
+
+        // JavaScript to extract visible DOM elements
+        let script = format!(
+            r#"
+(function() {{
+    const elements = [];
+    const maxElements = {max_elements};
+
+    const walker = document.createTreeWalker(
+        document.body,
+        NodeFilter.SHOW_ELEMENT,
+        {{
+            acceptNode: function(node) {{
+                const style = window.getComputedStyle(node);
+                const rect = node.getBoundingClientRect();
+
+                if (style.display === 'none' ||
+                    style.visibility === 'hidden' ||
+                    style.opacity === '0' ||
+                    rect.width === 0 ||
+                    rect.height === 0) {{
+                    return NodeFilter.FILTER_SKIP;
+                }}
+
+                return NodeFilter.FILTER_ACCEPT;
+            }}
+        }}
+    );
+
+    let node;
+    while (node = walker.nextNode()) {{
+        if (elements.length >= maxElements) {{
+            break;
+        }}
+
+        const rect = node.getBoundingClientRect();
+        const text = node.innerText ? node.innerText.substring(0, 100).trim() : null;
+
+        elements.push({{
+            tag: node.tagName.toLowerCase(),
+            id: node.id || null,
+            classes: Array.from(node.classList),
+            text: text,
+            href: node.href || null,
+            type: node.type || null,
+            name: node.name || null,
+            value: node.value || null,
+            placeholder: node.placeholder || null,
+            aria_label: node.getAttribute('aria-label'),
+            role: node.getAttribute('role'),
+            x: Math.round(rect.x * window.devicePixelRatio),
+            y: Math.round(rect.y * window.devicePixelRatio),
+            width: Math.round(rect.width * window.devicePixelRatio),
+            height: Math.round(rect.height * window.devicePixelRatio)
+        }});
+    }}
+
+    return JSON.stringify({{
+        elements: elements,
+        total_found: elements.length,
+        page_url: window.location.href,
+        page_title: document.title,
+        devicePixelRatio: window.devicePixelRatio
+    }});
+}})()"#
+        );
+
+        let result_str = self
+            .inner
+            .execute_browser_script(&script)
+            .await
+            .map_err(map_error)?;
+
+        let parsed: serde_json::Value = serde_json::from_str(&result_str)
+            .map_err(|e| napi::Error::from_reason(format!("Failed to parse DOM result: {e}")))?;
+
+        let page_url = parsed
+            .get("page_url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let page_title = parsed
+            .get("page_title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let raw_elements = parsed
+            .get("elements")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        // Convert to BrowserDomElement and build index_to_bounds
+        let mut elements = Vec::new();
+        let mut index_to_bounds: HashMap<String, crate::types::DomBoundsEntry> = HashMap::new();
+        let mut formatted_lines: Vec<String> = Vec::new();
+
+        if format_output {
+            formatted_lines.push(format!(
+                "Browser DOM: {} elements (url: {}, title: {})",
+                raw_elements.len(),
+                page_url,
+                page_title
+            ));
+        }
+
+        for (i, elem) in raw_elements.iter().enumerate() {
+            let idx = i + 1;
+            let tag = elem.get("tag").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let id = elem.get("id").and_then(|v| v.as_str()).map(String::from);
+            let classes: Vec<String> = elem
+                .get("classes")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|c| c.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+            let text = elem.get("text").and_then(|v| v.as_str()).map(String::from);
+            let href = elem.get("href").and_then(|v| v.as_str()).map(String::from);
+            let r#type = elem.get("type").and_then(|v| v.as_str()).map(String::from);
+            let name = elem.get("name").and_then(|v| v.as_str()).map(String::from);
+            let value = elem.get("value").and_then(|v| v.as_str()).map(String::from);
+            let placeholder = elem.get("placeholder").and_then(|v| v.as_str()).map(String::from);
+            let aria_label = elem.get("aria_label").and_then(|v| v.as_str()).map(String::from);
+            let role = elem.get("role").and_then(|v| v.as_str()).map(String::from);
+
+            // Build bounds with viewport offset added
+            let x = elem.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0) + viewport_offset.0;
+            let y = elem.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0) + viewport_offset.1;
+            let width = elem.get("width").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let height = elem.get("height").and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+            let bounds = crate::types::Bounds { x, y, width, height };
+
+            // Display name for index_to_bounds
+            let display_name = text
+                .as_ref()
+                .filter(|t| !t.is_empty())
+                .cloned()
+                .or_else(|| aria_label.clone())
+                .or_else(|| placeholder.clone())
+                .or_else(|| name.clone())
+                .or_else(|| id.clone())
+                .unwrap_or_else(|| format!("<{}>", tag));
+
+            // Format line for compact YAML
+            if format_output {
+                let mut line_parts = vec![format!("#{} [{}]", idx, tag.to_uppercase())];
+                if let Some(ref t) = text {
+                    if !t.is_empty() {
+                        let truncated = if t.len() > 40 { format!("{}...", &t[..40]) } else { t.clone() };
+                        line_parts.push(truncated);
+                    }
+                }
+                if let Some(ref a) = aria_label {
+                    line_parts.push(format!("aria:{}", a));
+                }
+                if let Some(ref r) = role {
+                    line_parts.push(format!("role:{}", r));
+                }
+                formatted_lines.push(format!("  {}", line_parts.join(" ")));
+            }
+
+            index_to_bounds.insert(
+                idx.to_string(),
+                crate::types::DomBoundsEntry {
+                    name: display_name,
+                    tag: tag.clone(),
+                    bounds: bounds.clone(),
+                },
+            );
+
+            elements.push(crate::types::BrowserDomElement {
+                tag,
+                id,
+                classes,
+                text,
+                href,
+                r#type,
+                name,
+                value,
+                placeholder,
+                aria_label,
+                role,
+                bounds,
+            });
+        }
+
+        Ok(crate::types::BrowserDomResult {
+            elements,
+            formatted: if format_output { Some(formatted_lines.join("\n")) } else { None },
+            index_to_bounds,
+            element_count: raw_elements.len() as u32,
+            page_url,
+            page_title,
+        })
+    }
+
+    /// (async) Perform Gemini vision AI detection on a window by PID.
+    ///
+    /// Captures a screenshot and sends it to the Gemini vision backend for UI element detection.
+    /// Requires GEMINI_VISION_BACKEND_URL environment variable (defaults to https://app.mediar.ai/api/vision/parse).
+    ///
+    /// @param {number} pid - Process ID of the window to capture.
+    /// @param {boolean} [formatOutput=true] - Whether to include formatted compact YAML output.
+    /// @returns {Promise<GeminiVisionResult>} Detected UI elements with bounds for click targeting.
+    #[napi]
+    pub async fn perform_gemini_vision_for_process(
+        &self,
+        pid: u32,
+        format_output: Option<bool>,
+    ) -> napi::Result<crate::types::GeminiVisionResult> {
+        use base64::{engine::general_purpose, Engine};
+        use image::{codecs::png::PngEncoder, ExtendedColorType, ImageBuffer, ImageEncoder, Rgba};
+        use image::imageops::FilterType;
+        use std::collections::HashMap;
+        use std::io::Cursor;
+
+        let format_output = format_output.unwrap_or(true);
+
+        // Find the window element for this process
+        let apps = self.inner.applications().map_err(map_error)?;
+        let window_element = apps
+            .into_iter()
+            .find(|app| app.process_id().ok() == Some(pid))
+            .ok_or_else(|| napi::Error::from_reason(format!("No window found for PID {}", pid)))?;
+
+        // Get window bounds
+        let bounds = window_element.bounds().map_err(map_error)?;
+        let (window_x, window_y, win_w, win_h) = bounds;
+
+        // Capture screenshot
+        let screenshot = window_element.capture().map_err(map_error)?;
+        let original_width = screenshot.width;
+        let original_height = screenshot.height;
+
+        // Calculate DPI scale
+        let dpi_scale_w = original_width as f64 / win_w;
+        let dpi_scale_h = original_height as f64 / win_h;
+
+        // Convert BGRA to RGBA
+        let rgba_data: Vec<u8> = screenshot
+            .image_data
+            .chunks_exact(4)
+            .flat_map(|bgra| [bgra[2], bgra[1], bgra[0], bgra[3]])
+            .collect();
+
+        // Resize if needed (max 1920px)
+        const MAX_DIM: u32 = 1920;
+        let (final_width, final_height, final_rgba_data, scale_factor) =
+            if original_width > MAX_DIM || original_height > MAX_DIM {
+                let scale = (MAX_DIM as f32 / original_width.max(original_height) as f32).min(1.0);
+                let new_width = (original_width as f32 * scale).round() as u32;
+                let new_height = (original_height as f32 * scale).round() as u32;
+
+                let img = ImageBuffer::<Rgba<u8>, _>::from_raw(original_width, original_height, rgba_data)
+                    .ok_or_else(|| napi::Error::from_reason("Failed to create image buffer"))?;
+
+                let resized = image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
+                (new_width, new_height, resized.into_raw(), scale as f64)
+            } else {
+                (original_width, original_height, rgba_data, 1.0)
+            };
+
+        // Encode to PNG
+        let mut png_data = Vec::new();
+        let encoder = PngEncoder::new(Cursor::new(&mut png_data));
+        encoder
+            .write_image(&final_rgba_data, final_width, final_height, ExtendedColorType::Rgba8)
+            .map_err(|e| napi::Error::from_reason(format!("Failed to encode PNG: {e}")))?;
+
+        let base64_image = general_purpose::STANDARD.encode(&png_data);
+
+        // Call Gemini Vision backend
+        let backend_url = std::env::var("GEMINI_VISION_BACKEND_URL")
+            .unwrap_or_else(|_| "https://app.mediar.ai/api/vision/parse".to_string());
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(300))
+            .build()
+            .map_err(|e| napi::Error::from_reason(format!("Failed to create HTTP client: {e}")))?;
+
+        let payload = serde_json::json!({
+            "image": base64_image,
+            "model": "gemini",
+            "prompt": "Detect all UI elements in this screenshot. Return their type, content, description, bounding boxes, and interactivity."
+        });
+
+        let resp = client
+            .post(&backend_url)
+            .header("Content-Type", "application/json")
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| napi::Error::from_reason(format!("Vision backend request failed: {e}")))?;
+
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(napi::Error::from_reason(format!("Vision backend error: {}", text)));
+        }
+
+        let response_text = resp.text().await
+            .map_err(|e| napi::Error::from_reason(format!("Failed to read response: {e}")))?;
+
+        let parsed: serde_json::Value = serde_json::from_str(&response_text)
+            .map_err(|e| napi::Error::from_reason(format!("Failed to parse response: {e}")))?;
+
+        if let Some(error) = parsed.get("error").and_then(|v| v.as_str()) {
+            return Err(napi::Error::from_reason(format!("Vision error: {}", error)));
+        }
+
+        let raw_elements = parsed
+            .get("elements")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        // Convert to VisionElement with absolute screen coordinates
+        let mut elements = Vec::new();
+        let mut index_to_bounds: HashMap<String, crate::types::VisionBoundsEntry> = HashMap::new();
+        let mut formatted_lines: Vec<String> = Vec::new();
+
+        if format_output {
+            formatted_lines.push(format!("Gemini Vision: {} elements (PID: {})", raw_elements.len(), pid));
+        }
+
+        let inv_scale = 1.0 / scale_factor;
+
+        for (i, elem) in raw_elements.iter().enumerate() {
+            let idx = i + 1;
+            let element_type = elem.get("type").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+            let content = elem.get("content").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(String::from);
+            let description = elem.get("description").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(String::from);
+            let interactivity = elem.get("interactivity").and_then(|v| v.as_bool());
+
+            // Get normalized bbox [x1, y1, x2, y2] from 0-1
+            let bbox = elem.get("bbox").and_then(|v| v.as_array());
+            let bounds = bbox.and_then(|arr| {
+                if arr.len() >= 4 {
+                    let x1 = arr[0].as_f64()? * final_width as f64;
+                    let y1 = arr[1].as_f64()? * final_height as f64;
+                    let x2 = arr[2].as_f64()? * final_width as f64;
+                    let y2 = arr[3].as_f64()? * final_height as f64;
+
+                    // Scale back to original size and convert to logical screen coords
+                    let abs_x = window_x + (x1 * inv_scale / dpi_scale_w);
+                    let abs_y = window_y + (y1 * inv_scale / dpi_scale_h);
+                    let abs_w = (x2 - x1) * inv_scale / dpi_scale_w;
+                    let abs_h = (y2 - y1) * inv_scale / dpi_scale_h;
+
+                    Some(crate::types::Bounds {
+                        x: abs_x,
+                        y: abs_y,
+                        width: abs_w,
+                        height: abs_h,
+                    })
+                } else {
+                    None
+                }
+            });
+
+            // Display name for index_to_bounds
+            let display_name = content
+                .as_ref()
+                .cloned()
+                .or_else(|| description.clone())
+                .unwrap_or_else(|| format!("<{}>", element_type));
+
+            // Format line for compact YAML
+            if format_output {
+                let mut line_parts = vec![format!("#{} [{}]", idx, element_type.to_uppercase())];
+                if let Some(ref c) = content {
+                    let truncated = if c.len() > 40 { format!("{}...", &c[..40]) } else { c.clone() };
+                    line_parts.push(truncated);
+                }
+                if let Some(ref d) = description {
+                    let truncated = if d.len() > 30 { format!("{}...", &d[..30]) } else { d.clone() };
+                    line_parts.push(format!("desc:{}", truncated));
+                }
+                if interactivity == Some(true) {
+                    line_parts.push("interactive".to_string());
+                }
+                formatted_lines.push(format!("  {}", line_parts.join(" ")));
+            }
+
+            if let Some(ref b) = bounds {
+                index_to_bounds.insert(
+                    idx.to_string(),
+                    crate::types::VisionBoundsEntry {
+                        name: display_name.clone(),
+                        element_type: element_type.clone(),
+                        bounds: b.clone(),
+                    },
+                );
+            }
+
+            elements.push(crate::types::VisionElement {
+                element_type,
+                content,
+                description,
+                bounds,
+                interactivity,
+            });
+        }
+
+        Ok(crate::types::GeminiVisionResult {
+            elements,
+            formatted: if format_output { Some(formatted_lines.join("\n")) } else { None },
+            index_to_bounds,
+            element_count: raw_elements.len() as u32,
+        })
+    }
+
+    /// (async) Perform Omniparser V2 detection on a window by PID.
+    ///
+    /// Captures a screenshot and sends it to the Omniparser backend for icon/field detection.
+    /// Requires OMNIPARSER_BACKEND_URL environment variable (defaults to https://app.mediar.ai/api/omniparser/parse).
+    ///
+    /// @param {number} pid - Process ID of the window to capture.
+    /// @param {number} [imgsz=1920] - Icon detection image size (640-1920). Higher = better but slower.
+    /// @param {boolean} [formatOutput=true] - Whether to include formatted compact YAML output.
+    /// @returns {Promise<OmniparserResult>} Detected items with bounds for click targeting.
+    #[napi]
+    pub async fn perform_omniparser_for_process(
+        &self,
+        pid: u32,
+        imgsz: Option<u32>,
+        format_output: Option<bool>,
+    ) -> napi::Result<crate::types::OmniparserResult> {
+        use base64::{engine::general_purpose, Engine};
+        use image::{codecs::png::PngEncoder, ExtendedColorType, ImageBuffer, ImageEncoder, Rgba};
+        use image::imageops::FilterType;
+        use std::collections::HashMap;
+        use std::io::Cursor;
+
+        let imgsz = imgsz.unwrap_or(1920).clamp(640, 1920);
+        let format_output = format_output.unwrap_or(true);
+
+        // Find the window element for this process
+        let apps = self.inner.applications().map_err(map_error)?;
+        let window_element = apps
+            .into_iter()
+            .find(|app| app.process_id().ok() == Some(pid))
+            .ok_or_else(|| napi::Error::from_reason(format!("No window found for PID {}", pid)))?;
+
+        // Get window bounds
+        let bounds = window_element.bounds().map_err(map_error)?;
+        let (window_x, window_y, win_w, win_h) = bounds;
+
+        // Capture screenshot
+        let screenshot = window_element.capture().map_err(map_error)?;
+        let original_width = screenshot.width;
+        let original_height = screenshot.height;
+
+        // Calculate DPI scale
+        let dpi_scale_w = original_width as f64 / win_w;
+        let dpi_scale_h = original_height as f64 / win_h;
+
+        // Convert BGRA to RGBA
+        let rgba_data: Vec<u8> = screenshot
+            .image_data
+            .chunks_exact(4)
+            .flat_map(|bgra| [bgra[2], bgra[1], bgra[0], bgra[3]])
+            .collect();
+
+        // Resize if needed (max 1920px)
+        const MAX_DIM: u32 = 1920;
+        let (final_width, final_height, final_rgba_data, scale_factor) =
+            if original_width > MAX_DIM || original_height > MAX_DIM {
+                let scale = (MAX_DIM as f32 / original_width.max(original_height) as f32).min(1.0);
+                let new_width = (original_width as f32 * scale).round() as u32;
+                let new_height = (original_height as f32 * scale).round() as u32;
+
+                let img = ImageBuffer::<Rgba<u8>, _>::from_raw(original_width, original_height, rgba_data)
+                    .ok_or_else(|| napi::Error::from_reason("Failed to create image buffer"))?;
+
+                let resized = image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
+                (new_width, new_height, resized.into_raw(), scale as f64)
+            } else {
+                (original_width, original_height, rgba_data, 1.0)
+            };
+
+        // Encode to PNG
+        let mut png_data = Vec::new();
+        let encoder = PngEncoder::new(Cursor::new(&mut png_data));
+        encoder
+            .write_image(&final_rgba_data, final_width, final_height, ExtendedColorType::Rgba8)
+            .map_err(|e| napi::Error::from_reason(format!("Failed to encode PNG: {e}")))?;
+
+        let base64_image = general_purpose::STANDARD.encode(&png_data);
+
+        // Call Omniparser backend
+        let backend_url = std::env::var("OMNIPARSER_BACKEND_URL")
+            .unwrap_or_else(|_| "https://app.mediar.ai/api/omniparser/parse".to_string());
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(300))
+            .build()
+            .map_err(|e| napi::Error::from_reason(format!("Failed to create HTTP client: {e}")))?;
+
+        let payload = serde_json::json!({
+            "image": base64_image,
+            "imgsz": imgsz
+        });
+
+        let resp = client
+            .post(&backend_url)
+            .header("Content-Type", "application/json")
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| napi::Error::from_reason(format!("Omniparser backend request failed: {e}")))?;
+
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(napi::Error::from_reason(format!("Omniparser backend error: {}", text)));
+        }
+
+        let response_text = resp.text().await
+            .map_err(|e| napi::Error::from_reason(format!("Failed to read response: {e}")))?;
+
+        let parsed: serde_json::Value = serde_json::from_str(&response_text)
+            .map_err(|e| napi::Error::from_reason(format!("Failed to parse response: {e}")))?;
+
+        if let Some(error) = parsed.get("error").and_then(|v| v.as_str()) {
+            return Err(napi::Error::from_reason(format!("Omniparser error: {}", error)));
+        }
+
+        let raw_elements = parsed
+            .get("elements")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        // Convert to OmniparserItem with absolute screen coordinates
+        let mut items = Vec::new();
+        let mut index_to_bounds: HashMap<String, crate::types::OmniparserBoundsEntry> = HashMap::new();
+        let mut formatted_lines: Vec<String> = Vec::new();
+
+        if format_output {
+            formatted_lines.push(format!("Omniparser: {} items (PID: {})", raw_elements.len(), pid));
+        }
+
+        let inv_scale = 1.0 / scale_factor;
+
+        for (i, elem) in raw_elements.iter().enumerate() {
+            let idx = i + 1;
+            let label = elem.get("type").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+            let content = elem.get("content").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(String::from);
+
+            // Get normalized bbox [x1, y1, x2, y2] from 0-1
+            let bbox = elem.get("bbox").and_then(|v| v.as_array());
+            let bounds = bbox.and_then(|arr| {
+                if arr.len() >= 4 {
+                    let x1 = arr[0].as_f64()? * final_width as f64;
+                    let y1 = arr[1].as_f64()? * final_height as f64;
+                    let x2 = arr[2].as_f64()? * final_width as f64;
+                    let y2 = arr[3].as_f64()? * final_height as f64;
+
+                    // Scale back to original size and convert to logical screen coords
+                    let abs_x = window_x + (x1 * inv_scale / dpi_scale_w);
+                    let abs_y = window_y + (y1 * inv_scale / dpi_scale_h);
+                    let abs_w = (x2 - x1) * inv_scale / dpi_scale_w;
+                    let abs_h = (y2 - y1) * inv_scale / dpi_scale_h;
+
+                    Some(crate::types::Bounds {
+                        x: abs_x,
+                        y: abs_y,
+                        width: abs_w,
+                        height: abs_h,
+                    })
+                } else {
+                    None
+                }
+            });
+
+            // Display name for index_to_bounds
+            let display_name = content
+                .as_ref()
+                .cloned()
+                .unwrap_or_else(|| format!("<{}>", label));
+
+            // Format line for compact YAML
+            if format_output {
+                let mut line_parts = vec![format!("#{} [{}]", idx, label.to_uppercase())];
+                if let Some(ref c) = content {
+                    let truncated = if c.len() > 50 { format!("{}...", &c[..50]) } else { c.clone() };
+                    line_parts.push(truncated);
+                }
+                formatted_lines.push(format!("  {}", line_parts.join(" ")));
+            }
+
+            if let Some(ref b) = bounds {
+                index_to_bounds.insert(
+                    idx.to_string(),
+                    crate::types::OmniparserBoundsEntry {
+                        name: display_name.clone(),
+                        label: label.clone(),
+                        bounds: b.clone(),
+                    },
+                );
+            }
+
+            items.push(crate::types::OmniparserItem {
+                label,
+                content,
+                bounds,
+            });
+        }
+
+        Ok(crate::types::OmniparserResult {
+            items,
+            formatted: if format_output { Some(formatted_lines.join("\n")) } else { None },
+            index_to_bounds,
+            item_count: raw_elements.len() as u32,
+        })
+    }
+
     /// (async) Get the currently focused browser window.
     ///
     /// @returns {Promise<Element>} The current browser window element.
@@ -326,7 +1067,10 @@ impl Desktop {
     ///
     /// @param {number} pid - Process ID of the target application.
     /// @param {string} [title] - Optional window title filter.
-    /// @param {TreeBuildConfig} [config] - Configuration (set formatOutput: true for formatted output).
+    /// @param {TreeBuildConfig} [config] - Configuration options:
+    ///   - formatOutput: Enable formatted output (default: true if treeOutputFormat set)
+    ///   - treeOutputFormat: 'CompactYaml' (default) or 'VerboseJson'
+    ///   - treeFromSelector: Selector to start tree from (use getWindowTreeResultAsync for this)
     /// @returns {WindowTreeResult} Complete result with tree, formatted output, and bounds mapping.
     #[napi]
     pub fn get_window_tree_result(
@@ -335,11 +1079,174 @@ impl Desktop {
         title: Option<String>,
         config: Option<TreeBuildConfig>,
     ) -> napi::Result<WindowTreeResult> {
-        let rust_config = config.map(|c| c.into());
-        self.inner
+        // Extract options before converting config
+        let output_format = config
+            .as_ref()
+            .and_then(|c| c.tree_output_format.clone())
+            .unwrap_or(TreeOutputFormat::CompactYaml);
+
+        // If format is VerboseJson, we don't need formatted output from core
+        let rust_config = config.map(|mut c| {
+            if matches!(output_format, TreeOutputFormat::VerboseJson) {
+                c.format_output = Some(false);
+            } else if c.format_output.is_none() {
+                c.format_output = Some(true);
+            }
+            c.into()
+        });
+
+        let result = self
+            .inner
             .get_window_tree_result(pid, title.as_deref(), rust_config)
-            .map(WindowTreeResult::from)
-            .map_err(map_error)
+            .map_err(map_error)?;
+
+        // Convert and handle format
+        let mut sdk_result = WindowTreeResult::from(result);
+
+        // For VerboseJson, serialize the tree as the formatted output
+        if matches!(output_format, TreeOutputFormat::VerboseJson) {
+            sdk_result.formatted =
+                Some(serde_json::to_string_pretty(&sdk_result.tree).unwrap_or_default());
+        }
+
+        Ok(sdk_result)
+    }
+
+    /// (async) Get the UI tree with full result, supporting tree_from_selector.
+    ///
+    /// Use this method when you need to scope the tree to a specific subtree using a selector.
+    ///
+    /// @param {number} pid - Process ID of the target application.
+    /// @param {string} [title] - Optional window title filter.
+    /// @param {TreeBuildConfig} [config] - Configuration options:
+    ///   - formatOutput: Enable formatted output (default: true)
+    ///   - treeOutputFormat: 'CompactYaml' (default) or 'VerboseJson'
+    ///   - treeFromSelector: Selector to start tree from (e.g., "role:Dialog")
+    /// @returns {Promise<WindowTreeResult>} Complete result with tree, formatted output, and bounds mapping.
+    #[napi]
+    pub async fn get_window_tree_result_async(
+        &self,
+        pid: u32,
+        title: Option<String>,
+        config: Option<TreeBuildConfig>,
+    ) -> napi::Result<WindowTreeResult> {
+        // Extract options before converting config
+        let output_format = config
+            .as_ref()
+            .and_then(|c| c.tree_output_format.clone())
+            .unwrap_or(TreeOutputFormat::CompactYaml);
+
+        let tree_from_selector = config
+            .as_ref()
+            .and_then(|c| c.tree_from_selector.clone());
+
+        let max_depth = config
+            .as_ref()
+            .and_then(|c| c.max_depth)
+            .unwrap_or(100) as usize;
+
+        // If tree_from_selector is provided, find the app by PID and search within it
+        if let Some(selector_str) = tree_from_selector {
+            // First, find the application element by PID
+            let apps = self.inner.applications().map_err(map_error)?;
+            let app_element = apps
+                .into_iter()
+                .find(|app| app.process_id().ok() == Some(pid))
+                .ok_or_else(|| {
+                    napi::Error::from_reason(format!(
+                        "No application found with PID {}",
+                        pid
+                    ))
+                })?;
+
+            // Now search within this application element
+            let selector = terminator::Selector::from(selector_str.as_str());
+            let locator = app_element.locator(selector).map_err(map_error)?;
+
+            let element = locator
+                .first(Some(std::time::Duration::from_millis(2000)))
+                .await
+                .map_err(map_error)?;
+
+            // Get the subtree from this element
+            let serializable_tree = element.to_serializable_tree(max_depth);
+            let tree = crate::types::serializable_to_ui_node(&serializable_tree);
+
+            // Format based on output format
+            let formatted = match output_format {
+                TreeOutputFormat::VerboseJson => {
+                    Some(serde_json::to_string_pretty(&tree).unwrap_or_default())
+                }
+                TreeOutputFormat::CompactYaml => {
+                    // Use the core formatter
+                    let result = terminator::format_tree_as_compact_yaml(&serializable_tree, 0);
+                    Some(result.formatted)
+                }
+            };
+
+            // Build index_to_bounds from the formatted result
+            let index_to_bounds = if matches!(output_format, TreeOutputFormat::CompactYaml) {
+                let result = terminator::format_tree_as_compact_yaml(&serializable_tree, 0);
+                result
+                    .index_to_bounds
+                    .into_iter()
+                    .map(|(idx, (role, name, (x, y, w, h), selector))| {
+                        (
+                            idx.to_string(),
+                            crate::types::BoundsEntry {
+                                role,
+                                name,
+                                bounds: crate::types::Bounds {
+                                    x,
+                                    y,
+                                    width: w,
+                                    height: h,
+                                },
+                                selector,
+                            },
+                        )
+                    })
+                    .collect()
+            } else {
+                std::collections::HashMap::new()
+            };
+
+            let element_count = index_to_bounds.len() as u32;
+            let is_browser = terminator::is_browser_process(pid);
+
+            return Ok(WindowTreeResult {
+                tree,
+                pid,
+                is_browser,
+                formatted,
+                index_to_bounds,
+                element_count,
+            });
+        }
+
+        // No tree_from_selector, use standard method
+        let rust_config = config.map(|mut c| {
+            if matches!(output_format, TreeOutputFormat::VerboseJson) {
+                c.format_output = Some(false);
+            } else if c.format_output.is_none() {
+                c.format_output = Some(true);
+            }
+            c.into()
+        });
+
+        let result = self
+            .inner
+            .get_window_tree_result(pid, title.as_deref(), rust_config)
+            .map_err(map_error)?;
+
+        let mut sdk_result = WindowTreeResult::from(result);
+
+        if matches!(output_format, TreeOutputFormat::VerboseJson) {
+            sdk_result.formatted =
+                Some(serde_json::to_string_pretty(&sdk_result.tree).unwrap_or_default());
+        }
+
+        Ok(sdk_result)
     }
 
     // ============== NEW MONITOR METHODS ==============
