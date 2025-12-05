@@ -5294,9 +5294,13 @@ dependencies = [
 name = "terminator-node-bindings"
 version = "0.23.36"
 dependencies = [
+ "base64 0.22.1",
+ "image",
  "napi",
  "napi-build",
  "napi-derive",
+ "reqwest",
+ "serde",
  "serde_json",
  "terminator-rs",
  "tracing-subscriber",
