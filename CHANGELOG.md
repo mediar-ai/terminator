@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.36] - 2025-12-04
+
+### Added
+- CLI: Add `init` command to scaffold TypeScript workflows
+- Tree: Build chained selectors during tree traversal and return in click response
+- SDK: Add `geminiComputerUse` to TypeScript SDK
+- SDK: Add `processName()` method and document `desktop.applications()`
+- Run Command: Default `include_logs` to true for MCP tool
+- Run Command: Include partial logs on timeout when `include_logs` is true
+
+### Fixed
+- CI: Run all unit tests, exclude e2e/integration/mcp tests that require real desktop
+- Browser Script: Improve error message for chrome:// pages
+- MCP: Use `eval()` for multi-statement script execution in browser
+- Computer Use: Use correct key format `{Ctrl}a` instead of `^a`
+- Computer Use: Improve reliability of `type_text_at` and screenshot timing
+- Recorder: Drill through containers with broken bounds to find named elements
+- Build: Add `opt-level=1` to dev-release profile for faster compilation
+
+### Changed
+- Recorder: Change URL search logs from warn to info
+
+### Documentation
+- Run Command: Add TypeScript SDK API documentation
+- Run Command: Fix incorrect `desktop.locator()` scoping documentation
+
 ## [0.23.35] - 2025-12-03
 
 ### Added
