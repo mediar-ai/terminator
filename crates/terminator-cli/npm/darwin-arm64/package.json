@@ -20,5 +20,5 @@
   "scripts": {
     "prepare": "chmod +x terminator"
   },
-  "version": "0.23.35"
+  "version": "0.23.36"
 }

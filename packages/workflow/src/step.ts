@@ -8,8 +8,9 @@ import {
     ExpectationResult,
     ExecuteError,
     StepResult,
-    RetrySignal,
     isWorkflowSuccess,
+    isRetry,
+    isNextStep,
 } from "./types";
 
 /**
@@ -120,6 +121,19 @@ export function createStep<
                     logger.success(`✅ Completed step: ${config.name} (${duration}ms)`);
                     return result as any;
                 }
+
+                // Check for retry marker - re-execute step
+                if (isRetry(result)) {
+                    logger.info(`🔄 Retry requested, re-executing: ${config.name}...`);
+                    return await this.run(context);
+                }
+
+                // Check for next step marker - return it to workflow for handling
+                if (isNextStep(result)) {
+                    const duration = Date.now() - startTime;
+                    logger.success(`✅ Completed step: ${config.name} (${duration}ms)`);
+                    return result as any;
+                }
                 // Normalize result to StepResult format
                 let normalizedResult: StepResult<TOutput, TStateOut> | void;
 
@@ -188,14 +202,6 @@ export function createStep<
 
                 return normalizedResult?.data as TOutput;
             } catch (error: any) {
-                // Handle retry signal from execute()
-                if (error instanceof RetrySignal || error._isRetrySignal) {
-                    logger.info(
-                        `🔄 Retry signal received, re-executing: ${config.name}...`,
-                    );
-                    return await this.run(context);
-                }
-
                 const duration = Date.now() - startTime;
                 logger.error(`❌ Step failed: ${config.name} (${duration}ms)`);
                 logger.error(`   Error: ${error.message}`);

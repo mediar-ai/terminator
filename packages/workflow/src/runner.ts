@@ -1,4 +1,4 @@
-import { Workflow, WorkflowContext, Logger, ConsoleLogger, isWorkflowSuccess } from './types';
+import { Workflow, WorkflowContext, Logger, ConsoleLogger, isWorkflowSuccess, isNextStep } from './types';
 import { Desktop } from '@mediar-ai/terminator';
 
 export interface WorkflowRunnerOptions {
@@ -80,8 +80,9 @@ export class WorkflowRunner {
       this.logger.info(`🎯 Stopping at step: ${this.endAtStep} (index ${endIndex})`);
     }
 
-    // Execute steps
-    for (let i = startIndex; i <= endIndex; i++) {
+    // Execute steps (using while loop to support next() jumps)
+    let i = startIndex;
+    while (i <= endIndex) {
       const step = steps[i];
 
       this.logger.info(`\n[${i + 1}/${steps.length}] ${step.config.name}`);
@@ -99,6 +100,7 @@ export class WorkflowRunner {
             this.state.stepResults[step.config.id] = {
               status: 'skipped',
             };
+            i++;
             continue;
           }
         }
@@ -124,6 +126,25 @@ export class WorkflowRunner {
           };
         }
 
+        // Check for runtime next() navigation
+        if (isNextStep(result)) {
+          const nextIndex = steps.findIndex(s => s.config.id === result.stepId);
+          if (nextIndex === -1) {
+            throw new Error(`Step '${step.config.id}' called next('${result.stepId}') but step not found`);
+          }
+          // Only allow jumping within the execution range
+          if (nextIndex < startIndex || nextIndex > endIndex) {
+            this.logger.warn(`⚠️ next('${result.stepId}') jumps outside execution range, ignoring`);
+            i++;
+            continue;
+          }
+          this.logger.info(`  → next('${result.stepId}')`);
+          this.state.lastStepId = step.config.id;
+          this.state.lastStepIndex = i;
+          i = nextIndex;
+          continue;
+        }
+
         // Save step result
         this.state.stepResults[step.config.id] = {
           status: 'success',
@@ -131,6 +152,7 @@ export class WorkflowRunner {
         };
         this.state.lastStepId = step.config.id;
         this.state.lastStepIndex = i;
+        i++;
 
       } catch (error: any) {
         this.logger.error(`❌ Step failed: ${error.message}`);

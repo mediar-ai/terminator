@@ -580,21 +580,17 @@ export class ConsoleLogger implements Logger {
 }
 
 /**
- * Signal class for triggering step retry from anywhere in execute()
+ * Marker object for step retry.
+ * Return this from execute() to re-execute the current step.
  * @internal
  */
-export class RetrySignal extends Error {
-    readonly _isRetrySignal = true;
-
-    constructor() {
-        super("Retry signal");
-        this.name = "RetrySignal";
-    }
+export interface RetryMarker {
+    readonly __retry: true;
 }
 
 /**
  * Trigger a step retry from within execute().
- * Throw this to re-execute the current step.
+ * Return this to re-execute the current step.
  *
  * @example
  * ```typescript
@@ -606,15 +602,65 @@ export class RetrySignal extends Error {
  *   execute: async ({ desktop }) => {
  *     const button = await desktop.locator('role:button').first();
  *     if (!button) {
- *       throw retry(); // Re-execute this step
+ *       return retry(); // Re-execute this step
  *     }
  *     await button.click();
  *   }
  * });
  * ```
  */
-export function retry(): RetrySignal {
-    return new RetrySignal();
+export function retry(): RetryMarker {
+    return { __retry: true };
+}
+
+/**
+ * Check if a value is a retry marker
+ * @internal
+ */
+export function isRetry(value: any): value is RetryMarker {
+    return value && typeof value === 'object' && value.__retry === true;
+}
+
+/**
+ * Marker object for jumping to a specific step.
+ * Return this from execute() to jump to a different step.
+ * @internal
+ */
+export interface NextStepMarker {
+    readonly __nextStep: true;
+    readonly stepId: string;
+}
+
+/**
+ * Jump to a specific step by ID.
+ * Return this from execute() to navigate to a different step.
+ *
+ * @example
+ * ```typescript
+ * import { createStep, next } from '@mediar-ai/workflow';
+ *
+ * createStep({
+ *   id: 'check_duplicate',
+ *   name: 'Check Duplicate',
+ *   execute: async ({ context }) => {
+ *     if (context.state.isDuplicate) {
+ *       return next('handle_duplicate'); // Jump to handle_duplicate step
+ *     }
+ *     return { state: { checked: true } };
+ *   }
+ * });
+ * ```
+ */
+export function next(stepId: string): NextStepMarker {
+    return { __nextStep: true, stepId };
+}
+
+/**
+ * Check if a value is a next step marker
+ * @internal
+ */
+export function isNextStep(value: any): value is NextStepMarker {
+    return value && typeof value === 'object' && value.__nextStep === true;
 }
 
 /**

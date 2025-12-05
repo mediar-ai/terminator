@@ -15,7 +15,7 @@ import type {
     ExecutionStatus,
     SuccessResult,
 } from "./types";
-import { ConsoleLogger, isWorkflowSuccess } from "./types";
+import { ConsoleLogger, isWorkflowSuccess, isNextStep } from "./types";
 import { createWorkflowRunner } from "./runner";
 
 /**
@@ -334,13 +334,30 @@ function createWorkflowInstance<TInput = any>(
                         };
                     }
 
+                    // Check for runtime next() navigation
+                    if (isNextStep(stepResult)) {
+                        const nextIndex = steps.findIndex(
+                            (s) => s.config.id === stepResult.stepId,
+                        );
+                        if (nextIndex === -1) {
+                            throw new Error(
+                                `Step '${step.config.id}' called next('${stepResult.stepId}') but step not found`,
+                            );
+                        }
+                        log.info(`  → next('${stepResult.stepId}')`);
+                        lastStepId = step.config.id;
+                        lastStepIndex = currentIndex;
+                        currentIndex = nextIndex;
+                        continue;
+                    }
+
                     // Track last completed step for state persistence
                     lastStepId = step.config.id;
                     lastStepIndex = currentIndex;
 
                     log.info("");
 
-                    // Handle 'next' pointer for branching
+                    // Handle 'next' pointer for branching (config-time)
                     if (step.config.next) {
                         const nextStepId =
                             typeof step.config.next === "function"
