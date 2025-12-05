@@ -5228,6 +5228,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "terminator-computer-use"
+version = "0.23.35"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "image",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sysinfo 0.36.1",
+ "tracing",
+]
+
+[[package]]
 name = "terminator-mcp-agent"
 version = "0.23.36"
 dependencies = [
@@ -5329,6 +5343,7 @@ dependencies = [
  "serde_json",
  "similar",
  "sysinfo 0.36.1",
+ "terminator-computer-use",
  "thiserror 2.0.16",
  "tiny_http",
  "tokio",
