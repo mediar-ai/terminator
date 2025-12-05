@@ -157,6 +157,7 @@ fn capture_window_for_computer_use(
 /// Execute a computer use action
 async fn execute_action(
     desktop: &Desktop,
+    process: &str,
     action: &str,
     args: &serde_json::Value,
     window_bounds: (f64, f64, f64, f64),
@@ -305,10 +306,37 @@ async fn execute_action(
         }
         "navigate" => {
             let url = get_str("url").ok_or("navigate requires url")?;
-            info!("[computer_use] navigate to: {}", url);
+            info!("[computer_use] navigate to: {} (process: {})", url, process);
+            // First, activate the browser window to ensure it has focus
+            if let Err(e) = desktop.activate_application(process) {
+                warn!("[computer_use] Failed to activate {}: {}", process, e);
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            // Use Ctrl+L to focus address bar, then type URL and press Enter
+            // This navigates the current tab instead of opening a new one
             desktop
-                .open_url(url, None)
-                .map_err(|e| format!("Navigate failed: {e}"))?;
+                .press_key("{Ctrl}l")
+                .await
+                .map_err(|e| format!("Focus address bar failed: {e}"))?;
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            // Select all existing text in address bar
+            desktop
+                .press_key("{Ctrl}a")
+                .await
+                .map_err(|e| format!("Select all in address bar failed: {e}"))?;
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            // Type the URL
+            let root = desktop.root();
+            root.type_text(url, false)
+                .map_err(|e| format!("Type URL failed: {e}"))?;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            // Press Enter to navigate
+            desktop
+                .press_key("{Enter}")
+                .await
+                .map_err(|e| format!("Press Enter to navigate failed: {e}"))?;
+            // Wait for navigation to start
+            tokio::time::sleep(Duration::from_millis(1000)).await;
         }
         "search" => {
             let query = get_str("query")
@@ -470,6 +498,7 @@ impl Desktop {
             // 6. Execute action
             let execute_result = execute_action(
                 self,
+                process,
                 &function_call.name,
                 &function_call.args,
                 capture_data.window_bounds,
