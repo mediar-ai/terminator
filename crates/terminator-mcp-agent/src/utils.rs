@@ -659,7 +659,9 @@ pub enum ClickMode {
 impl ClickElementArgs {
     /// Determine which click mode based on provided arguments
     pub fn determine_mode(&self) -> Result<ClickMode, String> {
-        let has_selector = self.process.is_some();
+        // Selector mode requires an actual selector, not just process
+        // (process is just a scoping filter that can be used with any mode)
+        let has_selector = self.selector.is_some();
         let has_index = self.index.is_some();
         let has_coords = self.x.is_some() && self.y.is_some();
         let has_partial_coords = self.x.is_some() || self.y.is_some();
@@ -676,14 +678,14 @@ impl ClickElementArgs {
                 return Err("Coordinate mode requires both 'x' and 'y' parameters".to_string());
             }
             return Err(
-                "Must specify one of: (process + selector), (index), or (x + y coordinates)"
+                "Must specify one of: (selector), (index), or (x + y coordinates)"
                     .to_string(),
             );
         }
 
         if mode_count > 1 {
             return Err(
-                "Cannot mix modes: specify only one of (process + selector), (index), or (x + y)"
+                "Cannot mix modes: specify only one of (selector), (index), or (x + y)"
                     .to_string(),
             );
         }
