@@ -36,8 +36,10 @@ pub use tokio_util::sync::CancellationToken;
 pub use tree_formatter::{format_tree_as_compact_yaml, format_ui_node_as_compact_yaml};
 pub use types::{FontStyle, HighlightHandle, TextPosition};
 
+// Re-export types from terminator-computer-use crate
 #[cfg(target_os = "windows")]
-pub use computer_use::{
+pub use terminator_computer_use::{
+    call_computer_use_backend, convert_normalized_to_screen, translate_gemini_keys,
     ComputerUseActionResponse, ComputerUseFunctionCall, ComputerUsePreviousAction,
     ComputerUseResponse, ComputerUseResult, ComputerUseStep, ProgressCallback,
 };
