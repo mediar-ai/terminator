@@ -319,6 +319,7 @@ export const Desktop = wrapClassMethods(native.Desktop);
 export const Element = wrapClass(native.Element);
 export const Locator = wrapClass(native.Locator);
 export const Selector = wrapClass(native.Selector);
+export const WindowManager = wrapClassMethods(native.WindowManager);
 
 // Patch executeBrowserScript on Desktop and Element
 if (Desktop.prototype.executeBrowserScript) {
@@ -345,5 +346,9 @@ export type {
   ScreenshotResult,
   UIElementAttributes,
   UINode,
+  WindowInfo,
+  ActionOptions,
+  TypeTextOptions,
+  PressKeyOptions,
 } from "./index.js";
 export { PropertyLoadingMode, TextPosition } from "./index.js";

@@ -13,6 +13,32 @@ use crate::{
 use crate::Selector;
 use napi::bindgen_prelude::Either;
 
+/// Options for action methods (click, doubleClick, rightClick, hover)
+#[napi(object)]
+#[derive(Default)]
+pub struct ActionOptions {
+    /// Whether to bring the window to front before the action. Defaults to true.
+    pub bring_to_front: Option<bool>,
+}
+
+/// Options for typeText method
+#[napi(object)]
+#[derive(Default)]
+pub struct TypeTextOptions {
+    /// Whether to use clipboard for pasting. Defaults to false.
+    pub use_clipboard: Option<bool>,
+    /// Whether to bring the window to front before the action. Defaults to true.
+    pub bring_to_front: Option<bool>,
+}
+
+/// Options for pressKey method
+#[napi(object)]
+#[derive(Default)]
+pub struct PressKeyOptions {
+    /// Whether to bring the window to front before the action. Defaults to true.
+    pub bring_to_front: Option<bool>,
+}
+
 /// A UI element in the accessibility tree.
 #[napi(js_name = "Element")]
 pub struct Element {
@@ -127,17 +153,27 @@ impl Element {
 
     /// Click on this element.
     ///
+    /// @param {ActionOptions} [options] - Options for the action.
     /// @returns {ClickResult} Result of the click operation.
     #[napi]
-    pub fn click(&self) -> napi::Result<ClickResult> {
+    pub fn click(&self, options: Option<ActionOptions>) -> napi::Result<ClickResult> {
+        let opts = options.unwrap_or_default();
+        if opts.bring_to_front.unwrap_or(true) {
+            let _ = self.inner.activate_window();
+        }
         self.inner.click().map(ClickResult::from).map_err(map_error)
     }
 
     /// Double click on this element.
     ///
+    /// @param {ActionOptions} [options] - Options for the action.
     /// @returns {ClickResult} Result of the click operation.
     #[napi]
-    pub fn double_click(&self) -> napi::Result<ClickResult> {
+    pub fn double_click(&self, options: Option<ActionOptions>) -> napi::Result<ClickResult> {
+        let opts = options.unwrap_or_default();
+        if opts.bring_to_front.unwrap_or(true) {
+            let _ = self.inner.activate_window();
+        }
         self.inner
             .double_click()
             .map(ClickResult::from)
@@ -145,14 +181,26 @@ impl Element {
     }
 
     /// Right click on this element.
+    ///
+    /// @param {ActionOptions} [options] - Options for the action.
     #[napi]
-    pub fn right_click(&self) -> napi::Result<()> {
+    pub fn right_click(&self, options: Option<ActionOptions>) -> napi::Result<()> {
+        let opts = options.unwrap_or_default();
+        if opts.bring_to_front.unwrap_or(true) {
+            let _ = self.inner.activate_window();
+        }
         self.inner.right_click().map_err(map_error)
     }
 
     /// Hover over this element.
+    ///
+    /// @param {ActionOptions} [options] - Options for the action.
     #[napi]
-    pub fn hover(&self) -> napi::Result<()> {
+    pub fn hover(&self, options: Option<ActionOptions>) -> napi::Result<()> {
+        let opts = options.unwrap_or_default();
+        if opts.bring_to_front.unwrap_or(true) {
+            let _ = self.inner.activate_window();
+        }
         self.inner.hover().map_err(map_error)
     }
 
@@ -192,19 +240,28 @@ impl Element {
     /// Type text into this element.
     ///
     /// @param {string} text - The text to type.
-    /// @param {boolean} [useClipboard] - Whether to use clipboard for pasting.
+    /// @param {TypeTextOptions} [options] - Options for typing.
     #[napi]
-    pub fn type_text(&self, text: String, use_clipboard: Option<bool>) -> napi::Result<()> {
+    pub fn type_text(&self, text: String, options: Option<TypeTextOptions>) -> napi::Result<()> {
+        let opts = options.unwrap_or_default();
+        if opts.bring_to_front.unwrap_or(true) {
+            let _ = self.inner.activate_window();
+        }
         self.inner
-            .type_text(&text, use_clipboard.unwrap_or(false))
+            .type_text(&text, opts.use_clipboard.unwrap_or(false))
             .map_err(map_error)
     }
 
     /// Press a key while this element is focused.
     ///
     /// @param {string} key - The key to press.
+    /// @param {PressKeyOptions} [options] - Options for the action.
     #[napi]
-    pub fn press_key(&self, key: String) -> napi::Result<()> {
+    pub fn press_key(&self, key: String, options: Option<PressKeyOptions>) -> napi::Result<()> {
+        let opts = options.unwrap_or_default();
+        if opts.bring_to_front.unwrap_or(true) {
+            let _ = self.inner.activate_window();
+        }
         self.inner.press_key(&key).map_err(map_error)
     }
 

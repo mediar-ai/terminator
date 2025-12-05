@@ -8,7 +8,7 @@ mod window_manager;
 
 // Main types first
 pub use desktop::Desktop;
-pub use element::Element;
+pub use element::{ActionOptions, Element, PressKeyOptions, TypeTextOptions};
 pub use locator::Locator;
 pub use selector::Selector;
 pub use types::{

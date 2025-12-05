@@ -3733,10 +3733,12 @@ IMPORTANT: .first() and .all() require mandatory timeout in milliseconds:
 ═══════════════════════════════════════════════════════════════════
 ELEMENT API
 ═══════════════════════════════════════════════════════════════════
-element.click(): ClickResult                 // Click element
-element.doubleClick(): ClickResult           // Double click
-element.typeText(text, useClipboard?): void  // Type text
-element.pressKey(key): void                  // Press key while focused
+element.click(options?): ClickResult         // Click (bringToFront: true by default)
+element.doubleClick(options?): ClickResult   // Double click
+element.rightClick(options?): void           // Right click
+element.hover(options?): void                // Hover over element
+element.typeText(text, options?): void       // Type text (options: {useClipboard?, bringToFront?})
+element.pressKey(key, options?): void        // Press key (options: {bringToFront?})
 element.setValue(value): void                // Set value directly
 element.text(maxDepth?): string              // Get text content
 element.name(): string | null                // Get element name
@@ -3748,6 +3750,33 @@ element.locator(selector): Locator           // Search within element
 element.processId(): number                  // Get process ID (PID)
 element.processName(): string                // Get process name (e.g., chrome, notepad)
 element.isFocused(): boolean                 // Check if element has focus
+element.activateWindow(): void               // Bring window to front
+
+Action Options (all actions bring window to front by default):
+  click/doubleClick/rightClick/hover: { bringToFront?: boolean }  // default: true
+  typeText: { useClipboard?: boolean, bringToFront?: boolean }    // default: false, true
+  pressKey: { bringToFront?: boolean }                            // default: true
+
+Example - disable auto window activation:
+  element.click({ bringToFront: false });
+  element.typeText('hello', { bringToFront: false });
+
+═══════════════════════════════════════════════════════════════════
+WINDOW MANAGER API
+═══════════════════════════════════════════════════════════════════
+const wm = new WindowManager();              // Create window manager instance
+wm.updateWindowCache(): Promise<void>        // Refresh window list
+wm.getTopmostWindowForProcess(name): Promise<WindowInfo | null>  // Get top window by process
+wm.getTopmostWindowForPid(pid): Promise<WindowInfo | null>       // Get top window by PID
+wm.getAlwaysOnTopWindows(): Promise<WindowInfo[]>                // Get always-on-top windows
+wm.bringWindowToFront(hwnd): Promise<boolean>                    // Bring window to front (robust)
+wm.minimizeIfNeeded(hwnd): Promise<boolean>                      // Minimize window
+wm.maximizeIfNeeded(hwnd): Promise<boolean>                      // Maximize window
+wm.captureInitialState(): Promise<void>      // Snapshot window states
+wm.restoreAllWindows(): Promise<number>      // Restore to original state
+wm.isUwpApp(pid): Promise<boolean>           // Check if UWP app
+
+WindowInfo: { hwnd, processName, processId, zOrder, isMinimized, isMaximized, isAlwaysOnTop, title }
 
 ⚠️ CRITICAL: Selector Scoping (REQUIRED)
 All desktop.locator() calls MUST include `process:` prefix. Without it, search will error.
