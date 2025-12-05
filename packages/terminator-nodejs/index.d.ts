@@ -445,6 +445,13 @@ export declare class Desktop {
    * @returns {number} The number of highlights that were stopped.
    */
   stopHighlighting(): number
+  /**
+   * Hide any active inspect overlay.
+   *
+   * This hides the visual overlay that was shown via `get_window_tree` with
+   * `show_overlay` parameter. Can be called from any thread.
+   */
+  hideInspectOverlay(): void
 }
 /** A UI element in the accessibility tree. */
 export declare class Element {

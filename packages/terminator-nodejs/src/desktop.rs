@@ -587,4 +587,20 @@ impl Desktop {
             0
         }
     }
+
+    /// Hide any active inspect overlay.
+    ///
+    /// This hides the visual overlay that was shown via `get_window_tree` with
+    /// `show_overlay` parameter. Can be called from any thread.
+    #[napi]
+    pub fn hide_inspect_overlay(&self) {
+        #[cfg(target_os = "windows")]
+        {
+            terminator::hide_inspect_overlay();
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            // Not implemented for other platforms yet
+        }
+    }
 }
