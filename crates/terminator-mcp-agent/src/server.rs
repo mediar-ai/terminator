@@ -3794,31 +3794,21 @@ Common use cases:
 - Browser restore prompts, password save dialogs
 - Any conditionally-appearing UI element
 
-⚠️ Variable Declaration Safety:
-Terminator injects environment variables using 'var' - ALWAYS use typeof checks:
-const myVar = (typeof env_var_name !== 'undefined') ? env_var_name : 'default';
-const isActive = (typeof is_active !== 'undefined') ? is_active === 'true' : false;
-const count = (typeof retry_count !== 'undefined') ? parseInt(retry_count) : 0;  // ✅ SAFE
-// NEVER: const count = parseInt(retry_count || '0');  // ❌ DANGEROUS - will error if retry_count already declared
+Accessing Workflow Variables:
+Use the 'variables' object (always available, contains workflow inputs merged with defaults):
+const myVar = variables.my_var;
+const count = variables.my_number || 0;
+const config = variables.app_config || {};
 
-Examples:
-// Primitives
-const path = (typeof file_path !== 'undefined') ? file_path : './default';
-const max = (typeof max_retries !== 'undefined') ? parseInt(max_retries) : 3;
-// Collections (auto-parsed from JSON)
-const entries = (typeof journal_entries !== 'undefined') ? journal_entries : [];
-const config = (typeof app_config !== 'undefined') ? app_config : {};
-// Tool results (step_id_result, step_id_status)
-const apps = (typeof check_apps_result !== 'undefined') ? check_apps_result : [];
+Step Results (from previous steps):
+const result = env.step_id_result;
+const status = env.step_id_status;
 
 Data Passing:
-Return fields (non-reserved) auto-merge to env for next steps:
-return { file_path: '/data.txt', count: 42 };  // Available as file_path, count in next steps
+Return fields auto-merge to env for next steps:
+return { file_path: '/data.txt', count: 42 };
 
 System-reserved fields (don't auto-merge): status, error, logs, duration_ms, set_env
-
-⚠️ Avoid collision-prone variable names: message, result, data, success, value, count, total, found, text, type, name, index
-Use specific names instead: validationMessage, queryResult, tableData, entriesCount
 
 include_logs Parameter:
 Set include_logs: true to capture stdout/stderr output. Default is false for cleaner responses. On errors, logs are always included.
