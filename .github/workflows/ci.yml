@@ -117,25 +117,25 @@ jobs:
       #     bun test
       #   shell: pwsh
 
-      # # Install Chrome extension and run browser tests
-      # - name: Install Chrome
-      #   run: |
-      #     choco install googlechrome -y --ignore-checksums
-      #     Start-Sleep -Seconds 5
-      #     # check chrome is installed
-      #     $chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-      #     if (-not (Test-Path $chromePath)) {
-      #       Write-Error "Chrome is not installed"
-      #     }
-      #   shell: pwsh
+      # Install Chrome extension and run browser tests
+      - name: Install Chrome
+        run: |
+          choco install googlechrome -y --ignore-checksums
+          Start-Sleep -Seconds 5
+          # check chrome is installed
+          $chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+          if (-not (Test-Path $chromePath)) {
+            Write-Error "Chrome is not installed"
+          }
+        shell: pwsh
 
-      # - name: Install extension via terminator workflow
-      #   run: |
-      #     Write-Host "Running extension installation workflow..."
-      #     cargo run --bin terminator -- mcp run crates/terminator/browser-extension/install_chrome_extension_ui.yml
-      #   shell: pwsh
-      #   timeout-minutes: 5
-      #   continue-on-error: true
+      - name: Install extension via terminator workflow
+        run: |
+          Write-Host "Running extension installation workflow..."
+          cargo run --bin terminator -- mcp run crates/terminator/browser-extension/install_chrome_extension_ui.yml
+        shell: pwsh
+        timeout-minutes: 5
+        continue-on-error: true
 
       - name: Run TypeScript browser script bridge workflow
         run: |
