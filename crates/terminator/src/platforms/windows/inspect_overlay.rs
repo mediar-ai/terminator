@@ -16,25 +16,8 @@ use windows::Win32::Graphics::Gdi::{
     PS_SOLID, TRANSPARENT,
 };
 
-/// Display mode for overlay labels
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum OverlayDisplayMode {
-    /// Just rectangles, no labels
-    Rectangles,
-    /// [index] only
-    #[default]
-    Index,
-    /// [role] only
-    Role,
-    /// [index:role]
-    IndexRole,
-    /// [name] only
-    Name,
-    /// [index:name]
-    IndexName,
-    /// [index:role:name]
-    Full,
-}
+// Re-export OverlayDisplayMode from platforms module
+pub use crate::platforms::OverlayDisplayMode;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, LoadCursorW, RegisterClassExW,

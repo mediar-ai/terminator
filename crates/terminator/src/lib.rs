@@ -33,7 +33,10 @@ pub use locator::Locator;
 pub use screenshot::ScreenshotResult;
 pub use selector::Selector;
 pub use tokio_util::sync::CancellationToken;
-pub use tree_formatter::{format_tree_as_compact_yaml, format_ui_node_as_compact_yaml};
+pub use tree_formatter::{
+    format_ocr_tree_as_compact_yaml, format_tree_as_compact_yaml, format_ui_node_as_compact_yaml,
+    OcrFormattingResult, TreeFormattingResult,
+};
 pub use types::{FontStyle, HighlightHandle, TextPosition};
 
 // Re-export types from terminator-computer-use crate
@@ -43,6 +46,9 @@ pub use terminator_computer_use::{
     ComputerUseActionResponse, ComputerUseFunctionCall, ComputerUsePreviousAction,
     ComputerUseResponse, ComputerUseResult, ComputerUseStep, ProgressCallback,
 };
+
+// Re-export cross-platform types from platforms
+pub use platforms::{OverlayDisplayMode, PropertyLoadingMode, TreeBuildConfig};
 
 // Re-export window manager types (Windows only)
 #[cfg(target_os = "windows")]
@@ -77,8 +83,8 @@ pub enum ClickType {
 #[cfg(target_os = "windows")]
 pub use platforms::windows::{
     convert_uiautomation_element_to_terminator, get_process_name_by_pid, hide_inspect_overlay,
-    set_recording_mode, show_inspect_overlay, stop_all_highlights, InspectElement,
-    InspectOverlayHandle, OverlayDisplayMode,
+    is_browser_process, set_recording_mode, show_inspect_overlay, stop_all_highlights,
+    InspectElement, InspectOverlayHandle, KNOWN_BROWSER_PROCESS_NAMES,
 };
 
 // Define a new struct to hold click result information - move to module level
@@ -100,6 +106,30 @@ pub struct CommandOutput {
     pub exit_status: Option<i32>,
     pub stdout: String,
     pub stderr: String,
+}
+
+/// Result of get_window_tree operation with all computed data
+///
+/// This struct provides everything needed for UI automation:
+/// - Raw UINode tree for programmatic traversal
+/// - Formatted output for LLM consumption
+/// - Index-to-bounds mapping for click targeting
+/// - Metadata about the window/process
+#[derive(Debug, Clone)]
+pub struct WindowTreeResult {
+    /// The raw UI tree structure
+    pub tree: UINode,
+    /// Process ID of the window
+    pub pid: u32,
+    /// Whether this is a browser window
+    pub is_browser: bool,
+    /// Formatted compact YAML output (if format_output was true)
+    pub formatted: Option<String>,
+    /// Mapping of index to (role, name, bounds, selector) for click targeting
+    /// Key is 1-based index, value is (role, name, (x, y, width, height), selector)
+    pub index_to_bounds: std::collections::HashMap<u32, (String, String, (f64, f64, f64, f64), Option<String>)>,
+    /// Total count of indexed elements (elements with bounds)
+    pub element_count: u32,
 }
 
 /// Represents a monitor/display device
@@ -697,6 +727,61 @@ impl Desktop {
     ) -> Result<UINode, AutomationError> {
         let tree_config = config.unwrap_or_default();
         self.engine.get_window_tree(pid, title, tree_config)
+    }
+
+    /// Get the UI tree with full result including formatting and bounds mapping
+    ///
+    /// This is the recommended method for getting window trees when you need:
+    /// - Formatted YAML output for LLM consumption
+    /// - Index-to-bounds mapping for click targeting
+    /// - Browser detection
+    ///
+    /// # Arguments
+    /// * `pid` - Process ID of the target application
+    /// * `title` - Optional window title filter
+    /// * `config` - Tree building configuration (format_output controls formatted output)
+    ///
+    /// # Returns
+    /// `WindowTreeResult` containing the tree, formatted output, and bounds mapping
+    #[instrument(skip(self, pid, title, config))]
+    pub fn get_window_tree_result(
+        &self,
+        pid: u32,
+        title: Option<&str>,
+        config: Option<crate::platforms::TreeBuildConfig>,
+    ) -> Result<WindowTreeResult, AutomationError> {
+        let tree_config = config.unwrap_or_default();
+        let format_output = tree_config.format_output;
+
+        // Get the raw tree
+        let tree = self.engine.get_window_tree(pid, title, tree_config)?;
+
+        // Check if browser process
+        #[cfg(target_os = "windows")]
+        let is_browser = is_browser_process(pid);
+        #[cfg(not(target_os = "windows"))]
+        let is_browser = false;
+
+        // Format the tree and get bounds mapping if requested
+        let (formatted, index_to_bounds, element_count) = if format_output {
+            let result = format_ui_node_as_compact_yaml(&tree, 0);
+            (
+                Some(result.formatted),
+                result.index_to_bounds,
+                result.element_count,
+            )
+        } else {
+            (None, std::collections::HashMap::new(), 0)
+        };
+
+        Ok(WindowTreeResult {
+            tree,
+            pid,
+            is_browser,
+            formatted,
+            index_to_bounds,
+            element_count,
+        })
     }
 
     /// Get the UI tree for all open applications in parallel.

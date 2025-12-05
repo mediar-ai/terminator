@@ -17,6 +17,35 @@ pub struct TreeBuildConfig {
     pub max_depth: Option<usize>,
     /// Include bounds for all elements (not just focusable). Used for inspect overlay.
     pub include_all_bounds: bool,
+    /// Delay in milliseconds to wait for UI to stabilize before capturing tree.
+    /// Useful for letting animations/transitions complete. Default: 0 (no delay)
+    pub ui_settle_delay_ms: Option<u64>,
+    /// Generate formatted compact YAML output alongside the tree structure
+    pub format_output: bool,
+    /// Show visual overlay with indexed elements after building tree (Windows only)
+    pub show_overlay: bool,
+    /// Display mode for overlay labels when show_overlay is true
+    pub overlay_display_mode: Option<OverlayDisplayMode>,
+}
+
+/// Display mode for inspect overlay labels (cross-platform definition)
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum OverlayDisplayMode {
+    /// Just rectangles, no labels
+    Rectangles,
+    /// [index] only
+    #[default]
+    Index,
+    /// [role] only
+    Role,
+    /// [index:role]
+    IndexRole,
+    /// [name] only
+    Name,
+    /// [index:name]
+    IndexName,
+    /// [index:role:name]
+    Full,
 }
 
 /// Defines how much element property data to load
@@ -39,6 +68,10 @@ impl Default for TreeBuildConfig {
             batch_size: Some(50),
             max_depth: None, // No limit by default
             include_all_bounds: false,
+            ui_settle_delay_ms: None, // No delay by default
+            format_output: false,
+            show_overlay: false,
+            overlay_display_mode: None,
         }
     }
 }

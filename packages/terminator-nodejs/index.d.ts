@@ -84,6 +84,28 @@ export interface UINode {
   attributes: UIElementAttributes
   children: Array<UINode>
 }
+/** Entry in index-to-bounds mapping for click targeting */
+export interface BoundsEntry {
+  role: string
+  name: string
+  bounds: Bounds
+  selector?: string
+}
+/** Result of get_window_tree_result operation with all computed data */
+export interface WindowTreeResult {
+  /** The raw UI tree structure */
+  tree: UINode
+  /** Process ID of the window */
+  pid: number
+  /** Whether this is a browser window */
+  isBrowser: boolean
+  /** Formatted compact YAML output (if format_output was true) */
+  formatted?: string
+  /** Mapping of index to bounds for click targeting (keys are 1-based indices as strings) */
+  indexToBounds: Record<string, BoundsEntry>
+  /** Total count of indexed elements (elements with bounds) */
+  elementCount: number
+}
 export const enum PropertyLoadingMode {
   /** Only load essential properties (role + name) - fastest */
   Fast = 'Fast',
@@ -101,6 +123,12 @@ export interface TreeBuildConfig {
   yieldEveryNElements?: number
   /** Optional batch size for processing elements */
   batchSize?: number
+  /** Optional maximum depth to traverse (undefined = unlimited) */
+  maxDepth?: number
+  /** Delay in milliseconds to wait for UI to stabilize before capturing tree */
+  uiSettleDelayMs?: number
+  /** Generate formatted compact YAML output alongside the tree structure */
+  formatOutput?: boolean
 }
 export const enum TextPosition {
   Top = 'Top',
@@ -311,6 +339,20 @@ export declare class Desktop {
    * @returns {UINode} Complete UI tree starting from the identified window.
    */
   getWindowTree(pid: number, title?: string | undefined | null, config?: TreeBuildConfig | undefined | null): UINode
+  /**
+   * Get the UI tree with full result including formatting and bounds mapping.
+   *
+   * This is the recommended method for getting window trees when you need:
+   * - Formatted YAML output for LLM consumption
+   * - Index-to-bounds mapping for click targeting
+   * - Browser detection
+   *
+   * @param {number} pid - Process ID of the target application.
+   * @param {string} [title] - Optional window title filter.
+   * @param {TreeBuildConfig} [config] - Configuration (set formatOutput: true for formatted output).
+   * @returns {WindowTreeResult} Complete result with tree, formatted output, and bounds mapping.
+   */
+  getWindowTreeResult(pid: number, title?: string | undefined | null, config?: TreeBuildConfig | undefined | null): WindowTreeResult
   /**
    * (async) List all available monitors/displays.
    *

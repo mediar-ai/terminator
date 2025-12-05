@@ -1,4 +1,4 @@
-use crate::types::{ComputerUseResult, Monitor, MonitorScreenshotPair};
+use crate::types::{ComputerUseResult, Monitor, MonitorScreenshotPair, WindowTreeResult};
 use crate::Selector;
 use crate::{
     map_error, CommandOutput, Element, Locator, ScreenshotResult, TreeBuildConfig, UINode,
@@ -314,6 +314,31 @@ impl Desktop {
         self.inner
             .get_window_tree(pid, title.as_deref(), rust_config)
             .map(UINode::from)
+            .map_err(map_error)
+    }
+
+    /// Get the UI tree with full result including formatting and bounds mapping.
+    ///
+    /// This is the recommended method for getting window trees when you need:
+    /// - Formatted YAML output for LLM consumption
+    /// - Index-to-bounds mapping for click targeting
+    /// - Browser detection
+    ///
+    /// @param {number} pid - Process ID of the target application.
+    /// @param {string} [title] - Optional window title filter.
+    /// @param {TreeBuildConfig} [config] - Configuration (set formatOutput: true for formatted output).
+    /// @returns {WindowTreeResult} Complete result with tree, formatted output, and bounds mapping.
+    #[napi]
+    pub fn get_window_tree_result(
+        &self,
+        pid: u32,
+        title: Option<String>,
+        config: Option<TreeBuildConfig>,
+    ) -> napi::Result<WindowTreeResult> {
+        let rust_config = config.map(|c| c.into());
+        self.inner
+            .get_window_tree_result(pid, title.as_deref(), rust_config)
+            .map(WindowTreeResult::from)
             .map_err(map_error)
     }
 

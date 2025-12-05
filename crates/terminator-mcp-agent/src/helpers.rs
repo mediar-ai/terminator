@@ -457,6 +457,10 @@ pub async fn maybe_attach_tree(
         batch_size: Some(25),
         max_depth: tree_max_depth,
         include_all_bounds,
+        ui_settle_delay_ms: None,
+        format_output: false, // MCP handles formatting separately
+        show_overlay: false,
+        overlay_display_mode: None,
     };
 
     // Determine output format (default to CompactYaml)
@@ -633,6 +637,10 @@ where
         batch_size: Some(25),
         max_depth: tree_max_depth,
         include_all_bounds: false,
+        ui_settle_delay_ms: None,
+        format_output: false,
+        show_overlay: false,
+        overlay_display_mode: None,
     };
 
     // Capture BEFORE tree
@@ -782,6 +790,10 @@ where
                         batch_size: Some(25),
                         max_depth: tree_max_depth,
                         include_all_bounds: false,
+                        ui_settle_delay_ms: None,
+                        format_output: false,
+                        show_overlay: false,
+                        overlay_display_mode: None,
                     };
 
                     // Capture BEFORE tree

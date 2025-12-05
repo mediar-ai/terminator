@@ -25,7 +25,7 @@ pub use types::{FontStyle, HighlightHandle, TextPosition};
 pub use utils::{convert_uiautomation_element_to_terminator, generate_element_id};
 
 // Re-export from applications module
-pub use applications::get_process_name_by_pid;
+pub use applications::{get_process_name_by_pid, is_browser_process, KNOWN_BROWSER_PROCESS_NAMES};
 
 // Re-export highlighting control functions
 pub use highlighting::{set_recording_mode, stop_all_highlights};

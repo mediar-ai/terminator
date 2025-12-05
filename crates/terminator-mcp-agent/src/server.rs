@@ -769,29 +769,18 @@ impl DesktopWrapper {
     }
 
     /// Detect if a PID belongs to a browser process
+    /// Delegates to terminator::is_browser_process for consistent browser detection
     fn detect_browser_by_pid(pid: u32) -> bool {
-        const KNOWN_BROWSER_PROCESS_NAMES: &[&str] = &[
-            "chrome", "firefox", "msedge", "edge", "iexplore", "opera", "brave", "vivaldi",
-            "browser", "arc",
-        ];
-
         #[cfg(target_os = "windows")]
         {
-            use terminator::get_process_name_by_pid;
-            if let Ok(process_name) = get_process_name_by_pid(pid as i32) {
-                let process_name_lower = process_name.to_lowercase();
-                return KNOWN_BROWSER_PROCESS_NAMES
-                    .iter()
-                    .any(|&browser| process_name_lower.contains(browser));
-            }
+            terminator::is_browser_process(pid)
         }
 
         #[cfg(not(target_os = "windows"))]
         {
             let _ = pid; // Suppress unused warning
+            false
         }
-
-        false
     }
 
     /// Capture all visible DOM elements from the current browser tab

@@ -74,6 +74,32 @@ pub struct UINode {
     pub children: Vec<UINode>,
 }
 
+/// Entry in index-to-bounds mapping for click targeting
+#[napi(object, js_name = "BoundsEntry")]
+pub struct BoundsEntry {
+    pub role: String,
+    pub name: String,
+    pub bounds: Bounds,
+    pub selector: Option<String>,
+}
+
+/// Result of get_window_tree_result operation with all computed data
+#[napi(object, js_name = "WindowTreeResult")]
+pub struct WindowTreeResult {
+    /// The raw UI tree structure
+    pub tree: UINode,
+    /// Process ID of the window
+    pub pid: u32,
+    /// Whether this is a browser window
+    pub is_browser: bool,
+    /// Formatted compact YAML output (if format_output was true)
+    pub formatted: Option<String>,
+    /// Mapping of index to bounds for click targeting (keys are 1-based indices as strings)
+    pub index_to_bounds: HashMap<String, BoundsEntry>,
+    /// Total count of indexed elements (elements with bounds)
+    pub element_count: u32,
+}
+
 #[napi(string_enum)]
 pub enum PropertyLoadingMode {
     /// Only load essential properties (role + name) - fastest
@@ -94,6 +120,12 @@ pub struct TreeBuildConfig {
     pub yield_every_n_elements: Option<i32>,
     /// Optional batch size for processing elements
     pub batch_size: Option<i32>,
+    /// Optional maximum depth to traverse (undefined = unlimited)
+    pub max_depth: Option<i32>,
+    /// Delay in milliseconds to wait for UI to stabilize before capturing tree
+    pub ui_settle_delay_ms: Option<i64>,
+    /// Generate formatted compact YAML output alongside the tree structure
+    pub format_output: Option<bool>,
 }
 
 impl From<(f64, f64, f64, f64)> for Bounds {
@@ -144,6 +176,42 @@ impl From<terminator::UINode> for UINode {
             id: node.id,
             attributes: UIElementAttributes::from(node.attributes),
             children: node.children.into_iter().map(UINode::from).collect(),
+        }
+    }
+}
+
+impl From<terminator::WindowTreeResult> for WindowTreeResult {
+    fn from(result: terminator::WindowTreeResult) -> Self {
+        // Convert HashMap<u32, (String, String, (f64, f64, f64, f64), Option<String>)>
+        // to HashMap<String, BoundsEntry>
+        let index_to_bounds = result
+            .index_to_bounds
+            .into_iter()
+            .map(|(idx, (role, name, (x, y, w, h), selector))| {
+                (
+                    idx.to_string(),
+                    BoundsEntry {
+                        role,
+                        name,
+                        bounds: Bounds {
+                            x,
+                            y,
+                            width: w,
+                            height: h,
+                        },
+                        selector,
+                    },
+                )
+            })
+            .collect();
+
+        WindowTreeResult {
+            tree: UINode::from(result.tree),
+            pid: result.pid,
+            is_browser: result.is_browser,
+            formatted: result.formatted,
+            index_to_bounds,
+            element_count: result.element_count,
         }
     }
 }
@@ -271,8 +339,12 @@ impl From<TreeBuildConfig> for terminator::platforms::TreeBuildConfig {
             timeout_per_operation_ms: config.timeout_per_operation_ms.map(|x| x as u64),
             yield_every_n_elements: config.yield_every_n_elements.map(|x| x as usize),
             batch_size: config.batch_size.map(|x| x as usize),
-            max_depth: None, // Not exposed in nodejs bindings yet
+            max_depth: config.max_depth.map(|x| x as usize),
             include_all_bounds: false,
+            ui_settle_delay_ms: config.ui_settle_delay_ms.map(|x| x as u64),
+            format_output: config.format_output.unwrap_or(false),
+            show_overlay: false, // Not exposed in SDK - use showInspectOverlay instead
+            overlay_display_mode: None,
         }
     }
 }
