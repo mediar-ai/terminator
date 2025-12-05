@@ -28,11 +28,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
       - uses: dtolnay/rust-toolchain@stable
 
       # Clean target directory to avoid PDB conflicts
@@ -45,13 +40,13 @@ jobs:
         with:
           key: windows-${{ hashFiles('**/Cargo.lock') }}
 
-      # Build with retries
+      # Build with retries (exclude Python bindings - built separately in ci-wheels.yml)
       - name: Build workspace
         run: |
           $attempts = 3
           for ($i = 1; $i -le $attempts; $i++) {
             Write-Host "Build attempt $i of $attempts"
-            cargo build --workspace --verbose
+            cargo build --workspace --exclude terminator-py-bindings --verbose
             if ($LASTEXITCODE -eq 0) {
               break
             }
@@ -138,4 +133,4 @@ jobs:
       #   continue-on-error: true
 
       - name: Run Rust tests
-        run: cargo test --workspace --verbose  -- --test-threads=1
+        run: cargo test --workspace --exclude terminator-py-bindings --verbose -- --test-threads=1
