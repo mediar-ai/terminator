@@ -567,4 +567,24 @@ impl Desktop {
     pub fn is_cancelled(&self) -> bool {
         self.inner.is_cancelled()
     }
+
+    /// Stop all active highlight overlays globally.
+    ///
+    /// This finds and destroys all highlight overlay windows that were created
+    /// by `element.highlight()`. Useful for cleaning up highlights without
+    /// needing to track individual HighlightHandle objects.
+    ///
+    /// @returns {number} The number of highlights that were stopped.
+    #[napi]
+    pub fn stop_highlighting(&self) -> u32 {
+        #[cfg(target_os = "windows")]
+        {
+            terminator::stop_all_highlights() as u32
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            // Not implemented for other platforms yet
+            0
+        }
+    }
 }

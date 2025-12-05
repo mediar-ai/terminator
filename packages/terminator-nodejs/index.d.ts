@@ -435,6 +435,16 @@ export declare class Desktop {
    * Long-running operations should periodically check this and abort if true.
    */
   isCancelled(): boolean
+  /**
+   * Stop all active highlight overlays globally.
+   *
+   * This finds and destroys all highlight overlay windows that were created
+   * by `element.highlight()`. Useful for cleaning up highlights without
+   * needing to track individual HighlightHandle objects.
+   *
+   * @returns {number} The number of highlights that were stopped.
+   */
+  stopHighlighting(): number
 }
 /** A UI element in the accessibility tree. */
 export declare class Element {
