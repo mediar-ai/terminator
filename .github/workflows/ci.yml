@@ -108,7 +108,7 @@ jobs:
       - name: Run workflow package unit tests
         run: |
           cd packages/workflow
-          npm test -- --testPathPattern="branching" --testTimeout=30000
+          npm test -- --testPathIgnorePatterns="e2e|integration|mcp" --testTimeout=30000
         shell: pwsh
 
       # - name: Run Node.js tests
