@@ -114,6 +114,163 @@ export const enum PropertyLoadingMode {
   /** Load specific properties based on element type - balanced approach */
   Smart = 'Smart'
 }
+/** Output format for UI tree */
+export const enum TreeOutputFormat {
+  /** Compact YAML format with indexed elements: #1 [ROLE] name */
+  CompactYaml = 'CompactYaml',
+  /** Full JSON format with all fields and properties */
+  VerboseJson = 'VerboseJson'
+}
+/**
+ * OCR element representing text detected via optical character recognition.
+ * Hierarchy: OcrResult -> OcrLine -> OcrWord
+ */
+export interface OcrElement {
+  /** Role type: "OcrResult", "OcrLine", or "OcrWord" */
+  role: string
+  /** The recognized text content */
+  text?: string
+  /** Bounding box in absolute screen coordinates */
+  bounds?: Bounds
+  /** Text rotation angle in degrees (only present on OcrResult) */
+  textAngle?: number
+  /** Confidence score (0.0 to 1.0) if available */
+  confidence?: number
+  /** Child elements (lines for OcrResult, words for OcrLine) */
+  children?: Array<OcrElement>
+}
+/** Result of OCR operation with tree and index-to-bounds mapping */
+export interface OcrResult {
+  /** The OCR tree structure */
+  tree: OcrElement
+  /** Formatted compact YAML output (if format_output was true) */
+  formatted?: string
+  /**
+   * Mapping of index to bounds for click targeting (keys are 1-based indices as strings)
+   * Value contains (text, bounds)
+   */
+  indexToBounds: Record<string, OcrBoundsEntry>
+  /** Total count of indexed elements (words with bounds) */
+  elementCount: number
+}
+/** Entry in OCR index-to-bounds mapping for click targeting */
+export interface OcrBoundsEntry {
+  text: string
+  bounds: Bounds
+}
+/** Browser DOM element captured from a web page */
+export interface BrowserDomElement {
+  /** HTML tag name (lowercase) */
+  tag: string
+  /** Element id attribute */
+  id?: string
+  /** CSS classes */
+  classes: Array<string>
+  /** Visible text content (truncated to 100 chars) */
+  text?: string
+  /** href attribute for links */
+  href?: string
+  /** type attribute for inputs */
+  type?: string
+  /** name attribute */
+  name?: string
+  /** value attribute for inputs */
+  value?: string
+  /** placeholder attribute */
+  placeholder?: string
+  /** aria-label attribute */
+  ariaLabel?: string
+  /** role attribute */
+  role?: string
+  /** Bounding box in screen coordinates */
+  bounds: Bounds
+}
+/** Entry in DOM index-to-bounds mapping for click targeting */
+export interface DomBoundsEntry {
+  /** Display name (text or aria-label or tag) */
+  name: string
+  /** HTML tag */
+  tag: string
+  /** Bounding box */
+  bounds: Bounds
+}
+/** Result of browser DOM capture operation */
+export interface BrowserDomResult {
+  /** List of captured DOM elements */
+  elements: Array<BrowserDomElement>
+  /** Formatted compact YAML output (if format_output was true) */
+  formatted?: string
+  /** Mapping of index to bounds for click targeting */
+  indexToBounds: Record<string, DomBoundsEntry>
+  /** Total count of captured elements */
+  elementCount: number
+  /** Page URL */
+  pageUrl: string
+  /** Page title */
+  pageTitle: string
+}
+/** UI element detected by Gemini vision model */
+export interface VisionElement {
+  /** Element type: text, icon, button, input, checkbox, dropdown, link, image, unknown */
+  elementType: string
+  /** Visible text or label on the element */
+  content?: string
+  /** AI description of what this element is or does */
+  description?: string
+  /** Bounding box in screen coordinates (x, y, width, height) */
+  bounds?: Bounds
+  /** Whether the element is interactive/clickable */
+  interactivity?: boolean
+}
+/** Entry in Gemini vision index-to-bounds mapping for click targeting */
+export interface VisionBoundsEntry {
+  /** Display name (content or description) */
+  name: string
+  /** Element type */
+  elementType: string
+  /** Bounding box */
+  bounds: Bounds
+}
+/** Result of Gemini vision detection operation */
+export interface GeminiVisionResult {
+  /** List of detected UI elements */
+  elements: Array<VisionElement>
+  /** Formatted compact YAML output (if format_output was true) */
+  formatted?: string
+  /** Mapping of index to bounds for click targeting */
+  indexToBounds: Record<string, VisionBoundsEntry>
+  /** Total count of detected elements */
+  elementCount: number
+}
+/** Item detected by Omniparser V2 (icon/field detection) */
+export interface OmniparserItem {
+  /** Element label: "icon", "text", etc. */
+  label: string
+  /** Content or OCR text */
+  content?: string
+  /** Bounding box in screen coordinates (x, y, width, height) */
+  bounds?: Bounds
+}
+/** Entry in Omniparser index-to-bounds mapping for click targeting */
+export interface OmniparserBoundsEntry {
+  /** Display name (content or label) */
+  name: string
+  /** Element label */
+  label: string
+  /** Bounding box */
+  bounds: Bounds
+}
+/** Result of Omniparser detection operation */
+export interface OmniparserResult {
+  /** List of detected items */
+  items: Array<OmniparserItem>
+  /** Formatted compact YAML output (if format_output was true) */
+  formatted?: string
+  /** Mapping of index to bounds for click targeting */
+  indexToBounds: Record<string, OmniparserBoundsEntry>
+  /** Total count of detected items */
+  itemCount: number
+}
 export interface TreeBuildConfig {
   /** Property loading strategy */
   propertyMode: PropertyLoadingMode
@@ -127,8 +284,12 @@ export interface TreeBuildConfig {
   maxDepth?: number
   /** Delay in milliseconds to wait for UI to stabilize before capturing tree */
   uiSettleDelayMs?: number
-  /** Generate formatted compact YAML output alongside the tree structure */
+  /** Generate formatted output alongside the tree structure (defaults to true if tree_output_format is set) */
   formatOutput?: boolean
+  /** Output format for tree: 'CompactYaml' (default) or 'VerboseJson' */
+  treeOutputFormat?: TreeOutputFormat
+  /** Selector to start tree from instead of window root (e.g., "role:Dialog" to focus on a dialog) */
+  treeFromSelector?: string
 }
 export const enum TextPosition {
   Top = 'Top',
@@ -281,6 +442,52 @@ export declare class Desktop {
    */
   ocrScreenshot(screenshot: ScreenshotResult): Promise<string>
   /**
+   * (async) Perform OCR on a window by PID and return structured results with bounding boxes.
+   * Returns an OcrResult containing the OCR tree, formatted output, and index-to-bounds mapping
+   * for click targeting.
+   *
+   * @param {number} pid - Process ID of the target window.
+   * @param {boolean} [formatOutput=true] - Whether to generate formatted compact YAML output.
+   * @returns {Promise<OcrResult>} Complete OCR result with tree, formatted output, and bounds mapping.
+   */
+  performOcrForProcess(pid: number, formatOutput?: boolean | undefined | null): Promise<OcrResult>
+  /** (async) Perform OCR on a window by PID (non-Windows stub). */
+  performOcrForProcess(pid: number, formatOutput?: boolean | undefined | null): Promise<OcrResult>
+  /**
+   * (async) Capture DOM elements from the current browser tab.
+   *
+   * Extracts visible DOM elements with their properties and screen coordinates.
+   * Uses JavaScript injection via Chrome extension to traverse the DOM tree.
+   *
+   * @param {number} [maxElements=200] - Maximum number of elements to capture.
+   * @param {boolean} [formatOutput=true] - Whether to include formatted compact YAML output.
+   * @returns {Promise<BrowserDomResult>} DOM elements with bounds for click targeting.
+   */
+  captureBrowserDom(maxElements?: number | undefined | null, formatOutput?: boolean | undefined | null): Promise<BrowserDomResult>
+  /**
+   * (async) Perform Gemini vision AI detection on a window by PID.
+   *
+   * Captures a screenshot and sends it to the Gemini vision backend for UI element detection.
+   * Requires GEMINI_VISION_BACKEND_URL environment variable (defaults to https://app.mediar.ai/api/vision/parse).
+   *
+   * @param {number} pid - Process ID of the window to capture.
+   * @param {boolean} [formatOutput=true] - Whether to include formatted compact YAML output.
+   * @returns {Promise<GeminiVisionResult>} Detected UI elements with bounds for click targeting.
+   */
+  performGeminiVisionForProcess(pid: number, formatOutput?: boolean | undefined | null): Promise<GeminiVisionResult>
+  /**
+   * (async) Perform Omniparser V2 detection on a window by PID.
+   *
+   * Captures a screenshot and sends it to the Omniparser backend for icon/field detection.
+   * Requires OMNIPARSER_BACKEND_URL environment variable (defaults to https://app.mediar.ai/api/omniparser/parse).
+   *
+   * @param {number} pid - Process ID of the window to capture.
+   * @param {number} [imgsz=1920] - Icon detection image size (640-1920). Higher = better but slower.
+   * @param {boolean} [formatOutput=true] - Whether to include formatted compact YAML output.
+   * @returns {Promise<OmniparserResult>} Detected items with bounds for click targeting.
+   */
+  performOmniparserForProcess(pid: number, imgsz?: number | undefined | null, formatOutput?: boolean | undefined | null): Promise<OmniparserResult>
+  /**
    * (async) Get the currently focused browser window.
    *
    * @returns {Promise<Element>} The current browser window element.
@@ -349,10 +556,27 @@ export declare class Desktop {
    *
    * @param {number} pid - Process ID of the target application.
    * @param {string} [title] - Optional window title filter.
-   * @param {TreeBuildConfig} [config] - Configuration (set formatOutput: true for formatted output).
+   * @param {TreeBuildConfig} [config] - Configuration options:
+   *   - formatOutput: Enable formatted output (default: true if treeOutputFormat set)
+   *   - treeOutputFormat: 'CompactYaml' (default) or 'VerboseJson'
+   *   - treeFromSelector: Selector to start tree from (use getWindowTreeResultAsync for this)
    * @returns {WindowTreeResult} Complete result with tree, formatted output, and bounds mapping.
    */
   getWindowTreeResult(pid: number, title?: string | undefined | null, config?: TreeBuildConfig | undefined | null): WindowTreeResult
+  /**
+   * (async) Get the UI tree with full result, supporting tree_from_selector.
+   *
+   * Use this method when you need to scope the tree to a specific subtree using a selector.
+   *
+   * @param {number} pid - Process ID of the target application.
+   * @param {string} [title] - Optional window title filter.
+   * @param {TreeBuildConfig} [config] - Configuration options:
+   *   - formatOutput: Enable formatted output (default: true)
+   *   - treeOutputFormat: 'CompactYaml' (default) or 'VerboseJson'
+   *   - treeFromSelector: Selector to start tree from (e.g., "role:Dialog")
+   * @returns {Promise<WindowTreeResult>} Complete result with tree, formatted output, and bounds mapping.
+   */
+  getWindowTreeResultAsync(pid: number, title?: string | undefined | null, config?: TreeBuildConfig | undefined | null): Promise<WindowTreeResult>
   /**
    * (async) List all available monitors/displays.
    *
