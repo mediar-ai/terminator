@@ -350,5 +350,9 @@ export type {
   ActionOptions,
   TypeTextOptions,
   PressKeyOptions,
+  // Computer Use types
+  ComputerUseResult,
+  ComputerUseStep,
+  ComputerUsePendingConfirmation,
 } from "./index.js";
-export { PropertyLoadingMode, TextPosition } from "./index.js";
+export { PropertyLoadingMode, TextPosition, TreeOutputFormat } from "./index.js";
