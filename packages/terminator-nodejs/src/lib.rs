@@ -12,9 +12,12 @@ pub use element::{ActionOptions, Element, PressKeyOptions, TypeTextOptions};
 pub use locator::Locator;
 pub use selector::Selector;
 pub use types::{
-    Bounds, BoundsEntry, ClickResult, CommandOutput, Coordinates, FontStyle, HighlightHandle,
-    Monitor, MonitorScreenshotPair, PropertyLoadingMode, ScreenshotResult, TextPosition,
-    TreeBuildConfig, UIElementAttributes, UINode, WindowTreeResult,
+    Bounds, BoundsEntry, BrowserDomElement, BrowserDomResult, ClickResult, CommandOutput,
+    Coordinates, DomBoundsEntry, FontStyle, GeminiVisionResult, HighlightHandle, Monitor,
+    MonitorScreenshotPair, OcrBoundsEntry, OcrElement, OcrResult, OmniparserBoundsEntry,
+    OmniparserItem, OmniparserResult, PropertyLoadingMode, ScreenshotResult, TextPosition,
+    TreeBuildConfig, TreeOutputFormat, UIElementAttributes, UINode, VisionBoundsEntry,
+    VisionElement, WindowTreeResult,
 };
 pub use window_manager::{WindowInfo, WindowManager};
 
