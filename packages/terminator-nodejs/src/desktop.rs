@@ -1,13 +1,15 @@
 use crate::types::{
-    ComputerUseResult, Monitor, MonitorScreenshotPair, TreeOutputFormat, WindowTreeResult,
+    ComputerUseResult, ComputerUseStep, Monitor, MonitorScreenshotPair, TreeOutputFormat,
+    WindowTreeResult,
 };
 use crate::Selector;
 use crate::{
     map_error, CommandOutput, Element, Locator, ScreenshotResult, TreeBuildConfig, UINode,
 };
 use napi::bindgen_prelude::Either;
+use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
-use std::sync::Once;
+use std::sync::{Arc, Once};
 use terminator::Desktop as TerminatorDesktop;
 
 /// Main entry point for desktop automation.
@@ -1466,6 +1468,7 @@ impl Desktop {
     /// @param {string} process - Process name of the target application (e.g., "chrome", "notepad")
     /// @param {string} goal - What to achieve (e.g., "Open Notepad and type Hello World")
     /// @param {number} [maxSteps=20] - Maximum number of steps before stopping
+    /// @param {function} [onStep] - Optional callback invoked after each step with step details
     /// @returns {Promise<ComputerUseResult>} Result with status, steps executed, and history
     #[napi]
     pub async fn gemini_computer_use(
@@ -1473,9 +1476,21 @@ impl Desktop {
         process: String,
         goal: String,
         max_steps: Option<u32>,
+        #[napi(ts_arg_type = "((err: null | Error, step: ComputerUseStep) => void) | undefined")]
+        on_step: Option<ThreadsafeFunction<ComputerUseStep>>,
     ) -> napi::Result<ComputerUseResult> {
+        // Create progress callback if onStep is provided
+        let progress_callback: Option<Box<dyn Fn(&terminator::ComputerUseStep) + Send + Sync>> =
+            on_step.map(|tsfn| {
+                let tsfn = Arc::new(tsfn);
+                Box::new(move |step: &terminator::ComputerUseStep| {
+                    let js_step = ComputerUseStep::from(step.clone());
+                    tsfn.call(Ok(js_step), ThreadsafeFunctionCallMode::NonBlocking);
+                }) as Box<dyn Fn(&terminator::ComputerUseStep) + Send + Sync>
+            });
+
         self.inner
-            .gemini_computer_use(&process, &goal, max_steps, None)
+            .gemini_computer_use(&process, &goal, max_steps, progress_callback)
             .await
             .map(ComputerUseResult::from)
             .map_err(|e| napi::Error::from_reason(e.to_string()))
