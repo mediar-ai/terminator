@@ -33,9 +33,9 @@ pub struct ActionOptions {
 #[napi(object)]
 #[derive(Default)]
 pub struct TypeTextOptions {
-    /// Whether to clear existing text before typing. Defaults to false (append mode).
-    /// Set to true to clear the field first, matching MCP's clear_before_typing behavior.
-    pub clear_before_typing: Option<bool>,
+    /// REQUIRED: Whether to clear existing text before typing.
+    /// Set to true to clear the field first, false to append.
+    pub clear_before_typing: bool,
     /// Whether to use clipboard for pasting. Defaults to false.
     pub use_clipboard: Option<bool>,
     /// Whether to highlight the element before typing. Defaults to false.
@@ -336,7 +336,7 @@ impl Element {
         let _ = self.inner.activate_window();
 
         // Clear existing text if requested (matches MCP's clear_before_typing behavior)
-        if opts.clear_before_typing.unwrap_or(false) {
+        if opts.clear_before_typing {
             let _ = self.inner.set_value("");
         }
 
