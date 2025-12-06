@@ -450,6 +450,20 @@ pub trait UIElementImpl: Send + Sync + Debug {
     fn click(&self) -> Result<ClickResult, AutomationError>;
     fn double_click(&self) -> Result<ClickResult, AutomationError>;
     fn right_click(&self) -> Result<(), AutomationError>;
+    /// Click at a specific position within the element bounds
+    /// x_pct and y_pct are percentages (0-100) from top-left corner
+    fn click_at_position(
+        &self,
+        x_pct: u8,
+        y_pct: u8,
+        click_type: crate::ClickType,
+    ) -> Result<ClickResult, AutomationError> {
+        // Default: not supported, platforms should override
+        let _ = (x_pct, y_pct, click_type);
+        Err(AutomationError::UnsupportedOperation(
+            "click_at_position not implemented for this platform".into(),
+        ))
+    }
     fn hover(&self) -> Result<(), AutomationError>;
     fn focus(&self) -> Result<(), AutomationError>;
     fn invoke(&self) -> Result<(), AutomationError>;
@@ -890,6 +904,18 @@ impl UIElement {
     #[instrument(level = "debug", skip(self))]
     pub fn right_click(&self) -> Result<(), AutomationError> {
         self.inner.right_click()
+    }
+
+    /// Click at a specific position within the element bounds
+    /// x_pct and y_pct are percentages (0-100) from top-left corner
+    #[instrument(level = "debug", skip(self))]
+    pub fn click_at_position(
+        &self,
+        x_pct: u8,
+        y_pct: u8,
+        click_type: crate::ClickType,
+    ) -> Result<ClickResult, AutomationError> {
+        self.inner.click_at_position(x_pct, y_pct, click_type)
     }
 
     /// Hover over this element
