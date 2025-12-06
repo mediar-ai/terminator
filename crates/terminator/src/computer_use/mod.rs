@@ -10,10 +10,13 @@
 use crate::Desktop;
 use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
+use chrono::Local;
 use image::codecs::png::PngEncoder;
 use image::imageops::FilterType;
 use image::{ExtendedColorType, ImageBuffer, ImageEncoder, Rgba};
+use std::fs;
 use std::io::Cursor;
+use std::path::PathBuf;
 use std::time::Duration;
 use sysinfo::{ProcessesToUpdate, System};
 use terminator_computer_use::{
@@ -37,6 +40,67 @@ struct WindowCaptureData {
     resize_scale: f64,
     /// Browser URL if available
     browser_url: Option<String>,
+}
+
+// ===== Screenshot Storage =====
+
+/// Get the executions directory and ensure it exists.
+/// Returns the path to %LOCALAPPDATA%/terminator/executions/
+fn get_executions_dir() -> Result<PathBuf, String> {
+    let dir = dirs::data_local_dir()
+        .ok_or_else(|| "Failed to get LOCALAPPDATA directory".to_string())?
+        .join("terminator")
+        .join("executions");
+
+    fs::create_dir_all(&dir)
+        .map_err(|e| format!("Failed to create executions directory: {}", e))?;
+
+    Ok(dir)
+}
+
+/// Generate execution ID from timestamp and process name.
+fn generate_execution_id(process: &str) -> String {
+    let timestamp = Local::now().format("%Y%m%d_%H%M%S").to_string();
+    let safe_process = process
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    format!("{}_geminiComputerUse_{}", timestamp, safe_process)
+}
+
+/// Save a base64-encoded PNG screenshot to disk.
+fn save_screenshot(base64_image: &str, path: &PathBuf) -> Result<(), String> {
+    let png_data = general_purpose::STANDARD
+        .decode(base64_image)
+        .map_err(|e| format!("Failed to decode base64 screenshot: {}", e))?;
+
+    fs::write(path, png_data)
+        .map_err(|e| format!("Failed to write screenshot to {}: {}", path.display(), e))?;
+
+    Ok(())
+}
+
+/// Save the execution result as JSON (flat structure).
+fn save_execution_result(
+    result: &ComputerUseResult,
+    executions_dir: &PathBuf,
+    execution_id: &str,
+) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(result)
+        .map_err(|e| format!("Failed to serialize execution result: {}", e))?;
+
+    let path = executions_dir.join(format!("{}.json", execution_id));
+    fs::write(&path, json).map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
+
+    info!("[computer_use] Saved execution result to {}", path.display());
+
+    Ok(())
 }
 
 // ===== Window Capture =====
@@ -417,9 +481,19 @@ impl Desktop {
         let mut final_text: Option<String> = None;
         let mut pending_confirmation: Option<serde_json::Value> = None;
 
+        // Setup executions directory for screenshots (flat structure)
+        let execution_id = generate_execution_id(process);
+        let executions_dir = match get_executions_dir() {
+            Ok(dir) => Some(dir),
+            Err(e) => {
+                warn!("[computer_use] Failed to get executions dir: {}", e);
+                None
+            }
+        };
+
         info!(
-            "[computer_use] Starting agentic loop for goal: {} (max_steps: {})",
-            goal, max_steps
+            "[computer_use] Starting agentic loop for goal: {} (max_steps: {}, execution_id: {})",
+            goal, max_steps, execution_id
         );
 
         for step_num in 1..=max_steps {
@@ -434,6 +508,14 @@ impl Desktop {
                     break;
                 }
             };
+
+            // 1b. Save screenshot (flat structure: {execution_id}_{step}.png)
+            if let Some(ref dir) = executions_dir {
+                let screenshot_path = dir.join(format!("{}_{:03}.png", execution_id, step_num));
+                if let Err(e) = save_screenshot(&capture_data.base64_image, &screenshot_path) {
+                    warn!("[computer_use] Failed to save screenshot: {}", e);
+                }
+            }
 
             // 2. Call backend to get next action
             let response = match call_computer_use_backend(
@@ -562,7 +644,7 @@ impl Desktop {
             steps.len()
         );
 
-        Ok(ComputerUseResult {
+        let result = ComputerUseResult {
             status: final_status.to_string(),
             goal: goal.to_string(),
             steps_executed: steps.len() as u32,
@@ -570,6 +652,16 @@ impl Desktop {
             final_text,
             steps,
             pending_confirmation,
-        })
+            execution_id: Some(execution_id.clone()),
+        };
+
+        // Save execution result as JSON (flat structure)
+        if let Some(ref dir) = executions_dir {
+            if let Err(e) = save_execution_result(&result, dir, &execution_id) {
+                warn!("[computer_use] Failed to save execution result: {}", e);
+            }
+        }
+
+        Ok(result)
     }
 }

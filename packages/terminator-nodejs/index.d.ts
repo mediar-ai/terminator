@@ -335,6 +335,8 @@ export interface ComputerUseResult {
   steps: Array<ComputerUseStep>
   /** Pending confirmation info if status is "needs_confirmation" */
   pendingConfirmation?: ComputerUsePendingConfirmation
+  /** Execution ID for finding screenshots (e.g., "20251205_134500_geminiComputerUse_msedge") */
+  executionId?: string
 }
 /** Information about a window */
 export interface WindowInfo {

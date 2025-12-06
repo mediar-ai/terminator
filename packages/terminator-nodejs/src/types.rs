@@ -638,6 +638,8 @@ pub struct ComputerUseResult {
     pub steps: Vec<ComputerUseStep>,
     /// Pending confirmation info if status is "needs_confirmation"
     pub pending_confirmation: Option<ComputerUsePendingConfirmation>,
+    /// Execution ID for finding screenshots (e.g., "20251205_134500_geminiComputerUse_msedge")
+    pub execution_id: Option<String>,
 }
 
 impl From<terminator::ComputerUseStep> for ComputerUseStep {
@@ -683,6 +685,7 @@ impl From<terminator::ComputerUseResult> for ComputerUseResult {
                 .map(ComputerUseStep::from)
                 .collect(),
             pending_confirmation,
+            execution_id: result.execution_id,
         }
     }
 }
