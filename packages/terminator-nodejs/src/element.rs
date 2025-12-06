@@ -249,6 +249,19 @@ impl Element {
         }
         let _ = self.inner.activate_window();
 
+        // Determine click type
+        let click_type: terminator::ClickType = opts
+            .click_type
+            .map(|ct| ct.into())
+            .unwrap_or(terminator::ClickType::Left);
+
+        // Check if custom position is specified
+        let use_position = opts.click_position.is_some();
+        let (x_pct, y_pct) = opts
+            .click_position
+            .map(|p| (p.x_percentage, p.y_percentage))
+            .unwrap_or((50, 50));
+
         let mut result = if opts.ui_diff_before_after.unwrap_or(false) {
             // Use backend's execute_on_element_with_ui_diff for UI diff capture
             let diff_options = terminator::UiDiffOptions {
@@ -262,14 +275,25 @@ impl Element {
             let desktop = terminator::Desktop::new_default().map_err(map_error)?;
             let element_clone = self.inner.clone();
 
-            match desktop
-                .execute_on_element_with_ui_diff(
-                    element_clone,
-                    |el| async move { el.click() },
-                    Some(diff_options),
-                )
-                .await
-            {
+            let click_result_with_diff = if use_position {
+                desktop
+                    .execute_on_element_with_ui_diff(
+                        element_clone,
+                        |el| async move { el.click_at_position(x_pct, y_pct, click_type) },
+                        Some(diff_options),
+                    )
+                    .await
+            } else {
+                desktop
+                    .execute_on_element_with_ui_diff(
+                        element_clone,
+                        |el| async move { el.click() },
+                        Some(diff_options),
+                    )
+                    .await
+            };
+
+            match click_result_with_diff {
                 Ok((click_result, _element, ui_diff)) => {
                     let ui_diff_converted = ui_diff.map(|d| crate::types::UiDiffResult {
                         diff: d.diff,
@@ -295,7 +319,13 @@ impl Element {
             }
         } else {
             // Standard click without UI diff
-            let click_res = self.inner.click().map_err(map_error)?;
+            let click_res = if use_position {
+                self.inner
+                    .click_at_position(x_pct, y_pct, click_type)
+                    .map_err(map_error)?
+            } else {
+                self.inner.click().map_err(map_error)?
+            };
             ClickResult {
                 method: click_res.method,
                 coordinates: click_res.coordinates.map(|c| crate::Coordinates {
