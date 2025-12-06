@@ -3743,14 +3743,14 @@ element.processName(): string                // Get process name (e.g., chrome, 
 element.isFocused(): boolean                 // Check if element has focus
 element.activateWindow(): void               // Bring window to front
 
-Action Options (all actions bring window to front by default):
-  click/doubleClick/rightClick/hover: { bringToFront?: boolean }  // default: true
-  typeText: { useClipboard?: boolean, bringToFront?: boolean }    // default: false, true
-  pressKey: { bringToFront?: boolean }                            // default: true
-
-Example - disable auto window activation:
-  element.click({ bringToFront: false });
-  element.typeText('hello', { bringToFront: false });
+Action Methods (all automatically bring window to front):
+  click(): ClickResult                        // Click element
+  doubleClick(): ClickResult                  // Double click
+  rightClick(): void                          // Right click
+  hover(): void                               // Hover over element
+  typeText(text, options?): void              // Type text (options: { useClipboard?: boolean })
+  pressKey(key): void                         // Press key
+  setValue(value): void                       // Set value directly
 
 ═══════════════════════════════════════════════════════════════════
 WINDOW MANAGER API
