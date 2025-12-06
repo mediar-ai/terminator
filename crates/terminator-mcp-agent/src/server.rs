@@ -3463,7 +3463,9 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
     }
 
     #[tool(
-        description = "Executes a shell command (GitHub Actions-style) OR runs inline code via an engine. Use 'run' for shell commands. Or set 'engine' to 'node'/'bun'/'javascript'/'typescript'/'ts' for JS/TS with terminator.js and provide the code in 'run' or 'script_file'. TypeScript is supported with automatic transpilation. When using engine mode, you can pass data to subsequent workflow steps by returning { set_env: { key: value } } or using console.log('::set-env name=key::value'). Access variables in later steps using direct syntax (e.g., 'key' in conditions or {{key}} in substitutions). NEW: Use 'script_file' to load scripts from files, 'env' to inject environment variables as 'var env = {...}'.
+        description = "For SDK usage, use grep_files/read_file with working_directory set to terminator-source path.
+
+Executes a shell command (GitHub Actions-style) OR runs inline code via an engine. Use 'run' for shell commands. Or set 'engine' to 'node'/'bun'/'javascript'/'typescript'/'ts' for JS/TS with terminator.js and provide the code in 'run' or 'script_file'. TypeScript is supported with automatic transpilation. When using engine mode, you can pass data to subsequent workflow steps by returning { set_env: { key: value } } or using console.log('::set-env name=key::value'). Access variables in later steps using direct syntax (e.g., 'key' in conditions or {{key}} in substitutions). NEW: Use 'script_file' to load scripts from files, 'env' to inject environment variables as 'var env = {...}'.
 
 ═══════════════════════════════════════════════════════════════════
 INJECTED GLOBALS (engine mode)
@@ -6342,11 +6344,14 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
         }
 
         let option_name = args.option_name.clone();
+        let highlight_before = args.highlight.highlight_before_action;
         let action = move |element: UIElement| {
             let option_name = option_name.clone();
             async move {
-                // Ensure element is visible before interaction
-                let _ = element.ensure_in_view();
+                // Apply highlighting before action if enabled
+                if highlight_before {
+                    let _ = element.highlight_before_action("select_option");
+                }
                 element.select_option_with_state(&option_name)
             }
         };
@@ -6490,8 +6495,14 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
         }
 
         let state = args.state;
-        let action =
-            move |element: UIElement| async move { element.set_selected_with_state(state) };
+        let highlight_before = args.highlight.highlight_before_action;
+        let action = move |element: UIElement| async move {
+            // Apply highlighting before action if enabled
+            if highlight_before {
+                let _ = element.highlight_before_action("set_selected");
+            }
+            element.set_selected_with_state(state)
+        };
 
         // Store tree config to avoid move issues
         let tree_output_format = args
@@ -7437,7 +7448,9 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
     // Removed: run_javascript tool (merged into run_command with engine)
 
     #[tool(
-        description = "Execute JavaScript in a browser using the Chrome extension bridge. Full access to HTML DOM for data extraction, page analysis, and manipulation.
+        description = "For patterns, use grep_files/read_file with working_directory set to terminator-source path.
+
+Execute JavaScript in a browser using the Chrome extension bridge. Full access to HTML DOM for data extraction, page analysis, and manipulation.
 
 Alternative: In run_command with engine: javascript, use desktop.executeBrowserScript(script)
 to execute browser scripts directly without needing a selector. Automatically targets active browser tab.
