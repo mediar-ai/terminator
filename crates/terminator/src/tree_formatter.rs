@@ -3,7 +3,7 @@
 //! Provides compact YAML-like formatting for UI trees with indexed elements
 //! for click targeting.
 
-use crate::element::SerializableUIElement;
+use crate::element::{SerializableUIElement, UIElementAttributes};
 use crate::types::{OmniparserItem, VisionElement};
 use crate::OcrElement;
 use crate::UINode;
@@ -108,6 +108,37 @@ pub struct ClusteredFormattingResult {
     pub formatted: String,
     /// Mapping of prefixed index (e.g., "u1", "d2") to (source, original_index, bounds)
     pub index_to_source_and_bounds: HashMap<String, (ElementSource, u32, (f64, f64, f64, f64))>,
+}
+
+/// Convert SerializableUIElement to UINode
+pub fn serializable_to_ui_node(element: &SerializableUIElement) -> UINode {
+    UINode {
+        id: element.id.clone(),
+        attributes: UIElementAttributes {
+            role: element.role.clone(),
+            name: element.name.clone(),
+            label: element.label.clone(),
+            text: element.text.clone(),
+            value: element.value.clone(),
+            description: element.description.clone(),
+            application_name: element.window_and_application_name.clone(),
+            properties: HashMap::new(),
+            is_keyboard_focusable: element.is_keyboard_focusable,
+            is_focused: element.is_focused,
+            is_toggled: element.is_toggled,
+            bounds: element.bounds,
+            enabled: element.enabled,
+            is_selected: element.is_selected,
+            child_count: element.child_count,
+            index_in_parent: element.index_in_parent,
+        },
+        children: element
+            .children
+            .as_ref()
+            .map(|c| c.iter().map(serializable_to_ui_node).collect())
+            .unwrap_or_default(),
+        selector: element.selector.clone(),
+    }
 }
 
 /// Convert UINode to SerializableUIElement for unified formatting
