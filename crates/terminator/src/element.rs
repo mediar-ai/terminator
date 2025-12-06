@@ -1148,6 +1148,138 @@ impl UIElement {
         self.inner.highlight(color, duration, None, None, None)
     }
 
+    /// Ensures element is visible and highlights it before performing an action.
+    ///
+    /// This is a convenience method that combines scrolling the element into view
+    /// and applying a visual highlight. Useful for debugging and visual feedback
+    /// during automation.
+    ///
+    /// # Arguments
+    /// * `action_name` - Name of the action about to be performed (e.g., "click", "type").
+    ///   Used for logging and as fallback text if role is unavailable.
+    ///
+    /// # Behavior
+    /// 1. Attempts to focus the element (many apps auto-scroll focused elements into view)
+    /// 2. Calls `scroll_into_view()` if element is still not visible
+    /// 3. Applies a green highlight (500ms) with the element's role as text overlay
+    ///
+    /// # Returns
+    /// * `Ok(Option<HighlightHandle>)` - Handle to control the highlight, or None if highlight failed
+    /// * Scrolling failures are logged but don't cause errors (best-effort)
+    #[cfg(target_os = "windows")]
+    pub fn highlight_before_action(
+        &self,
+        action_name: &str,
+    ) -> Result<Option<crate::HighlightHandle>, AutomationError> {
+        use tracing::{info, warn};
+
+        let start = std::time::Instant::now();
+
+        // Step 1: Try focus first - many apps auto-scroll on focus
+        if let Err(e) = self.focus() {
+            tracing::debug!("Focus before action failed (non-fatal): {}", e);
+        }
+
+        // Step 2: Ensure element is scrolled into view
+        let scroll_start = std::time::Instant::now();
+        if let Err(e) = self.scroll_into_view() {
+            warn!(
+                "Failed to scroll element into view for {} action: {}",
+                action_name, e
+            );
+            // Continue anyway - scrolling is best-effort
+        }
+        info!(
+            "[PERF] scroll_into_view: {}ms",
+            scroll_start.elapsed().as_millis()
+        );
+
+        // Step 3: Apply highlight with hardcoded settings
+        let duration = Some(std::time::Duration::from_millis(500));
+        let color = Some(0x00FF00); // Green in BGR
+        let role_text = self.role();
+        let text = Some(role_text.as_str());
+        let text_position = Some(crate::TextPosition::Top);
+        let font_style = Some(crate::FontStyle {
+            size: 12,
+            bold: true,
+            color: 0xFFFFFF, // White text
+        });
+
+        info!(
+            "HIGHLIGHT_BEFORE_{} duration={:?} role={}",
+            action_name.to_uppercase(),
+            duration,
+            role_text
+        );
+
+        let handle = match self.highlight(color, duration, text, text_position, font_style) {
+            Ok(h) => Some(h),
+            Err(e) => {
+                warn!("Failed to apply highlighting before {} action: {}", action_name, e);
+                None
+            }
+        };
+
+        info!(
+            "[PERF] highlight_before_action: {}ms",
+            start.elapsed().as_millis()
+        );
+
+        Ok(handle)
+    }
+
+    /// Ensures element is visible and highlights it before performing an action (non-Windows).
+    ///
+    /// Simplified version for non-Windows platforms without text overlay support.
+    #[cfg(not(target_os = "windows"))]
+    pub fn highlight_before_action(
+        &self,
+        action_name: &str,
+    ) -> Result<Option<crate::HighlightHandle>, AutomationError> {
+        use tracing::{info, warn};
+
+        let start = std::time::Instant::now();
+
+        // Step 1: Try focus first
+        if let Err(e) = self.focus() {
+            tracing::debug!("Focus before action failed (non-fatal): {}", e);
+        }
+
+        // Step 2: Ensure element is scrolled into view
+        if let Err(e) = self.scroll_into_view() {
+            warn!(
+                "Failed to scroll element into view for {} action: {}",
+                action_name, e
+            );
+        }
+
+        // Step 3: Apply highlight (simplified for non-Windows)
+        let duration = Some(std::time::Duration::from_millis(500));
+        let color = Some(0x00FF00); // Green
+
+        info!(
+            "HIGHLIGHT_BEFORE_{} duration={:?}",
+            action_name.to_uppercase(),
+            duration
+        );
+
+        let handle = match self.highlight(color, duration, None, None, None) {
+            Ok(h) => Some(h),
+            Err(e) => {
+                warn!("Failed to apply highlighting before {} action: {}", action_name, e);
+                None
+            }
+        };
+
+        info!(
+            "[PERF] highlight_before_action: {}ms",
+            start.elapsed().as_millis()
+        );
+
+        Ok(handle)
+    }
+
     /// Capture a screenshot of the element
     pub fn capture(&self) -> Result<ScreenshotResult, AutomationError> {
         self.inner.capture()
