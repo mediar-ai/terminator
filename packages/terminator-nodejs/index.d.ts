@@ -15,6 +15,12 @@ export interface ActionOptions {
   tryFocusBefore?: boolean
   /** Whether to try clicking the element if focus fails. Defaults to true. */
   tryClickBefore?: boolean
+  /** Whether to capture UI tree before/after action and compute diff. Defaults to false. */
+  uiDiffBeforeAfter?: boolean
+  /** Whether to include full tree strings in the diff result. Defaults to false. */
+  uiDiffIncludeFullTrees?: boolean
+  /** Max depth for tree capture when doing UI diff. */
+  uiDiffMaxDepth?: number
 }
 /** Options for typeText method */
 export interface TypeTextOptions {
@@ -35,6 +41,12 @@ export interface TypeTextOptions {
   tryFocusBefore?: boolean
   /** Whether to try clicking the element if focus fails. Defaults to true. */
   tryClickBefore?: boolean
+  /** Whether to capture UI tree before/after action and compute diff. Defaults to false. */
+  uiDiffBeforeAfter?: boolean
+  /** Whether to include full tree strings in the diff result. Defaults to false. */
+  uiDiffIncludeFullTrees?: boolean
+  /** Max depth for tree capture when doing UI diff. */
+  uiDiffMaxDepth?: number
 }
 /** Result of element validation */
 export interface ValidationResult {
@@ -55,6 +67,17 @@ export interface Coordinates {
   x: number
   y: number
 }
+/** Result of UI diff capture */
+export interface UiDiffResult {
+  /** The computed diff showing changes (lines starting with + or -) */
+  diff: string
+  /** Full tree before action (only if include_full_trees was true) */
+  treeBefore?: string
+  /** Full tree after action (only if include_full_trees was true) */
+  treeAfter?: string
+  /** Whether any UI changes were detected */
+  hasChanges: boolean
+}
 export interface ClickResult {
   method: string
   coordinates?: Coordinates
@@ -63,6 +86,8 @@ export interface ClickResult {
   windowScreenshotPath?: string
   /** Paths to monitor screenshots if captured */
   monitorScreenshotPaths?: Array<string>
+  /** UI diff result if ui_diff_before_after was enabled */
+  uiDiff?: UiDiffResult
 }
 /** Result of an action operation (type_text, press_key, scroll, etc.) */
 export interface ActionResult {
@@ -72,6 +97,8 @@ export interface ActionResult {
   windowScreenshotPath?: string
   /** Paths to monitor screenshots if captured */
   monitorScreenshotPaths?: Array<string>
+  /** UI diff result if ui_diff_before_after was enabled */
+  uiDiff?: UiDiffResult
 }
 /** Type of mouse click to perform */
 export const enum ClickType {
@@ -602,17 +629,17 @@ export declare class Desktop {
    */
   ocrScreenshot(screenshot: ScreenshotResult): Promise<string>
   /**
-   * (async) Perform OCR on a window by PID and return structured results with bounding boxes.
+   * (async) Perform OCR on a window by process name and return structured results with bounding boxes.
    * Returns an OcrResult containing the OCR tree, formatted output, and index-to-bounds mapping
    * for click targeting.
    *
-   * @param {number} pid - Process ID of the target window.
+   * @param {string} process - Process name to match (e.g., 'chrome', 'notepad').
    * @param {boolean} [formatOutput=true] - Whether to generate formatted compact YAML output.
    * @returns {Promise<OcrResult>} Complete OCR result with tree, formatted output, and bounds mapping.
    */
-  performOcrForProcess(pid: number, formatOutput?: boolean | undefined | null): Promise<OcrResult>
-  /** (async) Perform OCR on a window by PID (non-Windows stub). */
-  performOcrForProcess(pid: number, formatOutput?: boolean | undefined | null): Promise<OcrResult>
+  performOcrForProcess(process: string, formatOutput?: boolean | undefined | null): Promise<OcrResult>
+  /** (async) Perform OCR on a window by process name (non-Windows stub). */
+  performOcrForProcess(process: string, formatOutput?: boolean | undefined | null): Promise<OcrResult>
   /**
    * (async) Capture DOM elements from the current browser tab.
    *
@@ -634,36 +661,36 @@ export declare class Desktop {
    * - #p1, #p2... for Omniparser (vision AI detection)
    * - #g1, #g2... for Gemini Vision (AI element detection)
    *
-   * @param {number} pid - Process ID of the window to analyze.
+   * @param {string} process - Process name to match (e.g., 'chrome', 'notepad').
    * @param {number} [maxDomElements=100] - Maximum DOM elements to capture for browsers.
    * @param {boolean} [includeOmniparser=false] - Whether to include Omniparser vision detection.
    * @param {boolean} [includeGeminiVision=false] - Whether to include Gemini Vision AI detection.
    * @returns {Promise<ClusteredFormattingResult>} Clustered tree with prefixed indices.
    */
-  getClusteredTree(pid: number, maxDomElements?: number | undefined | null, includeOmniparser?: boolean | undefined | null, includeGeminiVision?: boolean | undefined | null): Promise<ClusteredFormattingResult>
+  getClusteredTree(process: string, maxDomElements?: number | undefined | null, includeOmniparser?: boolean | undefined | null, includeGeminiVision?: boolean | undefined | null): Promise<ClusteredFormattingResult>
   /**
-   * (async) Perform Gemini vision AI detection on a window by PID.
+   * (async) Perform Gemini vision AI detection on a window by process name.
    *
    * Captures a screenshot and sends it to the Gemini vision backend for UI element detection.
    * Requires GEMINI_VISION_BACKEND_URL environment variable (defaults to https://app.mediar.ai/api/vision/parse).
    *
-   * @param {number} pid - Process ID of the window to capture.
+   * @param {string} process - Process name to match (e.g., 'chrome', 'notepad').
    * @param {boolean} [formatOutput=true] - Whether to include formatted compact YAML output.
    * @returns {Promise<GeminiVisionResult>} Detected UI elements with bounds for click targeting.
    */
-  performGeminiVisionForProcess(pid: number, formatOutput?: boolean | undefined | null): Promise<GeminiVisionResult>
+  performGeminiVisionForProcess(process: string, formatOutput?: boolean | undefined | null): Promise<GeminiVisionResult>
   /**
-   * (async) Perform Omniparser V2 detection on a window by PID.
+   * (async) Perform Omniparser V2 detection on a window by process name.
    *
    * Captures a screenshot and sends it to the Omniparser backend for icon/field detection.
    * Requires OMNIPARSER_BACKEND_URL environment variable (defaults to https://app.mediar.ai/api/omniparser/parse).
    *
-   * @param {number} pid - Process ID of the window to capture.
+   * @param {string} process - Process name to match (e.g., 'chrome', 'notepad').
    * @param {number} [imgsz=1920] - Icon detection image size (640-1920). Higher = better but slower.
    * @param {boolean} [formatOutput=true] - Whether to include formatted compact YAML output.
    * @returns {Promise<OmniparserResult>} Detected items with bounds for click targeting.
    */
-  performOmniparserForProcess(pid: number, imgsz?: number | undefined | null, formatOutput?: boolean | undefined | null): Promise<OmniparserResult>
+  performOmniparserForProcess(process: string, imgsz?: number | undefined | null, formatOutput?: boolean | undefined | null): Promise<OmniparserResult>
   /**
    * (async) Get the currently focused browser window.
    *
@@ -677,6 +704,16 @@ export declare class Desktop {
    * @returns {Locator} A locator for finding elements.
    */
   locator(selector: string | Selector): Locator
+  /**
+   * Create a process-scoped locator for finding UI elements.
+   * This is the recommended way to create locators - always scope to a specific process.
+   *
+   * @param {string} process - Process name to scope the search (e.g., 'chrome', 'notepad').
+   * @param {string | Selector} selector - The selector to find within the process.
+   * @param {string} [windowSelector] - Optional window selector for additional filtering.
+   * @returns {Locator} A locator for finding elements within the process.
+   */
+  locatorForProcess(process: string, selector: string | Selector, windowSelector?: string | undefined | null): Locator
   /**
    * (async) Get the currently focused window.
    *
@@ -717,14 +754,14 @@ export declare class Desktop {
    */
   activateBrowserWindowByTitle(title: string): void
   /**
-   * Get the UI tree for a window identified by process ID and optional title.
+   * Get the UI tree for a window identified by process name and optional title.
    *
-   * @param {number} pid - Process ID of the target application.
+   * @param {string} process - Process name to match (e.g., 'chrome', 'notepad').
    * @param {string} [title] - Optional window title filter.
    * @param {TreeBuildConfig} [config] - Optional configuration for tree building.
    * @returns {UINode} Complete UI tree starting from the identified window.
    */
-  getWindowTree(pid: number, title?: string | undefined | null, config?: TreeBuildConfig | undefined | null): UINode
+  getWindowTree(process: string, title?: string | undefined | null, config?: TreeBuildConfig | undefined | null): UINode
   /**
    * Get the UI tree with full result including formatting and bounds mapping.
    *
@@ -733,7 +770,7 @@ export declare class Desktop {
    * - Index-to-bounds mapping for click targeting
    * - Browser detection
    *
-   * @param {number} pid - Process ID of the target application.
+   * @param {string} process - Process name to match (e.g., 'chrome', 'notepad').
    * @param {string} [title] - Optional window title filter.
    * @param {TreeBuildConfig} [config] - Configuration options:
    *   - formatOutput: Enable formatted output (default: true if treeOutputFormat set)
@@ -743,13 +780,13 @@ export declare class Desktop {
    *   - includeMonitorScreenshots: Save all monitor screenshots to executions dir (default: false)
    * @returns {WindowTreeResult} Complete result with tree, formatted output, bounds mapping, and screenshot paths.
    */
-  getWindowTreeResult(pid: number, title?: string | undefined | null, config?: TreeBuildConfig | undefined | null): WindowTreeResult
+  getWindowTreeResult(process: string, title?: string | undefined | null, config?: TreeBuildConfig | undefined | null): WindowTreeResult
   /**
    * (async) Get the UI tree with full result, supporting tree_from_selector.
    *
    * Use this method when you need to scope the tree to a specific subtree using a selector.
    *
-   * @param {number} pid - Process ID of the target application.
+   * @param {string} process - Process name to match (e.g., 'chrome', 'notepad').
    * @param {string} [title] - Optional window title filter.
    * @param {TreeBuildConfig} [config] - Configuration options:
    *   - formatOutput: Enable formatted output (default: true)
@@ -757,7 +794,7 @@ export declare class Desktop {
    *   - treeFromSelector: Selector to start tree from (e.g., "role:Dialog")
    * @returns {Promise<WindowTreeResult>} Complete result with tree, formatted output, and bounds mapping.
    */
-  getWindowTreeResultAsync(pid: number, title?: string | undefined | null, config?: TreeBuildConfig | undefined | null): Promise<WindowTreeResult>
+  getWindowTreeResultAsync(process: string, title?: string | undefined | null, config?: TreeBuildConfig | undefined | null): Promise<WindowTreeResult>
   /**
    * (async) List all available monitors/displays.
    *
@@ -1044,9 +1081,9 @@ export declare class Element {
    * Click on this element.
    *
    * @param {ActionOptions} [options] - Options for the click action.
-   * @returns {ClickResult} Result of the click operation.
+   * @returns {Promise<ClickResult>} Result of the click operation.
    */
-  click(options?: ActionOptions | undefined | null): ClickResult
+  click(options?: ActionOptions | undefined | null): Promise<ClickResult>
   /**
    * Double click on this element.
    *
@@ -1426,6 +1463,18 @@ export declare class Selector {
    * This is similar to Playwright's .. syntax.
    */
   static parent(): Selector
+  /**
+   * Create a selector that scopes the search to a specific process.
+   * This is typically used as the first part of a chained selector.
+   * Example: `Selector.process("chrome").chain(Selector.role("Button", "Submit"))`
+   */
+  static process(processName: string): Selector
+  /**
+   * Create a selector that scopes the search to a specific window within a process.
+   * Typically chained after a process selector.
+   * Example: `Selector.process("notepad").chain(Selector.window("Untitled"))`
+   */
+  static window(title: string): Selector
 }
 export declare class HighlightHandle {
   close(): void
