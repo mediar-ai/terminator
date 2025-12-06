@@ -7,6 +7,10 @@
 export interface ActionOptions {
   /** Whether to highlight the element before performing the action. Defaults to false. */
   highlightBeforeAction?: boolean
+  /** Whether to capture window screenshot after action. Defaults to true. */
+  includeWindowScreenshot?: boolean
+  /** Whether to capture monitor screenshots after action. Defaults to true. */
+  includeMonitorScreenshots?: boolean
 }
 /** Options for typeText method */
 export interface TypeTextOptions {
@@ -14,6 +18,10 @@ export interface TypeTextOptions {
   useClipboard?: boolean
   /** Whether to highlight the element before typing. Defaults to false. */
   highlightBeforeAction?: boolean
+  /** Whether to capture window screenshot after action. Defaults to true. */
+  includeWindowScreenshot?: boolean
+  /** Whether to capture monitor screenshots after action. Defaults to true. */
+  includeMonitorScreenshots?: boolean
 }
 /** Result of element validation */
 export interface ValidationResult {
@@ -38,6 +46,19 @@ export interface ClickResult {
   method: string
   coordinates?: Coordinates
   details: string
+  /** Path to window screenshot if captured */
+  windowScreenshotPath?: string
+  /** Paths to monitor screenshots if captured */
+  monitorScreenshotPaths?: Array<string>
+}
+/** Result of an action operation (type_text, press_key, scroll, etc.) */
+export interface ActionResult {
+  /** Whether the action succeeded */
+  success: boolean
+  /** Path to window screenshot if captured */
+  windowScreenshotPath?: string
+  /** Paths to monitor screenshots if captured */
+  monitorScreenshotPaths?: Array<string>
 }
 /** Type of mouse click to perform */
 export const enum ClickType {
@@ -1022,22 +1043,25 @@ export declare class Element {
    *
    * @param {string} text - The text to type.
    * @param {TypeTextOptions} [options] - Options for typing.
+   * @returns {ActionResult} Result of the type operation.
    */
-  typeText(text: string, options?: TypeTextOptions | undefined | null): void
+  typeText(text: string, options?: TypeTextOptions | undefined | null): ActionResult
   /**
    * Press a key while this element is focused.
    *
    * @param {string} key - The key to press.
    * @param {ActionOptions} [options] - Options for the key press action.
+   * @returns {ActionResult} Result of the key press operation.
    */
-  pressKey(key: string, options?: ActionOptions | undefined | null): void
+  pressKey(key: string, options?: ActionOptions | undefined | null): ActionResult
   /**
    * Set value of this element.
    *
    * @param {string} value - The value to set.
    * @param {ActionOptions} [options] - Options for the set value action.
+   * @returns {ActionResult} Result of the set value operation.
    */
-  setValue(value: string, options?: ActionOptions | undefined | null): void
+  setValue(value: string, options?: ActionOptions | undefined | null): ActionResult
   /**
    * Perform a named action on this element.
    *
@@ -1049,16 +1073,18 @@ export declare class Element {
    * This is often more reliable than clicking for controls like radio buttons or menu items.
    *
    * @param {ActionOptions} [options] - Options for the invoke action.
+   * @returns {ActionResult} Result of the invoke operation.
    */
-  invoke(options?: ActionOptions | undefined | null): void
+  invoke(options?: ActionOptions | undefined | null): ActionResult
   /**
    * Scroll the element in a given direction.
    *
    * @param {string} direction - The direction to scroll.
    * @param {number} amount - The amount to scroll.
    * @param {ActionOptions} [options] - Options for the scroll action.
+   * @returns {ActionResult} Result of the scroll operation.
    */
-  scroll(direction: string, amount: number, options?: ActionOptions | undefined | null): void
+  scroll(direction: string, amount: number, options?: ActionOptions | undefined | null): ActionResult
   /** Activate the window containing this element. */
   activateWindow(): void
   /** Minimize the window containing this element. */
