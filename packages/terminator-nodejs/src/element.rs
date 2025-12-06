@@ -418,6 +418,34 @@ impl Element {
         }
     }
 
+    /// Ensures element is visible and highlights it before performing an action.
+    ///
+    /// This combines scrolling the element into view and applying a visual highlight.
+    /// Useful for debugging and visual feedback during automation.
+    ///
+    /// @param {string} actionName - Name of the action about to be performed (e.g., "click", "type")
+    /// @returns {HighlightHandle | null} Handle to control the highlight, or null if highlight failed
+    #[napi]
+    pub fn highlight_before_action(&self, action_name: String) -> napi::Result<Option<HighlightHandle>> {
+        #[cfg(target_os = "windows")]
+        {
+            let result = self
+                .inner
+                .highlight_before_action(&action_name)
+                .map_err(map_error)?;
+
+            Ok(result.map(HighlightHandle::new))
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = action_name;
+            // Non-Windows: attempt scroll_into_view but return dummy handle
+            let _ = self.inner.scroll_into_view();
+            Ok(Some(HighlightHandle::new_dummy()))
+        }
+    }
+
     /// Capture a screenshot of this element.
     ///
     /// @returns {ScreenshotResult} The screenshot data containing image data and dimensions.
