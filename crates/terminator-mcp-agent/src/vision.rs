@@ -3,20 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use tracing::{debug, info, warn};
 
-/// UI element detected by vision model (Gemini)
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct VisionElement {
-    /// Element type: text, icon, button, input, checkbox, dropdown, link, image, unknown
-    pub element_type: String,
-    /// Visible text or label on the element
-    pub content: Option<String>,
-    /// AI description of what this element is or does
-    pub description: Option<String>,
-    /// Bounding box [x_min, y_min, x_max, y_max] in absolute pixel coordinates
-    pub box_2d: Option<[f64; 4]>,
-    /// Whether the element is interactive/clickable
-    pub interactivity: Option<bool>,
-}
+// Re-export from core terminator crate
+pub use terminator::VisionElement;
 
 /// Element as returned by the vision backend (normalized coordinates)
 #[derive(Debug, Deserialize)]
