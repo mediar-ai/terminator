@@ -64,6 +64,11 @@ create_exception!(
     ScrollFailedError,
     pyo3::exceptions::PyRuntimeError
 );
+create_exception!(
+    terminator,
+    OperationCancelledError,
+    pyo3::exceptions::PyRuntimeError
+);
 
 use ::terminator_core::errors::AutomationError;
 
@@ -87,5 +92,6 @@ pub fn automation_error_to_pyerr(e: AutomationError) -> pyo3::PyErr {
         AutomationError::ElementNotStable(_) => ElementNotStableError::new_err(msg),
         AutomationError::ElementObscured(_) => ElementObscuredError::new_err(msg),
         AutomationError::ScrollFailed(_) => ScrollFailedError::new_err(msg),
+        AutomationError::OperationCancelled(_) => OperationCancelledError::new_err(msg),
     }
 }
