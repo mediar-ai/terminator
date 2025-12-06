@@ -4,8 +4,9 @@
 //! through accessibility APIs, inspired by Playwright's web automation model.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tracing::{debug, error, info, instrument};
 
 pub mod browser_script;
@@ -80,6 +81,22 @@ pub enum ClickType {
     Double,
     /// Single right click
     Right,
+}
+
+/// Source of indexed elements for click targeting
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum VisionType {
+    /// UI Automation tree elements
+    #[default]
+    UiTree,
+    /// OCR-detected text elements
+    Ocr,
+    /// Omniparser-detected elements
+    Omniparser,
+    /// Gemini Vision-detected elements
+    Gemini,
+    /// Browser DOM elements
+    Dom,
 }
 
 #[cfg(target_os = "windows")]
@@ -281,11 +298,29 @@ impl fmt::Debug for DebugNodeWithDepth<'_> {
 
 // Removed struct ScreenshotResult (moved to screenshot.rs)
 
+/// Cached element bounds for index-based click targeting
+/// Stored as (role/label, name/text, bounds, optional_selector)
+type UiaBoundsCache = HashMap<u32, (String, String, (f64, f64, f64, f64), Option<String>)>;
+/// OCR bounds cache: (text, bounds)
+type OcrBoundsCache = HashMap<u32, (String, (f64, f64, f64, f64))>;
+/// DOM bounds cache: (tag, id, bounds)
+type DomBoundsCache = HashMap<u32, (String, String, (f64, f64, f64, f64))>;
+
 /// The main entry point for UI automation
 pub struct Desktop {
     engine: Arc<dyn platforms::AccessibilityEngine>,
     /// Cancellation token for stopping execution
     cancellation_token: CancellationToken,
+    /// Cache for UI Automation tree element bounds (index → bounds info)
+    uia_cache: Arc<Mutex<UiaBoundsCache>>,
+    /// Cache for OCR element bounds
+    ocr_cache: Arc<Mutex<OcrBoundsCache>>,
+    /// Cache for Omniparser element bounds
+    omniparser_cache: Arc<Mutex<HashMap<u32, OmniparserItem>>>,
+    /// Cache for Gemini Vision element bounds
+    vision_cache: Arc<Mutex<HashMap<u32, VisionElement>>>,
+    /// Cache for DOM element bounds
+    dom_cache: Arc<Mutex<DomBoundsCache>>,
 }
 
 impl Desktop {
@@ -295,6 +330,11 @@ impl Desktop {
         Ok(Self {
             engine,
             cancellation_token: CancellationToken::new(),
+            uia_cache: Arc::new(Mutex::new(HashMap::new())),
+            ocr_cache: Arc::new(Mutex::new(HashMap::new())),
+            omniparser_cache: Arc::new(Mutex::new(HashMap::new())),
+            vision_cache: Arc::new(Mutex::new(HashMap::new())),
+            dom_cache: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -757,6 +797,208 @@ impl Desktop {
         })
     }
 
+    /// Click on an element by its index from the last tree/vision query.
+    ///
+    /// This looks up cached bounds from the appropriate cache based on vision_type,
+    /// then clicks at the specified position within those bounds.
+    ///
+    /// # Arguments
+    /// * `index` - 1-based index from the tree/vision output (e.g., #1, #2)
+    /// * `vision_type` - Source of the index: UiTree, Ocr, Omniparser, Gemini, or Dom
+    /// * `click_position` - Optional (x_percentage, y_percentage) within bounds. Defaults to center (50, 50)
+    /// * `click_type` - Type of click: Left, Double, or Right
+    ///
+    /// # Returns
+    /// ClickResult with coordinates, element info, and method details
+    ///
+    /// # Errors
+    /// Returns error if index not found in cache (call get_window_tree/get_ocr/etc first)
+    #[instrument(skip(self))]
+    pub fn click_by_index(
+        &self,
+        index: u32,
+        vision_type: VisionType,
+        click_position: Option<(u8, u8)>,
+        click_type: ClickType,
+    ) -> Result<ClickResult, AutomationError> {
+        let (label, bounds) = match vision_type {
+            VisionType::UiTree => {
+                let cache = self.uia_cache.lock().map_err(|e| {
+                    AutomationError::Internal(format!("Failed to lock UIA cache: {}", e))
+                })?;
+                let entry = cache.get(&index).ok_or_else(|| {
+                    AutomationError::ElementNotFound(format!(
+                        "UI tree index #{} not found. Call get_window_tree first.",
+                        index
+                    ))
+                })?;
+                let label = if entry.1.is_empty() {
+                    entry.0.clone()
+                } else {
+                    format!("{}: {}", entry.0, entry.1)
+                };
+                (label, entry.2)
+            }
+            VisionType::Ocr => {
+                let cache = self.ocr_cache.lock().map_err(|e| {
+                    AutomationError::Internal(format!("Failed to lock OCR cache: {}", e))
+                })?;
+                let entry = cache.get(&index).ok_or_else(|| {
+                    AutomationError::ElementNotFound(format!(
+                        "OCR index #{} not found. Call ocr methods first.",
+                        index
+                    ))
+                })?;
+                (entry.0.clone(), entry.1)
+            }
+            VisionType::Omniparser => {
+                let cache = self.omniparser_cache.lock().map_err(|e| {
+                    AutomationError::Internal(format!("Failed to lock Omniparser cache: {}", e))
+                })?;
+                let item = cache.get(&index).ok_or_else(|| {
+                    AutomationError::ElementNotFound(format!(
+                        "Omniparser index #{} not found. Call omniparser methods first.",
+                        index
+                    ))
+                })?;
+                let box_2d = item.box_2d.ok_or_else(|| {
+                    AutomationError::Internal(format!(
+                        "Omniparser index #{} has no bounds",
+                        index
+                    ))
+                })?;
+                // Convert [x_min, y_min, x_max, y_max] to (x, y, width, height)
+                let bounds = (box_2d[0], box_2d[1], box_2d[2] - box_2d[0], box_2d[3] - box_2d[1]);
+                (item.label.clone(), bounds)
+            }
+            VisionType::Gemini => {
+                let cache = self.vision_cache.lock().map_err(|e| {
+                    AutomationError::Internal(format!("Failed to lock Vision cache: {}", e))
+                })?;
+                let item = cache.get(&index).ok_or_else(|| {
+                    AutomationError::ElementNotFound(format!(
+                        "Gemini index #{} not found. Call gemini vision methods first.",
+                        index
+                    ))
+                })?;
+                let box_2d = item.box_2d.ok_or_else(|| {
+                    AutomationError::Internal(format!(
+                        "Gemini index #{} has no bounds",
+                        index
+                    ))
+                })?;
+                // Convert [x_min, y_min, x_max, y_max] to (x, y, width, height)
+                let bounds = (box_2d[0], box_2d[1], box_2d[2] - box_2d[0], box_2d[3] - box_2d[1]);
+                (item.element_type.clone(), bounds)
+            }
+            VisionType::Dom => {
+                let cache = self.dom_cache.lock().map_err(|e| {
+                    AutomationError::Internal(format!("Failed to lock DOM cache: {}", e))
+                })?;
+                let entry = cache.get(&index).ok_or_else(|| {
+                    AutomationError::ElementNotFound(format!(
+                        "DOM index #{} not found. Call DOM methods first.",
+                        index
+                    ))
+                })?;
+                let label = if entry.1.is_empty() {
+                    entry.0.clone()
+                } else {
+                    format!("{}: {}", entry.0, entry.1)
+                };
+                (label, entry.2)
+            }
+        };
+
+        let (x_pct, y_pct) = click_position.unwrap_or((50, 50));
+        let x = bounds.0 + bounds.2 * x_pct as f64 / 100.0;
+        let y = bounds.1 + bounds.3 * y_pct as f64 / 100.0;
+
+        self.engine.click_at_coordinates_with_type(x, y, click_type)?;
+
+        Ok(ClickResult {
+            method: "index".to_string(),
+            coordinates: Some((x, y)),
+            details: format!(
+                "Clicked #{} [{}] at {}%,{}% (bounds: {:.0},{:.0},{:.0},{:.0})",
+                index, label, x_pct, y_pct, bounds.0, bounds.1, bounds.2, bounds.3
+            ),
+        })
+    }
+
+    /// Populate the OCR cache for index-based clicking.
+    /// Call this after performing OCR to enable click_by_index with VisionType::Ocr.
+    ///
+    /// # Arguments
+    /// * `bounds_map` - Map of index to (text, bounds) from OCR formatting result
+    pub fn populate_ocr_cache(&self, bounds_map: HashMap<u32, (String, (f64, f64, f64, f64))>) {
+        if let Ok(mut cache) = self.ocr_cache.lock() {
+            cache.clear();
+            cache.extend(bounds_map);
+            debug!("Populated OCR cache with {} elements", cache.len());
+        }
+    }
+
+    /// Populate the Omniparser cache for index-based clicking.
+    /// Call this after performing Omniparser to enable click_by_index with VisionType::Omniparser.
+    ///
+    /// # Arguments
+    /// * `items` - Map of index to OmniparserItem from Omniparser result
+    pub fn populate_omniparser_cache(&self, items: HashMap<u32, OmniparserItem>) {
+        if let Ok(mut cache) = self.omniparser_cache.lock() {
+            cache.clear();
+            cache.extend(items);
+            debug!("Populated Omniparser cache with {} elements", cache.len());
+        }
+    }
+
+    /// Populate the Gemini vision cache for index-based clicking.
+    /// Call this after performing Gemini vision to enable click_by_index with VisionType::Gemini.
+    ///
+    /// # Arguments
+    /// * `items` - Map of index to VisionElement from Gemini result
+    pub fn populate_vision_cache(&self, items: HashMap<u32, VisionElement>) {
+        if let Ok(mut cache) = self.vision_cache.lock() {
+            cache.clear();
+            cache.extend(items);
+            debug!("Populated Vision cache with {} elements", cache.len());
+        }
+    }
+
+    /// Populate the DOM cache for index-based clicking.
+    /// Call this after capturing browser DOM to enable click_by_index with VisionType::Dom.
+    ///
+    /// # Arguments
+    /// * `bounds_map` - Map of index to (tag, id, bounds) from DOM capture
+    pub fn populate_dom_cache(&self, bounds_map: HashMap<u32, (String, String, (f64, f64, f64, f64))>) {
+        if let Ok(mut cache) = self.dom_cache.lock() {
+            cache.clear();
+            cache.extend(bounds_map);
+            debug!("Populated DOM cache with {} elements", cache.len());
+        }
+    }
+
+    /// Clear all vision caches.
+    /// Call this when starting a new session or switching contexts.
+    pub fn clear_vision_caches(&self) {
+        if let Ok(mut cache) = self.uia_cache.lock() {
+            cache.clear();
+        }
+        if let Ok(mut cache) = self.ocr_cache.lock() {
+            cache.clear();
+        }
+        if let Ok(mut cache) = self.omniparser_cache.lock() {
+            cache.clear();
+        }
+        if let Ok(mut cache) = self.vision_cache.lock() {
+            cache.clear();
+        }
+        if let Ok(mut cache) = self.dom_cache.lock() {
+            cache.clear();
+        }
+        debug!("Cleared all vision caches");
+    }
+
     #[instrument(skip(self, title))]
     pub fn activate_browser_window_by_title(&self, title: &str) -> Result<(), AutomationError> {
         self.engine.activate_browser_window_by_title(title)
@@ -846,8 +1088,17 @@ impl Desktop {
                 result.element_count,
             )
         } else {
-            (None, std::collections::HashMap::new(), 0)
+            (None, HashMap::new(), 0)
         };
+
+        // Populate the UIA cache for index-based clicking
+        if !index_to_bounds.is_empty() {
+            if let Ok(mut cache) = self.uia_cache.lock() {
+                cache.clear();
+                cache.extend(index_to_bounds.clone());
+                debug!("Populated UIA cache with {} elements", cache.len());
+            }
+        }
 
         Ok(WindowTreeResult {
             tree,
@@ -1085,6 +1336,12 @@ impl Clone for Desktop {
             engine: self.engine.clone(),
             // Clone shares the same cancellation token so stop_execution affects all clones
             cancellation_token: self.cancellation_token.clone(),
+            // Clone shares the same caches so index lookups work across clones
+            uia_cache: self.uia_cache.clone(),
+            ocr_cache: self.ocr_cache.clone(),
+            omniparser_cache: self.omniparser_cache.clone(),
+            vision_cache: self.vision_cache.clone(),
+            dom_cache: self.dom_cache.clone(),
         }
     }
 }
