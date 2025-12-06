@@ -123,6 +123,38 @@ pub enum TreeOutputFormat {
     VerboseJson,
 }
 
+/// Display mode for inspect overlay labels
+#[napi(string_enum)]
+pub enum OverlayDisplayMode {
+    /// Just rectangles, no labels
+    Rectangles,
+    /// [index] only (default)
+    Index,
+    /// [role] only
+    Role,
+    /// [index:role]
+    IndexRole,
+    /// [name] only
+    Name,
+    /// [index:name]
+    IndexName,
+    /// [index:role:name]
+    Full,
+}
+
+/// Element data for inspect overlay rendering
+#[napi(object, js_name = "InspectElement")]
+pub struct InspectElement {
+    /// 1-based index for click targeting
+    pub index: u32,
+    /// Element role (e.g., "Button", "Edit")
+    pub role: String,
+    /// Element name if available
+    pub name: Option<String>,
+    /// Bounding box (x, y, width, height)
+    pub bounds: Bounds,
+}
+
 /// OCR element representing text detected via optical character recognition.
 /// Hierarchy: OcrResult -> OcrLine -> OcrWord
 #[derive(Serialize)]
@@ -537,6 +569,31 @@ impl Default for FontStyle {
     }
 }
 
+impl From<OverlayDisplayMode> for terminator::OverlayDisplayMode {
+    fn from(mode: OverlayDisplayMode) -> Self {
+        match mode {
+            OverlayDisplayMode::Rectangles => terminator::OverlayDisplayMode::Rectangles,
+            OverlayDisplayMode::Index => terminator::OverlayDisplayMode::Index,
+            OverlayDisplayMode::Role => terminator::OverlayDisplayMode::Role,
+            OverlayDisplayMode::IndexRole => terminator::OverlayDisplayMode::IndexRole,
+            OverlayDisplayMode::Name => terminator::OverlayDisplayMode::Name,
+            OverlayDisplayMode::IndexName => terminator::OverlayDisplayMode::IndexName,
+            OverlayDisplayMode::Full => terminator::OverlayDisplayMode::Full,
+        }
+    }
+}
+
+impl From<InspectElement> for terminator::InspectElement {
+    fn from(elem: InspectElement) -> Self {
+        terminator::InspectElement {
+            index: elem.index,
+            role: elem.role,
+            name: elem.name,
+            bounds: (elem.bounds.x, elem.bounds.y, elem.bounds.width, elem.bounds.height),
+        }
+    }
+}
+
 impl From<TreeBuildConfig> for terminator::platforms::TreeBuildConfig {
     fn from(config: TreeBuildConfig) -> Self {
         terminator::platforms::TreeBuildConfig {
@@ -554,7 +611,7 @@ impl From<TreeBuildConfig> for terminator::platforms::TreeBuildConfig {
             include_all_bounds: false,
             ui_settle_delay_ms: config.ui_settle_delay_ms.map(|x| x as u64),
             format_output: config.format_output.unwrap_or(false),
-            show_overlay: false, // Not exposed in SDK - use showInspectOverlay instead
+            show_overlay: false, // Use Desktop.showInspectOverlay() method instead
             overlay_display_mode: None,
         }
     }

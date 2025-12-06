@@ -109,6 +109,34 @@ export const enum TreeOutputFormat {
   /** Full JSON format with all fields and properties */
   VerboseJson = 'VerboseJson'
 }
+/** Display mode for inspect overlay labels */
+export const enum OverlayDisplayMode {
+  /** Just rectangles, no labels */
+  Rectangles = 'Rectangles',
+  /** [index] only (default) */
+  Index = 'Index',
+  /** [role] only */
+  Role = 'Role',
+  /** [index:role] */
+  IndexRole = 'IndexRole',
+  /** [name] only */
+  Name = 'Name',
+  /** [index:name] */
+  IndexName = 'IndexName',
+  /** [index:role:name] */
+  Full = 'Full'
+}
+/** Element data for inspect overlay rendering */
+export interface InspectElement {
+  /** 1-based index for click targeting */
+  index: number
+  /** Element role (e.g., "Button", "Edit") */
+  role: string
+  /** Element name if available */
+  name?: string
+  /** Bounding box (x, y, width, height) */
+  bounds: Bounds
+}
 /**
  * OCR element representing text detected via optical character recognition.
  * Hierarchy: OcrResult -> OcrLine -> OcrWord
@@ -703,10 +731,23 @@ export declare class Desktop {
    */
   stopHighlighting(): number
   /**
+   * Show inspect overlay with indexed elements for visual debugging.
+   *
+   * Displays a transparent overlay window with colored rectangles around UI elements,
+   * showing their index numbers for click targeting. Use `hideInspectOverlay()` to remove.
+   *
+   * @param {InspectElement[]} elements - Array of elements to highlight with their bounds.
+   * @param {object} windowBounds - The window bounds {x, y, width, height} to constrain the overlay.
+   * @param {OverlayDisplayMode} [displayMode='Index'] - What to show in labels: 'Index', 'Role', 'Name', etc.
+   */
+  showInspectOverlay(elements: Array<InspectElement>, windowBounds: Bounds, displayMode?: OverlayDisplayMode | undefined | null): void
+  /** Show inspect overlay (non-Windows stub). */
+  showInspectOverlay(elements: Array<InspectElement>, windowBounds: Bounds, displayMode?: OverlayDisplayMode | undefined | null): void
+  /**
    * Hide any active inspect overlay.
    *
-   * This hides the visual overlay that was shown via `get_window_tree` with
-   * `show_overlay` parameter. Can be called from any thread.
+   * This hides the visual overlay that was shown via `showInspectOverlay()`.
+   * Can be called from any thread.
    */
   hideInspectOverlay(): void
 }

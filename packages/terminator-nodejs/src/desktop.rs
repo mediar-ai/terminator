@@ -1535,10 +1535,56 @@ impl Desktop {
         }
     }
 
+    /// Show inspect overlay with indexed elements for visual debugging.
+    ///
+    /// Displays a transparent overlay window with colored rectangles around UI elements,
+    /// showing their index numbers for click targeting. Use `hideInspectOverlay()` to remove.
+    ///
+    /// @param {InspectElement[]} elements - Array of elements to highlight with their bounds.
+    /// @param {object} windowBounds - The window bounds {x, y, width, height} to constrain the overlay.
+    /// @param {OverlayDisplayMode} [displayMode='Index'] - What to show in labels: 'Index', 'Role', 'Name', etc.
+    #[napi]
+    #[cfg(target_os = "windows")]
+    pub fn show_inspect_overlay(
+        &self,
+        elements: Vec<crate::types::InspectElement>,
+        window_bounds: crate::types::Bounds,
+        display_mode: Option<crate::types::OverlayDisplayMode>,
+    ) -> napi::Result<()> {
+        let core_elements: Vec<terminator::InspectElement> =
+            elements.into_iter().map(|e| e.into()).collect();
+        let core_bounds = (
+            window_bounds.x as i32,
+            window_bounds.y as i32,
+            window_bounds.width as i32,
+            window_bounds.height as i32,
+        );
+        let core_mode = display_mode
+            .map(|m| m.into())
+            .unwrap_or(terminator::OverlayDisplayMode::Index);
+
+        terminator::show_inspect_overlay(core_elements, core_bounds, core_mode)
+            .map(|_handle| ()) // Discard handle - use hideInspectOverlay to close
+            .map_err(|e| napi::Error::from_reason(e.to_string()))
+    }
+
+    /// Show inspect overlay (non-Windows stub).
+    #[napi]
+    #[cfg(not(target_os = "windows"))]
+    pub fn show_inspect_overlay(
+        &self,
+        _elements: Vec<crate::types::InspectElement>,
+        _window_bounds: crate::types::Bounds,
+        _display_mode: Option<crate::types::OverlayDisplayMode>,
+    ) -> napi::Result<()> {
+        // Not implemented for other platforms yet
+        Ok(())
+    }
+
     /// Hide any active inspect overlay.
     ///
-    /// This hides the visual overlay that was shown via `get_window_tree` with
-    /// `show_overlay` parameter. Can be called from any thread.
+    /// This hides the visual overlay that was shown via `showInspectOverlay()`.
+    /// Can be called from any thread.
     #[napi]
     pub fn hide_inspect_overlay(&self) {
         #[cfg(target_os = "windows")]
