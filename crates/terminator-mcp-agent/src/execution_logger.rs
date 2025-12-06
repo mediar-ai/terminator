@@ -435,7 +435,10 @@ fn generate_typescript_snippet(tool_name: &str, args: &Value, result: Result<&Va
         "set_value" => generate_set_value_snippet(args),
         "highlight_element" => generate_highlight_snippet(args),
         "validate_element" => generate_validate_snippet(args),
-        "get_applications" => "const apps = await desktop.getApplications();".to_string(),
+        "invoke_element" => generate_invoke_snippet(args),
+        "set_selected" => generate_set_selected_snippet(args),
+        "activate_element" => generate_activate_snippet(args),
+        "get_applications" | "get_applications_and_windows_list" => "const apps = desktop.getApplications();".to_string(),
         _ => format!("// Unsupported tool: {}\n// Args: {}", clean_tool, serde_json::to_string_pretty(args).unwrap_or_default()),
     };
 
@@ -575,9 +578,8 @@ fn generate_delay_snippet(args: &Value) -> String {
 
 /// Generate open_application snippet
 fn generate_open_application_snippet(args: &Value) -> String {
-    let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-    let escaped_path = path.replace('\\', "\\\\");
-    format!("await desktop.openApplication(\"{}\");", escaped_path)
+    let name = args.get("app_name").and_then(|v| v.as_str()).unwrap_or("");
+    format!("desktop.openApplication(\"{}\");", name)
 }
 
 /// Generate navigate_browser snippet
@@ -596,43 +598,75 @@ fn generate_navigate_browser_snippet(args: &Value) -> String {
 
 /// Generate get_window_tree snippet
 fn generate_get_window_tree_snippet(args: &Value) -> String {
-    let locator = build_locator_string(args);
-    let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(5000);
-    format!(
-        "const element = await desktop.locator({}).first({});\nconst tree = await element.captureTree();",
-        locator, timeout
-    )
+    let process = args.get("process").and_then(|v| v.as_str()).unwrap_or("");
+    let title = args.get("title").and_then(|v| v.as_str());
+
+    // propertyMode is required by TreeBuildConfig
+    let config_str = "{ propertyMode: \"Fast\", formatOutput: true }";
+    if let Some(t) = title {
+        format!(
+            "const result = desktop.getWindowTreeResult(\"{}\", \"{}\", {});\nconsole.log(result.formatted);",
+            process, t, config_str
+        )
+    } else {
+        format!(
+            "const result = desktop.getWindowTreeResult(\"{}\", null, {});\nconsole.log(result.formatted);",
+            process, config_str
+        )
+    }
 }
 
 /// Generate capture_screenshot snippet
 fn generate_capture_screenshot_snippet(args: &Value) -> String {
-    if let Some(process) = args.get("process").and_then(|v| v.as_str()) {
-        let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let process = args.get("process").and_then(|v| v.as_str()).unwrap_or("");
+    let selector = args.get("selector").and_then(|v| v.as_str());
+    let entire_monitor = args.get("entire_monitor").and_then(|v| v.as_bool()).unwrap_or(false);
+    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+
+    if let Some(sel) = selector {
+        if !sel.is_empty() {
+            // Element screenshot via locator
+            let locator = build_locator_string(args);
+            return format!(
+                "const element = await desktop.locator({}).first({});\nconst screenshot = element.capture();",
+                locator, timeout
+            );
+        }
+    }
+
+    // Window or monitor screenshot via desktop method
+    if entire_monitor {
         format!(
-            "const element = await desktop.locator(\"process:{}\").first({});\nconst screenshot = await element.captureScreenshot();",
+            "const screenshot = await desktop.captureScreenshot(\"{}\", null, true, {});",
             process, timeout
         )
     } else {
-        "const screenshot = await desktop.captureScreenshot();".to_string()
+        format!(
+            "const screenshot = await desktop.captureScreenshot(\"{}\", null, false, {});",
+            process, timeout
+        )
     }
 }
 
 /// Generate run_command snippet
 fn generate_run_command_snippet(args: &Value) -> String {
-    let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
-    let escaped_command = command.replace('\\', "\\\\").replace('"', "\\\"");
-    format!("const result = await desktop.runCommand(\"{}\");", escaped_command)
+    let run = args.get("run").and_then(|v| v.as_str()).unwrap_or("");
+    let escaped_run = run.replace('\\', "\\\\").replace('"', "\\\"");
+    // runCommand takes (windowsCommand, unixCommand)
+    format!("const result = await desktop.runCommand(\"{}\");", escaped_run)
 }
 
 /// Generate mouse_drag snippet
 fn generate_mouse_drag_snippet(args: &Value) -> String {
+    let locator = build_locator_string(args);
     let start_x = args.get("start_x").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
     let start_y = args.get("start_y").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
     let end_x = args.get("end_x").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
     let end_y = args.get("end_y").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
+    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
     format!(
-        "await desktop.mouseDrag({{ startX: {}, startY: {}, endX: {}, endY: {} }});",
-        start_x, start_y, end_x, end_y
+        "const element = await desktop.locator({}).first({});\nelement.mouseDrag({}, {}, {}, {});",
+        locator, timeout, start_x, start_y, end_x, end_y
     )
 }
 
@@ -640,10 +674,10 @@ fn generate_mouse_drag_snippet(args: &Value) -> String {
 fn generate_scroll_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
     let direction = args.get("direction").and_then(|v| v.as_str()).unwrap_or("down");
-    let amount = args.get("amount").and_then(|v| v.as_u64()).unwrap_or(3);
-    let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let amount = args.get("amount").and_then(|v| v.as_f64()).unwrap_or(3.0) as u64;
+    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
     format!(
-        "const element = await desktop.locator({}).first({});\nawait element.scroll(\"{}\", {});",
+        "const element = await desktop.locator({}).first({});\nelement.scroll(\"{}\", {});",
         locator, timeout, direction, amount
     )
 }
@@ -651,18 +685,19 @@ fn generate_scroll_snippet(args: &Value) -> String {
 /// Generate wait_for_element snippet
 fn generate_wait_for_element_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
-    let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(30000);
+    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(30000);
+    let condition = args.get("condition").and_then(|v| v.as_str()).unwrap_or("exists");
     format!(
-        "const element = await desktop.locator({}).first({});",
-        locator, timeout
+        "await desktop.locator({}).waitFor(\"{}\", {});",
+        locator, condition, timeout
     )
 }
 
 /// Generate select_option snippet
 fn generate_select_option_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
-    let option = args.get("option").and_then(|v| v.as_str()).unwrap_or("");
-    let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let option = args.get("option_name").and_then(|v| v.as_str()).unwrap_or("");
+    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
     format!(
         "const element = await desktop.locator({}).first({});\nawait element.selectOption(\"{}\");",
         locator, timeout, option
@@ -673,21 +708,34 @@ fn generate_select_option_snippet(args: &Value) -> String {
 fn generate_set_value_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
     let value = args.get("value").and_then(|v| v.as_str()).unwrap_or("");
-    let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let escaped_value = value.replace('\\', "\\\\").replace('"', "\\\"");
+    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
     format!(
-        "const element = await desktop.locator({}).first({});\nawait element.setValue(\"{}\");",
-        locator, timeout, value
+        "const element = await desktop.locator({}).first({});\nelement.setValue(\"{}\");",
+        locator, timeout, escaped_value
     )
 }
 
 /// Generate highlight_element snippet
 fn generate_highlight_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
-    let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(5000);
-    format!(
-        "const element = await desktop.locator({}).first({});\nawait element.highlight();",
-        locator, timeout
-    )
+    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let color = args.get("color").and_then(|v| v.as_u64());
+    let duration = args.get("duration_ms").and_then(|v| v.as_u64());
+
+    if color.is_some() || duration.is_some() {
+        format!(
+            "const element = await desktop.locator({}).first({});\nelement.highlight({}, {});",
+            locator, timeout,
+            color.map(|c| c.to_string()).unwrap_or("undefined".to_string()),
+            duration.map(|d| d.to_string()).unwrap_or("undefined".to_string())
+        )
+    } else {
+        format!(
+            "const element = await desktop.locator({}).first({});\nelement.highlight();",
+            locator, timeout
+        )
+    }
 }
 
 /// Generate validate_element snippet
@@ -696,6 +744,37 @@ fn generate_validate_snippet(args: &Value) -> String {
     let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
     format!(
         "const result = await desktop.locator({}).validate({});\nconsole.log(\"exists:\", result.exists);",
+        locator, timeout
+    )
+}
+
+/// Generate invoke_element snippet
+fn generate_invoke_snippet(args: &Value) -> String {
+    let locator = build_locator_string(args);
+    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    format!(
+        "const element = await desktop.locator({}).first({});\nelement.invoke();",
+        locator, timeout
+    )
+}
+
+/// Generate set_selected snippet
+fn generate_set_selected_snippet(args: &Value) -> String {
+    let locator = build_locator_string(args);
+    let state = args.get("state").and_then(|v| v.as_bool()).unwrap_or(true);
+    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    format!(
+        "const element = await desktop.locator({}).first({});\nelement.setSelected({});",
+        locator, timeout, state
+    )
+}
+
+/// Generate activate_element snippet
+fn generate_activate_snippet(args: &Value) -> String {
+    let locator = build_locator_string(args);
+    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    format!(
+        "const element = await desktop.locator({}).first({});\nelement.activate();",
         locator, timeout
     )
 }
