@@ -12,6 +12,58 @@ use napi_derive::napi;
 use std::sync::{Arc, Once};
 use terminator::Desktop as TerminatorDesktop;
 
+/// Result of screenshot capture operations
+#[derive(Default)]
+struct ScreenshotPaths {
+    window_path: Option<String>,
+    monitor_paths: Option<Vec<String>>,
+}
+
+/// Helper to capture and save screenshots based on options
+fn capture_screenshots(
+    desktop: &TerminatorDesktop,
+    pid: Option<u32>,
+    include_window: bool,
+    include_monitors: bool,
+    operation: &str,
+) -> ScreenshotPaths {
+    let mut result = ScreenshotPaths::default();
+
+    if !include_window && !include_monitors {
+        return result;
+    }
+
+    terminator::screenshot_logger::init();
+    let prefix = terminator::screenshot_logger::generate_prefix(None, operation);
+
+    if include_window {
+        if let Some(pid) = pid {
+            // Try to capture window screenshot by PID
+            if let Ok(apps) = desktop.applications() {
+                if let Some(app) = apps.into_iter().find(|a| a.process_id().ok() == Some(pid)) {
+                    if let Ok(screenshot) = app.capture() {
+                        if let Some(saved) = terminator::screenshot_logger::save_window_screenshot(&screenshot, &prefix, None) {
+                            result.window_path = Some(saved.path.to_string_lossy().to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if include_monitors {
+        // Capture all monitors using futures executor for sync context
+        if let Ok(monitors) = futures::executor::block_on(desktop.capture_all_monitors()) {
+            let saved = terminator::screenshot_logger::save_monitor_screenshots(&monitors, &prefix, None);
+            if !saved.is_empty() {
+                result.monitor_paths = Some(saved.into_iter().map(|s| s.path.to_string_lossy().to_string()).collect());
+            }
+        }
+    }
+
+    result
+}
+
 /// Main entry point for desktop automation.
 #[napi(js_name = "Desktop")]
 pub struct Desktop {
@@ -1420,34 +1472,16 @@ impl Desktop {
                 Some(serde_json::to_string_pretty(&sdk_result.tree).unwrap_or_default());
         }
 
-        // Handle screenshot capture and saving
-        if include_window_screenshot || include_monitor_screenshots {
-            terminator::screenshot_logger::init();
-            let prefix = terminator::screenshot_logger::generate_prefix(None, "getWindowTreeResult");
-
-            if include_window_screenshot {
-                // Try to capture window screenshot by PID
-                if let Ok(apps) = self.inner.applications() {
-                    if let Some(app) = apps.into_iter().find(|a| a.process_id().ok() == Some(pid)) {
-                        if let Ok(screenshot) = app.capture() {
-                            if let Some(saved) = terminator::screenshot_logger::save_window_screenshot(&screenshot, &prefix, None) {
-                                sdk_result.window_screenshot_path = Some(saved.path.to_string_lossy().to_string());
-                            }
-                        }
-                    }
-                }
-            }
-
-            if include_monitor_screenshots {
-                // Capture all monitors - need to use futures executor for sync context
-                if let Ok(monitors) = futures::executor::block_on(self.inner.capture_all_monitors()) {
-                    let saved = terminator::screenshot_logger::save_monitor_screenshots(&monitors, &prefix, None);
-                    if !saved.is_empty() {
-                        sdk_result.monitor_screenshot_paths = Some(saved.into_iter().map(|s| s.path.to_string_lossy().to_string()).collect());
-                    }
-                }
-            }
-        }
+        // Handle screenshot capture and saving using helper
+        let screenshots = capture_screenshots(
+            &self.inner,
+            Some(pid),
+            include_window_screenshot,
+            include_monitor_screenshots,
+            "getWindowTreeResult",
+        );
+        sdk_result.window_screenshot_path = screenshots.window_path;
+        sdk_result.monitor_screenshot_paths = screenshots.monitor_paths;
 
         Ok(sdk_result)
     }
