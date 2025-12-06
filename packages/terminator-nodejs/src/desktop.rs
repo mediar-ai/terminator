@@ -1088,6 +1088,7 @@ impl Desktop {
             .unwrap_or(TreeOutputFormat::CompactYaml);
 
         // If format is VerboseJson, we don't need formatted output from core
+        // ClusteredYaml is treated like CompactYaml (needs format_output = true)
         let rust_config = config.map(|mut c| {
             if matches!(output_format, TreeOutputFormat::VerboseJson) {
                 c.format_output = Some(false);
@@ -1184,10 +1185,20 @@ impl Desktop {
                     let result = terminator::format_tree_as_compact_yaml(&serializable_tree, 0);
                     Some(result.formatted)
                 }
+                TreeOutputFormat::ClusteredYaml => {
+                    // ClusteredYaml requires additional data sources (DOM, OCR, Omniparser, Vision)
+                    // For now, fall back to CompactYaml since we only have UIA data here.
+                    // Use format_clustered_tree_from_caches when you have all data sources.
+                    let result = terminator::format_tree_as_compact_yaml(&serializable_tree, 0);
+                    Some(result.formatted)
+                }
             };
 
             // Build index_to_bounds from the formatted result
-            let index_to_bounds = if matches!(output_format, TreeOutputFormat::CompactYaml) {
+            let index_to_bounds = if matches!(
+                output_format,
+                TreeOutputFormat::CompactYaml | TreeOutputFormat::ClusteredYaml
+            ) {
                 let result = terminator::format_tree_as_compact_yaml(&serializable_tree, 0);
                 result
                     .index_to_bounds
