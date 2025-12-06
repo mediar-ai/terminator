@@ -75,21 +75,13 @@ async fn capture_monitor_screenshots(desktop: &Desktop) -> Vec<Content> {
     match desktop.capture_all_monitors().await {
         Ok(screenshots) => {
             for (monitor, screenshot) in screenshots {
-                // Convert RGBA bytes to PNG
-                match rgba_to_png(&screenshot.image_data, screenshot.width, screenshot.height) {
-                    Ok(png_data) => {
-                        // Base64 encode the PNG
-                        let base64_data = general_purpose::STANDARD.encode(&png_data);
-
-                        // Use the Content::image helper method
+                // Use core's to_base64_png_resized for consistent handling
+                match screenshot.to_base64_png_resized(None) {
+                    Ok(base64_data) => {
                         contents.push(Content::image(base64_data, "image/png".to_string()));
-
                         info!(
-                            "Captured monitor '{}' screenshot: {}x{} ({}KB)",
-                            monitor.name,
-                            screenshot.width,
-                            screenshot.height,
-                            png_data.len() / 1024
+                            "Captured monitor '{}' screenshot: {}x{}",
+                            monitor.name, screenshot.width, screenshot.height
                         );
                     }
                     Err(e) => {
@@ -107,21 +99,6 @@ async fn capture_monitor_screenshots(desktop: &Desktop) -> Vec<Content> {
     }
 
     contents
-}
-
-/// Convert RGBA image data to PNG format
-fn rgba_to_png(
-    rgba_data: &[u8],
-    width: u32,
-    height: u32,
-) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    let mut png_data = Vec::new();
-    let mut cursor = Cursor::new(&mut png_data);
-
-    let encoder = PngEncoder::new(&mut cursor);
-    encoder.write_image(rgba_data, width, height, ExtendedColorType::Rgba8)?;
-
-    Ok(png_data)
 }
 
 /// Helper to conditionally append monitor screenshots to existing content
@@ -142,98 +119,22 @@ async fn append_monitor_screenshots_if_enabled(
 /// Capture a screenshot of the target window by process name
 /// Returns base64 PNG as Content::image, or None if capture fails
 async fn capture_window_screenshot(desktop: &Desktop, process: &str) -> Option<Content> {
-    // Find the window element for this process using sysinfo to match process names
-    let apps = match desktop.applications() {
-        Ok(apps) => apps,
-        Err(e) => {
-            warn!("[window_screenshot] Failed to get applications: {}", e);
-            return None;
-        }
-    };
-
-    let mut system = System::new();
-    system.refresh_processes(ProcessesToUpdate::All, true);
-
-    let window_element = apps.into_iter().find(|app| {
-        let app_pid = app.process_id().unwrap_or(0);
-        if app_pid > 0 {
-            system
-                .process(sysinfo::Pid::from_u32(app_pid))
-                .map(|p| {
-                    let process_name = p.name().to_string_lossy().to_string();
-                    process_name
-                        .to_lowercase()
-                        .contains(&process.to_lowercase())
-                })
-                .unwrap_or(false)
-        } else {
-            false
-        }
-    });
-
-    let window_element = match window_element {
-        Some(el) => el,
-        None => {
-            warn!(
-                "[window_screenshot] No window found for process '{}'",
-                process
-            );
-            return None;
-        }
-    };
-
-    // Capture screenshot
-    let screenshot = match window_element.capture() {
+    // Use core's capture_window_by_process which handles finding the window
+    let screenshot = match desktop.capture_window_by_process(process) {
         Ok(s) => s,
         Err(e) => {
-            warn!("[window_screenshot] Failed to capture screenshot: {}", e);
+            warn!("[window_screenshot] Failed to capture '{}': {}", process, e);
             return None;
         }
     };
 
-    let original_width = screenshot.width;
-    let original_height = screenshot.height;
-
-    // Convert BGRA to RGBA
-    let rgba_data: Vec<u8> = screenshot
-        .image_data
-        .chunks_exact(4)
-        .flat_map(|bgra| [bgra[2], bgra[1], bgra[0], bgra[3]])
-        .collect();
-
-    // Resize if needed (max 1920px)
-    const MAX_DIM: u32 = 1920;
-    let (final_width, final_height, final_rgba_data) =
-        if original_width > MAX_DIM || original_height > MAX_DIM {
-            let scale = (MAX_DIM as f32 / original_width.max(original_height) as f32).min(1.0);
-            let new_width = (original_width as f32 * scale).round() as u32;
-            let new_height = (original_height as f32 * scale).round() as u32;
-
-            match ImageBuffer::<Rgba<u8>, _>::from_raw(original_width, original_height, rgba_data) {
-                Some(img) => {
-                    let resized =
-                        image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
-                    (new_width, new_height, resized.into_raw())
-                }
-                None => {
-                    warn!("[window_screenshot] Failed to create image buffer for resize");
-                    return None;
-                }
-            }
-        } else {
-            (original_width, original_height, rgba_data)
-        };
-
-    // Convert to PNG
-    match rgba_to_png(&final_rgba_data, final_width, final_height) {
-        Ok(png_data) => {
-            let base64_data = general_purpose::STANDARD.encode(&png_data);
+    // Use core's to_base64_png_resized which handles BGRA→RGBA, resize, and encoding
+    match screenshot.to_base64_png_resized(None) {
+        Ok(base64_data) => {
+            let (w, h) = screenshot.resized_dimensions(terminator::DEFAULT_MAX_DIMENSION);
             info!(
-                "[window_screenshot] Captured '{}' window: {}x{} ({}KB)",
-                process,
-                final_width,
-                final_height,
-                png_data.len() / 1024
+                "[window_screenshot] Captured '{}' window: {}x{}",
+                process, w, h
             );
             Some(Content::image(base64_data, "image/png".to_string()))
         }
