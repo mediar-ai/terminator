@@ -41,6 +41,7 @@ pub use tree_formatter::{
     ElementSource, OcrFormattingResult, TreeFormattingResult, UnifiedElement,
 };
 pub use types::{FontStyle, HighlightHandle, OmniparserItem, TextPosition, VisionElement};
+pub use utils::find_pid_for_process;
 
 // Re-export types from terminator-computer-use crate
 #[cfg(target_os = "windows")]
