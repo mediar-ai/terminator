@@ -8988,29 +8988,6 @@ impl DesktopWrapper {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
-        let mut system = System::new();
-        system.refresh_processes(ProcessesToUpdate::All, true);
-
-        let window_element = apps
-            .into_iter()
-            .find(|app| {
-                let app_pid = app.process_id().unwrap_or(0);
-                if app_pid > 0 {
-                    system
-                        .process(sysinfo::Pid::from_u32(app_pid))
-                        .map(|p| {
-                            let process_name = p.name().to_string_lossy().to_string();
-                            process_name
-                                .to_lowercase()
-                                .contains(&process.to_lowercase())
-                        })
-                        .unwrap_or(false)
-                } else {
-                    false
-                }
-            })
-            .ok_or_else(|| format!("No window found for process '{process}'"))?;
-
         // Get browser URL if available (for Gemini Computer Use API requirement)
         let browser_url = window_element.url();
 
