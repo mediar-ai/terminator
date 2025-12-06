@@ -139,6 +139,128 @@ async fn append_monitor_screenshots_if_enabled(
     contents
 }
 
+/// Capture a screenshot of the target window by process name
+/// Returns base64 PNG as Content::image, or None if capture fails
+async fn capture_window_screenshot(desktop: &Desktop, process: &str) -> Option<Content> {
+    // Find the window element for this process using sysinfo to match process names
+    let apps = match desktop.applications() {
+        Ok(apps) => apps,
+        Err(e) => {
+            warn!("[window_screenshot] Failed to get applications: {}", e);
+            return None;
+        }
+    };
+
+    let mut system = System::new();
+    system.refresh_processes(ProcessesToUpdate::All, true);
+
+    let window_element = apps.into_iter().find(|app| {
+        let app_pid = app.process_id().unwrap_or(0);
+        if app_pid > 0 {
+            system
+                .process(sysinfo::Pid::from_u32(app_pid))
+                .map(|p| {
+                    let process_name = p.name().to_string_lossy().to_string();
+                    process_name
+                        .to_lowercase()
+                        .contains(&process.to_lowercase())
+                })
+                .unwrap_or(false)
+        } else {
+            false
+        }
+    });
+
+    let window_element = match window_element {
+        Some(el) => el,
+        None => {
+            warn!(
+                "[window_screenshot] No window found for process '{}'",
+                process
+            );
+            return None;
+        }
+    };
+
+    // Capture screenshot
+    let screenshot = match window_element.capture() {
+        Ok(s) => s,
+        Err(e) => {
+            warn!("[window_screenshot] Failed to capture screenshot: {}", e);
+            return None;
+        }
+    };
+
+    let original_width = screenshot.width;
+    let original_height = screenshot.height;
+
+    // Convert BGRA to RGBA
+    let rgba_data: Vec<u8> = screenshot
+        .image_data
+        .chunks_exact(4)
+        .flat_map(|bgra| [bgra[2], bgra[1], bgra[0], bgra[3]])
+        .collect();
+
+    // Resize if needed (max 1920px)
+    const MAX_DIM: u32 = 1920;
+    let (final_width, final_height, final_rgba_data) =
+        if original_width > MAX_DIM || original_height > MAX_DIM {
+            let scale = (MAX_DIM as f32 / original_width.max(original_height) as f32).min(1.0);
+            let new_width = (original_width as f32 * scale).round() as u32;
+            let new_height = (original_height as f32 * scale).round() as u32;
+
+            match ImageBuffer::<Rgba<u8>, _>::from_raw(original_width, original_height, rgba_data) {
+                Some(img) => {
+                    let resized =
+                        image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
+                    (new_width, new_height, resized.into_raw())
+                }
+                None => {
+                    warn!("[window_screenshot] Failed to create image buffer for resize");
+                    return None;
+                }
+            }
+        } else {
+            (original_width, original_height, rgba_data)
+        };
+
+    // Convert to PNG
+    match rgba_to_png(&final_rgba_data, final_width, final_height) {
+        Ok(png_data) => {
+            let base64_data = general_purpose::STANDARD.encode(&png_data);
+            info!(
+                "[window_screenshot] Captured '{}' window: {}x{} ({}KB)",
+                process,
+                final_width,
+                final_height,
+                png_data.len() / 1024
+            );
+            Some(Content::image(base64_data, "image/png".to_string()))
+        }
+        Err(e) => {
+            warn!("[window_screenshot] Failed to encode PNG: {}", e);
+            None
+        }
+    }
+}
+
+/// Helper to conditionally append window screenshot to existing content
+/// Only captures screenshot if include is true (defaults to false)
+async fn append_window_screenshot_if_enabled(
+    desktop: &Desktop,
+    process: &str,
+    mut contents: Vec<Content>,
+    include: Option<bool>,
+) -> Vec<Content> {
+    // Only capture if explicitly enabled (defaults to false)
+    if include.unwrap_or(false) {
+        if let Some(screenshot) = capture_window_screenshot(desktop, process).await {
+            contents.push(screenshot);
+        }
+    }
+    contents
+}
+
 #[tool_router]
 impl DesktopWrapper {
     /// Check if a string is a valid JavaScript identifier and not a reserved word
@@ -1979,10 +2101,18 @@ impl DesktopWrapper {
         span.set_status(true, None);
         span.end();
 
+        let contents = vec![Content::json(result_json)?];
         let contents = append_monitor_screenshots_if_enabled(
             &self.desktop,
-            vec![Content::json(result_json)?],
+            contents,
             args.monitor.include_monitor_screenshots,
+        )
+        .await;
+        let contents = append_window_screenshot_if_enabled(
+            &self.desktop,
+            &args.process,
+            contents,
+            args.window_screenshot.include_window_screenshot,
         )
         .await;
 
@@ -2721,14 +2851,21 @@ impl DesktopWrapper {
         );
         span.set_status(true, None);
         span.end();
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                args.monitor.include_monitor_screenshots,
-            )
-            .await,
-        ))
+        let contents = vec![Content::json(result_json)?];
+        let contents = append_monitor_screenshots_if_enabled(
+            &self.desktop,
+            contents,
+            args.monitor.include_monitor_screenshots,
+        )
+        .await;
+        let contents = append_window_screenshot_if_enabled(
+            &self.desktop,
+            &args.selector.process,
+            contents,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
+        Ok(CallToolResult::success(contents))
     }
 
     #[tool(
@@ -2802,14 +2939,21 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                         });
                         span.set_status(true, None);
                         span.end();
-                        return Ok(CallToolResult::success(
-                            append_monitor_screenshots_if_enabled(
-                                &self.desktop,
-                                vec![Content::json(result_json)?],
-                                args.monitor.include_monitor_screenshots,
-                            )
-                            .await,
-                        ));
+                        let contents = vec![Content::json(result_json)?];
+                        let contents = append_monitor_screenshots_if_enabled(
+                            &self.desktop,
+                            contents,
+                            args.monitor.include_monitor_screenshots,
+                        )
+                        .await;
+                        let contents = append_window_screenshot_if_enabled(
+                            &self.desktop,
+                            args.process.as_deref().unwrap_or(""),
+                            contents,
+                            args.window_screenshot.include_window_screenshot,
+                        )
+                        .await;
+                        return Ok(CallToolResult::success(contents));
                     }
                     Err(e) => {
                         span.set_status(false, Some(&e.to_string()));
@@ -2984,14 +3128,21 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                         }
                         span.set_status(true, None);
                         span.end();
-                        return Ok(CallToolResult::success(
-                            append_monitor_screenshots_if_enabled(
-                                &self.desktop,
-                                vec![Content::json(result_json)?],
-                                args.monitor.include_monitor_screenshots,
-                            )
-                            .await,
-                        ));
+                        let contents = vec![Content::json(result_json)?];
+                        let contents = append_monitor_screenshots_if_enabled(
+                            &self.desktop,
+                            contents,
+                            args.monitor.include_monitor_screenshots,
+                        )
+                        .await;
+                        let contents = append_window_screenshot_if_enabled(
+                            &self.desktop,
+                            args.process.as_deref().unwrap_or(""),
+                            contents,
+                            args.window_screenshot.include_window_screenshot,
+                        )
+                        .await;
+                        return Ok(CallToolResult::success(contents));
                     }
                     Err(e) => {
                         span.set_status(false, Some(&e.to_string()));
@@ -3222,14 +3373,21 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                 span.set_status(true, None);
                 span.end();
 
-                Ok(CallToolResult::success(
-                    append_monitor_screenshots_if_enabled(
-                        &self.desktop,
-                        vec![Content::json(result_json)?],
-                        args.monitor.include_monitor_screenshots,
-                    )
-                    .await,
-                ))
+                let contents = vec![Content::json(result_json)?];
+                let contents = append_monitor_screenshots_if_enabled(
+                    &self.desktop,
+                    contents,
+                    args.monitor.include_monitor_screenshots,
+                )
+                .await;
+                let contents = append_window_screenshot_if_enabled(
+                    &self.desktop,
+                    args.process.as_deref().unwrap_or(""),
+                    contents,
+                    args.window_screenshot.include_window_screenshot,
+                )
+                .await;
+                Ok(CallToolResult::success(contents))
             }
         }
     }
@@ -3481,14 +3639,21 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
 
         span.set_status(true, None);
         span.end();
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                args.monitor.include_monitor_screenshots,
-            )
-            .await,
-        ))
+        let contents = vec![Content::json(result_json)?];
+        let contents = append_monitor_screenshots_if_enabled(
+            &self.desktop,
+            contents,
+            args.monitor.include_monitor_screenshots,
+        )
+        .await;
+        let contents = append_window_screenshot_if_enabled(
+            &self.desktop,
+            &args.selector.process,
+            contents,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
+        Ok(CallToolResult::success(contents))
     }
 
     #[tool(
@@ -3666,14 +3831,21 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
 
         span.set_status(true, None);
         span.end();
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                args.monitor.include_monitor_screenshots,
-            )
-            .await,
-        ))
+        let contents = vec![Content::json(result_json)?];
+        let contents = append_monitor_screenshots_if_enabled(
+            &self.desktop,
+            contents,
+            args.monitor.include_monitor_screenshots,
+        )
+        .await;
+        let contents = append_window_screenshot_if_enabled(
+            &self.desktop,
+            &args.process,
+            contents,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
+        Ok(CallToolResult::success(contents))
     }
 
     #[tool(
@@ -5108,14 +5280,21 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
         span.set_status(true, None);
         span.end();
 
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                None,
-            )
-            .await,
-        ))
+        let contents = vec![Content::json(result_json)?];
+        let contents = append_monitor_screenshots_if_enabled(
+            &self.desktop,
+            contents,
+            args.monitor.include_monitor_screenshots,
+        )
+        .await;
+        let contents = append_window_screenshot_if_enabled(
+            &self.desktop,
+            &args.selector.process,
+            contents,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
+        Ok(CallToolResult::success(contents))
     }
 
     #[tool(
@@ -5307,14 +5486,21 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
         span.set_status(true, None);
         span.end();
 
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                None,
-            )
-            .await,
-        ))
+        let contents = vec![Content::json(result_json)?];
+        let contents = append_monitor_screenshots_if_enabled(
+            &self.desktop,
+            contents,
+            args.monitor.include_monitor_screenshots,
+        )
+        .await;
+        let contents = append_window_screenshot_if_enabled(
+            &self.desktop,
+            &args.selector.process,
+            contents,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
+        Ok(CallToolResult::success(contents))
     }
 
     #[tool(
@@ -5416,14 +5602,21 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
                 span.set_status(true, None);
                 span.end();
 
-                Ok(CallToolResult::success(
-                    append_monitor_screenshots_if_enabled(
-                        &self.desktop,
-                        vec![Content::json(result_json)?],
-                        None,
-                    )
-                    .await,
-                ))
+                let contents = vec![Content::json(result_json)?];
+                let contents = append_monitor_screenshots_if_enabled(
+                    &self.desktop,
+                    contents,
+                    args.monitor.include_monitor_screenshots,
+                )
+                .await;
+                let contents = append_window_screenshot_if_enabled(
+                    &self.desktop,
+                    &args.selector.process,
+                    contents,
+                    args.window_screenshot.include_window_screenshot,
+                )
+                .await;
+                Ok(CallToolResult::success(contents))
             }
             Err(e) => {
                 let selectors_tried = get_selectors_tried_all(
@@ -5452,20 +5645,27 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
                 span.set_status(true, None);
                 span.end();
 
-                Ok(CallToolResult::success(
-                    append_monitor_screenshots_if_enabled(
-                        &self.desktop,
-                        vec![Content::json(json!({
-                            "action": "validate_element",
-                            "status": "failed",
-                            "exists": false,
-                            "reason": reason_payload,
-                            "timestamp": chrono::Utc::now().to_rfc3339()
-                        }))?],
-                        None,
-                    )
-                    .await,
-                ))
+                let contents = vec![Content::json(json!({
+                    "action": "validate_element",
+                    "status": "failed",
+                    "exists": false,
+                    "reason": reason_payload,
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                }))?];
+                let contents = append_monitor_screenshots_if_enabled(
+                    &self.desktop,
+                    contents,
+                    args.monitor.include_monitor_screenshots,
+                )
+                .await;
+                let contents = append_window_screenshot_if_enabled(
+                    &self.desktop,
+                    &args.selector.process,
+                    contents,
+                    args.window_screenshot.include_window_screenshot,
+                )
+                .await;
+                Ok(CallToolResult::success(contents))
             }
         }
     }
@@ -5620,14 +5820,21 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
         span.set_status(true, None);
         span.end();
 
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                None,
-            )
-            .await,
-        ))
+        let contents = vec![Content::json(result_json)?];
+        let contents = append_monitor_screenshots_if_enabled(
+            &self.desktop,
+            contents,
+            args.monitor.include_monitor_screenshots,
+        )
+        .await;
+        let contents = append_window_screenshot_if_enabled(
+            &self.desktop,
+            &args.selector.process,
+            contents,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
+        Ok(CallToolResult::success(contents))
     }
 
     #[tool(
@@ -5737,14 +5944,21 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
                     span.set_status(true, None);
                     span.end();
 
-                    return Ok(CallToolResult::success(
-                        append_monitor_screenshots_if_enabled(
-                            &self.desktop,
-                            vec![Content::json(result_json)?],
-                            None,
-                        )
-                        .await,
-                    ));
+                    let contents = vec![Content::json(result_json)?];
+                    let contents = append_monitor_screenshots_if_enabled(
+                        &self.desktop,
+                        contents,
+                        args.monitor.include_monitor_screenshots,
+                    )
+                    .await;
+                    let contents = append_window_screenshot_if_enabled(
+                        &self.desktop,
+                        &args.selector.process,
+                        contents,
+                        args.window_screenshot.include_window_screenshot,
+                    )
+                    .await;
+                    return Ok(CallToolResult::success(contents));
                 }
                 Err(e) => {
                     let error_msg = format!("Element not found within timeout: {e}");
@@ -5891,14 +6105,21 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
                         span.set_status(true, None);
                         span.end();
 
-                        return Ok(CallToolResult::success(
-                            append_monitor_screenshots_if_enabled(
-                                &self.desktop,
-                                vec![Content::json(result_json)?],
-                                None,
-                            )
-                            .await,
-                        ));
+                        let contents = vec![Content::json(result_json)?];
+                        let contents = append_monitor_screenshots_if_enabled(
+                            &self.desktop,
+                            contents,
+                            args.monitor.include_monitor_screenshots,
+                        )
+                        .await;
+                        let contents = append_window_screenshot_if_enabled(
+                            &self.desktop,
+                            &args.selector.process,
+                            contents,
+                            args.window_screenshot.include_window_screenshot,
+                        )
+                        .await;
+                        return Ok(CallToolResult::success(contents));
                     } else {
                         info!(
                             "[wait_for_element] Condition '{}' NOT met for selector='{}', continuing to poll...",
@@ -6057,14 +6278,21 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
         span.set_status(true, None);
         span.end();
 
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                None,
-            )
-            .await,
-        ))
+        let contents = vec![Content::json(result_json)?];
+        let contents = append_monitor_screenshots_if_enabled(
+            &self.desktop,
+            contents,
+            args.monitor.include_monitor_screenshots,
+        )
+        .await;
+        let contents = append_window_screenshot_if_enabled(
+            &self.desktop,
+            &args.process,
+            contents,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
+        Ok(CallToolResult::success(contents))
     }
 
     #[tool(
@@ -6214,14 +6442,21 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
         span.set_status(true, None);
         span.end();
 
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                None,
-            )
-            .await,
-        ))
+        let contents = vec![Content::json(result_json)?];
+        let contents = append_monitor_screenshots_if_enabled(
+            &self.desktop,
+            contents,
+            args.monitor.include_monitor_screenshots,
+        )
+        .await;
+        let contents = append_window_screenshot_if_enabled(
+            &self.desktop,
+            &args.app_name,
+            contents,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
+        Ok(CallToolResult::success(contents))
     }
 
     #[tool(description = "Scrolls a UI element in the specified direction by the given amount.")]
@@ -6440,14 +6675,21 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
         span.set_status(true, None);
         span.end();
 
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                None,
-            )
-            .await,
-        ))
+        let contents = vec![Content::json(result_json)?];
+        let contents = append_monitor_screenshots_if_enabled(
+            &self.desktop,
+            contents,
+            args.monitor.include_monitor_screenshots,
+        )
+        .await;
+        let contents = append_window_screenshot_if_enabled(
+            &self.desktop,
+            &args.selector.process,
+            contents,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
+        Ok(CallToolResult::success(contents))
     }
 
     #[tool(description = "Selects an option in a dropdown or combobox by its visible text.")]
@@ -6580,14 +6822,21 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
         span.set_status(true, None);
         span.end();
 
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                None,
-            )
-            .await,
-        ))
+        let contents = vec![Content::json(result_json)?];
+        let contents = append_monitor_screenshots_if_enabled(
+            &self.desktop,
+            contents,
+            args.monitor.include_monitor_screenshots,
+        )
+        .await;
+        let contents = append_window_screenshot_if_enabled(
+            &self.desktop,
+            &args.selector.process,
+            contents,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
+        Ok(CallToolResult::success(contents))
     }
 
     #[tool(
@@ -6822,14 +7071,21 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
         span.set_status(true, None);
         span.end();
 
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                None,
-            )
-            .await,
-        ))
+        let contents = vec![Content::json(result_json)?];
+        let contents = append_monitor_screenshots_if_enabled(
+            &self.desktop,
+            contents,
+            args.monitor.include_monitor_screenshots,
+        )
+        .await;
+        let contents = append_window_screenshot_if_enabled(
+            &self.desktop,
+            &args.selector.process,
+            contents,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
+        Ok(CallToolResult::success(contents))
     }
 
     #[tool(
@@ -7043,17 +7299,24 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
 
         self.restore_window_management(should_restore).await;
 
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![
-                    Content::json(metadata)?,
-                    Content::image(base64_image, "image/png".to_string()),
-                ],
-                None,
-            )
-            .await,
-        ))
+        let contents = vec![
+            Content::json(metadata)?,
+            Content::image(base64_image, "image/png".to_string()),
+        ];
+        let contents = append_monitor_screenshots_if_enabled(
+            &self.desktop,
+            contents,
+            args.monitor.include_monitor_screenshots,
+        )
+        .await;
+        let contents = append_window_screenshot_if_enabled(
+            &self.desktop,
+            &args.selector.process,
+            contents,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
+        Ok(CallToolResult::success(contents))
     }
 
     #[tool(
@@ -7260,14 +7523,21 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
         span.set_status(true, None);
         span.end();
 
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                None,
-            )
-            .await,
-        ))
+        let contents = vec![Content::json(result_json)?];
+        let contents = append_monitor_screenshots_if_enabled(
+            &self.desktop,
+            contents,
+            args.monitor.include_monitor_screenshots,
+        )
+        .await;
+        let contents = append_window_screenshot_if_enabled(
+            &self.desktop,
+            &args.selector.process,
+            contents,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
+        Ok(CallToolResult::success(contents))
     }
 
     #[tool(
@@ -8470,14 +8740,21 @@ console.info = function(...args) {
         span.set_status(true, None);
         span.end();
 
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                None,
-            )
-            .await,
-        ))
+        let contents = vec![Content::json(result_json)?];
+        let contents = append_monitor_screenshots_if_enabled(
+            &self.desktop,
+            contents,
+            args.monitor.include_monitor_screenshots,
+        )
+        .await;
+        let contents = append_window_screenshot_if_enabled(
+            &self.desktop,
+            &args.selector.process,
+            contents,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
+        Ok(CallToolResult::success(contents))
     }
 
     #[tool(
