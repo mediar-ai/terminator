@@ -8414,24 +8414,13 @@ console.info = function(...args) {
         &self,
         Parameters(args): Parameters<GeminiComputerUseArgs>,
     ) -> Result<CallToolResult, McpError> {
-        use crate::vision::{
-            call_computer_use_backend, ComputerUseActionResponse, ComputerUsePreviousAction,
-        };
-
         let mut span = StepSpan::new("gemini_computer_use", None);
         span.set_attribute("process", args.process.clone());
         span.set_attribute("goal", args.goal.clone());
 
-        let max_steps = args.max_steps.unwrap_or(20);
-        let mut previous_actions: Vec<ComputerUsePreviousAction> = Vec::new();
-        let mut final_status = "max_steps_reached";
-        let mut final_action = String::new();
-        let mut final_text: Option<String> = None;
-        let mut pending_confirmation: Option<serde_json::Value> = None;
-
         info!(
-            "[gemini_computer_use] Starting agentic loop for goal: {} (max_steps: {})",
-            args.goal, max_steps
+            "[gemini_computer_use] Starting agentic loop for goal: {} (max_steps: {:?})",
+            args.goal, args.max_steps
         );
 
         // Perform initial window management
@@ -8439,160 +8428,49 @@ console.info = function(...args) {
             .prepare_window_management(&args.process, None, None, None, &args.window_mgmt)
             .await;
 
-        for step_num in 1..=max_steps {
-            info!("[gemini_computer_use] Step {}/{}", step_num, max_steps);
-
-            // 1. Capture screenshot of target window
-            let screenshot_result = self.capture_window_for_computer_use(&args.process).await;
-            let (base64_image, window_bounds, dpi_scale, resize_scale, _initial_url) =
-                match screenshot_result {
-                    Ok(data) => data,
-                    Err(e) => {
-                        warn!("[gemini_computer_use] Failed to capture screenshot: {}", e);
-                        final_status = "failed";
-                        break;
-                    }
-                };
-
-            // 2. Call backend to get next action (pass previous actions with their screenshots)
-            let response_result = call_computer_use_backend(
-                &base64_image,
-                &args.goal,
-                if previous_actions.is_empty() {
-                    None
-                } else {
-                    Some(&previous_actions)
-                },
-            )
-            .await;
-
-            let response = match response_result {
-                Ok(r) => r,
-                Err(e) => {
-                    warn!("[gemini_computer_use] Backend error: {}", e);
-                    final_status = "failed";
-                    break;
-                }
-            };
-
-            // Store text response
-            if response.text.is_some() {
-                final_text = response.text.clone();
-            }
-
-            // 3. Check for task completion (no function call = done)
-            if response.completed {
-                final_status = "success";
-                final_action = "completed".to_string();
-                info!(
-                    "[gemini_computer_use] Task completed. Text: {:?}",
-                    response.text
-                );
-                break;
-            }
-
-            // 4. Get function call
-            let function_call = match response.function_call {
-                Some(fc) => fc,
-                None => {
-                    // No function call and not completed - unexpected state
-                    final_status = "success";
-                    final_action = "no_action".to_string();
-                    break;
-                }
-            };
-
-            final_action = function_call.name.clone();
-            info!(
-                "[gemini_computer_use] Action: {} (text: {:?})",
-                function_call.name, response.text
-            );
-
-            // 5. Check for safety confirmation
-            if response.safety_decision.as_deref() == Some("require_confirmation") {
-                final_status = "needs_confirmation";
-                pending_confirmation = Some(json!({
-                    "action": function_call.name,
-                    "args": function_call.args,
-                    "text": response.text,
-                }));
-                break;
-            }
-
-            // 6. Execute action
-            let execute_result = self
-                .execute_computer_use_action(
-                    &args.process,
-                    &function_call.name,
-                    &function_call.args,
-                    window_bounds,
-                    dpi_scale,
-                    resize_scale,
-                )
-                .await;
-
-            // 7. Capture new screenshot after action for next iteration
-            let (post_action_screenshot, post_action_url) =
-                match self.capture_window_for_computer_use(&args.process).await {
-                    Ok((img, _, _, _, url)) => (img, url),
-                    Err(_) => (base64_image.clone(), None), // Fallback to previous screenshot
-                };
-
-            // 8. Record action with result and new screenshot for next call
-            let (success, error_msg) = match &execute_result {
-                Ok(_) => (true, None),
-                Err(e) => (false, Some(e.to_string())),
-            };
-
-            previous_actions.push(ComputerUsePreviousAction {
-                name: function_call.name.clone(),
-                response: ComputerUseActionResponse {
-                    success,
-                    error: error_msg,
-                },
-                screenshot: post_action_screenshot,
-                url: post_action_url,
-            });
-
-            // Small delay for UI to settle after action
-            tokio::time::sleep(Duration::from_millis(500)).await;
-        }
+        // Call Desktop::gemini_computer_use (single source of truth)
+        // This respects stop_execution() via cancellation token
+        let result = self
+            .desktop
+            .gemini_computer_use(&args.process, &args.goal, args.max_steps, None)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         // Restore windows
         let _ = self.window_manager.restore_all_windows().await;
         self.window_manager.clear_captured_state().await;
 
-        span.set_status(final_status == "success", None);
+        span.set_status(result.status == "success", None);
         span.end();
 
-        // Build history summary for response
-        let history_summary: Vec<serde_json::Value> = previous_actions
+        // Build history summary for response (convert steps to simpler format)
+        let history_summary: Vec<serde_json::Value> = result
+            .steps
             .iter()
-            .enumerate()
-            .map(|(i, action)| {
+            .map(|step| {
                 json!({
-                    "step": i + 1,
-                    "action": action.name,
-                    "success": action.response.success,
-                    "error": action.response.error,
+                    "step": step.step,
+                    "action": step.action,
+                    "success": step.success,
+                    "error": step.error,
                 })
             })
             .collect();
 
         let result_json = json!({
-            "status": final_status,
-            "goal": args.goal,
-            "steps_executed": previous_actions.len(),
-            "final_action": final_action,
-            "final_text": final_text,
+            "status": result.status,
+            "goal": result.goal,
+            "steps_executed": result.steps_executed,
+            "final_action": result.final_action,
+            "final_text": result.final_text,
             "history": history_summary,
-            "pending_confirmation": pending_confirmation,
+            "pending_confirmation": result.pending_confirmation,
+            "execution_id": result.execution_id,
         });
 
         info!(
             "[gemini_computer_use] Completed with status: {} ({} steps)",
-            final_status,
-            previous_actions.len()
+            result.status, result.steps_executed
         );
 
         Ok(CallToolResult::success(vec![Content::json(result_json)?]))
@@ -9081,17 +8959,34 @@ fn download_terminator_source_direct() -> Result<(), Box<dyn std::error::Error +
     Ok(())
 }
 
+// NOTE: Computer use helper methods removed - now using Desktop::gemini_computer_use directly
+
 impl DesktopWrapper {
-    /// Capture window screenshot for computer use, returning base64 image, metadata, and URL
-    async fn capture_window_for_computer_use(
+    pub(crate) async fn dispatch_tool(
         &self,
-        process: &str,
-    ) -> Result<(String, (f64, f64, f64, f64), f64, f64, Option<String>), String> {
-        // Find the window element for this process using sysinfo to match process names
-        let apps = self
-            .desktop
-            .applications()
-            .map_err(|e| format!("Failed to get applications: {e}"))?;
+        peer: Peer<RoleServer>,
+        request_context: RequestContext<RoleServer>,
+        tool_name: &str,
+        arguments: &serde_json::Value,
+        execution_context: Option<crate::utils::ToolExecutionContext>,
+    ) -> Result<CallToolResult, McpError> {
+        use rmcp::handler::server::wrapper::Parameters;
+
+        // Check if request is already cancelled before dispatching
+        if request_context.ct.is_cancelled() {
+            return Err(McpError::internal_error(
+                format!("Tool {tool_name} cancelled before execution"),
+                Some(json!({"code": -32001, "tool": tool_name})),
+            ));
+        }
+
+        // Window management for UI interaction tools
+        // Check if tool has a 'process' argument - if so, it needs window management
+        // No whitelist - any tool with a process argument gets window management
+        let process_name = arguments
+            .get("process")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
         let mut system = System::new();
         system.refresh_processes(ProcessesToUpdate::All, true);
