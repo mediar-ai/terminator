@@ -78,7 +78,30 @@ Contextual information:
   │       ├── YYYYMMDD_HHMMSS_workflowId_toolName_before.png  # Screenshot before action
   │       ├── YYYYMMDD_HHMMSS_workflowId_toolName_after.png   # Screenshot after action
   │       └── ...                          # \"standalone\" if no workflow context
-      
+
+  %LOCALAPPDATA%/mediar/terminator-source/     # SDK documentation & source code
+  ├── crates/
+  │   ├── terminator/                          # Core Rust SDK
+  │   │   ├── src/                             # Rust source
+  │   │   ├── examples/                        # Rust examples
+  │   │   └── browser-extension/               # Chrome extension
+  │   ├── terminator-cli/src/                  # CLI source
+  │   ├── terminator-mcp-agent/                # This MCP server
+  │   │   ├── src/                             # MCP agent source
+  │   │   ├── examples/                        # Workflow examples
+  │   │   └── docs/                            # MCP documentation
+  │   └── terminator-workflow-recorder/        # Recorder source
+  ├── packages/
+  │   ├── terminator-nodejs/src/               # Node.js/TypeScript SDK (for run_command)
+  │   ├── terminator-python/src/               # Python SDK
+  │   ├── workflow/src/                        # Workflow engine
+  │   └── kv/src/                              # KV store
+  ├── examples/                                # Example workflows
+  ├── docs/                                    # General documentation
+  └── scripts/                                 # Build/utility scripts
+
+  Use grep_files/read_file with working_directory: \"%LOCALAPPDATA%/mediar/terminator-source\" to search SDK docs.
+
 - The current date and time is {current_date_time}.
 - Current operating system: {current_os}.
 - Current working directory: {current_working_dir}.
