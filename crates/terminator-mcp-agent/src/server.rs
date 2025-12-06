@@ -7306,193 +7306,40 @@ CRITICAL RULES:
 
 NAVIGATION WARNING:
 Scripts triggering navigation (click links, form submit) can be killed before return executes.
-❌ button.click(); return JSON.stringify({done:true})  // Never executes
-✅ return JSON.stringify({ready_to_navigate:true})     // Let next step navigate
+X button.click(); return JSON.stringify({done:true})  // Never executes
+OK return JSON.stringify({ready_to_navigate:true})     // Let next step navigate
 
 Requires Chrome extension installed."
-    )]
-    async fn execute_browser_script(
-        &self,
-        Parameters(args): Parameters<ExecuteBrowserScriptArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        // Start telemetry span
-        let mut span = StepSpan::new("execute_browser_script", None);
+  const isVisible = element.offsetParent !== null
+  const style = window.getComputedStyle(element)
+  const isVisible = style.display !== 'none' && style.visibility !== 'hidden'
+  
+  // Form state
+  const isDisabled = input.disabled
+  const isRequired = input.required
+  const isEmpty = input.value.trim() === ''
+  
+  // Position
+  const rect = element.getBoundingClientRect()
+  const isInViewport = rect.top >= 0 && rect.bottom <= window.innerHeight
 
-        // Add comprehensive telemetry attributes
-        if let Some(ref script) = args.script {
-            span.set_attribute("script.length", script.len().to_string());
-        }
-        if let Some(ref script_file) = args.script_file {
-            span.set_attribute("script_file", script_file.clone());
-        }
-        use serde_json::json;
-        let start_instant = std::time::Instant::now();
+Extracting Forms:
+  // Get all forms and their inputs
+  Array.from(document.forms).map(form => ({
+    id: form.id,
+    action: form.action,
+    method: form.method,
+    inputs: Array.from(form.elements).map(el => ({
+      name: el.name,
+      type: el.type,
+      value: el.value,
+      required: el.required
+    }))
+  }))
 
-        // Check if we need to perform window management (only for direct MCP calls, not sequences)
-        let should_restore = {
-            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
-            let flag_value = *in_sequence;
-            let should_restore_value = !flag_value;
-            tracing::info!(
-                "[execute_browser_script] Flag check: in_sequence={}, should_restore={}",
-                flag_value,
-                should_restore_value
-            );
-            should_restore_value
-        };
-
-        if should_restore {
-            tracing::info!(
-                "[execute_browser_script] Direct MCP call detected - performing window management"
-            );
-            let _ = self
-                .prepare_window_management(
-                    &args.selector.process,
-                    None,
-                    None,
-                    None,
-                    &args.window_mgmt,
-                )
-                .await;
-        } else {
-            tracing::debug!("[execute_browser_script] In sequence - skipping window management (dispatch_tool handles it)");
-        }
-
-        // Resolve the script content
-        let script_content = if let Some(script_file) = &args.script_file {
-            // Resolve script file with priority order (same logic as run_command)
-            let resolved_path = {
-                let script_path = std::path::Path::new(script_file);
-                let mut resolved_path = None;
-                let mut resolution_attempts = Vec::new();
-
-                // Only resolve if path is relative
-                if script_path.is_relative() {
-                    tracing::info!(
-                        "[SCRIPTS_BASE_PATH] Resolving relative browser script: '{}'",
-                        script_file
-                    );
-
-                    // Priority 1: Try scripts_base_path if provided
-                    let scripts_base_guard = self.current_scripts_base_path.lock().await;
-                    if let Some(ref base_path) = *scripts_base_guard {
-                        tracing::info!(
-                            "[SCRIPTS_BASE_PATH] Checking scripts_base_path for browser script: {}",
-                            base_path
-                        );
-                        let base = std::path::Path::new(base_path);
-                        if base.exists() && base.is_dir() {
-                            let candidate = base.join(script_file);
-                            resolution_attempts
-                                .push(format!("scripts_base_path: {}", candidate.display()));
-                            tracing::info!(
-                                "[SCRIPTS_BASE_PATH] Looking for browser script at: {}",
-                                candidate.display()
-                            );
-                            if candidate.exists() {
-                                tracing::info!(
-                                    "[SCRIPTS_BASE_PATH] ✓ Found browser script in scripts_base_path: {} -> {}",
-                                    script_file,
-                                    candidate.display()
-                                );
-                                resolved_path = Some(candidate);
-                            } else {
-                                tracing::info!(
-                                    "[SCRIPTS_BASE_PATH] ✗ Browser script not found in scripts_base_path: {}",
-                                    candidate.display()
-                                );
-                            }
-                        } else {
-                            tracing::warn!(
-                                "[SCRIPTS_BASE_PATH] Base path does not exist or is not a directory: {}",
-                                base_path
-                            );
-                        }
-                    } else {
-                        tracing::debug!(
-                            "[SCRIPTS_BASE_PATH] No scripts_base_path configured for browser script"
-                        );
-                    }
-                    drop(scripts_base_guard);
-
-                    // Priority 2: Try workflow directory if not found yet
-                    if resolved_path.is_none() {
-                        let workflow_dir_guard = self.current_workflow_dir.lock().await;
-                        if let Some(ref workflow_dir) = *workflow_dir_guard {
-                            let candidate = workflow_dir.join(script_file);
-                            resolution_attempts
-                                .push(format!("workflow_dir: {}", candidate.display()));
-                            if candidate.exists() {
-                                tracing::info!(
-                                    "[execute_browser_script] Resolved via workflow directory: {} -> {}",
-                                    script_file,
-                                    candidate.display()
-                                );
-                                resolved_path = Some(candidate);
-                            }
-                        }
-                    }
-
-                    // Priority 3: Check current directory or use as-is
-                    if resolved_path.is_none() {
-                        let candidate = script_path.to_path_buf();
-                        resolution_attempts.push(format!("as-is: {}", candidate.display()));
-
-                        // Check if file exists before using it
-                        if candidate.exists() {
-                            tracing::info!(
-                                "[execute_browser_script] Found script file at: {}",
-                                candidate.display()
-                            );
-                            resolved_path = Some(candidate);
-                        } else {
-                            tracing::warn!(
-                                "[execute_browser_script] Script file not found: {} (tried: {:?})",
-                                script_file,
-                                resolution_attempts
-                            );
-                            // Return error immediately for missing file
-                            return Err(McpError::invalid_params(
-                                format!("Script file '{script_file}' not found"),
-                                Some(json!({
-                                    "file": script_file,
-                                    "resolution_attempts": resolution_attempts,
-                                    "error": "File does not exist"
-                                })),
-                            ));
-                        }
-                    }
-                } else {
-                    // Absolute path - check if exists
-                    let candidate = script_path.to_path_buf();
-                    if candidate.exists() {
-                        tracing::info!(
-                            "[execute_browser_script] Using absolute path: {}",
-                            script_file
-                        );
-                        resolved_path = Some(candidate);
-                    } else {
-                        tracing::warn!(
-                            "[execute_browser_script] Absolute script file not found: {}",
-                            script_file
-                        );
-                        return Err(McpError::invalid_params(
-                            format!("Script file '{script_file}' not found"),
-                            Some(json!({
-                                "file": script_file,
-                                "error": "File does not exist at absolute path"
-                            })),
-                        ));
-                    }
-                }
-
-                resolved_path.unwrap()
-            };
-
-            // Read script from resolved file path
-            tokio::fs::read_to_string(&resolved_path)
-                .await
-                .map_err(|e| {
+Extracting Tables:
+  // Convert table to array of rows
+  const table = document.querySelector('table')
   const rows = Array.from(table.querySelectorAll('tbody tr')).map(row => {
     const cells = Array.from(row.querySelectorAll('td'))
     return cells.map(cell => cell.innerText.trim())
