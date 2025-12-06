@@ -154,7 +154,7 @@ pub fn log_response(
     result: Result<&Value, &str>,
     duration_ms: u64,
 ) {
-    debug!("[execution_logger] log_response called for tool: {}, enabled: {}", ctx.tool_name, is_enabled());
+    info!("[execution_logger] log_response called for tool: {}, enabled: {}", ctx.tool_name, is_enabled());
     if !is_enabled() {
         return;
     }
@@ -194,7 +194,7 @@ pub fn log_response(
             if let Err(e) = fs::write(&json_path, json) {
                 warn!("[execution_logger] Failed to write {}: {}", json_path.display(), e);
             } else {
-                debug!("[execution_logger] Logged: {}", json_path.display());
+                info!("[execution_logger] Logged: {}", json_path.display());
             }
         }
         Err(e) => {
@@ -318,7 +318,7 @@ fn save_screenshot(dir: &PathBuf, filename: &str, base64_data: &str) -> bool {
             let path = dir.join(filename);
             match fs::write(&path, bytes) {
                 Ok(_) => {
-                    debug!("[execution_logger] Saved screenshot: {}", filename);
+                    info!("[execution_logger] Saved screenshot: {}", filename);
                     true
                 }
                 Err(e) => {
