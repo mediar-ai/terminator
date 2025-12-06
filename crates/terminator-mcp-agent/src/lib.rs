@@ -1,5 +1,6 @@
 pub mod cancellation;
 pub mod duration_parser;
+pub mod execution_logger;
 pub mod expression_eval;
 pub mod helpers;
 pub mod mcp_types;

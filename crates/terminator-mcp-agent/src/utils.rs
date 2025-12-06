@@ -248,7 +248,7 @@ pub struct DelayArgs {
     pub window_mgmt: WindowManagementOptions,
 }
 
-// Tool execution context for window management
+// Tool execution context for window management and execution logging
 #[derive(Clone, Debug)]
 pub struct ToolExecutionContext {
     pub in_sequence: bool,
@@ -257,6 +257,8 @@ pub struct ToolExecutionContext {
     pub current_step: usize,
     pub is_last_step: bool,
     pub previous_process: Option<String>, // Track previous process for detecting switches
+    pub workflow_id: Option<String>,      // For execution logging
+    pub step_id: Option<String>,          // For execution logging
 }
 
 impl ToolExecutionContext {
@@ -268,6 +270,8 @@ impl ToolExecutionContext {
             current_step: 1,
             is_last_step: true,
             previous_process: None,
+            workflow_id: None,
+            step_id: None,
         }
     }
 
@@ -284,7 +288,16 @@ impl ToolExecutionContext {
             current_step: current,
             is_last_step: current == total,
             previous_process,
+            workflow_id: None,
+            step_id: None,
         }
+    }
+
+    /// Set workflow context for execution logging
+    pub fn with_workflow_context(mut self, workflow_id: Option<String>, step_id: Option<String>) -> Self {
+        self.workflow_id = workflow_id;
+        self.step_id = step_id;
+        self
     }
 }
 

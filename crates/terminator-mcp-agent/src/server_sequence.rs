@@ -1553,14 +1553,15 @@ impl DesktopWrapper {
                             ],
                         );
 
-                        // Create execution context for window management
+                        // Create execution context for window management + logging
+                        let step_id = original_step.and_then(|s| s.id.clone());
                         let execution_context =
                             Some(crate::utils::ToolExecutionContext::sequence_step(
                                 args.url.clone().unwrap_or_default(),
                                 current_index + 1, // 1-based for user display
                                 total_steps,
                                 last_executed_process.clone(),
-                            ));
+                            ).with_workflow_context(args.workflow_id.clone(), step_id.clone()));
 
                         let (result, error_occurred) = self
                             .execute_single_tool(
@@ -1571,7 +1572,7 @@ impl DesktopWrapper {
                                 tool_call.continue_on_error.unwrap_or(false),
                                 current_index,
                                 include_detailed,
-                                original_step.and_then(|s| s.id.as_deref()),
+                                step_id.as_deref(),
                                 execution_context,
                             )
                             .await;
@@ -1997,14 +1998,15 @@ impl DesktopWrapper {
                                 .and_then(|v| v.as_str())
                                 .map(|s| s.to_string());
 
-                            // Create execution context for window management
+                            // Create execution context for window management + logging
+                            let step_id_for_ctx = step_tool_call.id.clone();
                             let tool_execution_context =
                                 Some(crate::utils::ToolExecutionContext::sequence_step(
                                     args.url.clone().unwrap_or_default(),
                                     current_index + 1, // 1-based for user display
                                     total_steps,
                                     last_executed_process.clone(),
-                                ));
+                                ).with_workflow_context(args.workflow_id.clone(), step_id_for_ctx.clone()));
 
                             let (result, error_occurred) = self
                                 .execute_single_tool(
@@ -2015,7 +2017,7 @@ impl DesktopWrapper {
                                     step_tool_call.continue_on_error.unwrap_or(false),
                                     step_index,
                                     include_detailed,
-                                    step_tool_call.id.as_deref(), // Use step ID if available
+                                    step_id_for_ctx.as_deref(), // Use step ID if available
                                     tool_execution_context,
                                 )
                                 .await;

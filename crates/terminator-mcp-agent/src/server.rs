@@ -1,3 +1,4 @@
+use crate::execution_logger;
 use crate::helpers::*;
 use crate::scripting_engine;
 use crate::telemetry::StepSpan;
@@ -9615,6 +9616,20 @@ impl DesktopWrapper {
             *in_seq = true;
         }
 
+        // Start execution logging - capture request before tool dispatch
+        let start_time = std::time::Instant::now();
+        let (workflow_id, step_id, step_index) = execution_context
+            .as_ref()
+            .map(|ctx| (ctx.workflow_id.clone(), ctx.step_id.clone(), Some(ctx.current_step)))
+            .unwrap_or((None, None, None));
+        let log_ctx = execution_logger::log_request(
+            tool_name,
+            arguments,
+            workflow_id.as_deref(),
+            step_id.as_deref(),
+            step_index,
+        );
+
         // Wrap each tool call with cancellation support
         let result = match tool_name {
             "get_window_tree" => {
@@ -9960,6 +9975,27 @@ impl DesktopWrapper {
                 Some(json!({"tool_name": tool_name})),
             )),
         };
+
+        // Log execution response with duration and result
+        if let Some(ctx) = log_ctx {
+            let duration_ms = start_time.elapsed().as_millis() as u64;
+            match &result {
+                Ok(call_result) => {
+                    // Extract JSON from CallToolResult content
+                    let result_json = if !call_result.content.is_empty() {
+                        crate::server::extract_content_json(&call_result.content[0]).ok()
+                    } else {
+                        None
+                    };
+                    if let Some(json_value) = result_json {
+                        execution_logger::log_response(ctx, Ok(&json_value), duration_ms);
+                    }
+                }
+                Err(e) => {
+                    execution_logger::log_response(ctx, Err(&e.to_string()), duration_ms);
+                }
+            }
+        }
 
         // Reset in_sequence flag after tool execution
         {

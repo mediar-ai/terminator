@@ -295,6 +295,9 @@ async fn main() -> Result<()> {
     // Initialize OpenTelemetry if telemetry feature is enabled (after logging is set up)
     terminator_mcp_agent::telemetry::init_telemetry()?;
 
+    // Initialize execution logger (MCP request/response logging to files)
+    terminator_mcp_agent::execution_logger::init();
+
     // Add binary identification logging
     tracing::info!("========================================");
     tracing::info!("Terminator MCP Server v{}", env!("CARGO_PKG_VERSION"));
