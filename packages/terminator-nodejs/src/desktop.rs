@@ -1431,15 +1431,15 @@ impl Desktop {
         title: Option<String>,
         config: Option<TreeBuildConfig>,
     ) -> napi::Result<WindowTreeResult> {
-        // Extract screenshot options before converting config
+        // Extract screenshot options before converting config (default: true)
         let include_window_screenshot = config
             .as_ref()
             .and_then(|c| c.include_window_screenshot)
-            .unwrap_or(false);
+            .unwrap_or(true);
         let include_monitor_screenshots = config
             .as_ref()
             .and_then(|c| c.include_monitor_screenshots)
-            .unwrap_or(false);
+            .unwrap_or(true);
 
         // Extract options before converting config
         let output_format = config
