@@ -57,5 +57,8 @@ pub fn map_error(err: AutomationError) -> napi::Error {
         AutomationError::OperationCancelled(msg) => {
             napi::Error::new(Status::Cancelled, format!("OPERATION_CANCELLED: {msg}"))
         }
+        AutomationError::VerificationFailed(msg) => {
+            napi::Error::new(Status::GenericFailure, format!("VERIFICATION_FAILED: {msg}"))
+        }
     }
 }
