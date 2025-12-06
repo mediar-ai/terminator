@@ -1352,8 +1352,16 @@ impl Desktop {
     ///
     /// @param {string} url - The URL to open.
     /// @param {string} [browser] - The browser to use. Can be "Default", "Chrome", "Firefox", "Edge", "Brave", "Opera", "Vivaldi", or a custom browser path.
+    /// @param {boolean} [includeWindowScreenshot=true] - Whether to capture window screenshot after opening
+    /// @param {boolean} [includeMonitorScreenshots=false] - Whether to capture monitor screenshots after opening
     #[napi]
-    pub fn open_url(&self, url: String, browser: Option<String>) -> napi::Result<Element> {
+    pub fn open_url(
+        &self,
+        url: String,
+        browser: Option<String>,
+        include_window_screenshot: Option<bool>,
+        include_monitor_screenshots: Option<bool>,
+    ) -> napi::Result<Element> {
         let browser_enum = browser.map(|b| match b.to_lowercase().as_str() {
             "default" => terminator::Browser::Default,
             "chrome" => terminator::Browser::Chrome,
@@ -1364,10 +1372,20 @@ impl Desktop {
             "vivaldi" => terminator::Browser::Vivaldi,
             custom => terminator::Browser::Custom(custom.to_string()),
         });
-        self.inner
+        let element = self.inner
             .open_url(&url, browser_enum)
-            .map(Element::from)
-            .map_err(map_error)
+            .map_err(map_error)?;
+
+        // Capture screenshots if enabled (window default: true, monitor default: false)
+        let _screenshots = capture_screenshots(
+            &self.inner,
+            element.process_id().ok(),
+            include_window_screenshot.unwrap_or(true),
+            include_monitor_screenshots.unwrap_or(false),
+            "openUrl",
+        );
+
+        Ok(Element::from(element))
     }
 
     /// Open a file with its default application.
@@ -1431,7 +1449,7 @@ impl Desktop {
         title: Option<String>,
         config: Option<TreeBuildConfig>,
     ) -> napi::Result<WindowTreeResult> {
-        // Extract screenshot options before converting config (default: true)
+        // Extract screenshot options (window: true, monitor: false by default)
         let include_window_screenshot = config
             .as_ref()
             .and_then(|c| c.include_window_screenshot)
@@ -1439,7 +1457,7 @@ impl Desktop {
         let include_monitor_screenshots = config
             .as_ref()
             .and_then(|c| c.include_monitor_screenshots)
-            .unwrap_or(true);
+            .unwrap_or(false);
 
         // Extract options before converting config
         let output_format = config
@@ -1894,9 +1912,17 @@ impl Desktop {
     ///
     /// @param {string} url - URL to navigate to
     /// @param {string | null} browser - Optional browser name ('Chrome', 'Firefox', 'Edge', 'Brave', 'Opera', 'Vivaldi', or 'Default')
+    /// @param {boolean} [includeWindowScreenshot=true] - Whether to capture window screenshot after navigation
+    /// @param {boolean} [includeMonitorScreenshots=false] - Whether to capture monitor screenshots after navigation
     /// @returns {Promise<Element>} The browser window element
     #[napi]
-    pub fn navigate_browser(&self, url: String, browser: Option<String>) -> napi::Result<Element> {
+    pub fn navigate_browser(
+        &self,
+        url: String,
+        browser: Option<String>,
+        include_window_screenshot: Option<bool>,
+        include_monitor_screenshots: Option<bool>,
+    ) -> napi::Result<Element> {
         let browser_enum = browser.map(|b| match b.as_str() {
             "Chrome" => terminator::Browser::Chrome,
             "Firefox" => terminator::Browser::Firefox,
@@ -1909,6 +1935,16 @@ impl Desktop {
         });
 
         let element = self.inner.open_url(&url, browser_enum).map_err(map_error)?;
+
+        // Capture screenshots if enabled (window default: true, monitor default: false)
+        let _screenshots = capture_screenshots(
+            &self.inner,
+            element.process_id().ok(),
+            include_window_screenshot.unwrap_or(true),
+            include_monitor_screenshots.unwrap_or(false),
+            "navigateBrowser",
+        );
+
         Ok(Element { inner: element })
     }
 
