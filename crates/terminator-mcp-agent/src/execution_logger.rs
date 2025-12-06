@@ -446,7 +446,7 @@ fn generate_typescript_snippet(tool_name: &str, args: &Value, result: Result<&Va
     };
 
     format!(
-        r#"import {{ Desktop }} from "@anthropic-ai/terminator";
+        r#"import {{ Desktop }} from "@mediar-ai/terminator";
 
 const desktop = new Desktop();
 
@@ -524,7 +524,11 @@ fn generate_click_snippet(args: &Value) -> String {
 /// Generate type_into_element snippet
 fn generate_type_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
-    let text = args.get("text_to_type").and_then(|v| v.as_str()).unwrap_or("");
+    // MCP uses text_to_type, SDK uses text
+    let text = args.get("text_to_type")
+        .or_else(|| args.get("text"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let clear = args.get("clear_before_typing").and_then(|v| v.as_bool()).unwrap_or(false);
     let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(5000);
 
@@ -532,7 +536,7 @@ fn generate_type_snippet(args: &Value) -> String {
     let escaped_text = text.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
 
     format!(
-        "const element = await desktop.locator({}).first({});\nawait element.typeText(\"{}\", {{ clearBefore: {} }});",
+        "const element = await desktop.locator({}).first({});\nawait element.typeText(\"{}\", {{ clearBeforeTyping: {} }});",
         locator, timeout, escaped_text, clear
     )
 }
@@ -557,7 +561,11 @@ fn generate_global_key_snippet(args: &Value) -> String {
 
 /// Generate delay snippet
 fn generate_delay_snippet(args: &Value) -> String {
-    let ms = args.get("ms").and_then(|v| v.as_u64()).unwrap_or(1000);
+    // MCP uses delay_ms, fallback to ms for compatibility
+    let ms = args.get("delay_ms")
+        .or_else(|| args.get("ms"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(1000);
     format!("await desktop.delay({});", ms)
 }
 
@@ -571,8 +579,15 @@ fn generate_open_application_snippet(args: &Value) -> String {
 /// Generate navigate_browser snippet
 fn generate_navigate_browser_snippet(args: &Value) -> String {
     let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
-    let browser = args.get("browser").and_then(|v| v.as_str()).unwrap_or("chrome");
-    format!("await desktop.navigateBrowser({{ url: \"{}\", browser: \"{}\" }});", url, browser)
+    let browser = args.get("browser")
+        .or_else(|| args.get("process"))
+        .and_then(|v| v.as_str());
+
+    if let Some(b) = browser {
+        format!("await desktop.navigateBrowser(\"{}\", \"{}\");", url, b)
+    } else {
+        format!("await desktop.navigateBrowser(\"{}\");", url)
+    }
 }
 
 /// Generate get_window_tree snippet
@@ -855,5 +870,178 @@ mod tests {
         });
         let locator = build_locator_string(&args);
         assert_eq!(locator, "\"process:chrome >> role:Window|name:Google >> role:Button|name:Submit\"");
+    }
+
+    #[test]
+    fn test_all_snippets_comprehensive() {
+        let result = json!({"status": "success"});
+        let ok_result: Result<&serde_json::Value, &str> = Ok(&result);
+
+        // 1. click_element - selector mode with all params
+        let click_selector = json!({
+            "process": "chrome",
+            "window_selector": "role:Window|name:Google",
+            "selector": "role:Button|name:Submit",
+            "click_type": "double",
+            "timeout": 10000
+        });
+        println!("\n=== 1. click_element (selector) ===\n{}", generate_click_snippet(&click_selector));
+
+        // 2. click_element - coordinate mode
+        let click_coord = json!({
+            "x": 500.0,
+            "y": 300.0,
+            "click_type": "right"
+        });
+        println!("\n=== 2. click_element (coordinates) ===\n{}", generate_click_snippet(&click_coord));
+
+        // 3. click_element - index mode
+        let click_index = json!({
+            "index": 5,
+            "vision_type": "ocr"
+        });
+        println!("\n=== 3. click_element (index) ===\n{}", generate_click_snippet(&click_index));
+
+        // 4. type_into_element
+        let type_args = json!({
+            "process": "notepad",
+            "selector": "role:Edit|name:Text Editor",
+            "text_to_type": "Hello\\nWorld",
+            "clear_before_typing": true,
+            "timeout": 8000
+        });
+        println!("\n=== 4. type_into_element ===\n{}", generate_type_snippet(&type_args));
+
+        // 5. press_key
+        let press_key = json!({
+            "process": "notepad",
+            "selector": "role:Document",
+            "key": "{Ctrl}s",
+            "timeout": 5000
+        });
+        println!("\n=== 5. press_key ===\n{}", generate_press_key_snippet(&press_key));
+
+        // 6. global_key
+        let global_key = json!({
+            "key": "{Alt}{F4}"
+        });
+        println!("\n=== 6. global_key ===\n{}", generate_global_key_snippet(&global_key));
+
+        // 7. delay
+        let delay = json!({
+            "ms": 2500
+        });
+        println!("\n=== 7. delay ===\n{}", generate_delay_snippet(&delay));
+
+        // 8. open_application
+        let open_app = json!({
+            "path": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+        });
+        println!("\n=== 8. open_application ===\n{}", generate_open_application_snippet(&open_app));
+
+        // 9. navigate_browser
+        let navigate = json!({
+            "url": "https://example.com/page?q=test",
+            "browser": "firefox"
+        });
+        println!("\n=== 9. navigate_browser ===\n{}", generate_navigate_browser_snippet(&navigate));
+
+        // 10. get_window_tree
+        let tree = json!({
+            "process": "chrome",
+            "window_selector": "role:Window|name:Google",
+            "timeout": 15000
+        });
+        println!("\n=== 10. get_window_tree ===\n{}", generate_get_window_tree_snippet(&tree));
+
+        // 11. capture_screenshot (element)
+        let screenshot = json!({
+            "process": "chrome",
+            "selector": "role:Document",
+            "timeout": 5000
+        });
+        println!("\n=== 11. capture_screenshot ===\n{}", generate_capture_screenshot_snippet(&screenshot));
+
+        // 12. run_command
+        let cmd = json!({
+            "command": "echo \"Hello World\" && dir"
+        });
+        println!("\n=== 12. run_command ===\n{}", generate_run_command_snippet(&cmd));
+
+        // 13. mouse_drag
+        let drag = json!({
+            "start_x": 100.0,
+            "start_y": 200.0,
+            "end_x": 400.0,
+            "end_y": 500.0
+        });
+        println!("\n=== 13. mouse_drag ===\n{}", generate_mouse_drag_snippet(&drag));
+
+        // 14. scroll_element
+        let scroll = json!({
+            "process": "chrome",
+            "selector": "role:Document",
+            "direction": "down",
+            "amount": 5,
+            "timeout": 3000
+        });
+        println!("\n=== 14. scroll_element ===\n{}", generate_scroll_snippet(&scroll));
+
+        // 15. wait_for_element
+        let wait = json!({
+            "process": "chrome",
+            "selector": "role:Button|name:Submit",
+            "timeout": 30000
+        });
+        println!("\n=== 15. wait_for_element ===\n{}", generate_wait_for_element_snippet(&wait));
+
+        // 16. select_option
+        let select = json!({
+            "process": "chrome",
+            "selector": "role:ComboBox|name:Country",
+            "option": "United States",
+            "timeout": 5000
+        });
+        println!("\n=== 16. select_option ===\n{}", generate_select_option_snippet(&select));
+
+        // 17. set_value
+        let set_val = json!({
+            "process": "notepad",
+            "selector": "role:Slider|name:Volume",
+            "value": "75",
+            "timeout": 3000
+        });
+        println!("\n=== 17. set_value ===\n{}", generate_set_value_snippet(&set_val));
+
+        // 18. highlight_element
+        let highlight = json!({
+            "process": "chrome",
+            "selector": "role:Link|name:Click here",
+            "timeout": 5000
+        });
+        println!("\n=== 18. highlight_element ===\n{}", generate_highlight_snippet(&highlight));
+
+        // 19. validate_element
+        let validate = json!({
+            "process": "chrome",
+            "selector": "role:Button|name:Submit",
+            "timeout": 10000
+        });
+        println!("\n=== 19. validate_element ===\n{}", generate_validate_snippet(&validate));
+
+        // 20. get_applications
+        println!("\n=== 20. get_applications ===\n{}", "const apps = await desktop.getApplications();");
+
+        // 21. Full TypeScript file generation
+        let full_args = json!({
+            "process": "chrome",
+            "selector": "role:Button|name:OK",
+            "timeout": 5000
+        });
+        println!("\n=== 21. FULL FILE (click_element) ===\n{}", generate_typescript_snippet("click_element", &full_args, ok_result));
+
+        // 22. Unsupported tool
+        let unsupported = json!({"foo": "bar"});
+        println!("\n=== 22. unsupported_tool ===\n{}", generate_typescript_snippet("some_unknown_tool", &unsupported, ok_result));
     }
 }
