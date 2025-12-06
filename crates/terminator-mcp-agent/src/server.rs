@@ -6,12 +6,12 @@ use crate::utils::find_and_execute_with_retry_with_fallback;
 pub use crate::utils::DesktopWrapper;
 use crate::utils::{
     get_timeout, ActivateElementArgs, CaptureScreenshotArgs, ClickElementArgs, DelayArgs,
-    ExecuteBrowserScriptArgs, ExecuteSequenceArgs, GeminiComputerUseArgs, GetApplicationsArgs,
-    GetTerminatorApiDocsArgs, GetWindowTreeArgs, GlobalKeyArgs, HighlightElementArgs,
-    InvokeElementArgs, MouseDragArgs, NavigateBrowserArgs, OpenApplicationArgs, PressKeyArgs,
-    RunCommandArgs, ScrollElementArgs, SearchTerminatorApiArgs, SelectOptionArgs, SetSelectedArgs,
-    SetValueArgs, StopHighlightingArgs, TypeIntoElementArgs, ValidateElementArgs,
-    WaitForElementArgs,
+    EditFileArgs, ExecuteBrowserScriptArgs, ExecuteSequenceArgs, GeminiComputerUseArgs,
+    GetApplicationsArgs, GetWindowTreeArgs, GlobalKeyArgs, GlobFilesArgs, GrepFilesArgs,
+    HighlightElementArgs, InvokeElementArgs, MouseDragArgs, NavigateBrowserArgs,
+    OpenApplicationArgs, PressKeyArgs, ReadFileArgs, RunCommandArgs, ScrollElementArgs,
+    SelectOptionArgs, SetSelectedArgs, SetValueArgs, StopHighlightingArgs, TypeIntoElementArgs,
+    ValidateElementArgs, WaitForElementArgs, WriteFileArgs,
 };
 use image::imageops::FilterType;
 use image::{ExtendedColorType, ImageBuffer, ImageEncoder, Rgba};
@@ -93,14 +93,14 @@ async fn capture_monitor_screenshots(desktop: &Desktop) -> Vec<String> {
 }
 
 /// Helper to conditionally append monitor screenshots to existing content
-/// Captures screenshots by default (defaults to true)
+/// Disabled by default (defaults to false)
 async fn append_monitor_screenshots_if_enabled(
     desktop: &Desktop,
     mut contents: Vec<Content>,
     include: Option<bool>,
 ) -> Vec<Content> {
-    // Capture by default (defaults to true)
-    if include.unwrap_or(true) {
+    // Disabled by default (defaults to false)
+    if include.unwrap_or(false) {
         let paths = capture_monitor_screenshots(desktop).await;
         if !paths.is_empty() {
             contents.push(Content::text(format!("Monitor screenshots saved: {:?}", paths)));
@@ -3463,9 +3463,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
     }
 
     #[tool(
-        description = "IMPORTANT To know how to use this tool please call these tools to get documentation: search_terminator_api and get_terminator_api_docs.
-
-Executes a shell command (GitHub Actions-style) OR runs inline code via an engine. Use 'run' for shell commands. Or set 'engine' to 'node'/'bun'/'javascript'/'typescript'/'ts' for JS/TS with terminator.js and provide the code in 'run' or 'script_file'. TypeScript is supported with automatic transpilation. When using engine mode, you can pass data to subsequent workflow steps by returning { set_env: { key: value } } or using console.log('::set-env name=key::value'). Access variables in later steps using direct syntax (e.g., 'key' in conditions or {{key}} in substitutions). NEW: Use 'script_file' to load scripts from files, 'env' to inject environment variables as 'var env = {...}'.
+        description = "Executes a shell command (GitHub Actions-style) OR runs inline code via an engine. Use 'run' for shell commands. Or set 'engine' to 'node'/'bun'/'javascript'/'typescript'/'ts' for JS/TS with terminator.js and provide the code in 'run' or 'script_file'. TypeScript is supported with automatic transpilation. When using engine mode, you can pass data to subsequent workflow steps by returning { set_env: { key: value } } or using console.log('::set-env name=key::value'). Access variables in later steps using direct syntax (e.g., 'key' in conditions or {{key}} in substitutions). NEW: Use 'script_file' to load scripts from files, 'env' to inject environment variables as 'var env = {...}'.
 
 ═══════════════════════════════════════════════════════════════════
 INJECTED GLOBALS (engine mode)
@@ -8471,25 +8469,311 @@ console.info = function(...args) {
         Ok(CallToolResult::success(vec![Content::json(result_json)?]))
     }
 
-    // ===== Terminator API Search Tools =====
+    // ===== File Operation Tools =====
+
+    /// Resolve a file path, using working_directory or current_workflow_dir as base for relative paths
+    async fn resolve_file_path(&self, path: &str, working_directory: Option<&str>) -> Result<PathBuf, String> {
+        let path_buf = PathBuf::from(path);
+
+        // If absolute path, use as-is
+        if path_buf.is_absolute() {
+            return Ok(path_buf);
+        }
+
+        // Try working_directory first (injected by mediar-app)
+        if let Some(wd) = working_directory {
+            let resolved = PathBuf::from(wd).join(path);
+            return Ok(resolved);
+        }
+
+        // Fall back to current_workflow_dir (set by execute_sequence)
+        let workflow_dir_guard = self.current_workflow_dir.lock().await;
+        if let Some(ref workflow_dir) = *workflow_dir_guard {
+            return Ok(workflow_dir.join(path));
+        }
+
+        Err("No working directory available. Either provide an absolute path or ensure a workflow is focused.".to_string())
+    }
 
     #[tool(
-        description = "Search terminator source code content using regex patterns. Returns matching lines with context. Use this to find API usage examples, function implementations, and code patterns in the terminator codebase."
+        description = "Read the contents of a file. Supports reading with line offset and limit for large files. Returns file contents with line numbers."
     )]
-    async fn search_terminator_api(
+    pub async fn read_file(
         &self,
-        Parameters(args): Parameters<SearchTerminatorApiArgs>,
+        Parameters(args): Parameters<ReadFileArgs>,
     ) -> Result<CallToolResult, McpError> {
         use std::fs;
         use std::io::{BufRead, BufReader};
 
-        let source_dir = get_terminator_source_dir();
+        let full_path = match self.resolve_file_path(&args.path, args.working_directory.as_deref()).await {
+            Ok(p) => p,
+            Err(e) => {
+                return Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Error: {e}"
+                ))]));
+            }
+        };
 
-        if !source_dir.exists() {
+        if !full_path.exists() {
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "File not found: {}",
+                full_path.display()
+            ))]));
+        }
+
+        if !full_path.is_file() {
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "Path is not a file: {}",
+                full_path.display()
+            ))]));
+        }
+
+        let file = match fs::File::open(&full_path) {
+            Ok(f) => f,
+            Err(e) => {
+                return Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Failed to open file: {e}"
+                ))]));
+            }
+        };
+
+        let reader = BufReader::new(file);
+        let offset = args.offset.unwrap_or(1).saturating_sub(1); // Convert to 0-indexed
+        let limit = args.limit.unwrap_or(2000);
+
+        let lines: Vec<String> = reader
+            .lines()
+            .skip(offset)
+            .take(limit)
+            .enumerate()
+            .map(|(i, line)| {
+                format!(
+                    "{:5}: {}",
+                    offset + i + 1,
+                    line.unwrap_or_else(|_| "[binary content]".to_string())
+                )
+            })
+            .collect();
+
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "File: {}\nLines {}-{}:\n{}",
+            args.path,
+            offset + 1,
+            offset + lines.len(),
+            lines.join("\n")
+        ))]))
+    }
+
+    #[tool(
+        description = "Write content to a file. Creates the file if it doesn't exist, or overwrites if it does. Creates parent directories as needed."
+    )]
+    pub async fn write_file(
+        &self,
+        Parameters(args): Parameters<WriteFileArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        use std::fs;
+
+        let full_path = match self.resolve_file_path(&args.path, args.working_directory.as_deref()).await {
+            Ok(p) => p,
+            Err(e) => {
+                return Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Error: {e}"
+                ))]));
+            }
+        };
+
+        // Ensure parent directory exists
+        if let Some(parent) = full_path.parent() {
+            if !parent.exists() {
+                if let Err(e) = fs::create_dir_all(parent) {
+                    return Ok(CallToolResult::success(vec![Content::text(format!(
+                        "Failed to create directory: {e}"
+                    ))]));
+                }
+            }
+        }
+
+        match fs::write(&full_path, &args.content) {
+            Ok(_) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Successfully wrote {} bytes to {}",
+                args.content.len(),
+                args.path
+            ))])),
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to write file: {e}"
+            ))])),
+        }
+    }
+
+    #[tool(
+        description = "Edit a file by replacing an exact string match. The old_string must be unique in the file unless replace_all is true."
+    )]
+    pub async fn edit_file(
+        &self,
+        Parameters(args): Parameters<EditFileArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        use std::fs;
+
+        let full_path = match self.resolve_file_path(&args.path, args.working_directory.as_deref()).await {
+            Ok(p) => p,
+            Err(e) => {
+                return Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Error: {e}"
+                ))]));
+            }
+        };
+
+        if !full_path.exists() {
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "File not found: {}",
+                full_path.display()
+            ))]));
+        }
+
+        let content = match fs::read_to_string(&full_path) {
+            Ok(c) => c,
+            Err(e) => {
+                return Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Failed to read file: {e}"
+                ))]));
+            }
+        };
+
+        // Count occurrences
+        let occurrences = content.matches(&args.old_string).count();
+
+        if occurrences == 0 {
+            let preview = if args.old_string.len() > 50 {
+                format!("{}...", &args.old_string[..50])
+            } else {
+                args.old_string.clone()
+            };
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "String not found in file: \"{}\"",
+                preview
+            ))]));
+        }
+
+        if !args.replace_all.unwrap_or(false) && occurrences > 1 {
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "String found {} times. Use replace_all: true or provide more context to make it unique.",
+                occurrences
+            ))]));
+        }
+
+        // Perform replacement
+        let new_content = if args.replace_all.unwrap_or(false) {
+            content.replace(&args.old_string, &args.new_string)
+        } else {
+            content.replacen(&args.old_string, &args.new_string, 1)
+        };
+
+        let replacements = if args.replace_all.unwrap_or(false) {
+            occurrences
+        } else {
+            1
+        };
+
+        match fs::write(&full_path, new_content) {
+            Ok(_) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Successfully made {} replacement(s) in {}",
+                replacements, args.path
+            ))])),
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to write file: {e}"
+            ))])),
+        }
+    }
+
+    #[tool(
+        description = "Find files matching a glob pattern in the working directory. Returns a list of matching file paths."
+    )]
+    pub async fn glob_files(
+        &self,
+        Parameters(args): Parameters<GlobFilesArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let base_dir = match args.working_directory.as_deref() {
+            Some(wd) => PathBuf::from(wd),
+            None => {
+                let workflow_dir_guard = self.current_workflow_dir.lock().await;
+                match &*workflow_dir_guard {
+                    Some(dir) => dir.clone(),
+                    None => {
+                        return Ok(CallToolResult::success(vec![Content::text(
+                            "Error: No working directory available. Either provide working_directory or ensure a workflow is focused.".to_string()
+                        )]));
+                    }
+                }
+            }
+        };
+
+        let glob_pattern = base_dir.join(&args.pattern);
+        let glob_str = glob_pattern.to_string_lossy();
+
+        let paths: Vec<_> = match glob::glob(&glob_str) {
+            Ok(paths) => paths.flatten().collect(),
+            Err(e) => {
+                return Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Invalid glob pattern: {e}"
+                ))]));
+            }
+        };
+
+        if paths.is_empty() {
             return Ok(CallToolResult::success(vec![Content::text(
-                "Terminator source not found. It will be downloaded on next MCP server restart, or run: npx terminator-mcp-agent (postinstall downloads source)".to_string(),
+                "No files found matching pattern".to_string()
             )]));
         }
+
+        let relative_paths: Vec<String> = paths
+            .iter()
+            .take(100)
+            .map(|p| {
+                p.strip_prefix(&base_dir)
+                    .unwrap_or(p)
+                    .display()
+                    .to_string()
+            })
+            .collect();
+
+        let truncated = if paths.len() > 100 {
+            format!("\n... and {} more files", paths.len() - 100)
+        } else {
+            String::new()
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "Found {} files:\n{}{}",
+            paths.len(),
+            relative_paths.join("\n"),
+            truncated
+        ))]))
+    }
+
+    #[tool(
+        description = "Search for a regex pattern in files within the working directory. Returns matching lines with context."
+    )]
+    pub async fn grep_files(
+        &self,
+        Parameters(args): Parameters<GrepFilesArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        use std::fs;
+        use std::io::{BufRead, BufReader};
+
+        let base_dir = match args.working_directory.as_deref() {
+            Some(wd) => PathBuf::from(wd),
+            None => {
+                let workflow_dir_guard = self.current_workflow_dir.lock().await;
+                match &*workflow_dir_guard {
+                    Some(dir) => dir.clone(),
+                    None => {
+                        return Ok(CallToolResult::success(vec![Content::text(
+                            "Error: No working directory available. Either provide working_directory or ensure a workflow is focused.".to_string()
+                        )]));
+                    }
+                }
+            }
+        };
 
         let pattern = match args.ignore_case.unwrap_or(false) {
             true => Regex::new(&format!("(?i){}", &args.pattern)),
@@ -8510,13 +8794,12 @@ console.info = function(...args) {
 
         // Build glob pattern for file filtering
         let file_pattern = args.glob.as_deref().unwrap_or("**/*");
-        let glob_pattern = source_dir.join(file_pattern);
+        let glob_pattern = base_dir.join(file_pattern);
         let glob_str = glob_pattern.to_string_lossy();
 
         let mut results: Vec<String> = Vec::new();
         let mut match_count = 0;
 
-        // Use glob to find files matching the pattern
         let paths = match glob::glob(&glob_str) {
             Ok(paths) => paths,
             Err(e) => {
@@ -8531,7 +8814,7 @@ console.info = function(...args) {
                 continue;
             }
 
-            // Skip binary files and common non-text files
+            // Skip binary files
             if let Some(ext) = entry.extension() {
                 let ext = ext.to_string_lossy().to_lowercase();
                 if matches!(
@@ -8560,7 +8843,7 @@ console.info = function(...args) {
                     }
 
                     let rel_path = entry
-                        .strip_prefix(&source_dir)
+                        .strip_prefix(&base_dir)
                         .unwrap_or(&entry)
                         .display();
 
@@ -8590,139 +8873,6 @@ console.info = function(...args) {
                 results.join("\n")
             ))]))
         }
-    }
-
-    #[tool(
-        description = "Get terminator API documentation. If path is a file, returns its content. If path is a directory or glob pattern, returns file list. Use this to read READMEs, source files, and explore the terminator codebase structure."
-    )]
-    async fn get_terminator_api_docs(
-        &self,
-        Parameters(args): Parameters<GetTerminatorApiDocsArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        use std::fs;
-        use std::io::{BufRead, BufReader};
-
-        let source_dir = get_terminator_source_dir();
-
-        if !source_dir.exists() {
-            return Ok(CallToolResult::success(vec![Content::text(
-                "Terminator source not found. It will be downloaded on next MCP server restart, or run: npx terminator-mcp-agent (postinstall downloads source)".to_string(),
-            )]));
-        }
-
-        let target_path = source_dir.join(&args.path);
-
-        // Check if it's a file
-        if target_path.is_file() {
-            let file = match fs::File::open(&target_path) {
-                Ok(f) => f,
-                Err(e) => {
-                    return Ok(CallToolResult::success(vec![Content::text(format!(
-                        "Failed to open file: {e}"
-                    ))]));
-                }
-            };
-
-            let reader = BufReader::new(file);
-            let offset = args.offset.unwrap_or(1).saturating_sub(1); // Convert to 0-indexed
-            let limit = args.limit.unwrap_or(200);
-
-            let lines: Vec<String> = reader
-                .lines()
-                .skip(offset)
-                .take(limit)
-                .enumerate()
-                .map(|(i, line)| {
-                    format!(
-                        "{:5}: {}",
-                        offset + i + 1,
-                        line.unwrap_or_else(|_| "[binary content]".to_string())
-                    )
-                })
-                .collect();
-
-            return Ok(CallToolResult::success(vec![Content::text(format!(
-                "File: {}\nLines {}-{}:\n{}",
-                args.path,
-                offset + 1,
-                offset + lines.len(),
-                lines.join("\n")
-            ))]));
-        }
-
-        // Check if it's a directory
-        if target_path.is_dir() {
-            let mut entries: Vec<String> = Vec::new();
-
-            for entry in walkdir::WalkDir::new(&target_path)
-                .max_depth(3)
-                .into_iter()
-                .filter_map(|e| e.ok())
-            {
-                let rel_path = entry
-                    .path()
-                    .strip_prefix(&source_dir)
-                    .unwrap_or(entry.path());
-
-                let suffix = if entry.file_type().is_dir() { "/" } else { "" };
-                entries.push(format!("{}{}", rel_path.display(), suffix));
-            }
-
-            entries.sort();
-
-            return Ok(CallToolResult::success(vec![Content::text(format!(
-                "Directory listing for '{}' ({} entries):\n{}",
-                args.path,
-                entries.len(),
-                entries.join("\n")
-            ))]));
-        }
-
-        // Try as glob pattern
-        let glob_pattern = source_dir.join(&args.path);
-        let glob_str = glob_pattern.to_string_lossy();
-
-        let paths: Vec<_> = match glob::glob(&glob_str) {
-            Ok(paths) => paths.flatten().collect(),
-            Err(e) => {
-                return Ok(CallToolResult::success(vec![Content::text(format!(
-                    "Invalid glob pattern: {e}"
-                ))]));
-            }
-        };
-
-        if paths.is_empty() {
-            return Ok(CallToolResult::success(vec![Content::text(format!(
-                "No files found matching '{}'. Try:\n- README.md\n- crates/\n- packages/\n- **/*.rs\n- **/*.ts",
-                args.path
-            ))]));
-        }
-
-        let mut entries: Vec<String> = paths
-            .iter()
-            .take(100)
-            .map(|p| {
-                let rel = p.strip_prefix(&source_dir).unwrap_or(p);
-                let suffix = if p.is_dir() { "/" } else { "" };
-                format!("{}{}", rel.display(), suffix)
-            })
-            .collect();
-
-        entries.sort();
-
-        let truncated = if paths.len() > 100 {
-            format!("\n... and {} more files", paths.len() - 100)
-        } else {
-            String::new()
-        };
-
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Files matching '{}' ({} total):\n{}{}",
-            args.path,
-            paths.len(),
-            entries.join("\n"),
-            truncated
-        ))]))
     }
 }
 
@@ -9345,20 +9495,47 @@ impl DesktopWrapper {
                     )),
                 }
             }
-            "search_terminator_api" => {
-                match serde_json::from_value::<SearchTerminatorApiArgs>(arguments.clone()) {
-                    Ok(args) => self.search_terminator_api(Parameters(args)).await,
+            "read_file" => {
+                match serde_json::from_value::<ReadFileArgs>(arguments.clone()) {
+                    Ok(args) => self.read_file(Parameters(args)).await,
                     Err(e) => Err(McpError::invalid_params(
-                        "Invalid arguments for search_terminator_api",
+                        "Invalid arguments for read_file",
                         Some(json!({"error": e.to_string()})),
                     )),
                 }
             }
-            "get_terminator_api_docs" => {
-                match serde_json::from_value::<GetTerminatorApiDocsArgs>(arguments.clone()) {
-                    Ok(args) => self.get_terminator_api_docs(Parameters(args)).await,
+            "write_file" => {
+                match serde_json::from_value::<WriteFileArgs>(arguments.clone()) {
+                    Ok(args) => self.write_file(Parameters(args)).await,
                     Err(e) => Err(McpError::invalid_params(
-                        "Invalid arguments for get_terminator_api_docs",
+                        "Invalid arguments for write_file",
+                        Some(json!({"error": e.to_string()})),
+                    )),
+                }
+            }
+            "edit_file" => {
+                match serde_json::from_value::<EditFileArgs>(arguments.clone()) {
+                    Ok(args) => self.edit_file(Parameters(args)).await,
+                    Err(e) => Err(McpError::invalid_params(
+                        "Invalid arguments for edit_file",
+                        Some(json!({"error": e.to_string()})),
+                    )),
+                }
+            }
+            "glob_files" => {
+                match serde_json::from_value::<GlobFilesArgs>(arguments.clone()) {
+                    Ok(args) => self.glob_files(Parameters(args)).await,
+                    Err(e) => Err(McpError::invalid_params(
+                        "Invalid arguments for glob_files",
+                        Some(json!({"error": e.to_string()})),
+                    )),
+                }
+            }
+            "grep_files" => {
+                match serde_json::from_value::<GrepFilesArgs>(arguments.clone()) {
+                    Ok(args) => self.grep_files(Parameters(args)).await,
+                    Err(e) => Err(McpError::invalid_params(
+                        "Invalid arguments for grep_files",
                         Some(json!({"error": e.to_string()})),
                     )),
                 }
