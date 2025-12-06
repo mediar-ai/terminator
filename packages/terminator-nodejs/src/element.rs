@@ -210,7 +210,19 @@ impl Element {
             let _ = self.inner.highlight_before_action("click");
         }
         let _ = self.inner.activate_window();
-        self.inner.click().map(ClickResult::from).map_err(map_error)
+        let mut result: ClickResult = self.inner.click().map(ClickResult::from).map_err(map_error)?;
+
+        // Capture screenshots if requested
+        let screenshots = capture_element_screenshots(
+            &self.inner,
+            opts.include_window_screenshot.unwrap_or(false),
+            opts.include_monitor_screenshots.unwrap_or(false),
+            "click",
+        );
+        result.window_screenshot_path = screenshots.window_path;
+        result.monitor_screenshot_paths = screenshots.monitor_paths;
+
+        Ok(result)
     }
 
     /// Double click on this element.
@@ -224,10 +236,19 @@ impl Element {
             let _ = self.inner.highlight_before_action("double_click");
         }
         let _ = self.inner.activate_window();
-        self.inner
-            .double_click()
-            .map(ClickResult::from)
-            .map_err(map_error)
+        let mut result: ClickResult = self.inner.double_click().map(ClickResult::from).map_err(map_error)?;
+
+        // Capture screenshots if requested
+        let screenshots = capture_element_screenshots(
+            &self.inner,
+            opts.include_window_screenshot.unwrap_or(false),
+            opts.include_monitor_screenshots.unwrap_or(false),
+            "doubleClick",
+        );
+        result.window_screenshot_path = screenshots.window_path;
+        result.monitor_screenshot_paths = screenshots.monitor_paths;
+
+        Ok(result)
     }
 
     /// Right click on this element.
