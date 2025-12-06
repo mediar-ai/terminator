@@ -1079,6 +1079,16 @@ export declare class Element {
    */
   highlight(color?: number | undefined | null, durationMs?: number | undefined | null, text?: string | undefined | null, textPosition?: TextPosition | undefined | null, fontStyle?: FontStyle | undefined | null): HighlightHandle
   /**
+   * Ensures element is visible and highlights it before performing an action.
+   *
+   * This combines scrolling the element into view and applying a visual highlight.
+   * Useful for debugging and visual feedback during automation.
+   *
+   * @param {string} actionName - Name of the action about to be performed (e.g., "click", "type")
+   * @returns {HighlightHandle | null} Handle to control the highlight, or null if highlight failed
+   */
+  highlightBeforeAction(actionName: string): HighlightHandle | null
+  /**
    * Capture a screenshot of this element.
    *
    * @returns {ScreenshotResult} The screenshot data containing image data and dimensions.
