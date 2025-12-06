@@ -19,10 +19,10 @@ export interface ActionOptions {
 /** Options for typeText method */
 export interface TypeTextOptions {
   /**
-   * Whether to clear existing text before typing. Defaults to false (append mode).
-   * Set to true to clear the field first, matching MCP's clear_before_typing behavior.
+   * REQUIRED: Whether to clear existing text before typing.
+   * Set to true to clear the field first, false to append.
    */
-  clearBeforeTyping?: boolean
+  clearBeforeTyping: boolean
   /** Whether to use clipboard for pasting. Defaults to false. */
   useClipboard?: boolean
   /** Whether to highlight the element before typing. Defaults to false. */
