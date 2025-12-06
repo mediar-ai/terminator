@@ -64,43 +64,9 @@ fn capture_screenshots(
     result
 }
 
-/// Helper to find PID from process name (case-insensitive substring match)
-/// This mirrors the MCP agent's process resolution logic.
+/// Helper to find PID from process name using the shared core function.
 fn find_pid_for_process(desktop: &TerminatorDesktop, process_name: &str) -> napi::Result<u32> {
-    use sysinfo::{ProcessesToUpdate, System};
-
-    let apps = desktop.applications().map_err(map_error)?;
-    let mut system = System::new();
-    system.refresh_processes(ProcessesToUpdate::All, true);
-
-    let process_lower = process_name.to_lowercase();
-
-    // Find first matching process
-    apps.iter()
-        .filter_map(|app| {
-            let app_pid = app.process_id().unwrap_or(0);
-            if app_pid > 0 {
-                system
-                    .process(sysinfo::Pid::from_u32(app_pid))
-                    .and_then(|p| {
-                        let name = p.name().to_string_lossy().to_string();
-                        if name.to_lowercase().contains(&process_lower) {
-                            Some(app_pid)
-                        } else {
-                            None
-                        }
-                    })
-            } else {
-                None
-            }
-        })
-        .next()
-        .ok_or_else(|| {
-            napi::Error::from_reason(format!(
-                "Process '{}' not found. Use openApplication() to start it first.",
-                process_name
-            ))
-        })
+    terminator::find_pid_for_process(desktop, process_name).map_err(map_error)
 }
 
 /// Main entry point for desktop automation.
