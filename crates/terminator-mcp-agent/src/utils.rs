@@ -522,6 +522,9 @@ pub struct InvokeElementArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
+    pub highlight: HighlightOptions,
+
+    #[serde(flatten)]
     pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
@@ -958,6 +961,9 @@ pub struct MouseDragArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
+    pub highlight: HighlightOptions,
+
+    #[serde(flatten)]
     pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
@@ -1214,6 +1220,9 @@ pub struct SelectOptionArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
+    pub highlight: HighlightOptions,
+
+    #[serde(flatten)]
     pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
@@ -1236,6 +1245,9 @@ pub struct SetValueArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
+    pub highlight: HighlightOptions,
+
+    #[serde(flatten)]
     pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
@@ -1256,6 +1268,9 @@ pub struct SetSelectedArgs {
 
     #[serde(flatten)]
     pub action: ActionOptions,
+
+    #[serde(flatten)]
+    pub highlight: HighlightOptions,
 
     #[serde(flatten)]
     pub tree: DiffTreeOptions,
