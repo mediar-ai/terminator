@@ -249,7 +249,13 @@ fn extract_and_save_screenshots(
     }
 
     // Check in content array (MCP response format) - save ALL images
-    if let Some(content) = result.get("content").and_then(|c| c.as_array()) {
+    // Handle both: result IS the array (from call_result.content serialization)
+    // or result.content is the array (nested format)
+    let content_array = result
+        .as_array()
+        .or_else(|| result.get("content").and_then(|c| c.as_array()));
+
+    if let Some(content) = content_array {
         for item in content {
             // Image content type
             if item.get("type").and_then(|t| t.as_str()) == Some("image") {
