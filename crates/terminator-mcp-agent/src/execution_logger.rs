@@ -129,6 +129,7 @@ pub fn log_request(
     step_id: Option<&str>,
     step_index: Option<usize>,
 ) -> Option<ExecutionContext> {
+    info!("[execution_logger] log_request called for tool: {}, enabled: {}", tool_name, is_enabled());
     if !is_enabled() {
         return None;
     }
@@ -153,6 +154,7 @@ pub fn log_response(
     result: Result<&Value, &str>,
     duration_ms: u64,
 ) {
+    debug!("[execution_logger] log_response called for tool: {}, enabled: {}", ctx.tool_name, is_enabled());
     if !is_enabled() {
         return;
     }
