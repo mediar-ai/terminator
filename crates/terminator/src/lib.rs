@@ -16,6 +16,7 @@ pub mod health;
 pub mod locator;
 pub mod platforms;
 pub mod screenshot;
+pub mod screenshot_logger;
 pub mod selector;
 #[cfg(test)]
 mod tests;
