@@ -172,6 +172,9 @@ pub fn log_response(
     // Build response, stripping screenshot base64 from result
     let clean_result = result.ok().map(|v| strip_screenshot_base64(v));
 
+    // Generate TypeScript snippet before moving ctx.request
+    let ts_snippet = generate_typescript_snippet(&ctx.tool_name, &ctx.request, result);
+
     let log = ExecutionLog {
         timestamp: ctx.timestamp.to_rfc3339(),
         workflow_id: ctx.workflow_id,
@@ -200,6 +203,14 @@ pub fn log_response(
         Err(e) => {
             warn!("[execution_logger] Failed to serialize log: {}", e);
         }
+    }
+
+    // Write TypeScript snippet file
+    let ts_path = dir.join(format!("{}.ts", ctx.file_prefix));
+    if let Err(e) = fs::write(&ts_path, &ts_snippet) {
+        warn!("[execution_logger] Failed to write {}: {}", ts_path.display(), e);
+    } else {
+        debug!("[execution_logger] TypeScript snippet: {}", ts_path.display());
     }
 }
 
@@ -398,6 +409,278 @@ fn strip_screenshot_base64(value: &Value) -> Value {
     result
 }
 
+/// Generate TypeScript SDK snippet from MCP tool call
+/// This creates a .ts file alongside the .json execution log
+fn generate_typescript_snippet(tool_name: &str, args: &Value, result: Result<&Value, &str>) -> String {
+    // Clean tool name (remove mcp__ prefix if present)
+    let clean_tool = tool_name
+        .strip_prefix("mcp__terminator-mcp-agent__")
+        .unwrap_or(tool_name);
+
+    let snippet = match clean_tool {
+        "click_element" => generate_click_snippet(args),
+        "type_into_element" => generate_type_snippet(args),
+        "press_key" => generate_press_key_snippet(args),
+        "global_key" => generate_global_key_snippet(args),
+        "delay" => generate_delay_snippet(args),
+        "open_application" => generate_open_application_snippet(args),
+        "navigate_browser" => generate_navigate_browser_snippet(args),
+        "get_window_tree" => generate_get_window_tree_snippet(args),
+        "capture_screenshot" => generate_capture_screenshot_snippet(args),
+        "run_command" => generate_run_command_snippet(args),
+        "mouse_drag" => generate_mouse_drag_snippet(args),
+        "scroll_element" => generate_scroll_snippet(args),
+        "wait_for_element" => generate_wait_for_element_snippet(args),
+        "select_option" => generate_select_option_snippet(args),
+        "set_value" => generate_set_value_snippet(args),
+        "highlight_element" => generate_highlight_snippet(args),
+        "validate_element" => generate_validate_snippet(args),
+        "get_applications" => "const apps = await desktop.getApplications();".to_string(),
+        _ => format!("// Unsupported tool: {}\n// Args: {}", clean_tool, serde_json::to_string_pretty(args).unwrap_or_default()),
+    };
+
+    // Build full TypeScript file
+    let status_comment = match result {
+        Ok(_) => "// Status: SUCCESS".to_string(),
+        Err(e) => format!("// Status: ERROR - {}", e),
+    };
+
+    format!(
+        r#"import {{ Desktop }} from "@anthropic-ai/terminator";
+
+const desktop = new Desktop();
+
+{}
+
+{}
+"#,
+        status_comment, snippet
+    )
+}
+
+/// Build locator string from args
+fn build_locator_string(args: &Value) -> String {
+    let process = args.get("process").and_then(|v| v.as_str()).unwrap_or("");
+    let selector = args.get("selector").and_then(|v| v.as_str()).unwrap_or("");
+    let window_selector = args.get("window_selector").and_then(|v| v.as_str());
+
+    if process.is_empty() && selector.is_empty() {
+        return "\"\"".to_string();
+    }
+
+    let mut locator = format!("process:{}", process);
+
+    if let Some(ws) = window_selector {
+        if !ws.is_empty() {
+            locator = format!("{} >> {}", locator, ws);
+        }
+    }
+
+    if !selector.is_empty() {
+        locator = format!("{} >> {}", locator, selector);
+    }
+
+    format!("\"{}\"", locator)
+}
+
+/// Generate click_element snippet
+fn generate_click_snippet(args: &Value) -> String {
+    // Check mode: selector, index, or coordinates
+    if let (Some(x), Some(y)) = (
+        args.get("x").and_then(|v| v.as_f64()),
+        args.get("y").and_then(|v| v.as_f64()),
+    ) {
+        // Coordinate mode
+        let click_type = args.get("click_type").and_then(|v| v.as_str()).unwrap_or("left");
+        return match click_type {
+            "double" => format!("await desktop.doubleClick({}, {});", x as i32, y as i32),
+            "right" => format!("await desktop.rightClick({}, {});", x as i32, y as i32),
+            _ => format!("await desktop.click({}, {});", x as i32, y as i32),
+        };
+    }
+
+    if let Some(index) = args.get("index").and_then(|v| v.as_u64()) {
+        // Index mode (from get_window_tree)
+        return format!("// Index-based click: item #{}\n// Use locator from get_window_tree result", index);
+    }
+
+    // Selector mode
+    let locator = build_locator_string(args);
+    let click_type = args.get("click_type").and_then(|v| v.as_str()).unwrap_or("left");
+    let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(5000);
+
+    let click_method = match click_type {
+        "double" => "doubleClick",
+        "right" => "rightClick",
+        _ => "click",
+    };
+
+    format!(
+        "const element = await desktop.locator({}).first({});\nawait element.{}();",
+        locator, timeout, click_method
+    )
+}
+
+/// Generate type_into_element snippet
+fn generate_type_snippet(args: &Value) -> String {
+    let locator = build_locator_string(args);
+    let text = args.get("text_to_type").and_then(|v| v.as_str()).unwrap_or("");
+    let clear = args.get("clear_before_typing").and_then(|v| v.as_bool()).unwrap_or(false);
+    let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(5000);
+
+    // Escape text for TypeScript string
+    let escaped_text = text.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
+
+    format!(
+        "const element = await desktop.locator({}).first({});\nawait element.typeText(\"{}\", {{ clearBefore: {} }});",
+        locator, timeout, escaped_text, clear
+    )
+}
+
+/// Generate press_key snippet
+fn generate_press_key_snippet(args: &Value) -> String {
+    let locator = build_locator_string(args);
+    let key = args.get("key").and_then(|v| v.as_str()).unwrap_or("");
+    let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(5000);
+
+    format!(
+        "const element = await desktop.locator({}).first({});\nawait element.pressKey(\"{}\");",
+        locator, timeout, key
+    )
+}
+
+/// Generate global_key snippet (no element needed)
+fn generate_global_key_snippet(args: &Value) -> String {
+    let key = args.get("key").and_then(|v| v.as_str()).unwrap_or("");
+    format!("await desktop.pressKey(\"{}\");", key)
+}
+
+/// Generate delay snippet
+fn generate_delay_snippet(args: &Value) -> String {
+    let ms = args.get("ms").and_then(|v| v.as_u64()).unwrap_or(1000);
+    format!("await desktop.delay({});", ms)
+}
+
+/// Generate open_application snippet
+fn generate_open_application_snippet(args: &Value) -> String {
+    let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+    let escaped_path = path.replace('\\', "\\\\");
+    format!("await desktop.openApplication(\"{}\");", escaped_path)
+}
+
+/// Generate navigate_browser snippet
+fn generate_navigate_browser_snippet(args: &Value) -> String {
+    let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
+    let browser = args.get("browser").and_then(|v| v.as_str()).unwrap_or("chrome");
+    format!("await desktop.navigateBrowser({{ url: \"{}\", browser: \"{}\" }});", url, browser)
+}
+
+/// Generate get_window_tree snippet
+fn generate_get_window_tree_snippet(args: &Value) -> String {
+    let locator = build_locator_string(args);
+    let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(5000);
+    format!(
+        "const element = await desktop.locator({}).first({});\nconst tree = await element.captureTree();",
+        locator, timeout
+    )
+}
+
+/// Generate capture_screenshot snippet
+fn generate_capture_screenshot_snippet(args: &Value) -> String {
+    if let Some(process) = args.get("process").and_then(|v| v.as_str()) {
+        let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(5000);
+        format!(
+            "const element = await desktop.locator(\"process:{}\").first({});\nconst screenshot = await element.captureScreenshot();",
+            process, timeout
+        )
+    } else {
+        "const screenshot = await desktop.captureScreenshot();".to_string()
+    }
+}
+
+/// Generate run_command snippet
+fn generate_run_command_snippet(args: &Value) -> String {
+    let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
+    let escaped_command = command.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("const result = await desktop.runCommand(\"{}\");", escaped_command)
+}
+
+/// Generate mouse_drag snippet
+fn generate_mouse_drag_snippet(args: &Value) -> String {
+    let start_x = args.get("start_x").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
+    let start_y = args.get("start_y").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
+    let end_x = args.get("end_x").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
+    let end_y = args.get("end_y").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
+    format!(
+        "await desktop.mouseDrag({{ startX: {}, startY: {}, endX: {}, endY: {} }});",
+        start_x, start_y, end_x, end_y
+    )
+}
+
+/// Generate scroll_element snippet
+fn generate_scroll_snippet(args: &Value) -> String {
+    let locator = build_locator_string(args);
+    let direction = args.get("direction").and_then(|v| v.as_str()).unwrap_or("down");
+    let amount = args.get("amount").and_then(|v| v.as_u64()).unwrap_or(3);
+    let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(5000);
+    format!(
+        "const element = await desktop.locator({}).first({});\nawait element.scroll(\"{}\", {});",
+        locator, timeout, direction, amount
+    )
+}
+
+/// Generate wait_for_element snippet
+fn generate_wait_for_element_snippet(args: &Value) -> String {
+    let locator = build_locator_string(args);
+    let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(30000);
+    format!(
+        "const element = await desktop.locator({}).first({});",
+        locator, timeout
+    )
+}
+
+/// Generate select_option snippet
+fn generate_select_option_snippet(args: &Value) -> String {
+    let locator = build_locator_string(args);
+    let option = args.get("option").and_then(|v| v.as_str()).unwrap_or("");
+    let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(5000);
+    format!(
+        "const element = await desktop.locator({}).first({});\nawait element.selectOption(\"{}\");",
+        locator, timeout, option
+    )
+}
+
+/// Generate set_value snippet
+fn generate_set_value_snippet(args: &Value) -> String {
+    let locator = build_locator_string(args);
+    let value = args.get("value").and_then(|v| v.as_str()).unwrap_or("");
+    let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(5000);
+    format!(
+        "const element = await desktop.locator({}).first({});\nawait element.setValue(\"{}\");",
+        locator, timeout, value
+    )
+}
+
+/// Generate highlight_element snippet
+fn generate_highlight_snippet(args: &Value) -> String {
+    let locator = build_locator_string(args);
+    let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(5000);
+    format!(
+        "const element = await desktop.locator({}).first({});\nawait element.highlight();",
+        locator, timeout
+    )
+}
+
+/// Generate validate_element snippet
+fn generate_validate_snippet(args: &Value) -> String {
+    let locator = build_locator_string(args);
+    let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(5000);
+    format!(
+        "const element = await desktop.locator({}).first({});\nconst exists = await element.exists();",
+        locator, timeout
+    )
+}
+
 /// Clean up execution logs older than RETENTION_DAYS
 async fn cleanup_old_executions() {
     let dir = get_executions_dir();
@@ -489,5 +772,88 @@ mod tests {
         let img = extract_base64_image(&value, &["screenshot"]);
         assert!(img.is_some());
         assert!(img.unwrap().starts_with("iVBOR"));
+    }
+
+    #[test]
+    fn test_generate_click_snippet_selector_mode() {
+        let args = json!({
+            "process": "chrome",
+            "selector": "role:Button|name:Submit",
+            "click_type": "left"
+        });
+        let snippet = generate_click_snippet(&args);
+        assert!(snippet.contains("desktop.locator(\"process:chrome >> role:Button|name:Submit\")"));
+        assert!(snippet.contains(".first(5000)"));
+        assert!(snippet.contains(".click()"));
+    }
+
+    #[test]
+    fn test_generate_click_snippet_coordinate_mode() {
+        let args = json!({
+            "x": 100.0,
+            "y": 200.0
+        });
+        let snippet = generate_click_snippet(&args);
+        assert!(snippet.contains("desktop.click(100, 200)"));
+    }
+
+    #[test]
+    fn test_generate_type_snippet() {
+        let args = json!({
+            "process": "notepad",
+            "selector": "role:Edit",
+            "text_to_type": "Hello World",
+            "clear_before_typing": true
+        });
+        let snippet = generate_type_snippet(&args);
+        assert!(snippet.contains("desktop.locator(\"process:notepad >> role:Edit\")"));
+        assert!(snippet.contains("typeText(\"Hello World\""));
+        assert!(snippet.contains("clearBefore: true"));
+    }
+
+    #[test]
+    fn test_generate_press_key_snippet() {
+        let args = json!({
+            "process": "notepad",
+            "selector": "role:Document",
+            "key": "Ctrl+S"
+        });
+        let snippet = generate_press_key_snippet(&args);
+        assert!(snippet.contains("pressKey(\"Ctrl+S\")"));
+    }
+
+    #[test]
+    fn test_generate_delay_snippet() {
+        let args = json!({
+            "ms": 2000
+        });
+        let snippet = generate_delay_snippet(&args);
+        assert_eq!(snippet, "await desktop.delay(2000);");
+    }
+
+    #[test]
+    fn test_generate_typescript_snippet_full() {
+        let args = json!({
+            "process": "chrome",
+            "selector": "role:Button|name:OK"
+        });
+        let result = json!({"status": "success"});
+        let ts = generate_typescript_snippet("click_element", &args, Ok(&result));
+
+        assert!(ts.contains("import { Desktop }"));
+        assert!(ts.contains("const desktop = new Desktop()"));
+        assert!(ts.contains("// Status: SUCCESS"));
+        assert!(ts.contains("desktop.locator"));
+    }
+
+    #[test]
+    fn test_build_locator_string_with_window_selector() {
+        let args = json!({
+            "process": "chrome",
+            "window_selector": "role:Window|name:Google",
+            "selector": "role:Button|name:Submit"
+        });
+        let locator = build_locator_string(&args);
+        assert_eq!(locator, "\"process:chrome >> role:Window|name:Google >> role:Button|name:Submit\"");
     }
 }
