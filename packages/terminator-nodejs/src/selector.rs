@@ -136,4 +136,23 @@ impl Selector {
     pub fn parent() -> Self {
         Selector::from(TerminatorSelector::Parent)
     }
+
+    /// Create a selector that scopes the search to a specific process.
+    /// This is typically used as the first part of a chained selector.
+    /// Example: `Selector.process("chrome").chain(Selector.role("Button", "Submit"))`
+    #[napi(factory)]
+    pub fn process(process_name: String) -> Self {
+        Selector::from(TerminatorSelector::Process(process_name))
+    }
+
+    /// Create a selector that scopes the search to a specific window within a process.
+    /// Typically chained after a process selector.
+    /// Example: `Selector.process("notepad").chain(Selector.window("Untitled"))`
+    #[napi(factory)]
+    pub fn window(title: String) -> Self {
+        Selector::from(TerminatorSelector::Role {
+            role: "Window".to_string(),
+            name: Some(title),
+        })
+    }
 }
