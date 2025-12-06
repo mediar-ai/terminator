@@ -19,6 +19,8 @@ terminator = { workspace = true }
 tracing-subscriber = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# For process name lookup
+sysinfo = { version = "0.34", default-features = false, features = ["system"] }
 # For Gemini Vision image processing and HTTP requests
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png"] }
