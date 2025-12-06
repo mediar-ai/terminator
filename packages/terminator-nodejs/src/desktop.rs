@@ -517,15 +517,17 @@ impl Desktop {
 
     /// (async) Get a clustered tree combining elements from multiple sources grouped by spatial proximity.
     ///
-    /// Combines accessibility tree (UIA) elements with optional DOM and Omniparser elements,
+    /// Combines accessibility tree (UIA) elements with optional DOM, Omniparser, and Gemini Vision elements,
     /// clustering nearby elements together. Each element is prefixed with its source:
     /// - #u1, #u2... for UIA (accessibility tree)
     /// - #d1, #d2... for DOM (browser content)
     /// - #p1, #p2... for Omniparser (vision AI detection)
+    /// - #g1, #g2... for Gemini Vision (AI element detection)
     ///
     /// @param {number} pid - Process ID of the window to analyze.
     /// @param {number} [maxDomElements=100] - Maximum DOM elements to capture for browsers.
     /// @param {boolean} [includeOmniparser=false] - Whether to include Omniparser vision detection.
+    /// @param {boolean} [includeGeminiVision=false] - Whether to include Gemini Vision AI detection.
     /// @returns {Promise<ClusteredFormattingResult>} Clustered tree with prefixed indices.
     #[napi]
     pub async fn get_clustered_tree(
@@ -533,11 +535,13 @@ impl Desktop {
         pid: u32,
         max_dom_elements: Option<u32>,
         include_omniparser: Option<bool>,
+        include_gemini_vision: Option<bool>,
     ) -> napi::Result<crate::types::ClusteredFormattingResult> {
         use std::collections::HashMap;
 
         let max_dom_elements = max_dom_elements.unwrap_or(100);
         let include_omniparser = include_omniparser.unwrap_or(false);
+        let include_gemini_vision = include_gemini_vision.unwrap_or(false);
 
         // Get UIA tree with bounds
         let uia_result = self
@@ -613,9 +617,40 @@ impl Desktop {
             }
         }
 
-        // Empty caches for sources we don't have yet
+        // Build Gemini Vision items cache if requested
+        let mut vision_items: HashMap<u32, terminator::VisionElement> = HashMap::new();
+
+        if include_gemini_vision {
+            match self.perform_gemini_vision_for_process(pid, Some(true)).await {
+                Ok(vision_result) => {
+                    for (idx_str, entry) in vision_result.index_to_bounds {
+                        if let Ok(idx) = idx_str.parse::<u32>() {
+                            vision_items.insert(
+                                idx,
+                                terminator::VisionElement {
+                                    element_type: entry.element_type.clone(),
+                                    content: Some(entry.name.clone()),
+                                    description: None,
+                                    box_2d: Some([
+                                        entry.bounds.x,
+                                        entry.bounds.y,
+                                        entry.bounds.x + entry.bounds.width,
+                                        entry.bounds.y + entry.bounds.height,
+                                    ]),
+                                    interactivity: None,
+                                },
+                            );
+                        }
+                    }
+                }
+                Err(_) => {
+                    // Gemini Vision failed, continue without it
+                }
+            }
+        }
+
+        // Empty cache for OCR (not implemented yet)
         let ocr_bounds: HashMap<u32, (String, (f64, f64, f64, f64))> = HashMap::new();
-        let vision_items: HashMap<u32, terminator::VisionElement> = HashMap::new();
 
         // Call the core clustering function
         let clustered_result = terminator::format_clustered_tree_from_caches(
