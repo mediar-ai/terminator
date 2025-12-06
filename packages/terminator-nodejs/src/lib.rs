@@ -18,7 +18,7 @@ pub use types::{
     MonitorScreenshotPair, OcrBoundsEntry, OcrElement, OcrResult, OmniparserBoundsEntry,
     OmniparserItem, OmniparserResult, OverlayDisplayMode, PropertyLoadingMode, ScreenshotResult,
     TextPosition, TreeBuildConfig, TreeOutputFormat, UIElementAttributes, UINode, VisionBoundsEntry,
-    VisionElement, WindowTreeResult,
+    VisionElement, VisionType, WindowTreeResult,
 };
 pub use window_manager::{WindowInfo, WindowManager};
 
