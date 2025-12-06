@@ -517,6 +517,21 @@ export declare class Desktop {
    */
   captureBrowserDom(maxElements?: number | undefined | null, formatOutput?: boolean | undefined | null): Promise<BrowserDomResult>
   /**
+   * (async) Get a clustered tree combining UIA and DOM elements grouped by spatial proximity.
+   *
+   * For browser windows, this combines accessibility tree (UIA) elements with DOM elements,
+   * clustering nearby elements together. Each element is prefixed with its source:
+   * - #u1, #u2... for UIA (accessibility tree)
+   * - #d1, #d2... for DOM (browser content)
+   *
+   * For non-browser windows, only UIA elements are included.
+   *
+   * @param {number} pid - Process ID of the window to analyze.
+   * @param {number} [maxDomElements=100] - Maximum DOM elements to capture for browsers.
+   * @returns {Promise<ClusteredFormattingResult>} Clustered tree with prefixed indices.
+   */
+  getClusteredTree(pid: number, maxDomElements?: number | undefined | null): Promise<ClusteredFormattingResult>
+  /**
    * (async) Perform Gemini vision AI detection on a window by PID.
    *
    * Captures a screenshot and sends it to the Gemini vision backend for UI element detection.
