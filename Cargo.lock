@@ -5131,6 +5131,19 @@ dependencies = [
 
 [[package]]
 name = "sysinfo"
+version = "0.34.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4b93974b3d3aeaa036504b8eefd4c039dced109171c1ae973f1dc63b2c7e4b2"
+dependencies = [
+ "libc",
+ "memchr",
+ "ntapi",
+ "objc2-core-foundation",
+ "windows 0.57.0",
+]
+
+[[package]]
+name = "sysinfo"
 version = "0.36.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "252800745060e7b9ffb7b2badbd8b31cfa4aa2e61af879d0a3bf2a317c20217d"
@@ -5303,6 +5316,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "sysinfo 0.34.2",
  "terminator-rs",
  "tracing-subscriber",
 ]
