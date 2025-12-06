@@ -756,6 +756,7 @@ impl From<TreeBuildConfig> for terminator::platforms::TreeBuildConfig {
             format_output: config.format_output.unwrap_or(false),
             show_overlay: false, // Use Desktop.showInspectOverlay() method instead
             overlay_display_mode: None,
+            from_selector: config.tree_from_selector, // Pass through to core SDK
         }
     }
 }
