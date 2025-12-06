@@ -12,7 +12,7 @@ pub use element::{Element, TypeTextOptions};
 pub use locator::Locator;
 pub use selector::Selector;
 pub use types::{
-    Bounds, BoundsEntry, BrowserDomElement, BrowserDomResult, ClickResult, ClickType,
+    ActionResult, Bounds, BoundsEntry, BrowserDomElement, BrowserDomResult, ClickResult, ClickType,
     ClusteredBoundsEntry, ClusteredFormattingResult, CommandOutput, Coordinates, DomBoundsEntry,
     ElementSource, FontStyle, GeminiVisionResult, HighlightHandle, InspectElement, Monitor,
     MonitorScreenshotPair, OcrBoundsEntry, OcrElement, OcrResult, OmniparserBoundsEntry,
