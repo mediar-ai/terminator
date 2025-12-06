@@ -5295,6 +5295,7 @@ name = "terminator-node-bindings"
 version = "0.23.36"
 dependencies = [
  "base64 0.22.1",
+ "futures",
  "image",
  "napi",
  "napi-build",
