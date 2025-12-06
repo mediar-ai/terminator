@@ -663,8 +663,8 @@ where
 /// Find element and execute action with optional UI diff capture
 ///
 /// This is a wrapper around find_and_execute_with_retry_with_fallback that adds UI diff support.
-/// When ui_diff_before_after is true, it captures the UI tree before and after the action,
-/// then computes the diff showing what changed.
+/// When ui_diff_before_after is true, it uses the backend's execute_on_element_with_ui_diff
+/// to capture UI tree before and after the action, then compute the diff.
 ///
 /// Returns: ((action_result, element), successful_selector, optional_ui_diff)
 #[allow(clippy::too_many_arguments)]
@@ -679,7 +679,7 @@ pub async fn find_and_execute_with_ui_diff<F, Fut, T>(
     ui_diff_before_after: bool,
     tree_max_depth: Option<usize>,
     include_detailed_attributes: Option<bool>,
-    tree_output_format: TreeOutputFormat,
+    _tree_output_format: TreeOutputFormat, // Now handled by backend (always compact YAML)
 ) -> Result<((T, UIElement), String, Option<UiDiffResult>), anyhow::Error>
 where
     F: Fn(UIElement) -> Fut,
@@ -703,7 +703,7 @@ where
         return Ok(((result, element), selector, None));
     }
 
-    // UI diff requested - we need to capture trees before/after
+    // UI diff requested - use backend's execute_on_element_with_ui_diff
     tracing::debug!(
         "[ui_diff] UI diff capture enabled for selector: {}",
         primary_selector
@@ -712,8 +712,16 @@ where
     let retry_count = retries.unwrap_or(0);
     let mut last_error: Option<anyhow::Error> = None;
 
+    // Build UiDiffOptions for the backend
+    let diff_options = terminator::UiDiffOptions {
+        include_full_trees: true, // MCP always captures full trees when diff is requested
+        max_depth: tree_max_depth,
+        settle_delay_ms: Some(1500),
+        include_detailed_attributes,
+    };
+
     for attempt in 0..=retry_count {
-        // Find the element first to get PID
+        // Find the element first
         match find_element_with_fallbacks(
             desktop,
             primary_selector,
@@ -724,87 +732,45 @@ where
         .await
         {
             Ok((element, successful_selector)) => {
-                // Get PID for tree capture
-                let pid = element.process_id().unwrap_or(0);
-                if pid == 0 {
-                    tracing::warn!(
-                        "[ui_diff] Could not get PID from element, skipping diff capture"
-                    );
-                    // Fall back to executing without diff
-                    match action(element.clone()).await {
-                        Ok(result) => return Ok(((result, element), successful_selector, None)),
-                        Err(e) => {
-                            last_error = Some(e.into());
-                            if attempt < retry_count {
-                                tracing::warn!(
-                                    "[ui_diff] Action failed on attempt {}/{}. Retrying... Error: {}",
-                                    attempt + 1,
-                                    retry_count + 1,
-                                    last_error.as_ref().unwrap()
-                                );
-                                tokio::time::sleep(Duration::from_millis(250)).await;
-                                continue;
-                            }
+                // Use backend's execute_on_element_with_ui_diff
+                match desktop
+                    .execute_on_element_with_ui_diff(element, &action, Some(diff_options.clone()))
+                    .await
+                {
+                    Ok((result, returned_element, ui_diff)) => {
+                        // Convert backend UiDiffResult to MCP UiDiffResult
+                        let mcp_diff = ui_diff.map(|d| UiDiffResult {
+                            diff: d.diff,
+                            tree_before: d.tree_before.unwrap_or_default(),
+                            tree_after: d.tree_after.unwrap_or_default(),
+                            has_changes: d.has_changes,
+                        });
+                        return Ok(((result, returned_element), successful_selector, mcp_diff));
+                    }
+                    Err(e) => {
+                        last_error = Some(e.into());
+                        if attempt < retry_count {
+                            tracing::warn!(
+                                "[ui_diff] Action failed on attempt {}/{}. Retrying... Error: {}",
+                                attempt + 1,
+                                retry_count + 1,
+                                last_error.as_ref().unwrap()
+                            );
+                            tokio::time::sleep(Duration::from_millis(250)).await;
+                            continue;
                         }
                     }
-                } else {
-                    // Build tree config
-                    let detailed = include_detailed_attributes.unwrap_or(true);
-                    let tree_config = terminator::platforms::TreeBuildConfig {
-                        property_mode: if detailed {
-                            terminator::platforms::PropertyLoadingMode::Complete
-                        } else {
-                            terminator::platforms::PropertyLoadingMode::Fast
-                        },
-                        timeout_per_operation_ms: Some(100),
-                        yield_every_n_elements: Some(25),
-                        batch_size: Some(25),
-                        max_depth: tree_max_depth,
-                        include_all_bounds: false,
-                        ui_settle_delay_ms: None,
-                        format_output: false,
-                        show_overlay: false,
-                        overlay_display_mode: None,
-                        from_selector: None,
-                    };
-
-                    // Capture BEFORE tree
-                    tracing::debug!("[ui_diff] Capturing UI tree before action (PID: {})", pid);
-                    let tree_before_start = std::time::Instant::now();
-                    let tree_before = match desktop.get_window_tree(
-                        pid,
-                        None,
-                        Some(tree_config.clone()),
-                    ) {
-                        Ok(tree) => {
-                            tracing::info!(
-                                "[PERF] capture_tree_before: {}ms",
-                                tree_before_start.elapsed().as_millis()
-                            );
-                            tree
-                        }
-                        Err(e) => {
-                            tracing::warn!("[ui_diff] Failed to capture tree before action: {}. Continuing without diff.", e);
-                            // Execute action without diff
-                            match action(element.clone()).await {
-                                Ok(result) => {
-                                    return Ok(((result, element), successful_selector, None))
-                                }
-                                Err(e) => {
-                                    last_error = Some(e.into());
-                                    if attempt < retry_count {
-                                        tracing::warn!(
-                                            "[ui_diff] Action failed on attempt {}/{}. Retrying... Error: {}",
-                                            attempt + 1,
-                                            retry_count + 1,
-                                            last_error.as_ref().unwrap()
-                                        );
-                                        tokio::time::sleep(Duration::from_millis(250)).await;
-                                        continue;
-                                    }
-                                }
-                            }
-                            continue;
+            }
+            Err(e) => {
+                last_error = Some(e.into());
+                if attempt < retry_count {
+                    tracing::warn!(
+                        "[ui_diff] Find element failed on attempt {}/{}. Retrying... Error: {}",
+                        attempt + 1,
+                        retry_count + 1,
+                        last_error.as_ref().unwrap()
+                    );
+                    // No need to sleep here, as find_element_with_fallbacks already has a timeout.
                         }
                     };
                     // Clone tree_output_format to avoid move issues in retry loop
@@ -982,20 +948,18 @@ pub struct VerificationResult {
     pub elapsed_ms: u64,
 }
 
-/// Perform post-action verification using the new general-purpose verification system.
+/// Perform post-action verification using the core terminator verification methods.
 ///
-/// This function handles:
-/// 1. Fast path: Try reading the element directly (no tree walking)
-/// 2. Window-scoped search: Re-locate element within its window
-/// 3. Fallback: Desktop-wide search if window search fails
+/// This function delegates to `Desktop::verify_element_exists` and `Desktop::verify_element_not_exists`
+/// which perform window-scoped searches (no desktop-wide fallback).
 ///
 /// # Arguments
 /// * `desktop` - The Desktop instance
-/// * `element` - The element the action was performed on
+/// * `element` - The element the action was performed on (used to get application scope)
 /// * `verify_exists_selector` - Optional selector that should exist after action
 /// * `verify_not_exists_selector` - Optional selector that should NOT exist after action
 /// * `verify_timeout_ms` - Timeout for verification polling
-/// * `successful_selector` - The selector used to find the original element
+/// * `_successful_selector` - Unused, kept for API compatibility
 ///
 /// # Returns
 /// Ok(VerificationResult) if verification passed, Err if failed
@@ -1007,153 +971,57 @@ pub async fn verify_post_action(
     verify_timeout_ms: u64,
     _successful_selector: &str,
 ) -> Result<VerificationResult, anyhow::Error> {
-    use terminator::Selector;
-
     let start = tokio::time::Instant::now();
 
-    // Handle verify_element_exists
+    // Handle verify_element_exists using core method
     if let Some(exists_selector) = verify_exists_selector {
         tracing::debug!("[verify] Checking element exists: {}", exists_selector);
 
-        let mut verification_element = None;
-        let mut method = "unknown";
-
-        // OPTIMIZATION: Try window-scoped search using PID-based window lookup
-        // This is the standard pattern used throughout the codebase (tree capture, ui_diff, etc.)
-        match element.application() {
-            Ok(Some(app_window)) => {
-                tracing::debug!(
-                    "[verify] Got application window via PID (name={}, role={})",
-                    app_window.name().unwrap_or_default(),
-                    app_window.role()
+        match desktop
+            .verify_element_exists(element, exists_selector, verify_timeout_ms)
+            .await
+        {
+            Ok(_found_element) => {
+                tracing::info!(
+                    "[PERF] verify_element_exists: {}ms (selector: {})",
+                    start.elapsed().as_millis(),
+                    exists_selector
                 );
-
-                // Create locator scoped to the application window using .within()
-                let locator = desktop
-                    .locator(Selector::from(exists_selector))
-                    .within(app_window);
-
-                match locator
-                    .wait(Some(Duration::from_millis(verify_timeout_ms)))
-                    .await
-                {
-                    Ok(found_element) => {
-                        tracing::debug!("[verify] Window-scoped search SUCCESS");
-                        method = "window_scoped_search";
-                        verification_element = Some(found_element);
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            "[verify] Window-scoped search failed: {}, will try desktop-wide",
-                            e
-                        );
-                    }
-                }
-            }
-            Ok(None) => {
-                tracing::debug!(
-                    "[verify] element.application() returned None, will use desktop-wide search"
-                );
+                return Ok(VerificationResult {
+                    passed: true,
+                    method: "window_scoped_search".to_string(),
+                    details: format!("Element '{exists_selector}' found"),
+                    elapsed_ms: start.elapsed().as_millis() as u64,
+                });
             }
             Err(e) => {
-                tracing::warn!(
-                    "[verify] Failed to get application by PID: {}, will use desktop-wide search",
-                    e
+                tracing::info!(
+                    "[PERF] verify_element_exists: {}ms (FAILED selector: {})",
+                    start.elapsed().as_millis(),
+                    exists_selector
                 );
+                return Err(anyhow::anyhow!(
+                    "Verification failed: expected element '{}' not found after {}ms. {}",
+                    exists_selector,
+                    start.elapsed().as_millis(),
+                    e
+                ));
             }
         }
-
-        // Fallback: Desktop-wide search if window search failed or window not available
-        if verification_element.is_none() {
-            tracing::info!("[verify] Trying desktop-wide search as fallback");
-            method = "desktop_wide_search";
-
-            let locator = desktop.locator(Selector::from(exists_selector));
-            if let Ok(found_element) = locator
-                .wait(Some(Duration::from_millis(verify_timeout_ms)))
-                .await
-            {
-                verification_element = Some(found_element);
-            }
-        }
-
-        if verification_element.is_none() {
-            tracing::info!(
-                "[PERF] verify_element_exists: {}ms (FAILED selector: {})",
-                start.elapsed().as_millis(),
-                exists_selector
-            );
-            return Err(anyhow::anyhow!(
-                "Verification failed: expected element '{}' not found after {}ms",
-                exists_selector,
-                start.elapsed().as_millis()
-            ));
-        }
-
-        tracing::info!(
-            "[PERF] verify_element_exists: {}ms (selector: {})",
-            start.elapsed().as_millis(),
-            exists_selector
-        );
-        return Ok(VerificationResult {
-            passed: true,
-            method: method.to_string(),
-            details: format!("Element '{exists_selector}' found"),
-            elapsed_ms: start.elapsed().as_millis() as u64,
-        });
     }
 
-    // Handle verify_element_not_exists
+    // Handle verify_element_not_exists using core method
     if let Some(not_exists_selector) = verify_not_exists_selector {
         tracing::debug!(
             "[verify] Checking element does NOT exist: {}",
             not_exists_selector
         );
 
-        let mut method = "desktop_wide_search";
-
-        // Try window-scoped search using PID-based window lookup
-        let search_result = match element.application() {
-            Ok(Some(app_window)) => {
-                tracing::debug!("[verify] Got application window via PID for NOT_EXISTS check");
-                method = "window_scoped_search";
-
-                let locator = desktop
-                    .locator(Selector::from(not_exists_selector))
-                    .within(app_window);
-
-                locator
-                    .wait(Some(Duration::from_millis(verify_timeout_ms)))
-                    .await
-            }
-            Ok(None) | Err(_) => {
-                tracing::debug!(
-                    "[verify] PID-based window unavailable, using desktop-wide NOT_EXISTS check"
-                );
-
-                let locator = desktop.locator(Selector::from(not_exists_selector));
-                locator
-                    .wait(Some(Duration::from_millis(verify_timeout_ms)))
-                    .await
-            }
-        };
-
-        // Check the result - we WANT this to fail (element should NOT exist)
-        match search_result {
-            Ok(_) => {
-                // Element found - this is a verification failure!
-                tracing::info!(
-                    "[PERF] verify_element_not_exists: {}ms (FAILED - element found: {})",
-                    start.elapsed().as_millis(),
-                    not_exists_selector
-                );
-                return Err(anyhow::anyhow!(
-                    "Verification failed: element '{}' should not exist but was found",
-                    not_exists_selector
-                ));
-            }
-            Err(_) => {
-                // Element not found - this is what we wanted!
+        match desktop
+            .verify_element_not_exists(element, not_exists_selector, verify_timeout_ms)
+            .await
+        {
+            Ok(()) => {
                 tracing::info!(
                     "[PERF] verify_element_not_exists: {}ms (selector: {})",
                     start.elapsed().as_millis(),
@@ -1161,10 +1029,22 @@ pub async fn verify_post_action(
                 );
                 return Ok(VerificationResult {
                     passed: true,
-                    method: method.to_string(),
+                    method: "window_scoped_search".to_string(),
                     details: format!("Element '{not_exists_selector}' correctly not present"),
                     elapsed_ms: start.elapsed().as_millis() as u64,
                 });
+            }
+            Err(e) => {
+                tracing::info!(
+                    "[PERF] verify_element_not_exists: {}ms (FAILED - element found: {})",
+                    start.elapsed().as_millis(),
+                    not_exists_selector
+                );
+                return Err(anyhow::anyhow!(
+                    "Verification failed: element '{}' should not exist but was found. {}",
+                    not_exists_selector,
+                    e
+                ));
             }
         }
     }
