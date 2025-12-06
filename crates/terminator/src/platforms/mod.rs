@@ -26,6 +26,10 @@ pub struct TreeBuildConfig {
     pub show_overlay: bool,
     /// Display mode for overlay labels when show_overlay is true
     pub overlay_display_mode: Option<OverlayDisplayMode>,
+    /// Optional selector to start tree from instead of window root.
+    /// When specified, the tree will be built from the element matching this selector
+    /// rather than the full window. Useful for getting focused subtrees.
+    pub from_selector: Option<String>,
 }
 
 /// Display mode for inspect overlay labels (cross-platform definition)
@@ -72,6 +76,7 @@ impl Default for TreeBuildConfig {
             format_output: false,
             show_overlay: false,
             overlay_display_mode: None,
+            from_selector: None,
         }
     }
 }
