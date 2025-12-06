@@ -64,6 +64,45 @@ fn capture_screenshots(
     result
 }
 
+/// Helper to find PID from process name (case-insensitive substring match)
+/// This mirrors the MCP agent's process resolution logic.
+fn find_pid_for_process(desktop: &TerminatorDesktop, process_name: &str) -> napi::Result<u32> {
+    use sysinfo::{ProcessesToUpdate, System};
+
+    let apps = desktop.applications().map_err(map_error)?;
+    let mut system = System::new();
+    system.refresh_processes(ProcessesToUpdate::All, true);
+
+    let process_lower = process_name.to_lowercase();
+
+    // Find first matching process
+    apps.iter()
+        .filter_map(|app| {
+            let app_pid = app.process_id().unwrap_or(0);
+            if app_pid > 0 {
+                system
+                    .process(sysinfo::Pid::from_u32(app_pid))
+                    .and_then(|p| {
+                        let name = p.name().to_string_lossy().to_string();
+                        if name.to_lowercase().contains(&process_lower) {
+                            Some(app_pid)
+                        } else {
+                            None
+                        }
+                    })
+            } else {
+                None
+            }
+        })
+        .next()
+        .ok_or_else(|| {
+            napi::Error::from_reason(format!(
+                "Process '{}' not found. Use openApplication() to start it first.",
+                process_name
+            ))
+        })
+}
+
 /// Main entry point for desktop automation.
 #[napi(js_name = "Desktop")]
 pub struct Desktop {
@@ -324,28 +363,31 @@ impl Desktop {
             .map_err(map_error)
     }
 
-    /// (async) Perform OCR on a window by PID and return structured results with bounding boxes.
+    /// (async) Perform OCR on a window by process name and return structured results with bounding boxes.
     /// Returns an OcrResult containing the OCR tree, formatted output, and index-to-bounds mapping
     /// for click targeting.
     ///
-    /// @param {number} pid - Process ID of the target window.
+    /// @param {string} process - Process name to match (e.g., 'chrome', 'notepad').
     /// @param {boolean} [formatOutput=true] - Whether to generate formatted compact YAML output.
     /// @returns {Promise<OcrResult>} Complete OCR result with tree, formatted output, and bounds mapping.
     #[napi]
     #[cfg(target_os = "windows")]
     pub async fn perform_ocr_for_process(
         &self,
-        pid: u32,
+        process: String,
         format_output: Option<bool>,
     ) -> napi::Result<crate::types::OcrResult> {
         let format_output = format_output.unwrap_or(true);
+
+        // Find PID for the process name
+        let pid = find_pid_for_process(&self.inner, &process)?;
 
         // Find the application element by PID
         let apps = self.inner.applications().map_err(map_error)?;
         let window_element = apps
             .into_iter()
             .find(|app| app.process_id().ok() == Some(pid))
-            .ok_or_else(|| napi::Error::from_reason(format!("No window found for PID {}", pid)))?;
+            .ok_or_else(|| napi::Error::from_reason(format!("No window found for process '{}'", process)))?;
 
         // Get window bounds (absolute screen coordinates)
         let bounds = window_element.bounds().map_err(map_error)?;
@@ -404,12 +446,12 @@ impl Desktop {
         })
     }
 
-    /// (async) Perform OCR on a window by PID (non-Windows stub).
+    /// (async) Perform OCR on a window by process name (non-Windows stub).
     #[napi]
     #[cfg(not(target_os = "windows"))]
     pub async fn perform_ocr_for_process(
         &self,
-        _pid: u32,
+        _process: String,
         _format_output: Option<bool>,
     ) -> napi::Result<crate::types::OcrResult> {
         Err(napi::Error::from_reason(
@@ -667,7 +709,7 @@ impl Desktop {
     /// - #p1, #p2... for Omniparser (vision AI detection)
     /// - #g1, #g2... for Gemini Vision (AI element detection)
     ///
-    /// @param {number} pid - Process ID of the window to analyze.
+    /// @param {string} process - Process name to match (e.g., 'chrome', 'notepad').
     /// @param {number} [maxDomElements=100] - Maximum DOM elements to capture for browsers.
     /// @param {boolean} [includeOmniparser=false] - Whether to include Omniparser vision detection.
     /// @param {boolean} [includeGeminiVision=false] - Whether to include Gemini Vision AI detection.
@@ -675,12 +717,15 @@ impl Desktop {
     #[napi]
     pub async fn get_clustered_tree(
         &self,
-        pid: u32,
+        process: String,
         max_dom_elements: Option<u32>,
         include_omniparser: Option<bool>,
         include_gemini_vision: Option<bool>,
     ) -> napi::Result<crate::types::ClusteredFormattingResult> {
         use std::collections::HashMap;
+
+        // Find PID for the process name
+        let pid = find_pid_for_process(&self.inner, &process)?;
 
         let max_dom_elements = max_dom_elements.unwrap_or(100);
         let include_omniparser = include_omniparser.unwrap_or(false);
@@ -734,7 +779,7 @@ impl Desktop {
         let mut omniparser_items: HashMap<u32, terminator::OmniparserItem> = HashMap::new();
 
         if include_omniparser {
-            match self.perform_omniparser_for_process(pid, None, Some(true)).await {
+            match self.perform_omniparser_for_process(process.clone(), None, Some(true)).await {
                 Ok(omni_result) => {
                     for (idx_str, entry) in omni_result.index_to_bounds {
                         if let Ok(idx) = idx_str.parse::<u32>() {
@@ -764,7 +809,7 @@ impl Desktop {
         let mut vision_items: HashMap<u32, terminator::VisionElement> = HashMap::new();
 
         if include_gemini_vision {
-            match self.perform_gemini_vision_for_process(pid, Some(true)).await {
+            match self.perform_gemini_vision_for_process(process.clone(), Some(true)).await {
                 Ok(vision_result) => {
                     for (idx_str, entry) in vision_result.index_to_bounds {
                         if let Ok(idx) = idx_str.parse::<u32>() {
@@ -838,18 +883,18 @@ impl Desktop {
         })
     }
 
-    /// (async) Perform Gemini vision AI detection on a window by PID.
+    /// (async) Perform Gemini vision AI detection on a window by process name.
     ///
     /// Captures a screenshot and sends it to the Gemini vision backend for UI element detection.
     /// Requires GEMINI_VISION_BACKEND_URL environment variable (defaults to https://app.mediar.ai/api/vision/parse).
     ///
-    /// @param {number} pid - Process ID of the window to capture.
+    /// @param {string} process - Process name to match (e.g., 'chrome', 'notepad').
     /// @param {boolean} [formatOutput=true] - Whether to include formatted compact YAML output.
     /// @returns {Promise<GeminiVisionResult>} Detected UI elements with bounds for click targeting.
     #[napi]
     pub async fn perform_gemini_vision_for_process(
         &self,
-        pid: u32,
+        process: String,
         format_output: Option<bool>,
     ) -> napi::Result<crate::types::GeminiVisionResult> {
         use base64::{engine::general_purpose, Engine};
@@ -860,12 +905,15 @@ impl Desktop {
 
         let format_output = format_output.unwrap_or(true);
 
+        // Find PID for the process name
+        let pid = find_pid_for_process(&self.inner, &process)?;
+
         // Find the window element for this process
         let apps = self.inner.applications().map_err(map_error)?;
         let window_element = apps
             .into_iter()
             .find(|app| app.process_id().ok() == Some(pid))
-            .ok_or_else(|| napi::Error::from_reason(format!("No window found for PID {}", pid)))?;
+            .ok_or_else(|| napi::Error::from_reason(format!("No window found for process '{}'", process)))?;
 
         // Get window bounds
         let bounds = window_element.bounds().map_err(map_error)?;
@@ -1075,19 +1123,19 @@ impl Desktop {
         })
     }
 
-    /// (async) Perform Omniparser V2 detection on a window by PID.
+    /// (async) Perform Omniparser V2 detection on a window by process name.
     ///
     /// Captures a screenshot and sends it to the Omniparser backend for icon/field detection.
     /// Requires OMNIPARSER_BACKEND_URL environment variable (defaults to https://app.mediar.ai/api/omniparser/parse).
     ///
-    /// @param {number} pid - Process ID of the window to capture.
+    /// @param {string} process - Process name to match (e.g., 'chrome', 'notepad').
     /// @param {number} [imgsz=1920] - Icon detection image size (640-1920). Higher = better but slower.
     /// @param {boolean} [formatOutput=true] - Whether to include formatted compact YAML output.
     /// @returns {Promise<OmniparserResult>} Detected items with bounds for click targeting.
     #[napi]
     pub async fn perform_omniparser_for_process(
         &self,
-        pid: u32,
+        process: String,
         imgsz: Option<u32>,
         format_output: Option<bool>,
     ) -> napi::Result<crate::types::OmniparserResult> {
@@ -1100,12 +1148,15 @@ impl Desktop {
         let imgsz = imgsz.unwrap_or(1920).clamp(640, 1920);
         let format_output = format_output.unwrap_or(true);
 
+        // Find PID for the process name
+        let pid = find_pid_for_process(&self.inner, &process)?;
+
         // Find the window element for this process
         let apps = self.inner.applications().map_err(map_error)?;
         let window_element = apps
             .into_iter()
             .find(|app| app.process_id().ok() == Some(pid))
-            .ok_or_else(|| napi::Error::from_reason(format!("No window found for PID {}", pid)))?;
+            .ok_or_else(|| napi::Error::from_reason(format!("No window found for process '{}'", process)))?;
 
         // Get window bounds
         let bounds = window_element.bounds().map_err(map_error)?;
@@ -1330,6 +1381,45 @@ impl Desktop {
         Ok(Locator::from(loc))
     }
 
+    /// Create a process-scoped locator for finding UI elements.
+    /// This is the recommended way to create locators - always scope to a specific process.
+    ///
+    /// @param {string} process - Process name to scope the search (e.g., 'chrome', 'notepad').
+    /// @param {string | Selector} selector - The selector to find within the process.
+    /// @param {string} [windowSelector] - Optional window selector for additional filtering.
+    /// @returns {Locator} A locator for finding elements within the process.
+    #[napi]
+    pub fn locator_for_process(
+        &self,
+        process: String,
+        #[napi(ts_arg_type = "string | Selector")] selector: Either<String, &Selector>,
+        window_selector: Option<String>,
+    ) -> napi::Result<Locator> {
+        use napi::bindgen_prelude::Either::*;
+
+        // Build the full selector string like MCP does
+        let selector_str = match &selector {
+            A(sel_str) => sel_str.clone(),
+            B(sel_obj) => format!("{:?}", sel_obj.inner),
+        };
+
+        let full_selector = if selector_str.is_empty() {
+            if let Some(window_sel) = window_selector {
+                format!("process:{} >> {}", process, window_sel)
+            } else {
+                format!("process:{}", process)
+            }
+        } else if let Some(window_sel) = window_selector {
+            format!("process:{} >> {} >> {}", process, window_sel, selector_str)
+        } else {
+            format!("process:{} >> {}", process, selector_str)
+        };
+
+        let sel_rust: terminator::selector::Selector = full_selector.as_str().into();
+        let loc = self.inner.locator(sel_rust);
+        Ok(Locator::from(loc))
+    }
+
     /// (async) Get the currently focused window.
     ///
     /// @returns {Promise<Element>} The current window element.
@@ -1423,19 +1513,22 @@ impl Desktop {
             .map_err(map_error)
     }
 
-    /// Get the UI tree for a window identified by process ID and optional title.
+    /// Get the UI tree for a window identified by process name and optional title.
     ///
-    /// @param {number} pid - Process ID of the target application.
+    /// @param {string} process - Process name to match (e.g., 'chrome', 'notepad').
     /// @param {string} [title] - Optional window title filter.
     /// @param {TreeBuildConfig} [config] - Optional configuration for tree building.
     /// @returns {UINode} Complete UI tree starting from the identified window.
     #[napi]
     pub fn get_window_tree(
         &self,
-        pid: u32,
+        process: String,
         title: Option<String>,
         config: Option<TreeBuildConfig>,
     ) -> napi::Result<UINode> {
+        // Find PID for the process name
+        let pid = find_pid_for_process(&self.inner, &process)?;
+
         let rust_config = config.map(|c| c.into());
         self.inner
             .get_window_tree(pid, title.as_deref(), rust_config)
@@ -1450,7 +1543,7 @@ impl Desktop {
     /// - Index-to-bounds mapping for click targeting
     /// - Browser detection
     ///
-    /// @param {number} pid - Process ID of the target application.
+    /// @param {string} process - Process name to match (e.g., 'chrome', 'notepad').
     /// @param {string} [title] - Optional window title filter.
     /// @param {TreeBuildConfig} [config] - Configuration options:
     ///   - formatOutput: Enable formatted output (default: true if treeOutputFormat set)
@@ -1462,10 +1555,13 @@ impl Desktop {
     #[napi]
     pub fn get_window_tree_result(
         &self,
-        pid: u32,
+        process: String,
         title: Option<String>,
         config: Option<TreeBuildConfig>,
     ) -> napi::Result<WindowTreeResult> {
+        // Find PID for the process name
+        let pid = find_pid_for_process(&self.inner, &process)?;
+
         // Extract screenshot options (window: true, monitor: false by default)
         let include_window_screenshot = config
             .as_ref()
@@ -1525,7 +1621,7 @@ impl Desktop {
     ///
     /// Use this method when you need to scope the tree to a specific subtree using a selector.
     ///
-    /// @param {number} pid - Process ID of the target application.
+    /// @param {string} process - Process name to match (e.g., 'chrome', 'notepad').
     /// @param {string} [title] - Optional window title filter.
     /// @param {TreeBuildConfig} [config] - Configuration options:
     ///   - formatOutput: Enable formatted output (default: true)
@@ -1535,10 +1631,13 @@ impl Desktop {
     #[napi]
     pub async fn get_window_tree_result_async(
         &self,
-        pid: u32,
+        process: String,
         title: Option<String>,
         config: Option<TreeBuildConfig>,
     ) -> napi::Result<WindowTreeResult> {
+        // Find PID for the process name
+        let pid = find_pid_for_process(&self.inner, &process)?;
+
         // Extract output format before converting config
         let output_format = config
             .as_ref()
