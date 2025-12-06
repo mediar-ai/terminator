@@ -363,4 +363,5 @@ export {
   PropertyLoadingMode,
   TextPosition,
   TreeOutputFormat,
+  VisionType,
 } from "./index.js";
