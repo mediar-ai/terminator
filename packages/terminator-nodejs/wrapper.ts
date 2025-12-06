@@ -355,4 +355,11 @@ export type {
   ComputerUseStep,
   ComputerUsePendingConfirmation,
 } from "./index.js";
-export { PropertyLoadingMode, TextPosition, TreeOutputFormat } from "./index.js";
+export {
+  ClusteredBoundsEntry,
+  ClusteredFormattingResult,
+  ElementSource,
+  PropertyLoadingMode,
+  TextPosition,
+  TreeOutputFormat,
+} from "./index.js";
