@@ -151,6 +151,32 @@ pub struct WindowTreeResult {
     pub element_count: u32,
 }
 
+/// Options for UI diff capture during action execution
+#[derive(Debug, Clone, Default)]
+pub struct UiDiffOptions {
+    /// Include full tree strings (before/after) in response, not just the diff
+    pub include_full_trees: bool,
+    /// Maximum depth for tree capture
+    pub max_depth: Option<usize>,
+    /// Delay in ms after action for UI to settle (default 1500)
+    pub settle_delay_ms: Option<u64>,
+    /// Include detailed element attributes (enabled, focused, etc.)
+    pub include_detailed_attributes: Option<bool>,
+}
+
+/// Result of UI diff capture
+#[derive(Debug, Clone)]
+pub struct UiDiffResult {
+    /// The computed diff showing changes (lines starting with + or -)
+    pub diff: String,
+    /// Full tree before action (only if include_full_trees was true)
+    pub tree_before: Option<String>,
+    /// Full tree after action (only if include_full_trees was true)
+    pub tree_after: Option<String>,
+    /// Whether any UI changes were detected
+    pub has_changes: bool,
+}
+
 /// Represents a monitor/display device
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Monitor {
@@ -1418,6 +1444,444 @@ impl Desktop {
     /// This allows external code to wait on cancellation or create child tokens.
     pub fn cancellation_token(&self) -> CancellationToken {
         self.cancellation_token.clone()
+    }
+
+    /// Execute an action on an element with UI diff capture.
+    ///
+    /// This method:
+    /// 1. Finds the element by selector
+    /// 2. Captures the UI tree before the action
+    /// 3. Executes the action
+    /// 4. Waits for UI to settle (configurable, default 1500ms)
+    /// 5. Captures the UI tree after the action
+    /// 6. Computes and returns the diff
+    ///
+    /// # Arguments
+    /// * `selector` - Selector string to find the element
+    /// * `action` - Closure that takes &UIElement and returns Result<T, AutomationError>
+    /// * `options` - Optional UI diff capture options
+    ///
+    /// # Returns
+    /// Tuple of (action_result, element, Option<UiDiffResult>)
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use terminator::{Desktop, UiDiffOptions};
+    ///
+    /// async fn example() -> Result<(), terminator::AutomationError> {
+    ///     let desktop = Desktop::new_default()?;
+    ///     let options = UiDiffOptions {
+    ///         include_full_trees: false,
+    ///         settle_delay_ms: Some(1500),
+    ///         ..Default::default()
+    ///     };
+    ///     let (result, element, diff) = desktop.execute_with_ui_diff(
+    ///         "role:Button && name:Submit",
+    ///         |el| el.click(),
+    ///         Some(options),
+    ///     ).await?;
+    ///     Ok(())
+    /// }
+    /// ```
+    pub async fn execute_with_ui_diff<T, F>(
+        &self,
+        selector: &str,
+        action: F,
+        options: Option<UiDiffOptions>,
+    ) -> Result<(T, UIElement, Option<UiDiffResult>), AutomationError>
+    where
+        F: FnOnce(&UIElement) -> Result<T, AutomationError>,
+    {
+        use std::time::Duration;
+
+        // Find the element (with default 30s timeout)
+        let element = self
+            .locator(selector)
+            .first(Some(Duration::from_secs(30)))
+            .await?;
+
+        let opts = options.unwrap_or_default();
+
+        // Get PID for tree capture
+        let pid = element.process_id().unwrap_or(0);
+        if pid == 0 {
+            debug!("[ui_diff] Could not get PID from element, executing without diff capture");
+            let result = action(&element)?;
+            return Ok((result, element, None));
+        }
+
+        // Build tree config
+        let detailed = opts.include_detailed_attributes.unwrap_or(true);
+        let tree_config = platforms::TreeBuildConfig {
+            property_mode: if detailed {
+                platforms::PropertyLoadingMode::Complete
+            } else {
+                platforms::PropertyLoadingMode::Fast
+            },
+            timeout_per_operation_ms: Some(100),
+            yield_every_n_elements: Some(25),
+            batch_size: Some(25),
+            max_depth: opts.max_depth,
+            include_all_bounds: false,
+            ui_settle_delay_ms: None,
+            format_output: false,
+            show_overlay: false,
+            overlay_display_mode: None,
+            from_selector: None,
+        };
+
+        // Capture BEFORE tree
+        debug!("[ui_diff] Capturing UI tree before action (PID: {})", pid);
+        let tree_before = match self.get_window_tree(pid, None, Some(tree_config.clone())) {
+            Ok(tree) => tree,
+            Err(e) => {
+                debug!(
+                    "[ui_diff] Failed to capture tree before action: {}. Executing without diff.",
+                    e
+                );
+                let result = action(&element)?;
+                return Ok((result, element, None));
+            }
+        };
+        let before_str = format_ui_node_as_compact_yaml(&tree_before, 0).formatted;
+
+        // Execute action
+        let result = action(&element)?;
+
+        // Wait for UI to settle
+        let settle_ms = opts.settle_delay_ms.unwrap_or(1500);
+        debug!("[ui_diff] Waiting {}ms for UI to settle", settle_ms);
+        tokio::time::sleep(Duration::from_millis(settle_ms)).await;
+
+        // Capture AFTER tree
+        debug!("[ui_diff] Capturing UI tree after action (PID: {})", pid);
+        let tree_after = match self.get_window_tree(pid, None, Some(tree_config)) {
+            Ok(tree) => tree,
+            Err(e) => {
+                debug!(
+                    "[ui_diff] Failed to capture tree after action: {}. Returning without diff.",
+                    e
+                );
+                return Ok((result, element, None));
+            }
+        };
+        let after_str = format_ui_node_as_compact_yaml(&tree_after, 0).formatted;
+
+        // Compute diff
+        let diff_result = match ui_tree_diff::simple_ui_tree_diff(&before_str, &after_str) {
+            Ok(Some(diff)) => {
+                info!(
+                    "[ui_diff] UI changes detected: {} characters in diff",
+                    diff.len()
+                );
+                UiDiffResult {
+                    diff,
+                    tree_before: if opts.include_full_trees {
+                        Some(before_str)
+                    } else {
+                        None
+                    },
+                    tree_after: if opts.include_full_trees {
+                        Some(after_str)
+                    } else {
+                        None
+                    },
+                    has_changes: true,
+                }
+            }
+            Ok(None) => {
+                debug!("[ui_diff] No UI changes detected");
+                UiDiffResult {
+                    diff: "No UI changes detected".to_string(),
+                    tree_before: if opts.include_full_trees {
+                        Some(before_str)
+                    } else {
+                        None
+                    },
+                    tree_after: if opts.include_full_trees {
+                        Some(after_str)
+                    } else {
+                        None
+                    },
+                    has_changes: false,
+                }
+            }
+            Err(e) => {
+                debug!(
+                    "[ui_diff] Failed to compute UI diff: {}. Returning without diff.",
+                    e
+                );
+                return Ok((result, element, None));
+            }
+        };
+
+        Ok((result, element, Some(diff_result)))
+    }
+
+    /// Execute an action on an already-found element with UI diff capture (async action variant).
+    ///
+    /// Use this when you have complex element-finding logic (fallback selectors, retries)
+    /// and want to separate element finding from diff capture. This variant accepts async
+    /// actions that take ownership of the element.
+    ///
+    /// # Arguments
+    /// * `element` - The element to execute the action on (will be cloned for return)
+    /// * `action` - Async closure that takes UIElement and returns Future<Result<T, AutomationError>>
+    /// * `options` - Optional UI diff capture options
+    ///
+    /// # Returns
+    /// Tuple of (action_result, element, Option<UiDiffResult>)
+    pub async fn execute_on_element_with_ui_diff<T, F, Fut>(
+        &self,
+        element: UIElement,
+        action: F,
+        options: Option<UiDiffOptions>,
+    ) -> Result<(T, UIElement, Option<UiDiffResult>), AutomationError>
+    where
+        F: FnOnce(UIElement) -> Fut,
+        Fut: std::future::Future<Output = Result<T, AutomationError>>,
+    {
+        use std::time::Duration;
+
+        let opts = options.unwrap_or_default();
+
+        // Clone element so we can return it after action consumes one copy
+        let element_for_return = element.clone();
+
+        // Get PID for tree capture
+        let pid = element.process_id().unwrap_or(0);
+        if pid == 0 {
+            debug!("[ui_diff] Could not get PID from element, executing without diff capture");
+            let result = action(element).await?;
+            return Ok((result, element_for_return, None));
+        }
+
+        // Build tree config
+        let detailed = opts.include_detailed_attributes.unwrap_or(true);
+        let tree_config = platforms::TreeBuildConfig {
+            property_mode: if detailed {
+                platforms::PropertyLoadingMode::Complete
+            } else {
+                platforms::PropertyLoadingMode::Fast
+            },
+            timeout_per_operation_ms: Some(100),
+            yield_every_n_elements: Some(25),
+            batch_size: Some(25),
+            max_depth: opts.max_depth,
+            include_all_bounds: false,
+            ui_settle_delay_ms: None,
+            format_output: false,
+            show_overlay: false,
+            overlay_display_mode: None,
+            from_selector: None,
+        };
+
+        // Capture BEFORE tree
+        debug!("[ui_diff] Capturing UI tree before action (PID: {})", pid);
+        let tree_before = match self.get_window_tree(pid, None, Some(tree_config.clone())) {
+            Ok(tree) => tree,
+            Err(e) => {
+                debug!(
+                    "[ui_diff] Failed to capture tree before action: {}. Executing without diff.",
+                    e
+                );
+                let result = action(element).await?;
+                return Ok((result, element_for_return, None));
+            }
+        };
+        let before_str = format_ui_node_as_compact_yaml(&tree_before, 0).formatted;
+
+        // Execute action (async)
+        let result = action(element).await?;
+
+        // Wait for UI to settle
+        let settle_ms = opts.settle_delay_ms.unwrap_or(1500);
+        debug!("[ui_diff] Waiting {}ms for UI to settle", settle_ms);
+        tokio::time::sleep(Duration::from_millis(settle_ms)).await;
+
+        // Capture AFTER tree
+        debug!("[ui_diff] Capturing UI tree after action (PID: {})", pid);
+        let tree_after = match self.get_window_tree(pid, None, Some(tree_config)) {
+            Ok(tree) => tree,
+            Err(e) => {
+                debug!(
+                    "[ui_diff] Failed to capture tree after action: {}. Returning without diff.",
+                    e
+                );
+                return Ok((result, element_for_return, None));
+            }
+        };
+        let after_str = format_ui_node_as_compact_yaml(&tree_after, 0).formatted;
+
+        // Compute diff
+        let diff_result = match ui_tree_diff::simple_ui_tree_diff(&before_str, &after_str) {
+            Ok(Some(diff)) => {
+                info!(
+                    "[ui_diff] UI changes detected: {} characters in diff",
+                    diff.len()
+                );
+                UiDiffResult {
+                    diff,
+                    tree_before: if opts.include_full_trees {
+                        Some(before_str)
+                    } else {
+                        None
+                    },
+                    tree_after: if opts.include_full_trees {
+                        Some(after_str)
+                    } else {
+                        None
+                    },
+                    has_changes: true,
+                }
+            }
+            Ok(None) => {
+                debug!("[ui_diff] No UI changes detected");
+                UiDiffResult {
+                    diff: "No UI changes detected".to_string(),
+                    tree_before: if opts.include_full_trees {
+                        Some(before_str)
+                    } else {
+                        None
+                    },
+                    tree_after: if opts.include_full_trees {
+                        Some(after_str)
+                    } else {
+                        None
+                    },
+                    has_changes: false,
+                }
+            }
+            Err(e) => {
+                debug!(
+                    "[ui_diff] Failed to compute UI diff: {}. Returning without diff.",
+                    e
+                );
+                return Ok((result, element_for_return, None));
+            }
+        };
+
+        Ok((result, element_for_return, Some(diff_result)))
+    }
+
+    // ============== ELEMENT VERIFICATION ==============
+
+    /// Verify that an element matching the selector exists within the same application as the scope element.
+    ///
+    /// This is used for post-action verification - checking that an expected element appeared after
+    /// performing an action (e.g., a success dialog after clicking submit).
+    ///
+    /// # Arguments
+    /// * `scope_element` - The element to get the application scope from (typically the element the action was performed on)
+    /// * `selector` - The selector string to search for
+    /// * `timeout_ms` - How long to wait for the element to appear
+    ///
+    /// # Returns
+    /// The found element if verification passes, or an error if the element is not found within the timeout
+    ///
+    /// # Errors
+    /// * `AutomationError::ElementNotFound` - If the application window cannot be determined from scope_element
+    /// * `AutomationError::Timeout` - If the element is not found within the timeout
+    #[instrument(skip(self, scope_element, selector))]
+    pub async fn verify_element_exists(
+        &self,
+        scope_element: &UIElement,
+        selector: &str,
+        timeout_ms: u64,
+    ) -> Result<UIElement, AutomationError> {
+        use std::time::Duration;
+
+        // Get the application window from the scope element
+        let app_window = scope_element.application()?.ok_or_else(|| {
+            AutomationError::ElementNotFound(
+                "Cannot verify: scope element has no application window".to_string(),
+            )
+        })?;
+
+        debug!(
+            "Verifying element exists: '{}' within app '{}'",
+            selector,
+            app_window.name().unwrap_or_default()
+        );
+
+        // Create a locator scoped to the application window
+        let locator = self
+            .locator(Selector::from(selector))
+            .within(app_window);
+
+        // Wait for the element with the specified timeout
+        locator
+            .wait(Some(Duration::from_millis(timeout_ms)))
+            .await
+            .map_err(|e| {
+                AutomationError::Timeout(format!(
+                    "Verification failed: element '{}' not found after {}ms. {}",
+                    selector, timeout_ms, e
+                ))
+            })
+    }
+
+    /// Verify that an element matching the selector does NOT exist within the same application as the scope element.
+    ///
+    /// This is used for post-action verification - checking that an element disappeared after
+    /// performing an action (e.g., a modal dialog closed after clicking OK).
+    ///
+    /// # Arguments
+    /// * `scope_element` - The element to get the application scope from (typically the element the action was performed on)
+    /// * `selector` - The selector string that should NOT be found
+    /// * `timeout_ms` - How long to wait/check that the element doesn't appear
+    ///
+    /// # Returns
+    /// Ok(()) if the element is NOT found (verification passes), or an error if the element IS found
+    ///
+    /// # Errors
+    /// * `AutomationError::ElementNotFound` - If the application window cannot be determined from scope_element
+    /// * `AutomationError::VerificationFailed` - If the element IS found (meaning verification failed)
+    #[instrument(skip(self, scope_element, selector))]
+    pub async fn verify_element_not_exists(
+        &self,
+        scope_element: &UIElement,
+        selector: &str,
+        timeout_ms: u64,
+    ) -> Result<(), AutomationError> {
+        use std::time::Duration;
+
+        // Get the application window from the scope element
+        let app_window = scope_element.application()?.ok_or_else(|| {
+            AutomationError::ElementNotFound(
+                "Cannot verify: scope element has no application window".to_string(),
+            )
+        })?;
+
+        debug!(
+            "Verifying element does NOT exist: '{}' within app '{}'",
+            selector,
+            app_window.name().unwrap_or_default()
+        );
+
+        // Create a locator scoped to the application window
+        let locator = self
+            .locator(Selector::from(selector))
+            .within(app_window);
+
+        // Try to find the element - we WANT this to fail (timeout)
+        match locator
+            .wait(Some(Duration::from_millis(timeout_ms)))
+            .await
+        {
+            Ok(_found_element) => {
+                // Element was found - this is a verification FAILURE
+                Err(AutomationError::VerificationFailed(format!(
+                    "Verification failed: element '{}' should not exist but was found",
+                    selector
+                )))
+            }
+            Err(_) => {
+                // Element not found - this is what we wanted, verification PASSED
+                debug!("Verification passed: element '{}' not present", selector);
+                Ok(())
+            }
+        }
     }
 }
 
