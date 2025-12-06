@@ -515,6 +515,120 @@ impl Desktop {
         })
     }
 
+    /// (async) Get a clustered tree combining UIA and DOM elements grouped by spatial proximity.
+    ///
+    /// For browser windows, this combines accessibility tree (UIA) elements with DOM elements,
+    /// clustering nearby elements together. Each element is prefixed with its source:
+    /// - #u1, #u2... for UIA (accessibility tree)
+    /// - #d1, #d2... for DOM (browser content)
+    ///
+    /// For non-browser windows, only UIA elements are included.
+    ///
+    /// @param {number} pid - Process ID of the window to analyze.
+    /// @param {number} [maxDomElements=100] - Maximum DOM elements to capture for browsers.
+    /// @returns {Promise<ClusteredFormattingResult>} Clustered tree with prefixed indices.
+    #[napi]
+    pub async fn get_clustered_tree(
+        &self,
+        pid: u32,
+        max_dom_elements: Option<u32>,
+    ) -> napi::Result<crate::types::ClusteredFormattingResult> {
+        use std::collections::HashMap;
+
+        let max_dom_elements = max_dom_elements.unwrap_or(100);
+
+        // Get UIA tree with bounds
+        let uia_result = self
+            .inner
+            .get_window_tree_result(pid, None, None)
+            .map_err(map_error)?;
+
+        // Build UIA bounds cache: HashMap<u32, (role, name, bounds, selector)>
+        let mut uia_bounds: HashMap<u32, (String, String, (f64, f64, f64, f64), Option<String>)> =
+            HashMap::new();
+
+        // Use the formatted result to extract bounds
+        let formatted_result = terminator::format_ui_node_as_compact_yaml(&uia_result.tree, 0);
+        for (idx, (role, name, bounds, selector)) in formatted_result.index_to_bounds {
+            uia_bounds.insert(idx, (role, name, bounds, selector));
+        }
+
+        // Check if this is a browser
+        let is_browser = terminator::is_browser_process(pid);
+
+        // Build DOM bounds cache: HashMap<u32, (tag, identifier, bounds)>
+        let mut dom_bounds: HashMap<u32, (String, String, (f64, f64, f64, f64))> = HashMap::new();
+
+        if is_browser {
+            // Try to capture DOM elements
+            match self.capture_browser_dom(Some(max_dom_elements), Some(true)).await {
+                Ok(dom_result) => {
+                    for (idx_str, entry) in dom_result.index_to_bounds {
+                        if let Ok(idx) = idx_str.parse::<u32>() {
+                            let bounds = (
+                                entry.bounds.x,
+                                entry.bounds.y,
+                                entry.bounds.width,
+                                entry.bounds.height,
+                            );
+                            dom_bounds.insert(idx, (entry.tag, entry.name, bounds));
+                        }
+                    }
+                }
+                Err(_) => {
+                    // DOM capture failed (e.g., chrome:// page), continue with UIA only
+                }
+            }
+        }
+
+        // Empty caches for sources we don't have
+        let ocr_bounds: HashMap<u32, (String, (f64, f64, f64, f64))> = HashMap::new();
+        let omniparser_items: HashMap<u32, terminator::OmniparserItem> = HashMap::new();
+        let vision_items: HashMap<u32, terminator::VisionElement> = HashMap::new();
+
+        // Call the core clustering function
+        let clustered_result = terminator::format_clustered_tree_from_caches(
+            &uia_bounds,
+            &dom_bounds,
+            &ocr_bounds,
+            &omniparser_items,
+            &vision_items,
+        );
+
+        // Convert to SDK types
+        let mut index_to_source_and_bounds: HashMap<String, crate::types::ClusteredBoundsEntry> =
+            HashMap::new();
+
+        for (key, (source, original_idx, (x, y, w, h))) in clustered_result.index_to_source_and_bounds
+        {
+            let sdk_source = match source {
+                terminator::ElementSource::Uia => crate::types::ElementSource::Uia,
+                terminator::ElementSource::Dom => crate::types::ElementSource::Dom,
+                terminator::ElementSource::Ocr => crate::types::ElementSource::Ocr,
+                terminator::ElementSource::Omniparser => crate::types::ElementSource::Omniparser,
+                terminator::ElementSource::Gemini => crate::types::ElementSource::Gemini,
+            };
+            index_to_source_and_bounds.insert(
+                key,
+                crate::types::ClusteredBoundsEntry {
+                    source: sdk_source,
+                    original_index: original_idx,
+                    bounds: crate::types::Bounds {
+                        x,
+                        y,
+                        width: w,
+                        height: h,
+                    },
+                },
+            );
+        }
+
+        Ok(crate::types::ClusteredFormattingResult {
+            formatted: clustered_result.formatted,
+            index_to_source_and_bounds,
+        })
+    }
+
     /// (async) Perform Gemini vision AI detection on a window by PID.
     ///
     /// Captures a screenshot and sends it to the Gemini vision backend for UI element detection.
