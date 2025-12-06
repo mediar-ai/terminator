@@ -23,6 +23,10 @@ pub struct ActionOptions {
     pub include_window_screenshot: Option<bool>,
     /// Whether to capture monitor screenshots after action. Defaults to false.
     pub include_monitor_screenshots: Option<bool>,
+    /// Whether to try focusing the element before the action. Defaults to true.
+    pub try_focus_before: Option<bool>,
+    /// Whether to try clicking the element if focus fails. Defaults to true.
+    pub try_click_before: Option<bool>,
 }
 
 /// Options for typeText method
@@ -37,6 +41,10 @@ pub struct TypeTextOptions {
     pub include_window_screenshot: Option<bool>,
     /// Whether to capture monitor screenshots after action. Defaults to false.
     pub include_monitor_screenshots: Option<bool>,
+    /// Whether to try focusing the element before typing. Defaults to true.
+    pub try_focus_before: Option<bool>,
+    /// Whether to try clicking the element if focus fails. Defaults to true.
+    pub try_click_before: Option<bool>,
 }
 
 /// Result of screenshot capture for Element methods
@@ -323,8 +331,10 @@ impl Element {
             let _ = self.inner.highlight_before_action("type");
         }
         let _ = self.inner.activate_window();
+        let try_focus_before = opts.try_focus_before.unwrap_or(true);
+        let try_click_before = opts.try_click_before.unwrap_or(true);
         self.inner
-            .type_text(&text, opts.use_clipboard.unwrap_or(false))
+            .type_text_with_state_and_focus(&text, opts.use_clipboard.unwrap_or(false), try_focus_before, try_click_before)
             .map_err(map_error)?;
 
         // Capture screenshots if requested
@@ -354,7 +364,9 @@ impl Element {
             let _ = self.inner.highlight_before_action("key");
         }
         let _ = self.inner.activate_window();
-        self.inner.press_key(&key).map_err(map_error)?;
+        let try_focus_before = opts.try_focus_before.unwrap_or(true);
+        let try_click_before = opts.try_click_before.unwrap_or(true);
+        self.inner.press_key_with_state_and_focus(&key, try_focus_before, try_click_before).map_err(map_error)?;
 
         // Capture screenshots if requested
         let screenshots = capture_element_screenshots(
