@@ -19,6 +19,10 @@ use napi::bindgen_prelude::Either;
 pub struct ActionOptions {
     /// Whether to highlight the element before performing the action. Defaults to false.
     pub highlight_before_action: Option<bool>,
+    /// Whether to capture window screenshot after action. Defaults to false.
+    pub include_window_screenshot: Option<bool>,
+    /// Whether to capture monitor screenshots after action. Defaults to false.
+    pub include_monitor_screenshots: Option<bool>,
 }
 
 /// Options for typeText method
@@ -29,6 +33,58 @@ pub struct TypeTextOptions {
     pub use_clipboard: Option<bool>,
     /// Whether to highlight the element before typing. Defaults to false.
     pub highlight_before_action: Option<bool>,
+    /// Whether to capture window screenshot after action. Defaults to false.
+    pub include_window_screenshot: Option<bool>,
+    /// Whether to capture monitor screenshots after action. Defaults to false.
+    pub include_monitor_screenshots: Option<bool>,
+}
+
+/// Result of screenshot capture for Element methods
+#[derive(Default)]
+struct ElementScreenshotPaths {
+    window_path: Option<String>,
+    monitor_paths: Option<Vec<String>>,
+}
+
+/// Helper to capture and save screenshots for Element methods
+fn capture_element_screenshots(
+    element: &TerminatorUIElement,
+    include_window: bool,
+    include_monitors: bool,
+    operation: &str,
+) -> ElementScreenshotPaths {
+    let mut result = ElementScreenshotPaths::default();
+
+    if !include_window && !include_monitors {
+        return result;
+    }
+
+    terminator::screenshot_logger::init();
+    let prefix = terminator::screenshot_logger::generate_prefix(None, operation);
+
+    if include_window {
+        // Capture via element's application
+        if let Ok(Some(app)) = element.application() {
+            if let Ok(screenshot) = app.capture() {
+                if let Some(saved) = terminator::screenshot_logger::save_window_screenshot(&screenshot, &prefix, None) {
+                    result.window_path = Some(saved.path.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+
+    if include_monitors {
+        // Create temporary desktop for monitor capture
+        let temp_desktop = terminator::Desktop::new(false, false);
+        if let Ok(monitors) = futures::executor::block_on(temp_desktop.capture_all_monitors()) {
+            let saved = terminator::screenshot_logger::save_monitor_screenshots(&monitors, &prefix, None);
+            if !saved.is_empty() {
+                result.monitor_paths = Some(saved.into_iter().map(|s| s.path.to_string_lossy().to_string()).collect());
+            }
+        }
+    }
+
+    result
 }
 
 /// A UI element in the accessibility tree.
