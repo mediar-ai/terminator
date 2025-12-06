@@ -7809,14 +7809,21 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
         span.set_status(true, None);
         span.end();
 
-        Ok(CallToolResult::success(
-            append_monitor_screenshots_if_enabled(
-                &self.desktop,
-                vec![Content::json(result_json)?],
-                None,
-            )
-            .await,
-        ))
+        let contents = vec![Content::json(result_json)?];
+        let contents = append_monitor_screenshots_if_enabled(
+            &self.desktop,
+            contents,
+            args.monitor.include_monitor_screenshots,
+        )
+        .await;
+        let contents = append_window_screenshot_if_enabled(
+            &self.desktop,
+            &args.selector.process,
+            contents,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
+        Ok(CallToolResult::success(contents))
     }
 
     // Removed: run_javascript tool (merged into run_command with engine)
@@ -10253,14 +10260,19 @@ impl DesktopWrapper {
             )),
         };
 
-        // Log execution response with duration and result
+        // Log execution response with duration and result (including all content items for screenshots)
         if let Some(ctx) = log_ctx {
             let duration_ms = start_time.elapsed().as_millis() as u64;
             match &result {
                 Ok(call_result) => {
-                    // Extract JSON from CallToolResult content
+                    // Extract JSON from ALL CallToolResult content items (to capture screenshots)
                     let result_json = if !call_result.content.is_empty() {
-                        crate::server::extract_content_json(&call_result.content[0]).ok()
+                        let content_array: Vec<serde_json::Value> = call_result
+                            .content
+                            .iter()
+                            .filter_map(|c| crate::server::extract_content_json(c).ok())
+                            .collect();
+                        Some(json!({ "content": content_array }))
                     } else {
                         None
                     };
