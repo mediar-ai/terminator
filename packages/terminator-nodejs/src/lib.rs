@@ -12,12 +12,12 @@ pub use element::{Element, TypeTextOptions};
 pub use locator::Locator;
 pub use selector::Selector;
 pub use types::{
-    Bounds, BoundsEntry, BrowserDomElement, BrowserDomResult, ClickResult, CommandOutput,
-    Coordinates, DomBoundsEntry, FontStyle, GeminiVisionResult, HighlightHandle, InspectElement,
-    Monitor, MonitorScreenshotPair, OcrBoundsEntry, OcrElement, OcrResult, OmniparserBoundsEntry,
-    OmniparserItem, OmniparserResult, OverlayDisplayMode, PropertyLoadingMode, ScreenshotResult,
-    TextPosition, TreeBuildConfig, TreeOutputFormat, UIElementAttributes, UINode,
-    VisionBoundsEntry, VisionElement, WindowTreeResult,
+    Bounds, BoundsEntry, BrowserDomElement, BrowserDomResult, ClickResult, ClusteredBoundsEntry,
+    ClusteredFormattingResult, CommandOutput, Coordinates, DomBoundsEntry, ElementSource, FontStyle,
+    GeminiVisionResult, HighlightHandle, InspectElement, Monitor, MonitorScreenshotPair,
+    OcrBoundsEntry, OcrElement, OcrResult, OmniparserBoundsEntry, OmniparserItem, OmniparserResult,
+    OverlayDisplayMode, PropertyLoadingMode, ScreenshotResult, TextPosition, TreeBuildConfig,
+    TreeOutputFormat, UIElementAttributes, UINode, VisionBoundsEntry, VisionElement, WindowTreeResult,
 };
 pub use window_manager::{WindowInfo, WindowManager};
 
