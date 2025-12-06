@@ -587,7 +587,7 @@ impl Desktop {
         let mut omniparser_items: HashMap<u32, terminator::OmniparserItem> = HashMap::new();
 
         if include_omniparser {
-            match self.perform_omniparser_for_process(pid, Some(true)).await {
+            match self.perform_omniparser_for_process(pid, None, Some(true)).await {
                 Ok(omni_result) => {
                     for (idx_str, entry) in omni_result.index_to_bounds {
                         if let Ok(idx) = idx_str.parse::<u32>() {
