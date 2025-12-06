@@ -21,7 +21,7 @@ use tracing_subscriber::{util::SubscriberInitExt, EnvFilter, Layer};
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 pub struct MonitorScreenshotOptions {
     #[schemars(
-        description = "Whether to include screenshots of all monitors in the response. Defaults to false."
+        description = "Whether to include screenshots of all monitors in the response. Defaults to true. Set to false to disable."
     )]
     pub include_monitor_screenshots: Option<bool>,
 }
@@ -30,7 +30,7 @@ pub struct MonitorScreenshotOptions {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 pub struct WindowScreenshotOptions {
     #[schemars(
-        description = "Whether to include a screenshot of the target window in the response. For action tools, captured after the action completes. Defaults to false."
+        description = "Whether to include a screenshot of the target window in the response. For action tools, captured after the action completes. Defaults to true. Set to false to disable."
     )]
     pub include_window_screenshot: Option<bool>,
 }
