@@ -28,6 +28,17 @@ pub struct ClickResult {
     pub monitor_screenshot_paths: Option<Vec<String>>,
 }
 
+/// Result of an action operation (type_text, press_key, scroll, etc.)
+#[napi(object, js_name = "ActionResult")]
+pub struct ActionResult {
+    /// Whether the action succeeded
+    pub success: bool,
+    /// Path to window screenshot if captured
+    pub window_screenshot_path: Option<String>,
+    /// Paths to monitor screenshots if captured
+    pub monitor_screenshot_paths: Option<Vec<String>>,
+}
+
 /// Type of mouse click to perform
 #[napi(string_enum, js_name = "ClickType")]
 pub enum ClickType {
