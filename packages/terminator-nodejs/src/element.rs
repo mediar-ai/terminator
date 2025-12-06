@@ -21,7 +21,7 @@ pub struct ActionOptions {
     pub highlight_before_action: Option<bool>,
     /// Whether to capture window screenshot after action. Defaults to true.
     pub include_window_screenshot: Option<bool>,
-    /// Whether to capture monitor screenshots after action. Defaults to true.
+    /// Whether to capture monitor screenshots after action. Defaults to false.
     pub include_monitor_screenshots: Option<bool>,
 }
 
@@ -35,7 +35,7 @@ pub struct TypeTextOptions {
     pub highlight_before_action: Option<bool>,
     /// Whether to capture window screenshot after action. Defaults to true.
     pub include_window_screenshot: Option<bool>,
-    /// Whether to capture monitor screenshots after action. Defaults to true.
+    /// Whether to capture monitor screenshots after action. Defaults to false.
     pub include_monitor_screenshots: Option<bool>,
 }
 
@@ -217,7 +217,7 @@ impl Element {
         let screenshots = capture_element_screenshots(
             &self.inner,
             opts.include_window_screenshot.unwrap_or(true),
-            opts.include_monitor_screenshots.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(false),
             "click",
         );
         result.window_screenshot_path = screenshots.window_path;
@@ -243,7 +243,7 @@ impl Element {
         let screenshots = capture_element_screenshots(
             &self.inner,
             opts.include_window_screenshot.unwrap_or(true),
-            opts.include_monitor_screenshots.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(false),
             "doubleClick",
         );
         result.window_screenshot_path = screenshots.window_path;
@@ -325,7 +325,7 @@ impl Element {
         let screenshots = capture_element_screenshots(
             &self.inner,
             opts.include_window_screenshot.unwrap_or(true),
-            opts.include_monitor_screenshots.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(false),
             "typeText",
         );
 
@@ -354,7 +354,7 @@ impl Element {
         let screenshots = capture_element_screenshots(
             &self.inner,
             opts.include_window_screenshot.unwrap_or(true),
-            opts.include_monitor_screenshots.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(false),
             "pressKey",
         );
 
@@ -382,7 +382,7 @@ impl Element {
         let screenshots = capture_element_screenshots(
             &self.inner,
             opts.include_window_screenshot.unwrap_or(true),
-            opts.include_monitor_screenshots.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(false),
             "setValue",
         );
 
@@ -418,7 +418,7 @@ impl Element {
         let screenshots = capture_element_screenshots(
             &self.inner,
             opts.include_window_screenshot.unwrap_or(true),
-            opts.include_monitor_screenshots.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(false),
             "invoke",
         );
 
@@ -447,7 +447,7 @@ impl Element {
         let screenshots = capture_element_screenshots(
             &self.inner,
             opts.include_window_screenshot.unwrap_or(true),
-            opts.include_monitor_screenshots.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(false),
             "scroll",
         );
 
