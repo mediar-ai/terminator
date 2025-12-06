@@ -74,16 +74,28 @@ fn generate_execution_id(process: &str) -> String {
     format!("{}_geminiComputerUse_{}", timestamp, safe_process)
 }
 
-/// Save a base64-encoded PNG screenshot to disk.
-fn save_screenshot(base64_image: &str, path: &PathBuf) -> Result<(), String> {
-    let png_data = general_purpose::STANDARD
-        .decode(base64_image)
-        .map_err(|e| format!("Failed to decode base64 screenshot: {}", e))?;
+/// Save a base64-encoded PNG screenshot to disk (async, non-blocking).
+/// Spawns a background task so it doesn't slow down the computer use loop.
+fn save_screenshot_async(base64_image: String, path: PathBuf) {
+    tokio::spawn(async move {
+        let result = tokio::task::spawn_blocking(move || {
+            let png_data = general_purpose::STANDARD
+                .decode(&base64_image)
+                .map_err(|e| format!("Failed to decode base64 screenshot: {}", e))?;
 
-    fs::write(path, png_data)
-        .map_err(|e| format!("Failed to write screenshot to {}: {}", path.display(), e))?;
+            fs::write(&path, png_data)
+                .map_err(|e| format!("Failed to write screenshot to {}: {}", path.display(), e))?;
 
-    Ok(())
+            Ok::<(), String>(())
+        })
+        .await;
+
+        if let Err(e) = result {
+            warn!("[computer_use] Screenshot save task failed: {:?}", e);
+        } else if let Ok(Err(e)) = result {
+            warn!("[computer_use] Failed to save screenshot: {}", e);
+        }
+    });
 }
 
 /// Save the execution result as JSON (flat structure).
@@ -509,11 +521,11 @@ impl Desktop {
                 }
             };
 
-            // 1b. Save screenshot (flat structure: {execution_id}_{step}.png)
-            if let Some(ref dir) = executions_dir {
-                let screenshot_path = dir.join(format!("{}_{:03}.png", execution_id, step_num));
-                if let Err(e) = save_screenshot(&capture_data.base64_image, &screenshot_path) {
-                    warn!("[computer_use] Failed to save screenshot: {}", e);
+            // 1b. Save initial screenshot only (before any action) - async, non-blocking
+            if step_num == 1 {
+                if let Some(ref dir) = executions_dir {
+                    let screenshot_path = dir.join(format!("{}_000_initial.png", execution_id));
+                    save_screenshot_async(capture_data.base64_image.clone(), screenshot_path);
                 }
             }
 
@@ -621,6 +633,12 @@ impl Desktop {
                     Ok(data) => (data.base64_image, data.browser_url),
                     Err(_) => (capture_data.base64_image.clone(), None),
                 };
+
+            // 9b. Save post-action screenshot (result of this step's action) - async, non-blocking
+            if let Some(ref dir) = executions_dir {
+                let screenshot_path = dir.join(format!("{}_{:03}_after.png", execution_id, step_num));
+                save_screenshot_async(post_action_screenshot.clone(), screenshot_path);
+            }
 
             previous_actions.push(ComputerUsePreviousAction {
                 name: function_call.name,
