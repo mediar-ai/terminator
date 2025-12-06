@@ -26,6 +26,15 @@ pub struct MonitorScreenshotOptions {
     pub include_monitor_screenshots: Option<bool>,
 }
 
+/// Common fields for operations that include window screenshots
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+pub struct WindowScreenshotOptions {
+    #[schemars(
+        description = "Whether to include a screenshot of the target window in the response. For action tools, captured after the action completes. Defaults to false."
+    )]
+    pub include_window_screenshot: Option<bool>,
+}
+
 /// Common fields for window management control
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 pub struct WindowManagementOptions {
@@ -429,6 +438,8 @@ pub struct GetWindowTreeArgs {
     pub tree: SimpleTreeOptions,
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -494,6 +505,8 @@ pub struct LocatorArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -513,6 +526,8 @@ pub struct InvokeElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -653,6 +668,8 @@ pub struct ClickElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -804,6 +821,8 @@ pub struct TypeIntoElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -837,6 +856,8 @@ pub struct PressKeyArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -873,6 +894,8 @@ pub struct GlobalKeyArgs {
     pub tree: DiffTreeOptions,
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -939,6 +962,8 @@ pub struct MouseDragArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -981,6 +1006,8 @@ pub struct ValidateElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     /// Maximum dimension (width or height) for the screenshot. Default: 1920px
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1006,6 +1033,8 @@ pub struct CaptureScreenshotArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     /// Maximum dimension (width or height) for the screenshot. Default: 1920px
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1051,6 +1080,8 @@ pub struct HighlightElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -1071,6 +1102,8 @@ pub struct WaitForElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -1104,6 +1137,8 @@ pub struct NavigateBrowserArgs {
     pub tree: SimpleTreeOptions,
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -1129,6 +1164,8 @@ pub struct ExecuteBrowserScriptArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -1159,6 +1196,8 @@ pub struct OpenApplicationArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -1179,6 +1218,8 @@ pub struct SelectOptionArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -1199,6 +1240,8 @@ pub struct SetValueArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -1219,6 +1262,8 @@ pub struct SetSelectedArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -1247,6 +1292,8 @@ pub struct ScrollElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -1265,6 +1312,8 @@ pub struct ActivateElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
