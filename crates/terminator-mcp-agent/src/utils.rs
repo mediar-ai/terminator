@@ -21,7 +21,7 @@ use tracing_subscriber::{util::SubscriberInitExt, EnvFilter, Layer};
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 pub struct MonitorScreenshotOptions {
     #[schemars(
-        description = "Whether to include screenshots of all monitors in the response. Defaults to true. Set to false to disable."
+        description = "Whether to include screenshots of all monitors in the response. Defaults to false."
     )]
     pub include_monitor_screenshots: Option<bool>,
 }
@@ -1580,15 +1580,73 @@ pub struct GeminiComputerUseArgs {
     pub window_mgmt: WindowManagementOptions,
 }
 
-// ===== Terminator API Search Tools Args =====
+// ===== File Operation Tools Args =====
 
-/// Arguments for searching terminator source code content
+/// Arguments for reading a file
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct SearchTerminatorApiArgs {
-    #[schemars(description = "The search pattern (regex supported). Examples: 'fn click', 'impl.*Element', 'TODO'")]
+pub struct ReadFileArgs {
+    #[schemars(description = "Path to the file to read. Can be relative (resolved from working_directory) or absolute.")]
+    pub path: String,
+
+    #[schemars(description = "Working directory for resolving relative paths. Injected automatically by mediar-app based on focused workflow.")]
+    pub working_directory: Option<String>,
+
+    #[schemars(description = "Line number to start reading from (1-indexed). Defaults to 1.")]
+    pub offset: Option<usize>,
+
+    #[schemars(description = "Maximum number of lines to read. Defaults to 2000.")]
+    pub limit: Option<usize>,
+}
+
+/// Arguments for writing a file
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct WriteFileArgs {
+    #[schemars(description = "Path to the file to write. Can be relative (resolved from working_directory) or absolute.")]
+    pub path: String,
+
+    #[schemars(description = "Content to write to the file.")]
+    pub content: String,
+
+    #[schemars(description = "Working directory for resolving relative paths. Injected automatically by mediar-app based on focused workflow.")]
+    pub working_directory: Option<String>,
+}
+
+/// Arguments for editing a file (string replacement)
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct EditFileArgs {
+    #[schemars(description = "Path to the file to edit. Can be relative (resolved from working_directory) or absolute.")]
+    pub path: String,
+
+    #[schemars(description = "Exact string to find and replace. Must be unique in the file unless replace_all is true.")]
+    pub old_string: String,
+
+    #[schemars(description = "String to replace with.")]
+    pub new_string: String,
+
+    #[schemars(description = "Replace all occurrences instead of requiring uniqueness. Defaults to false.")]
+    pub replace_all: Option<bool>,
+
+    #[schemars(description = "Working directory for resolving relative paths. Injected automatically by mediar-app based on focused workflow.")]
+    pub working_directory: Option<String>,
+}
+
+/// Arguments for finding files by glob pattern
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GlobFilesArgs {
+    #[schemars(description = "Glob pattern to match files. Examples: '**/*.ts', 'src/*.rs', '*.yml'")]
     pub pattern: String,
 
-    #[schemars(description = "Optional glob pattern to filter files. Examples: '*.rs', '**/*.ts', 'src/**/*.rs'")]
+    #[schemars(description = "Working directory for resolving the glob pattern. Injected automatically by mediar-app based on focused workflow.")]
+    pub working_directory: Option<String>,
+}
+
+/// Arguments for searching file contents
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GrepFilesArgs {
+    #[schemars(description = "Regex pattern to search for in file contents.")]
+    pub pattern: String,
+
+    #[schemars(description = "Optional glob pattern to filter which files to search. Examples: '*.ts', '**/*.rs'")]
     pub glob: Option<String>,
 
     #[schemars(description = "Case insensitive search. Defaults to false.")]
@@ -1599,21 +1657,9 @@ pub struct SearchTerminatorApiArgs {
 
     #[schemars(description = "Maximum number of results to return. Defaults to 50.")]
     pub max_results: Option<usize>,
-}
 
-/// Arguments for getting terminator API documentation (read file or list files)
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct GetTerminatorApiDocsArgs {
-    #[schemars(
-        description = "Path relative to terminator source root. If it's a file, returns content. If it's a directory or glob pattern (e.g., '**/*.md', 'src/'), returns file list. Examples: 'README.md', 'crates/terminator/src/lib.rs', 'packages/', '**/*.ts'"
-    )]
-    pub path: String,
-
-    #[schemars(description = "For file reads: line offset to start from (1-indexed). Defaults to 1.")]
-    pub offset: Option<usize>,
-
-    #[schemars(description = "For file reads: maximum number of lines to return. Defaults to 200.")]
-    pub limit: Option<usize>,
+    #[schemars(description = "Working directory for resolving relative paths. Injected automatically by mediar-app based on focused workflow.")]
+    pub working_directory: Option<String>,
 }
 
 #[derive(Debug)]
