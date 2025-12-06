@@ -114,6 +114,19 @@ export const enum TreeOutputFormat {
    */
   ClusteredYaml = 'ClusteredYaml'
 }
+/** Source of an element for clustered output */
+export const enum ElementSource {
+  /** #u - Accessibility tree (UIA) */
+  Uia = 'Uia',
+  /** #d - Browser DOM */
+  Dom = 'Dom',
+  /** #o - OCR text */
+  Ocr = 'Ocr',
+  /** #p - Omniparser vision */
+  Omniparser = 'Omniparser',
+  /** #g - Gemini vision */
+  Gemini = 'Gemini'
+}
 /** Display mode for inspect overlay labels */
 export const enum OverlayDisplayMode {
   /** Just rectangles, no labels */
@@ -291,6 +304,22 @@ export interface OmniparserResult {
   indexToBounds: Record<string, OmniparserBoundsEntry>
   /** Total count of detected items */
   itemCount: number
+}
+/** Entry in clustered index mapping (for click targeting across all sources) */
+export interface ClusteredBoundsEntry {
+  /** Element source (Uia, Dom, Ocr, Omniparser, Gemini) */
+  source: ElementSource
+  /** Original index within the source */
+  originalIndex: number
+  /** Bounding box in screen coordinates */
+  bounds: Bounds
+}
+/** Result of clustered tree formatting */
+export interface ClusteredFormattingResult {
+  /** Formatted clustered YAML output */
+  formatted: string
+  /** Mapping from prefixed index (e.g., "u1", "d2") to source and bounds */
+  indexToSourceAndBounds: Record<string, ClusteredBoundsEntry>
 }
 export interface TreeBuildConfig {
   /** Property loading strategy */
