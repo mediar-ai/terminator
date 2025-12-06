@@ -9,19 +9,32 @@ export interface ActionOptions {
   highlightBeforeAction?: boolean
   /** Whether to capture window screenshot after action. Defaults to true. */
   includeWindowScreenshot?: boolean
-  /** Whether to capture monitor screenshots after action. Defaults to true. */
+  /** Whether to capture monitor screenshots after action. Defaults to false. */
   includeMonitorScreenshots?: boolean
+  /** Whether to try focusing the element before the action. Defaults to true. */
+  tryFocusBefore?: boolean
+  /** Whether to try clicking the element if focus fails. Defaults to true. */
+  tryClickBefore?: boolean
 }
 /** Options for typeText method */
 export interface TypeTextOptions {
+  /**
+   * Whether to clear existing text before typing. Defaults to false (append mode).
+   * Set to true to clear the field first, matching MCP's clear_before_typing behavior.
+   */
+  clearBeforeTyping?: boolean
   /** Whether to use clipboard for pasting. Defaults to false. */
   useClipboard?: boolean
   /** Whether to highlight the element before typing. Defaults to false. */
   highlightBeforeAction?: boolean
   /** Whether to capture window screenshot after action. Defaults to true. */
   includeWindowScreenshot?: boolean
-  /** Whether to capture monitor screenshots after action. Defaults to true. */
+  /** Whether to capture monitor screenshots after action. Defaults to false. */
   includeMonitorScreenshots?: boolean
+  /** Whether to try focusing the element before typing. Defaults to true. */
+  tryFocusBefore?: boolean
+  /** Whether to try clicking the element if focus fails. Defaults to true. */
+  tryClickBefore?: boolean
 }
 /** Result of element validation */
 export interface ValidationResult {
@@ -517,8 +530,10 @@ export declare class Desktop {
    * Open an application by name.
    *
    * @param {string} name - The name of the application to open.
+   * @param {boolean} [includeWindowScreenshot=true] - Whether to capture window screenshot after opening
+   * @param {boolean} [includeMonitorScreenshots=false] - Whether to capture monitor screenshots after opening
    */
-  openApplication(name: string): Element
+  openApplication(name: string, includeWindowScreenshot?: boolean | undefined | null, includeMonitorScreenshots?: boolean | undefined | null): Element
   /**
    * Activate an application by name.
    *
@@ -685,8 +700,10 @@ export declare class Desktop {
    *
    * @param {string} url - The URL to open.
    * @param {string} [browser] - The browser to use. Can be "Default", "Chrome", "Firefox", "Edge", "Brave", "Opera", "Vivaldi", or a custom browser path.
+   * @param {boolean} [includeWindowScreenshot=true] - Whether to capture window screenshot after opening
+   * @param {boolean} [includeMonitorScreenshots=false] - Whether to capture monitor screenshots after opening
    */
-  openUrl(url: string, browser?: string | undefined | null): Element
+  openUrl(url: string, browser?: string | undefined | null, includeWindowScreenshot?: boolean | undefined | null, includeMonitorScreenshots?: boolean | undefined | null): Element
   /**
    * Open a file with its default application.
    *
@@ -882,9 +899,11 @@ export declare class Desktop {
    *
    * @param {string} url - URL to navigate to
    * @param {string | null} browser - Optional browser name ('Chrome', 'Firefox', 'Edge', 'Brave', 'Opera', 'Vivaldi', or 'Default')
+   * @param {boolean} [includeWindowScreenshot=true] - Whether to capture window screenshot after navigation
+   * @param {boolean} [includeMonitorScreenshots=false] - Whether to capture monitor screenshots after navigation
    * @returns {Promise<Element>} The browser window element
    */
-  navigateBrowser(url: string, browser?: string | undefined | null): Element
+  navigateBrowser(url: string, browser?: string | undefined | null, includeWindowScreenshot?: boolean | undefined | null, includeMonitorScreenshots?: boolean | undefined | null): Element
   /**
    * (async) Set the zoom level to a specific percentage.
    *
@@ -1015,8 +1034,12 @@ export declare class Element {
    * @param {ActionOptions} [options] - Options for the right click action.
    */
   rightClick(options?: ActionOptions | undefined | null): void
-  /** Hover over this element. */
-  hover(): void
+  /**
+   * Hover over this element.
+   *
+   * @param {ActionOptions} [options] - Optional action options.
+   */
+  hover(options?: ActionOptions | undefined | null): void
   /**
    * Check if element is visible.
    *
@@ -1209,9 +1232,10 @@ export declare class Element {
    * Selects an option in a dropdown or combobox by its visible text.
    *
    * @param {string} optionName - The visible text of the option to select.
+   * @param {ActionOptions} [options] - Optional action options.
    * @returns {void}
    */
-  selectOption(optionName: string): void
+  selectOption(optionName: string, options?: ActionOptions | undefined | null): void
   /**
    * Lists all available option strings from a dropdown or list box.
    *
@@ -1243,9 +1267,10 @@ export declare class Element {
    * Only performs an action if the element is not already in the desired state.
    *
    * @param {boolean} state - The desired selection state.
+   * @param {ActionOptions} [options] - Optional action options.
    * @returns {void}
    */
-  setSelected(state: boolean): void
+  setSelected(state: boolean, options?: ActionOptions | undefined | null): void
   /**
    * Gets the current value from a range-based control like a slider or progress bar.
    *
