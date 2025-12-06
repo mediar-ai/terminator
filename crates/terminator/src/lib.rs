@@ -632,10 +632,9 @@ impl Desktop {
     ///
     /// ```no_run
     /// use terminator::Desktop;
-    /// #[tokio::main]
-    /// async fn main() {
+    /// fn main() {
     ///     let desktop = Desktop::new_default().unwrap();
-    ///     let screenshot = desktop.capture_window_by_process("notepad").await.unwrap();
+    ///     let screenshot = desktop.capture_window_by_process("notepad").unwrap();
     ///     // Convert to base64 PNG for LLM consumption
     ///     let base64_png = screenshot.to_base64_png_resized(Some(1920)).unwrap();
     /// }
@@ -643,14 +642,13 @@ impl Desktop {
     #[instrument(skip(self))]
     pub fn capture_window_by_process(&self, process: &str) -> Result<ScreenshotResult, AutomationError> {
         let apps = self.applications()?;
+        let process_lower = process.to_lowercase();
 
         // Find matching window by process name
         let window_element = apps.into_iter().find(|app| {
-            if let Some(proc_name) = app.process_name() {
-                proc_name.to_lowercase().contains(&process.to_lowercase())
-            } else {
-                false
-            }
+            app.process_name()
+                .map(|name| name.to_lowercase().contains(&process_lower))
+                .unwrap_or(false)
         });
 
         let window_element = window_element.ok_or_else(|| {
@@ -721,6 +719,41 @@ impl Desktop {
         click_type: ClickType,
     ) -> Result<(), AutomationError> {
         self.engine.click_at_coordinates_with_type(x, y, click_type)
+    }
+
+    /// Click within element bounds at a specified position (percentage-based).
+    ///
+    /// This is useful for clicking on elements from UI tree, OCR, omniparser, gemini vision, or DOM
+    /// without needing an element reference - just the bounds.
+    ///
+    /// # Arguments
+    /// * `bounds` - Element bounds as (x, y, width, height)
+    /// * `click_position` - Optional (x_percentage, y_percentage) within bounds. Defaults to center (50, 50)
+    /// * `click_type` - Type of click: Left, Double, or Right
+    ///
+    /// # Returns
+    /// ClickResult with coordinates and method details
+    #[instrument(skip(self))]
+    pub fn click_at_bounds(
+        &self,
+        bounds: (f64, f64, f64, f64),
+        click_position: Option<(u8, u8)>,
+        click_type: ClickType,
+    ) -> Result<ClickResult, AutomationError> {
+        let (x_pct, y_pct) = click_position.unwrap_or((50, 50));
+        let x = bounds.0 + bounds.2 * x_pct as f64 / 100.0;
+        let y = bounds.1 + bounds.3 * y_pct as f64 / 100.0;
+
+        self.engine.click_at_coordinates_with_type(x, y, click_type)?;
+
+        Ok(ClickResult {
+            method: "bounds".to_string(),
+            coordinates: Some((x, y)),
+            details: format!(
+                "Clicked at {}%,{}% within bounds ({}, {}, {}, {})",
+                x_pct, y_pct, bounds.0, bounds.1, bounds.2, bounds.3
+            ),
+        })
     }
 
     #[instrument(skip(self, title))]
