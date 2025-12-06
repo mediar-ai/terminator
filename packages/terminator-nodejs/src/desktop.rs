@@ -2012,4 +2012,56 @@ impl Desktop {
             // Not implemented for other platforms yet
         }
     }
+
+    // ============== ELEMENT VERIFICATION ==============
+
+    /// Verify that an element matching the selector exists within the same application as the scope element.
+    ///
+    /// This is used for post-action verification - checking that an expected element appeared after
+    /// performing an action (e.g., a success dialog after clicking submit).
+    ///
+    /// @param {Element} scopeElement - The element to get the application scope from (typically the element the action was performed on)
+    /// @param {string} selector - The selector string to search for
+    /// @param {number} [timeoutMs=2000] - How long to wait for the element to appear in milliseconds
+    /// @returns {Element} The found element if verification passes
+    /// @throws Error if the element is not found within the timeout
+    #[napi]
+    pub async fn verify_element_exists(
+        &self,
+        scope_element: &crate::Element,
+        selector: String,
+        timeout_ms: Option<u32>,
+    ) -> napi::Result<crate::Element> {
+        let timeout = timeout_ms.unwrap_or(2000) as u64;
+        let found = self
+            .inner
+            .verify_element_exists(&scope_element.inner, &selector, timeout)
+            .await
+            .map_err(map_error)?;
+        Ok(crate::Element { inner: found })
+    }
+
+    /// Verify that an element matching the selector does NOT exist within the same application as the scope element.
+    ///
+    /// This is used for post-action verification - checking that an element disappeared after
+    /// performing an action (e.g., a modal dialog closed after clicking OK).
+    ///
+    /// @param {Element} scopeElement - The element to get the application scope from (typically the element the action was performed on)
+    /// @param {string} selector - The selector string that should NOT be found
+    /// @param {number} [timeoutMs=2000] - How long to wait/check that the element doesn't appear in milliseconds
+    /// @returns {void}
+    /// @throws Error if the element IS found (meaning verification failed)
+    #[napi]
+    pub async fn verify_element_not_exists(
+        &self,
+        scope_element: &crate::Element,
+        selector: String,
+        timeout_ms: Option<u32>,
+    ) -> napi::Result<()> {
+        let timeout = timeout_ms.unwrap_or(2000) as u64;
+        self.inner
+            .verify_element_not_exists(&scope_element.inner, &selector, timeout)
+            .await
+            .map_err(map_error)
+    }
 }
