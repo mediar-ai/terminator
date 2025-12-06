@@ -200,3 +200,4 @@ Cargo.lock
 wrapper.js
 index.js
 index.d.ts
+*.node.old
