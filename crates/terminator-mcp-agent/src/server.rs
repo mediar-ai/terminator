@@ -2506,63 +2506,6 @@ impl DesktopWrapper {
         Ok(())
     }
 
-    /// Ensures element is visible and applies highlighting before action with hardcoded defaults
-    fn ensure_visible_and_apply_highlight(element: &UIElement, action_name: &str) {
-        let start = std::time::Instant::now();
-
-        // Always ensure element is in view first (for all actions, not just when highlighting)
-        let scroll_start = std::time::Instant::now();
-        if let Err(e) = Self::ensure_element_in_view(element) {
-            tracing::warn!("Failed to ensure element is in view for {action_name} action: {e}");
-        }
-        tracing::info!(
-            "[PERF] ensure_element_in_view: {}ms",
-            scroll_start.elapsed().as_millis()
-        );
-
-        // Hardcoded highlight configuration
-        let duration = Some(std::time::Duration::from_millis(500));
-        let color = Some(0x00FF00); // Green in BGR
-        let role_text = element.role();
-        let text = Some(role_text.as_str());
-
-        #[cfg(target_os = "windows")]
-        let text_position = Some(crate::mcp_types::TextPosition::Top.into());
-        #[cfg(not(target_os = "windows"))]
-        let text_position = None;
-
-        #[cfg(target_os = "windows")]
-        let font_style = Some(
-            crate::mcp_types::FontStyle {
-                size: 12,
-                bold: true,
-                color: 0xFFFFFF, // White text
-            }
-            .into(),
-        );
-        #[cfg(not(target_os = "windows"))]
-        let font_style = None;
-
-        tracing::info!(
-            "HIGHLIGHT_BEFORE_{} duration={:?} role={}",
-            action_name.to_uppercase(),
-            duration,
-            role_text
-        );
-        if let Ok(_highlight_handle) =
-            element.highlight(color, duration, text, text_position, font_style)
-        {
-            // Highlight applied successfully - runs concurrently with action
-        } else {
-            tracing::warn!("Failed to apply highlighting before {action_name} action");
-        }
-
-        tracing::info!(
-            "[PERF] ensure_visible_and_apply_highlight: {}ms",
-            start.elapsed().as_millis()
-        );
-    }
-
     #[tool(
         description = "Types text into a UI element with smart clipboard optimization and verification. Much faster than press key. REQUIRED: clear_before_typing parameter - set to true to clear existing text, false to append. This action requires the application to be focused and may change the UI."
     )]
@@ -2644,7 +2587,7 @@ impl DesktopWrapper {
 
                     // Apply highlighting before action if enabled
                     if highlight_before {
-                        Self::ensure_visible_and_apply_highlight(&element, "type");
+                        let _ = element.highlight_before_action("type");
                     }
 
                     // Execute the typing action with state tracking
@@ -3234,7 +3177,7 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                         let click_position = click_position.clone();
                         async move {
                             if highlight_before {
-                                Self::ensure_visible_and_apply_highlight(&element, "click");
+                                let _ = element.highlight_before_action("click");
                             }
                             match element.bounds() {
                                 Ok(bounds) => {
@@ -3504,7 +3447,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
 
                     // Ensure element is visible and apply highlighting if enabled
                     if highlight_before {
-                        Self::ensure_visible_and_apply_highlight(&element, "key");
+                        let _ = element.highlight_before_action("key");
                     }
 
                     // Execute the key press action with state tracking
@@ -6554,7 +6497,7 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
                 async move {
                     // Ensure element is visible and apply highlighting if enabled
                     if highlight_before {
-                        Self::ensure_visible_and_apply_highlight(&element, "scroll");
+                        let _ = element.highlight_before_action("scroll");
                     }
 
                     // Execute the scroll action with state tracking
