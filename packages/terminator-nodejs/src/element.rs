@@ -13,12 +13,22 @@ use crate::{
 use crate::Selector;
 use napi::bindgen_prelude::Either;
 
+/// Options for action methods (click, pressKey, scroll, etc.)
+#[napi(object)]
+#[derive(Default)]
+pub struct ActionOptions {
+    /// Whether to highlight the element before performing the action. Defaults to false.
+    pub highlight_before_action: Option<bool>,
+}
+
 /// Options for typeText method
 #[napi(object)]
 #[derive(Default)]
 pub struct TypeTextOptions {
     /// Whether to use clipboard for pasting. Defaults to false.
     pub use_clipboard: Option<bool>,
+    /// Whether to highlight the element before typing. Defaults to false.
+    pub highlight_before_action: Option<bool>,
 }
 
 /// A UI element in the accessibility tree.
@@ -135,18 +145,28 @@ impl Element {
 
     /// Click on this element.
     ///
+    /// @param {ActionOptions} [options] - Options for the click action.
     /// @returns {ClickResult} Result of the click operation.
     #[napi]
-    pub fn click(&self) -> napi::Result<ClickResult> {
+    pub fn click(&self, options: Option<ActionOptions>) -> napi::Result<ClickResult> {
+        let opts = options.unwrap_or_default();
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("click");
+        }
         let _ = self.inner.activate_window();
         self.inner.click().map(ClickResult::from).map_err(map_error)
     }
 
     /// Double click on this element.
     ///
+    /// @param {ActionOptions} [options] - Options for the double click action.
     /// @returns {ClickResult} Result of the click operation.
     #[napi]
-    pub fn double_click(&self) -> napi::Result<ClickResult> {
+    pub fn double_click(&self, options: Option<ActionOptions>) -> napi::Result<ClickResult> {
+        let opts = options.unwrap_or_default();
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("double_click");
+        }
         let _ = self.inner.activate_window();
         self.inner
             .double_click()
@@ -155,8 +175,14 @@ impl Element {
     }
 
     /// Right click on this element.
+    ///
+    /// @param {ActionOptions} [options] - Options for the right click action.
     #[napi]
-    pub fn right_click(&self) -> napi::Result<()> {
+    pub fn right_click(&self, options: Option<ActionOptions>) -> napi::Result<()> {
+        let opts = options.unwrap_or_default();
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("right_click");
+        }
         let _ = self.inner.activate_window();
         self.inner.right_click().map_err(map_error)
     }
@@ -208,6 +234,9 @@ impl Element {
     #[napi]
     pub fn type_text(&self, text: String, options: Option<TypeTextOptions>) -> napi::Result<()> {
         let opts = options.unwrap_or_default();
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("type");
+        }
         let _ = self.inner.activate_window();
         self.inner
             .type_text(&text, opts.use_clipboard.unwrap_or(false))
@@ -217,8 +246,13 @@ impl Element {
     /// Press a key while this element is focused.
     ///
     /// @param {string} key - The key to press.
+    /// @param {ActionOptions} [options] - Options for the key press action.
     #[napi]
-    pub fn press_key(&self, key: String) -> napi::Result<()> {
+    pub fn press_key(&self, key: String, options: Option<ActionOptions>) -> napi::Result<()> {
+        let opts = options.unwrap_or_default();
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("key");
+        }
         let _ = self.inner.activate_window();
         self.inner.press_key(&key).map_err(map_error)
     }
@@ -226,8 +260,13 @@ impl Element {
     /// Set value of this element.
     ///
     /// @param {string} value - The value to set.
+    /// @param {ActionOptions} [options] - Options for the set value action.
     #[napi]
-    pub fn set_value(&self, value: String) -> napi::Result<()> {
+    pub fn set_value(&self, value: String, options: Option<ActionOptions>) -> napi::Result<()> {
+        let opts = options.unwrap_or_default();
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("set_value");
+        }
         self.inner.set_value(&value).map_err(map_error)
     }
 
@@ -241,8 +280,14 @@ impl Element {
 
     /// Invoke this element (triggers the default action).
     /// This is often more reliable than clicking for controls like radio buttons or menu items.
+    ///
+    /// @param {ActionOptions} [options] - Options for the invoke action.
     #[napi]
-    pub fn invoke(&self) -> napi::Result<()> {
+    pub fn invoke(&self, options: Option<ActionOptions>) -> napi::Result<()> {
+        let opts = options.unwrap_or_default();
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("invoke");
+        }
         self.inner.invoke().map_err(map_error)
     }
 
@@ -250,8 +295,13 @@ impl Element {
     ///
     /// @param {string} direction - The direction to scroll.
     /// @param {number} amount - The amount to scroll.
+    /// @param {ActionOptions} [options] - Options for the scroll action.
     #[napi]
-    pub fn scroll(&self, direction: String, amount: f64) -> napi::Result<()> {
+    pub fn scroll(&self, direction: String, amount: f64, options: Option<ActionOptions>) -> napi::Result<()> {
+        let opts = options.unwrap_or_default();
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("scroll");
+        }
         self.inner.scroll(&direction, amount).map_err(map_error)
     }
 
@@ -415,34 +465,6 @@ impl Element {
         {
             let _ = (color, duration, text, text_position, font_style);
             Ok(HighlightHandle::new_dummy())
-        }
-    }
-
-    /// Ensures element is visible and highlights it before performing an action.
-    ///
-    /// This combines scrolling the element into view and applying a visual highlight.
-    /// Useful for debugging and visual feedback during automation.
-    ///
-    /// @param {string} actionName - Name of the action about to be performed (e.g., "click", "type")
-    /// @returns {HighlightHandle | null} Handle to control the highlight, or null if highlight failed
-    #[napi]
-    pub fn highlight_before_action(&self, action_name: String) -> napi::Result<Option<HighlightHandle>> {
-        #[cfg(target_os = "windows")]
-        {
-            let result = self
-                .inner
-                .highlight_before_action(&action_name)
-                .map_err(map_error)?;
-
-            Ok(result.map(HighlightHandle::new))
-        }
-
-        #[cfg(not(target_os = "windows"))]
-        {
-            let _ = action_name;
-            // Non-Windows: attempt scroll_into_view but return dummy handle
-            let _ = self.inner.scroll_into_view();
-            Ok(Some(HighlightHandle::new_dummy()))
         }
     }
 
