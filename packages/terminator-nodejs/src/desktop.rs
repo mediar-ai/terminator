@@ -142,12 +142,29 @@ impl Desktop {
     /// Open an application by name.
     ///
     /// @param {string} name - The name of the application to open.
+    /// @param {boolean} [includeWindowScreenshot=true] - Whether to capture window screenshot after opening
+    /// @param {boolean} [includeMonitorScreenshots=false] - Whether to capture monitor screenshots after opening
     #[napi]
-    pub fn open_application(&self, name: String) -> napi::Result<Element> {
-        self.inner
+    pub fn open_application(
+        &self,
+        name: String,
+        include_window_screenshot: Option<bool>,
+        include_monitor_screenshots: Option<bool>,
+    ) -> napi::Result<Element> {
+        let element = self.inner
             .open_application(&name)
-            .map(Element::from)
-            .map_err(map_error)
+            .map_err(map_error)?;
+
+        // Capture screenshots if enabled (window default: true, monitor default: false)
+        let _screenshots = capture_screenshots(
+            &self.inner,
+            element.process_id().ok(),
+            include_window_screenshot.unwrap_or(true),
+            include_monitor_screenshots.unwrap_or(false),
+            "openApplication",
+        );
+
+        Ok(Element::from(element))
     }
 
     /// Activate an application by name.
