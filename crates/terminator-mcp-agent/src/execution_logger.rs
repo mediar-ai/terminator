@@ -448,11 +448,15 @@ fn generate_typescript_snippet(tool_name: &str, args: &Value, result: Result<&Va
     format!(
         r#"import {{ Desktop }} from "@mediar-ai/terminator";
 
-const desktop = new Desktop();
+async function main() {{
+  const desktop = new Desktop();
 
-{}
+  {}
 
-{}
+  {}
+}}
+
+main().catch(console.error);
 "#,
         status_comment, snippet
     )
@@ -689,9 +693,9 @@ fn generate_highlight_snippet(args: &Value) -> String {
 /// Generate validate_element snippet
 fn generate_validate_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
-    let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
     format!(
-        "const element = await desktop.locator({}).first({});\nconst exists = await element.exists();",
+        "const result = await desktop.locator({}).validate({});\nconsole.log(\"exists:\", result.exists);",
         locator, timeout
     )
 }
