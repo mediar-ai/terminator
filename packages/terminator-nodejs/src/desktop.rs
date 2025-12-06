@@ -515,27 +515,29 @@ impl Desktop {
         })
     }
 
-    /// (async) Get a clustered tree combining UIA and DOM elements grouped by spatial proximity.
+    /// (async) Get a clustered tree combining elements from multiple sources grouped by spatial proximity.
     ///
-    /// For browser windows, this combines accessibility tree (UIA) elements with DOM elements,
+    /// Combines accessibility tree (UIA) elements with optional DOM and Omniparser elements,
     /// clustering nearby elements together. Each element is prefixed with its source:
     /// - #u1, #u2... for UIA (accessibility tree)
     /// - #d1, #d2... for DOM (browser content)
-    ///
-    /// For non-browser windows, only UIA elements are included.
+    /// - #p1, #p2... for Omniparser (vision AI detection)
     ///
     /// @param {number} pid - Process ID of the window to analyze.
     /// @param {number} [maxDomElements=100] - Maximum DOM elements to capture for browsers.
+    /// @param {boolean} [includeOmniparser=false] - Whether to include Omniparser vision detection.
     /// @returns {Promise<ClusteredFormattingResult>} Clustered tree with prefixed indices.
     #[napi]
     pub async fn get_clustered_tree(
         &self,
         pid: u32,
         max_dom_elements: Option<u32>,
+        include_omniparser: Option<bool>,
     ) -> napi::Result<crate::types::ClusteredFormattingResult> {
         use std::collections::HashMap;
 
         let max_dom_elements = max_dom_elements.unwrap_or(100);
+        let include_omniparser = include_omniparser.unwrap_or(false);
 
         // Get UIA tree with bounds
         let uia_result = self
@@ -581,9 +583,38 @@ impl Desktop {
             }
         }
 
-        // Empty caches for sources we don't have
+        // Build Omniparser items cache if requested
+        let mut omniparser_items: HashMap<u32, terminator::OmniparserItem> = HashMap::new();
+
+        if include_omniparser {
+            match self.perform_omniparser_for_process(pid, Some(true)).await {
+                Ok(omni_result) => {
+                    for (idx_str, entry) in omni_result.index_to_bounds {
+                        if let Ok(idx) = idx_str.parse::<u32>() {
+                            omniparser_items.insert(
+                                idx,
+                                terminator::OmniparserItem {
+                                    label: entry.label.clone(),
+                                    content: Some(entry.name.clone()),
+                                    box_2d: Some([
+                                        entry.bounds.x,
+                                        entry.bounds.y,
+                                        entry.bounds.x + entry.bounds.width,
+                                        entry.bounds.y + entry.bounds.height,
+                                    ]),
+                                },
+                            );
+                        }
+                    }
+                }
+                Err(_) => {
+                    // Omniparser failed, continue without it
+                }
+            }
+        }
+
+        // Empty caches for sources we don't have yet
         let ocr_bounds: HashMap<u32, (String, (f64, f64, f64, f64))> = HashMap::new();
-        let omniparser_items: HashMap<u32, terminator::OmniparserItem> = HashMap::new();
         let vision_items: HashMap<u32, terminator::VisionElement> = HashMap::new();
 
         // Call the core clustering function
