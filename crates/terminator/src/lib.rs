@@ -34,10 +34,11 @@ pub use screenshot::ScreenshotResult;
 pub use selector::Selector;
 pub use tokio_util::sync::CancellationToken;
 pub use tree_formatter::{
-    format_ocr_tree_as_compact_yaml, format_tree_as_compact_yaml, format_ui_node_as_compact_yaml,
-    OcrFormattingResult, TreeFormattingResult,
+    format_clustered_tree_from_caches, format_ocr_tree_as_compact_yaml, format_tree_as_compact_yaml,
+    format_ui_node_as_compact_yaml, ClusteredFormattingResult, ElementSource, OcrFormattingResult,
+    TreeFormattingResult, UnifiedElement,
 };
-pub use types::{FontStyle, HighlightHandle, TextPosition};
+pub use types::{FontStyle, HighlightHandle, OmniparserItem, TextPosition, VisionElement};
 
 // Re-export types from terminator-computer-use crate
 #[cfg(target_os = "windows")]
