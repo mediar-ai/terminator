@@ -24,6 +24,27 @@ pub struct ClickResult {
     pub details: String,
 }
 
+/// Type of mouse click to perform
+#[napi(string_enum, js_name = "ClickType")]
+pub enum ClickType {
+    /// Single left click (default)
+    Left,
+    /// Double left click
+    Double,
+    /// Single right click
+    Right,
+}
+
+impl From<ClickType> for terminator::ClickType {
+    fn from(ct: ClickType) -> Self {
+        match ct {
+            ClickType::Left => terminator::ClickType::Left,
+            ClickType::Double => terminator::ClickType::Double,
+            ClickType::Right => terminator::ClickType::Right,
+        }
+    }
+}
+
 #[napi(object, js_name = "CommandOutput")]
 pub struct CommandOutput {
     pub exit_status: Option<i32>,
@@ -31,6 +52,7 @@ pub struct CommandOutput {
     pub stderr: String,
 }
 
+#[derive(Clone)]
 #[napi(object)]
 pub struct Monitor {
     pub id: String,
@@ -43,18 +65,47 @@ pub struct Monitor {
     pub scale_factor: f64,
 }
 
-#[napi(object)]
-pub struct MonitorScreenshotPair {
-    pub monitor: Monitor,
-    pub screenshot: ScreenshotResult,
-}
-
+/// A screenshot result containing image data and dimensions.
 #[napi(object)]
 pub struct ScreenshotResult {
     pub width: u32,
     pub height: u32,
     pub image_data: Vec<u8>,
     pub monitor: Option<Monitor>,
+}
+
+impl ScreenshotResult {
+    /// Convert to the internal terminator::ScreenshotResult
+    pub fn to_inner(&self) -> terminator::ScreenshotResult {
+        terminator::ScreenshotResult {
+            image_data: self.image_data.clone(),
+            width: self.width,
+            height: self.height,
+            monitor: self.monitor.as_ref().map(|m| terminator::Monitor {
+                id: m.id.clone(),
+                name: m.name.clone(),
+                is_primary: m.is_primary,
+                width: m.width,
+                height: m.height,
+                x: m.x,
+                y: m.y,
+                scale_factor: m.scale_factor,
+                work_area: None,
+            }),
+        }
+    }
+}
+
+#[napi(object)]
+pub struct ResizedDimensions {
+    pub width: u32,
+    pub height: u32,
+}
+
+#[napi(object)]
+pub struct MonitorScreenshotPair {
+    pub monitor: Monitor,
+    pub screenshot: ScreenshotResult,
 }
 
 #[derive(Serialize)]
