@@ -70,6 +70,7 @@ objc = { workspace = true }
 objc-foundation = { workspace = true }
 core-foundation = { workspace = true }
 core-graphics = { workspace = true }
+sysinfo = { workspace = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 terminator-computer-use = { workspace = true }
