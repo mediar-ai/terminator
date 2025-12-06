@@ -266,8 +266,14 @@ impl Element {
     }
 
     /// Hover over this element.
+    ///
+    /// @param {ActionOptions} [options] - Optional action options.
     #[napi]
-    pub fn hover(&self) -> napi::Result<()> {
+    pub fn hover(&self, options: Option<ActionOptions>) -> napi::Result<()> {
+        let opts = options.unwrap_or_default();
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("hover");
+        }
         let _ = self.inner.activate_window();
         self.inner.hover().map_err(map_error)
     }
@@ -705,9 +711,18 @@ impl Element {
     /// Selects an option in a dropdown or combobox by its visible text.
     ///
     /// @param {string} optionName - The visible text of the option to select.
+    /// @param {ActionOptions} [options] - Optional action options.
     /// @returns {void}
     #[napi]
-    pub fn select_option(&self, option_name: String) -> napi::Result<()> {
+    pub fn select_option(
+        &self,
+        option_name: String,
+        options: Option<ActionOptions>,
+    ) -> napi::Result<()> {
+        let opts = options.unwrap_or_default();
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("select_option");
+        }
         self.inner.select_option(&option_name).map_err(map_error)
     }
 
@@ -749,9 +764,14 @@ impl Element {
     /// Only performs an action if the element is not already in the desired state.
     ///
     /// @param {boolean} state - The desired selection state.
+    /// @param {ActionOptions} [options] - Optional action options.
     /// @returns {void}
     #[napi]
-    pub fn set_selected(&self, state: bool) -> napi::Result<()> {
+    pub fn set_selected(&self, state: bool, options: Option<ActionOptions>) -> napi::Result<()> {
+        let opts = options.unwrap_or_default();
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("set_selected");
+        }
         self.inner.set_selected(state).map_err(map_error)
     }
 
