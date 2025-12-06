@@ -1792,23 +1792,16 @@ impl Desktop {
     ) -> Result<UIElement, AutomationError> {
         use std::time::Duration;
 
-        // Get the application window from the scope element
-        let app_window = scope_element.application()?.ok_or_else(|| {
-            AutomationError::ElementNotFound(
-                "Cannot verify: scope element has no application window".to_string(),
-            )
-        })?;
-
         debug!(
-            "Verifying element exists: '{}' within app '{}'",
+            "Verifying element exists: '{}' within '{}'",
             selector,
-            app_window.name().unwrap_or_default()
+            scope_element.name().unwrap_or_default()
         );
 
-        // Create a locator scoped to the application window
+        // Create a locator scoped to the provided element (same as element.locator())
         let locator = self
             .locator(Selector::from(selector))
-            .within(app_window);
+            .within(scope_element.clone());
 
         // Wait for the element with the specified timeout
         locator
@@ -1847,23 +1840,16 @@ impl Desktop {
     ) -> Result<(), AutomationError> {
         use std::time::Duration;
 
-        // Get the application window from the scope element
-        let app_window = scope_element.application()?.ok_or_else(|| {
-            AutomationError::ElementNotFound(
-                "Cannot verify: scope element has no application window".to_string(),
-            )
-        })?;
-
         debug!(
-            "Verifying element does NOT exist: '{}' within app '{}'",
+            "Verifying element does NOT exist: '{}' within '{}'",
             selector,
-            app_window.name().unwrap_or_default()
+            scope_element.name().unwrap_or_default()
         );
 
-        // Create a locator scoped to the application window
+        // Create a locator scoped to the provided element (same as element.locator())
         let locator = self
             .locator(Selector::from(selector))
-            .within(app_window);
+            .within(scope_element.clone());
 
         // Try to find the element - we WANT this to fail (timeout)
         match locator
