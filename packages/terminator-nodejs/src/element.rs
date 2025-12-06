@@ -6,7 +6,7 @@ use terminator::{
 };
 
 use crate::{
-    map_error, Bounds, ClickResult, FontStyle, HighlightHandle, Locator, ScreenshotResult,
+    map_error, ActionResult, Bounds, ClickResult, FontStyle, HighlightHandle, Locator, ScreenshotResult,
     TextPosition, UIElementAttributes,
 };
 
@@ -19,9 +19,9 @@ use napi::bindgen_prelude::Either;
 pub struct ActionOptions {
     /// Whether to highlight the element before performing the action. Defaults to false.
     pub highlight_before_action: Option<bool>,
-    /// Whether to capture window screenshot after action. Defaults to false.
+    /// Whether to capture window screenshot after action. Defaults to true.
     pub include_window_screenshot: Option<bool>,
-    /// Whether to capture monitor screenshots after action. Defaults to false.
+    /// Whether to capture monitor screenshots after action. Defaults to true.
     pub include_monitor_screenshots: Option<bool>,
 }
 
@@ -33,9 +33,9 @@ pub struct TypeTextOptions {
     pub use_clipboard: Option<bool>,
     /// Whether to highlight the element before typing. Defaults to false.
     pub highlight_before_action: Option<bool>,
-    /// Whether to capture window screenshot after action. Defaults to false.
+    /// Whether to capture window screenshot after action. Defaults to true.
     pub include_window_screenshot: Option<bool>,
-    /// Whether to capture monitor screenshots after action. Defaults to false.
+    /// Whether to capture monitor screenshots after action. Defaults to true.
     pub include_monitor_screenshots: Option<bool>,
 }
 
@@ -75,11 +75,12 @@ fn capture_element_screenshots(
 
     if include_monitors {
         // Create temporary desktop for monitor capture
-        let temp_desktop = terminator::Desktop::new(false, false);
-        if let Ok(monitors) = futures::executor::block_on(temp_desktop.capture_all_monitors()) {
-            let saved = terminator::screenshot_logger::save_monitor_screenshots(&monitors, &prefix, None);
-            if !saved.is_empty() {
-                result.monitor_paths = Some(saved.into_iter().map(|s| s.path.to_string_lossy().to_string()).collect());
+        if let Ok(temp_desktop) = terminator::Desktop::new(false, false) {
+            if let Ok(monitors) = futures::executor::block_on(temp_desktop.capture_all_monitors()) {
+                let saved = terminator::screenshot_logger::save_monitor_screenshots(&monitors, &prefix, None);
+                if !saved.is_empty() {
+                    result.monitor_paths = Some(saved.into_iter().map(|s| s.path.to_string_lossy().to_string()).collect());
+                }
             }
         }
     }
@@ -215,8 +216,8 @@ impl Element {
         // Capture screenshots if requested
         let screenshots = capture_element_screenshots(
             &self.inner,
-            opts.include_window_screenshot.unwrap_or(false),
-            opts.include_monitor_screenshots.unwrap_or(false),
+            opts.include_window_screenshot.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(true),
             "click",
         );
         result.window_screenshot_path = screenshots.window_path;
@@ -241,8 +242,8 @@ impl Element {
         // Capture screenshots if requested
         let screenshots = capture_element_screenshots(
             &self.inner,
-            opts.include_window_screenshot.unwrap_or(false),
-            opts.include_monitor_screenshots.unwrap_or(false),
+            opts.include_window_screenshot.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(true),
             "doubleClick",
         );
         result.window_screenshot_path = screenshots.window_path;
@@ -308,8 +309,9 @@ impl Element {
     ///
     /// @param {string} text - The text to type.
     /// @param {TypeTextOptions} [options] - Options for typing.
+    /// @returns {ActionResult} Result of the type operation.
     #[napi]
-    pub fn type_text(&self, text: String, options: Option<TypeTextOptions>) -> napi::Result<()> {
+    pub fn type_text(&self, text: String, options: Option<TypeTextOptions>) -> napi::Result<ActionResult> {
         let opts = options.unwrap_or_default();
         if opts.highlight_before_action.unwrap_or(false) {
             let _ = self.inner.highlight_before_action("type");
@@ -317,34 +319,78 @@ impl Element {
         let _ = self.inner.activate_window();
         self.inner
             .type_text(&text, opts.use_clipboard.unwrap_or(false))
-            .map_err(map_error)
+            .map_err(map_error)?;
+
+        // Capture screenshots if requested
+        let screenshots = capture_element_screenshots(
+            &self.inner,
+            opts.include_window_screenshot.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(true),
+            "typeText",
+        );
+
+        Ok(ActionResult {
+            success: true,
+            window_screenshot_path: screenshots.window_path,
+            monitor_screenshot_paths: screenshots.monitor_paths,
+        })
     }
 
     /// Press a key while this element is focused.
     ///
     /// @param {string} key - The key to press.
     /// @param {ActionOptions} [options] - Options for the key press action.
+    /// @returns {ActionResult} Result of the key press operation.
     #[napi]
-    pub fn press_key(&self, key: String, options: Option<ActionOptions>) -> napi::Result<()> {
+    pub fn press_key(&self, key: String, options: Option<ActionOptions>) -> napi::Result<ActionResult> {
         let opts = options.unwrap_or_default();
         if opts.highlight_before_action.unwrap_or(false) {
             let _ = self.inner.highlight_before_action("key");
         }
         let _ = self.inner.activate_window();
-        self.inner.press_key(&key).map_err(map_error)
+        self.inner.press_key(&key).map_err(map_error)?;
+
+        // Capture screenshots if requested
+        let screenshots = capture_element_screenshots(
+            &self.inner,
+            opts.include_window_screenshot.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(true),
+            "pressKey",
+        );
+
+        Ok(ActionResult {
+            success: true,
+            window_screenshot_path: screenshots.window_path,
+            monitor_screenshot_paths: screenshots.monitor_paths,
+        })
     }
 
     /// Set value of this element.
     ///
     /// @param {string} value - The value to set.
     /// @param {ActionOptions} [options] - Options for the set value action.
+    /// @returns {ActionResult} Result of the set value operation.
     #[napi]
-    pub fn set_value(&self, value: String, options: Option<ActionOptions>) -> napi::Result<()> {
+    pub fn set_value(&self, value: String, options: Option<ActionOptions>) -> napi::Result<ActionResult> {
         let opts = options.unwrap_or_default();
         if opts.highlight_before_action.unwrap_or(false) {
             let _ = self.inner.highlight_before_action("set_value");
         }
-        self.inner.set_value(&value).map_err(map_error)
+        self.inner.set_value(&value).map_err(map_error)?;
+
+        // Capture screenshots if requested
+        let screenshots = capture_element_screenshots(
+            &self.inner,
+            opts.include_window_screenshot.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(true),
+            "setValue",
+        );
+
+        Ok(ActionResult {
+            success: true,
+            window_screenshot_path: screenshots.window_path,
+            monitor_screenshot_paths: screenshots.monitor_paths,
+        })
     }
 
     /// Perform a named action on this element.
@@ -359,13 +405,28 @@ impl Element {
     /// This is often more reliable than clicking for controls like radio buttons or menu items.
     ///
     /// @param {ActionOptions} [options] - Options for the invoke action.
+    /// @returns {ActionResult} Result of the invoke operation.
     #[napi]
-    pub fn invoke(&self, options: Option<ActionOptions>) -> napi::Result<()> {
+    pub fn invoke(&self, options: Option<ActionOptions>) -> napi::Result<ActionResult> {
         let opts = options.unwrap_or_default();
         if opts.highlight_before_action.unwrap_or(false) {
             let _ = self.inner.highlight_before_action("invoke");
         }
-        self.inner.invoke().map_err(map_error)
+        self.inner.invoke().map_err(map_error)?;
+
+        // Capture screenshots if requested
+        let screenshots = capture_element_screenshots(
+            &self.inner,
+            opts.include_window_screenshot.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(true),
+            "invoke",
+        );
+
+        Ok(ActionResult {
+            success: true,
+            window_screenshot_path: screenshots.window_path,
+            monitor_screenshot_paths: screenshots.monitor_paths,
+        })
     }
 
     /// Scroll the element in a given direction.
@@ -373,13 +434,28 @@ impl Element {
     /// @param {string} direction - The direction to scroll.
     /// @param {number} amount - The amount to scroll.
     /// @param {ActionOptions} [options] - Options for the scroll action.
+    /// @returns {ActionResult} Result of the scroll operation.
     #[napi]
-    pub fn scroll(&self, direction: String, amount: f64, options: Option<ActionOptions>) -> napi::Result<()> {
+    pub fn scroll(&self, direction: String, amount: f64, options: Option<ActionOptions>) -> napi::Result<ActionResult> {
         let opts = options.unwrap_or_default();
         if opts.highlight_before_action.unwrap_or(false) {
             let _ = self.inner.highlight_before_action("scroll");
         }
-        self.inner.scroll(&direction, amount).map_err(map_error)
+        self.inner.scroll(&direction, amount).map_err(map_error)?;
+
+        // Capture screenshots if requested
+        let screenshots = capture_element_screenshots(
+            &self.inner,
+            opts.include_window_screenshot.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(true),
+            "scroll",
+        );
+
+        Ok(ActionResult {
+            success: true,
+            window_screenshot_path: screenshots.window_path,
+            monitor_screenshot_paths: screenshots.monitor_paths,
+        })
     }
 
     /// Activate the window containing this element.
