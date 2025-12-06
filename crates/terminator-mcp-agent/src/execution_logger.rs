@@ -49,8 +49,8 @@ pub struct ExecutionResponse {
 pub struct ScreenshotRefs {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub before: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub after: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub after: Vec<String>,
 }
 
 /// Context for logging an execution (passed between request and response logging)
@@ -210,8 +210,9 @@ fn extract_and_save_screenshots(
 ) -> Option<ScreenshotRefs> {
     let mut refs = ScreenshotRefs {
         before: None,
-        after: None,
+        after: Vec::new(),
     };
+    let mut screenshot_counter = 0usize;
 
     // Look for screenshot in various locations in the result
     // Common patterns: result.screenshot, result.screenshot_before, result.screenshot_after
@@ -221,7 +222,8 @@ fn extract_and_save_screenshots(
     if let Some(screenshot) = extract_base64_image(result, &["screenshot", "image", "screenshot_base64"]) {
         let filename = format!("{}_after.png", file_prefix);
         if save_screenshot(dir, &filename, &screenshot) {
-            refs.after = Some(filename);
+            refs.after.push(filename);
+            screenshot_counter += 1;
         }
     }
 
@@ -233,27 +235,32 @@ fn extract_and_save_screenshots(
         }
     }
 
-    // Try screenshot_after (explicit)
-    if refs.after.is_none() {
+    // Try screenshot_after (explicit) - only if no screenshots saved yet
+    if refs.after.is_empty() {
         if let Some(screenshot) = extract_base64_image(result, &["screenshot_after", "after_screenshot"]) {
             let filename = format!("{}_after.png", file_prefix);
             if save_screenshot(dir, &filename, &screenshot) {
-                refs.after = Some(filename);
+                refs.after.push(filename);
+                screenshot_counter += 1;
             }
         }
     }
 
-    // Check in content array (MCP response format)
+    // Check in content array (MCP response format) - save ALL images
     if let Some(content) = result.get("content").and_then(|c| c.as_array()) {
         for item in content {
             // Image content type
             if item.get("type").and_then(|t| t.as_str()) == Some("image") {
                 if let Some(data) = item.get("data").and_then(|d| d.as_str()) {
-                    if refs.after.is_none() {
-                        let filename = format!("{}_after.png", file_prefix);
-                        if save_screenshot(dir, &filename, data) {
-                            refs.after = Some(filename);
-                        }
+                    // Generate unique filename for each screenshot
+                    let filename = if screenshot_counter == 0 {
+                        format!("{}_after.png", file_prefix)
+                    } else {
+                        format!("{}_after_{}.png", file_prefix, screenshot_counter)
+                    };
+                    if save_screenshot(dir, &filename, data) {
+                        refs.after.push(filename);
+                        screenshot_counter += 1;
                     }
                 }
             }
@@ -261,11 +268,14 @@ fn extract_and_save_screenshots(
             if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
                 if let Ok(parsed) = serde_json::from_str::<Value>(text) {
                     if let Some(screenshot) = extract_base64_image(&parsed, &["screenshot", "image"]) {
-                        if refs.after.is_none() {
-                            let filename = format!("{}_after.png", file_prefix);
-                            if save_screenshot(dir, &filename, &screenshot) {
-                                refs.after = Some(filename);
-                            }
+                        let filename = if screenshot_counter == 0 {
+                            format!("{}_after.png", file_prefix)
+                        } else {
+                            format!("{}_after_{}.png", file_prefix, screenshot_counter)
+                        };
+                        if save_screenshot(dir, &filename, &screenshot) {
+                            refs.after.push(filename);
+                            screenshot_counter += 1;
                         }
                     }
                 }
@@ -273,7 +283,7 @@ fn extract_and_save_screenshots(
         }
     }
 
-    if refs.before.is_some() || refs.after.is_some() {
+    if refs.before.is_some() || !refs.after.is_empty() {
         Some(refs)
     } else {
         None
@@ -284,8 +294,8 @@ fn extract_and_save_screenshots(
 fn extract_base64_image(value: &Value, field_names: &[&str]) -> Option<String> {
     for name in field_names {
         if let Some(img) = value.get(*name).and_then(|v| v.as_str()) {
-            // Check if it looks like base64 image data
-            if img.len() > 100 && (img.starts_with("iVBOR") || img.starts_with("/9j/") || img.contains("base64,")) {
+            // Check if it looks like base64 image data (minimum ~80 chars for minimal 1x1 PNG)
+            if img.len() >= 80 && (img.starts_with("iVBOR") || img.starts_with("/9j/") || img.contains("base64,")) {
                 // Strip data URL prefix if present
                 let data = if let Some(pos) = img.find("base64,") {
                     &img[pos + 7..]
