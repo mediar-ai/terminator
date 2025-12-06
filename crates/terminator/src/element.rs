@@ -1175,26 +1175,10 @@ impl UIElement {
 
         let start = std::time::Instant::now();
 
-        // Step 1: Try focus first - many apps auto-scroll on focus
-        if let Err(e) = self.focus() {
-            tracing::debug!("Focus before action failed (non-fatal): {}", e);
-        }
+        // Step 1: Ensure element is visible (focus + scroll)
+        let _ = self.ensure_in_view();
 
-        // Step 2: Ensure element is scrolled into view
-        let scroll_start = std::time::Instant::now();
-        if let Err(e) = self.scroll_into_view() {
-            warn!(
-                "Failed to scroll element into view for {} action: {}",
-                action_name, e
-            );
-            // Continue anyway - scrolling is best-effort
-        }
-        info!(
-            "[PERF] scroll_into_view: {}ms",
-            scroll_start.elapsed().as_millis()
-        );
-
-        // Step 3: Apply highlight with hardcoded settings
+        // Step 2: Apply highlight with hardcoded settings
         let duration = Some(std::time::Duration::from_millis(500));
         let color = Some(0x00FF00); // Green in BGR
         let role_text = self.role();
@@ -1241,20 +1225,10 @@ impl UIElement {
 
         let start = std::time::Instant::now();
 
-        // Step 1: Try focus first
-        if let Err(e) = self.focus() {
-            tracing::debug!("Focus before action failed (non-fatal): {}", e);
-        }
+        // Step 1: Ensure element is visible (focus + scroll)
+        let _ = self.ensure_in_view();
 
-        // Step 2: Ensure element is scrolled into view
-        if let Err(e) = self.scroll_into_view() {
-            warn!(
-                "Failed to scroll element into view for {} action: {}",
-                action_name, e
-            );
-        }
-
-        // Step 3: Apply highlight (simplified for non-Windows)
+        // Step 2: Apply highlight (simplified for non-Windows)
         let duration = Some(std::time::Duration::from_millis(500));
         let color = Some(0x00FF00); // Green
 
@@ -1278,6 +1252,55 @@ impl UIElement {
         );
 
         Ok(handle)
+    }
+
+    /// Ensures element is visible by focusing and scrolling it into view.
+    ///
+    /// This is useful before performing actions on elements that may be off-screen.
+    /// Unlike `scroll_into_view()`, this method tries `focus()` first which often
+    /// triggers the application to auto-scroll the element into view.
+    ///
+    /// # Strategy
+    /// 1. Attempts to focus the element (many apps auto-scroll focused elements)
+    /// 2. Calls `scroll_into_view()` to ensure visibility
+    ///
+    /// # Returns
+    /// * `Ok(())` - Element should now be visible
+    /// * Errors from scrolling are logged but don't cause failure (best-effort)
+    pub fn ensure_in_view(&self) -> Result<(), AutomationError> {
+        use tracing::{debug, info, warn};
+
+        let start = std::time::Instant::now();
+
+        // Step 1: Try focus first - many apps auto-scroll on focus
+        match self.focus() {
+            Ok(()) => {
+                debug!("Focus succeeded, app may have auto-scrolled element into view");
+                // Give the app a moment to process the focus
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(e) => {
+                debug!("Focus failed (non-fatal): {}", e);
+            }
+        }
+
+        // Step 2: Ensure element is scrolled into view
+        let scroll_start = std::time::Instant::now();
+        if let Err(e) = self.scroll_into_view() {
+            warn!("scroll_into_view failed (non-fatal): {}", e);
+            // Continue anyway - scrolling is best-effort
+        }
+        info!(
+            "[PERF] scroll_into_view: {}ms",
+            scroll_start.elapsed().as_millis()
+        );
+
+        info!(
+            "[PERF] ensure_in_view: {}ms",
+            start.elapsed().as_millis()
+        );
+
+        Ok(())
     }
 
     /// Capture a screenshot of the element
