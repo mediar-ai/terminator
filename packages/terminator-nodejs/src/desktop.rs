@@ -1539,113 +1539,13 @@ impl Desktop {
         title: Option<String>,
         config: Option<TreeBuildConfig>,
     ) -> napi::Result<WindowTreeResult> {
-        // Extract options before converting config
+        // Extract output format before converting config
         let output_format = config
             .as_ref()
             .and_then(|c| c.tree_output_format.clone())
             .unwrap_or(TreeOutputFormat::CompactYaml);
 
-        let tree_from_selector = config
-            .as_ref()
-            .and_then(|c| c.tree_from_selector.clone());
-
-        let max_depth = config
-            .as_ref()
-            .and_then(|c| c.max_depth)
-            .unwrap_or(100) as usize;
-
-        // If tree_from_selector is provided, find the app by PID and search within it
-        if let Some(selector_str) = tree_from_selector {
-            // First, find the application element by PID
-            let apps = self.inner.applications().map_err(map_error)?;
-            let app_element = apps
-                .into_iter()
-                .find(|app| app.process_id().ok() == Some(pid))
-                .ok_or_else(|| {
-                    napi::Error::from_reason(format!(
-                        "No application found with PID {}",
-                        pid
-                    ))
-                })?;
-
-            // Now search within this application element
-            let selector = terminator::Selector::from(selector_str.as_str());
-            let locator = app_element.locator(selector).map_err(map_error)?;
-
-            let element = locator
-                .first(Some(std::time::Duration::from_millis(2000)))
-                .await
-                .map_err(map_error)?;
-
-            // Get the subtree from this element
-            let serializable_tree = element.to_serializable_tree(max_depth);
-            let tree = crate::types::serializable_to_ui_node(&serializable_tree);
-
-            // Format based on output format
-            let formatted = match output_format {
-                TreeOutputFormat::VerboseJson => {
-                    Some(serde_json::to_string_pretty(&tree).unwrap_or_default())
-                }
-                TreeOutputFormat::CompactYaml => {
-                    // Use the core formatter
-                    let result = terminator::format_tree_as_compact_yaml(&serializable_tree, 0);
-                    Some(result.formatted)
-                }
-                TreeOutputFormat::ClusteredYaml => {
-                    // ClusteredYaml requires additional data sources (DOM, OCR, Omniparser, Vision)
-                    // For now, fall back to CompactYaml since we only have UIA data here.
-                    // Use format_clustered_tree_from_caches when you have all data sources.
-                    let result = terminator::format_tree_as_compact_yaml(&serializable_tree, 0);
-                    Some(result.formatted)
-                }
-            };
-
-            // Build index_to_bounds from the formatted result
-            let index_to_bounds = if matches!(
-                output_format,
-                TreeOutputFormat::CompactYaml | TreeOutputFormat::ClusteredYaml
-            ) {
-                let result = terminator::format_tree_as_compact_yaml(&serializable_tree, 0);
-                result
-                    .index_to_bounds
-                    .into_iter()
-                    .map(|(idx, (role, name, (x, y, w, h), selector))| {
-                        (
-                            idx.to_string(),
-                            crate::types::BoundsEntry {
-                                role,
-                                name,
-                                bounds: crate::types::Bounds {
-                                    x,
-                                    y,
-                                    width: w,
-                                    height: h,
-                                },
-                                selector,
-                            },
-                        )
-                    })
-                    .collect()
-            } else {
-                std::collections::HashMap::new()
-            };
-
-            let element_count = index_to_bounds.len() as u32;
-            let is_browser = terminator::is_browser_process(pid);
-
-            return Ok(WindowTreeResult {
-                tree,
-                pid,
-                is_browser,
-                formatted,
-                index_to_bounds,
-                element_count,
-                window_screenshot_path: None,
-                monitor_screenshot_paths: None,
-            });
-        }
-
-        // No tree_from_selector, use standard method
+        // Build rust config with from_selector passed through
         let rust_config = config.map(|mut c| {
             if matches!(output_format, TreeOutputFormat::VerboseJson) {
                 c.format_output = Some(false);
@@ -1655,9 +1555,11 @@ impl Desktop {
             c.into()
         });
 
+        // Use core SDK's async method which handles from_selector internally
         let result = self
             .inner
-            .get_window_tree_result(pid, title.as_deref(), rust_config)
+            .get_window_tree_result_async(pid, title.as_deref(), rust_config)
+            .await
             .map_err(map_error)?;
 
         let mut sdk_result = WindowTreeResult::from(result);
