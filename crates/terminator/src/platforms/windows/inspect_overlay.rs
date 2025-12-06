@@ -59,8 +59,9 @@ impl InspectOverlayHandle {
 
 impl Drop for InspectOverlayHandle {
     fn drop(&mut self) {
-        // Signal close but don't wait
-        self.should_close.store(true, Ordering::Relaxed);
+        // Don't auto-close on drop - use hide_inspect_overlay() or .close() explicitly
+        // This allows the overlay to persist even when the handle is discarded
+        // (e.g., in language bindings that don't hold the handle)
     }
 }
 
