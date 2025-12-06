@@ -1032,8 +1032,49 @@ impl DesktopWrapper {
                 }
             }
             Err(e) => {
-                warn!("[capture_browser_dom] execute_browser_script failed: {e}");
-                Err(format!("Failed to execute browser script: {e}"))
+                let err_msg = e.to_string();
+                // Check if we're on a chrome:// page (new tab, settings, extensions, etc.)
+                if err_msg.contains("chrome://") || err_msg.contains("Cannot access a chrome") {
+                    warn!("[capture_browser_dom] Detected chrome:// page, navigating to google.com and retrying");
+
+                    // Navigate to google.com
+                    if let Err(nav_err) = self.desktop.open_url("https://www.google.com", Some(Browser::Custom("chrome".to_string()))) {
+                        warn!("[capture_browser_dom] Navigation to google.com failed: {nav_err}");
+                        return Err(format!("Cannot capture DOM on chrome:// page, navigation failed: {nav_err}"));
+                    }
+
+                    // Wait for page to load
+                    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+
+                    // Retry the script
+                    match self.desktop.execute_browser_script(&script).await {
+                        Ok(result_str) => {
+                            info!("[capture_browser_dom] Retry succeeded after navigation, len={}", result_str.len());
+                            match serde_json::from_str::<serde_json::Value>(&result_str) {
+                                Ok(result) => {
+                                    let elements = result
+                                        .get("elements")
+                                        .and_then(|v| v.as_array())
+                                        .cloned()
+                                        .unwrap_or_default();
+                                    info!("[capture_browser_dom] Returning {} elements after retry", elements.len());
+                                    Ok((elements, viewport_offset.0, viewport_offset.1))
+                                }
+                                Err(parse_err) => {
+                                    warn!("[capture_browser_dom] JSON parse failed after retry: {parse_err}");
+                                    Err(format!("Failed to parse DOM elements after retry: {parse_err}"))
+                                }
+                            }
+                        }
+                        Err(retry_err) => {
+                            warn!("[capture_browser_dom] Retry failed after navigation: {retry_err}");
+                            Err(format!("DOM capture failed after navigating away from chrome:// page: {retry_err}"))
+                        }
+                    }
+                } else {
+                    warn!("[capture_browser_dom] execute_browser_script failed: {e}");
+                    Err(format!("Failed to execute browser script: {e}"))
+                }
             }
         }
     }
