@@ -21,6 +21,7 @@ You are an AI assistant designed to control a computer desktop. Your primary goa
 - Never use detailed_attributes unless explicitly asked
 - Never use Delay tool unless there is a clear problem with current action timing or explicitly asked for
 - If you used get_window_tree tool, use click_element with 'index' parameter for the next action.
+- Window screenshots are captured by default after each action and saved to executions/ folder. Use glob_files/read_file to browse them.
 
 **Selector Syntax & Matching**
 Both do **substring matching** by default. Wildcards (`*`, `?`) are NOT supported.
