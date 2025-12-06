@@ -68,29 +68,20 @@ pub fn extract_content_json(content: &Content) -> Result<serde_json::Value, serd
     }
 }
 
-/// Capture screenshots of all monitors and return them as MCP Content objects
-async fn capture_monitor_screenshots(desktop: &Desktop) -> Vec<Content> {
-    let mut contents = Vec::new();
+/// Capture screenshots of all monitors, save to disk, and return paths
+async fn capture_monitor_screenshots(desktop: &Desktop) -> Vec<String> {
+    let mut paths = Vec::new();
+
+    // Initialize screenshot logger
+    terminator::screenshot_logger::init();
+    let prefix = terminator::screenshot_logger::generate_prefix(Some("mcp"), "monitors");
 
     match desktop.capture_all_monitors().await {
         Ok(screenshots) => {
-            for (monitor, screenshot) in screenshots {
-                // Use core's to_base64_png_resized for consistent handling
-                match screenshot.to_base64_png_resized(None) {
-                    Ok(base64_data) => {
-                        contents.push(Content::image(base64_data, "image/png".to_string()));
-                        info!(
-                            "Captured monitor '{}' screenshot: {}x{}",
-                            monitor.name, screenshot.width, screenshot.height
-                        );
-                    }
-                    Err(e) => {
-                        warn!(
-                            "Failed to convert monitor '{}' screenshot to PNG: {}",
-                            monitor.name, e
-                        );
-                    }
-                }
+            let saved = terminator::screenshot_logger::save_monitor_screenshots(&screenshots, &prefix, None);
+            for s in saved {
+                info!("Saved monitor screenshot: {}", s.path.display());
+                paths.push(s.path.to_string_lossy().to_string());
             }
         }
         Err(e) => {
@@ -98,27 +89,32 @@ async fn capture_monitor_screenshots(desktop: &Desktop) -> Vec<Content> {
         }
     }
 
-    contents
+    paths
 }
 
 /// Helper to conditionally append monitor screenshots to existing content
-/// Only captures screenshots if include is true (defaults to false)
+/// Captures screenshots by default (defaults to true)
 async fn append_monitor_screenshots_if_enabled(
     desktop: &Desktop,
     mut contents: Vec<Content>,
     include: Option<bool>,
 ) -> Vec<Content> {
-    // Only capture if explicitly enabled (defaults to false)
-    if include.unwrap_or(false) {
-        let mut screenshots = capture_monitor_screenshots(desktop).await;
-        contents.append(&mut screenshots);
+    // Capture by default (defaults to true)
+    if include.unwrap_or(true) {
+        let paths = capture_monitor_screenshots(desktop).await;
+        if !paths.is_empty() {
+            contents.push(Content::text(format!("Monitor screenshots saved: {:?}", paths)));
+        }
     }
     contents
 }
 
-/// Capture a screenshot of the target window by process name
-/// Returns base64 PNG as Content::image, or None if capture fails
-async fn capture_window_screenshot(desktop: &Desktop, process: &str) -> Option<Content> {
+/// Capture a screenshot of the target window by process name, save to disk, return path
+async fn capture_window_screenshot(desktop: &Desktop, process: &str) -> Option<String> {
+    // Initialize screenshot logger
+    terminator::screenshot_logger::init();
+    let prefix = terminator::screenshot_logger::generate_prefix(Some("mcp"), process);
+
     // Use core's capture_window_by_process which handles finding the window
     let screenshot = match desktop.capture_window_by_process(process) {
         Ok(s) => s,
@@ -128,35 +124,31 @@ async fn capture_window_screenshot(desktop: &Desktop, process: &str) -> Option<C
         }
     };
 
-    // Use core's to_base64_png_resized which handles BGRA→RGBA, resize, and encoding
-    match screenshot.to_base64_png_resized(None) {
-        Ok(base64_data) => {
-            let (w, h) = screenshot.resized_dimensions(terminator::DEFAULT_MAX_DIMENSION);
-            info!(
-                "[window_screenshot] Captured '{}' window: {}x{}",
-                process, w, h
-            );
-            Some(Content::image(base64_data, "image/png".to_string()))
+    // Save to disk using screenshot_logger
+    match terminator::screenshot_logger::save_window_screenshot(&screenshot, &prefix, None) {
+        Some(saved) => {
+            info!("[window_screenshot] Saved '{}' window: {}", process, saved.path.display());
+            Some(saved.path.to_string_lossy().to_string())
         }
-        Err(e) => {
-            warn!("[window_screenshot] Failed to encode PNG: {}", e);
+        None => {
+            warn!("[window_screenshot] Failed to save screenshot for '{}'", process);
             None
         }
     }
 }
 
 /// Helper to conditionally append window screenshot to existing content
-/// Only captures screenshot if include is true (defaults to false)
+/// Captures screenshot by default (defaults to true)
 async fn append_window_screenshot_if_enabled(
     desktop: &Desktop,
     process: &str,
     mut contents: Vec<Content>,
     include: Option<bool>,
 ) -> Vec<Content> {
-    // Only capture if explicitly enabled (defaults to false)
-    if include.unwrap_or(false) {
-        if let Some(screenshot) = capture_window_screenshot(desktop, process).await {
-            contents.push(screenshot);
+    // Capture by default (defaults to true)
+    if include.unwrap_or(true) {
+        if let Some(path) = capture_window_screenshot(desktop, process).await {
+            contents.push(Content::text(format!("Window screenshot saved: {}", path)));
         }
     }
     contents
@@ -8959,382 +8951,6 @@ fn download_terminator_source_direct() -> Result<(), Box<dyn std::error::Error +
     Ok(())
 }
 
-// NOTE: Computer use helper methods removed - now using Desktop::gemini_computer_use directly
-
-impl DesktopWrapper {
-    pub(crate) async fn dispatch_tool(
-        &self,
-        peer: Peer<RoleServer>,
-        request_context: RequestContext<RoleServer>,
-        tool_name: &str,
-        arguments: &serde_json::Value,
-        execution_context: Option<crate::utils::ToolExecutionContext>,
-    ) -> Result<CallToolResult, McpError> {
-        use rmcp::handler::server::wrapper::Parameters;
-
-        // Check if request is already cancelled before dispatching
-        if request_context.ct.is_cancelled() {
-            return Err(McpError::internal_error(
-                format!("Tool {tool_name} cancelled before execution"),
-                Some(json!({"code": -32001, "tool": tool_name})),
-            ));
-        }
-
-        // Window management for UI interaction tools
-        // Check if tool has a 'process' argument - if so, it needs window management
-        // No whitelist - any tool with a process argument gets window management
-        let process_name = arguments
-            .get("process")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-
-        // Get browser URL if available (for Gemini Computer Use API requirement)
-        let browser_url = window_element.url();
-
-        // Get window bounds (absolute screen coordinates)
-        let bounds = window_element
-            .bounds()
-            .map_err(|e| format!("Failed to get window bounds: {e}"))?;
-        let (window_x, window_y, win_w, win_h) = bounds;
-
-        // Capture screenshot
-        let screenshot = window_element
-            .capture()
-            .map_err(|e| format!("Failed to capture screenshot: {e}"))?;
-
-        let original_width = screenshot.width;
-        let original_height = screenshot.height;
-
-        // Calculate DPI scale
-        let dpi_scale_w = original_width as f64 / win_w;
-
-        // Convert BGRA to RGBA
-        let rgba_data: Vec<u8> = screenshot
-            .image_data
-            .chunks_exact(4)
-            .flat_map(|bgra| [bgra[2], bgra[1], bgra[0], bgra[3]])
-            .collect();
-
-        // Resize if needed (max 1920px)
-        const MAX_DIM: u32 = 1920;
-        let (final_width, final_height, final_rgba_data, resize_scale) = if original_width > MAX_DIM
-            || original_height > MAX_DIM
-        {
-            let scale = (MAX_DIM as f32 / original_width.max(original_height) as f32).min(1.0);
-            let new_width = (original_width as f32 * scale).round() as u32;
-            let new_height = (original_height as f32 * scale).round() as u32;
-
-            let img =
-                ImageBuffer::<Rgba<u8>, _>::from_raw(original_width, original_height, rgba_data)
-                    .ok_or("Failed to create image buffer")?;
-            let resized =
-                image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
-
-            (new_width, new_height, resized.into_raw(), scale as f64)
-        } else {
-            (original_width, original_height, rgba_data, 1.0)
-        };
-
-        // Encode to PNG
-        let mut png_data = Vec::new();
-        let encoder = PngEncoder::new(Cursor::new(&mut png_data));
-        encoder
-            .write_image(
-                &final_rgba_data,
-                final_width,
-                final_height,
-                ExtendedColorType::Rgba8,
-            )
-            .map_err(|e| format!("Failed to encode PNG: {e}"))?;
-
-        let base64_image = general_purpose::STANDARD.encode(&png_data);
-
-        Ok((
-            base64_image,
-            (window_x, window_y, final_width as f64, final_height as f64),
-            dpi_scale_w,
-            resize_scale,
-            browser_url,
-        ))
-    }
-
-    /// Translate Gemini Computer Use key format to uiautomation format
-    /// Gemini: "enter", "control+a", "Meta+Shift+T"
-    /// uiautomation: "{Enter}", "{Ctrl}a", "{Win}{Shift}t"
-    fn translate_gemini_keys(gemini_keys: &str) -> Result<String, String> {
-        let parts: Vec<&str> = gemini_keys.split('+').collect();
-        let mut result = String::new();
-
-        for (i, part) in parts.iter().enumerate() {
-            let lower = part.trim().to_lowercase();
-            let is_last = i == parts.len() - 1;
-
-            let translated: &str = match lower.as_str() {
-                // Modifiers
-                "control" | "ctrl" => "{Ctrl}",
-                "alt" => "{Alt}",
-                "shift" => "{Shift}",
-                "meta" | "cmd" | "command" | "win" | "windows" | "super" => "{Win}",
-
-                // Common special keys
-                "enter" | "return" => "{Enter}",
-                "tab" => "{Tab}",
-                "escape" | "esc" => "{Escape}",
-                "backspace" | "back" => "{Backspace}",
-                "delete" | "del" => "{Delete}",
-                "space" => "{Space}",
-                "insert" | "ins" => "{Insert}",
-                "home" => "{Home}",
-                "end" => "{End}",
-                "pageup" | "page_up" | "pgup" => "{PageUp}",
-                "pagedown" | "page_down" | "pgdn" => "{PageDown}",
-                "capslock" | "caps" => "{CapsLock}",
-                "numlock" => "{NumLock}",
-                "scrolllock" => "{ScrollLock}",
-                "printscreen" | "prtsc" => "{PrintScreen}",
-                "pause" => "{Pause}",
-
-                // Arrow keys
-                "up" | "arrowup" => "{Up}",
-                "down" | "arrowdown" => "{Down}",
-                "left" | "arrowleft" => "{Left}",
-                "right" | "arrowright" => "{Right}",
-
-                // Function keys - handle dynamically
-                s if s.starts_with('f') && s.len() <= 3 => {
-                    if let Ok(n) = s[1..].parse::<u8>() {
-                        if n >= 1 && n <= 24 {
-                            // Push the F-key and continue
-                            result.push_str(&format!("{{F{}}}", n));
-                            continue;
-                        }
-                    }
-                    return Err(format!(
-                        "Invalid function key '{}' in '{}'. Use f1-f24.",
-                        part, gemini_keys
-                    ));
-                }
-
-                // Single character (a-z, 0-9) - only valid as last part of combination
-                s if s.len() == 1 && is_last => {
-                    result.push_str(s);
-                    continue;
-                }
-
-                // Unknown key
-                unknown => {
-                    return Err(format!(
-                        "Unknown key '{}' in combination '{}'. Valid: enter, tab, escape, \
-                         backspace, delete, space, up/down/left/right, home, end, pageup, \
-                         pagedown, f1-f24, or modifiers (ctrl, alt, shift, meta) with letters.",
-                        unknown, gemini_keys
-                    ));
-                }
-            };
-
-            result.push_str(translated);
-        }
-
-        Ok(result)
-    }
-
-    /// Execute a computer use action by mapping to MCP tools
-    /// Handles both old ComputerUseActionArgs and new serde_json::Value args
-    async fn execute_computer_use_action(
-        &self,
-        _process: &str,
-        action: &str,
-        args: &serde_json::Value,
-        window_bounds: (f64, f64, f64, f64),
-        dpi_scale: f64,
-        resize_scale: f64,
-    ) -> Result<(), String> {
-        let (window_x, window_y, screenshot_w, screenshot_h) = window_bounds;
-
-        // Helper to get f64 from args
-        let get_f64 = |key: &str| -> Option<f64> { args.get(key).and_then(|v| v.as_f64()) };
-        let get_str = |key: &str| -> Option<&str> { args.get(key).and_then(|v| v.as_str()) };
-        let get_bool = |key: &str| -> Option<bool> { args.get(key).and_then(|v| v.as_bool()) };
-
-        // Helper to convert 0-999 normalized coords to absolute screen coords
-        let convert_coord = |norm_x: f64, norm_y: f64| -> (f64, f64) {
-            // Convert 0-999 to screenshot pixels
-            let px_x = (norm_x / 1000.0) * screenshot_w;
-            let px_y = (norm_y / 1000.0) * screenshot_h;
-            // Apply inverse resize scale
-            let px_x = px_x / resize_scale;
-            let px_y = px_y / resize_scale;
-            // Apply DPI conversion (physical to logical)
-            let logical_x = px_x / dpi_scale;
-            let logical_y = px_y / dpi_scale;
-            // Add window offset
-            let screen_x = window_x + logical_x;
-            let screen_y = window_y + logical_y;
-            (screen_x, screen_y)
-        };
-
-        match action {
-            "click_at" => {
-                let x = get_f64("x").ok_or("click_at requires x coordinate")?;
-                let y = get_f64("y").ok_or("click_at requires y coordinate")?;
-                let (screen_x, screen_y) = convert_coord(x, y);
-                info!(
-                    "[computer_use] click_at ({}, {}) -> screen ({}, {})",
-                    x, y, screen_x, screen_y
-                );
-                self.desktop
-                    .click_at_coordinates(screen_x, screen_y)
-                    .map_err(|e| format!("Click failed: {e}"))?;
-            }
-            "type_text_at" => {
-                let x = get_f64("x").ok_or("type_text_at requires x coordinate")?;
-                let y = get_f64("y").ok_or("type_text_at requires y coordinate")?;
-                let text = get_str("text").ok_or("type_text_at requires text")?;
-                let press_enter = get_bool("press_enter").unwrap_or(false);
-                let _clear_before = get_bool("clear_before_typing").unwrap_or(false);
-                let (screen_x, screen_y) = convert_coord(x, y);
-                info!(
-                    "[computer_use] type_text_at ({}, {}) -> screen ({}, {}), text: {}",
-                    x, y, screen_x, screen_y, text
-                );
-                // Click first to focus
-                self.desktop
-                    .click_at_coordinates(screen_x, screen_y)
-                    .map_err(|e| format!("Click before type failed: {e}"))?;
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                // Type text using root element
-                let root = self.desktop.root();
-                root.type_text(text, false)
-                    .map_err(|e| format!("Type text failed: {e}"))?;
-                // Press Enter if requested
-                if press_enter {
-                    tokio::time::sleep(Duration::from_millis(50)).await;
-                    self.desktop
-                        .press_key("{Enter}")
-                        .await
-                        .map_err(|e| format!("Press Enter failed: {e}"))?;
-                }
-            }
-            "key_combination" => {
-                let keys = get_str("keys").ok_or("key_combination requires keys")?;
-                let translated = Self::translate_gemini_keys(keys)?;
-                info!("[computer_use] key_combination: {} -> {}", keys, translated);
-                self.desktop
-                    .press_key(&translated)
-                    .await
-                    .map_err(|e| format!("Key press failed: {e}"))?;
-            }
-            "scroll_document" | "scroll_at" => {
-                let direction = get_str("direction").ok_or("scroll requires direction")?;
-                let magnitude = get_f64("magnitude").unwrap_or(3.0);
-                let amount: f64 = match direction {
-                    "up" => -magnitude,
-                    "down" => magnitude,
-                    "left" => -magnitude,
-                    "right" => magnitude,
-                    _ => magnitude,
-                };
-                info!("[computer_use] scroll: {} (amount: {})", direction, amount);
-                // If coordinates provided, click there first to focus
-                if let (Some(x), Some(y)) = (get_f64("x"), get_f64("y")) {
-                    let (screen_x, screen_y) = convert_coord(x, y);
-                    self.desktop
-                        .click_at_coordinates(screen_x, screen_y)
-                        .map_err(|e| format!("Click before scroll failed: {e}"))?;
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-                // Scroll using root element
-                let root = self.desktop.root();
-                root.scroll(direction, amount)
-                    .map_err(|e| format!("Scroll failed: {e}"))?;
-            }
-            "drag_and_drop" => {
-                // Support both x/y + destination_x/destination_y and start_x/start_y/end_x/end_y
-                let start_x = get_f64("x")
-                    .or(get_f64("start_x"))
-                    .ok_or("drag_and_drop requires x/start_x")?;
-                let start_y = get_f64("y")
-                    .or(get_f64("start_y"))
-                    .ok_or("drag_and_drop requires y/start_y")?;
-                let end_x = get_f64("destination_x")
-                    .or(get_f64("end_x"))
-                    .ok_or("drag_and_drop requires destination_x/end_x")?;
-                let end_y = get_f64("destination_y")
-                    .or(get_f64("end_y"))
-                    .ok_or("drag_and_drop requires destination_y/end_y")?;
-                let (start_screen_x, start_screen_y) = convert_coord(start_x, start_y);
-                let (end_screen_x, end_screen_y) = convert_coord(end_x, end_y);
-                info!(
-                    "[computer_use] drag_and_drop from ({}, {}) to ({}, {})",
-                    start_screen_x, start_screen_y, end_screen_x, end_screen_y
-                );
-                let root = self.desktop.root();
-                root.mouse_drag(start_screen_x, start_screen_y, end_screen_x, end_screen_y)
-                    .map_err(|e| format!("Drag failed: {e}"))?;
-            }
-            "wait_5_seconds" => {
-                info!("[computer_use] waiting 5 seconds");
-                tokio::time::sleep(Duration::from_secs(5)).await;
-            }
-            "hover_at" => {
-                let x = get_f64("x").ok_or("hover_at requires x coordinate")?;
-                let y = get_f64("y").ok_or("hover_at requires y coordinate")?;
-                let (screen_x, screen_y) = convert_coord(x, y);
-                info!(
-                    "[computer_use] hover_at ({}, {}) -> screen ({}, {})",
-                    x, y, screen_x, screen_y
-                );
-                let root = self.desktop.root();
-                root.mouse_move(screen_x, screen_y)
-                    .map_err(|e| format!("Mouse move failed: {e}"))?;
-            }
-            "navigate" => {
-                let url = get_str("url").ok_or("navigate requires url")?;
-                info!("[computer_use] navigate to: {}", url);
-                self.desktop
-                    .open_url(url, None)
-                    .map_err(|e| format!("Navigate failed: {e}"))?;
-            }
-            "search" => {
-                // Gemini Computer Use "search" action - performs a web search
-                let query = get_str("query")
-                    .or_else(|| get_str("text"))
-                    .or_else(|| get_str("q"))
-                    .unwrap_or("");
-                info!("[computer_use] search: {}", query);
-                if query.is_empty() {
-                    // No query - just press Enter to submit existing search
-                    self.desktop
-                        .press_key("{Enter}")
-                        .await
-                        .map_err(|e| format!("Press Enter for search failed: {e}"))?;
-                } else {
-                    // Open Google search with the query (simple URL encoding)
-                    let encoded_query: String = query
-                        .chars()
-                        .map(|c| match c {
-                            ' ' => "+".to_string(),
-                            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '~' => {
-                                c.to_string()
-                            }
-                            _ => format!("%{:02X}", c as u32),
-                        })
-                        .collect();
-                    let search_url = format!("https://www.google.com/search?q={}", encoded_query);
-                    self.desktop
-                        .open_url(&search_url, None)
-                        .map_err(|e| format!("Open search URL failed: {e}"))?;
-                }
-            }
-            _ => {
-                warn!("[computer_use] Unknown action: {}", action);
-                return Err(format!("Unknown action: {action}"));
-            }
-        }
-
-        Ok(())
-    }
-}
 
 impl DesktopWrapper {
     pub(crate) async fn dispatch_tool(
