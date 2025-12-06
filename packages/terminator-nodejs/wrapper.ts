@@ -356,6 +356,7 @@ export type {
   ComputerUsePendingConfirmation,
 } from "./index.js";
 export {
+  ClickType,
   ClusteredBoundsEntry,
   ClusteredFormattingResult,
   ElementSource,
