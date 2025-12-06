@@ -1775,6 +1775,67 @@ impl Desktop {
             .map_err(map_error)
     }
 
+    /// (async) Captures a screenshot. Three modes:
+    /// 1. Element mode: provide process + selector to capture specific element
+    /// 2. Window mode: provide process only to capture entire window
+    /// 3. Monitor mode: provide process + entireMonitor=true to capture the monitor where the window is located
+    ///
+    /// @param {string} process - Process name to match (e.g., "chrome", "notepad", "code")
+    /// @param {string} [selector] - Optional selector to capture a specific element within the process
+    /// @param {boolean} [entireMonitor=false] - If true, captures the entire monitor containing the window
+    /// @param {number} [timeoutMs=10000] - Timeout in milliseconds for finding the element
+    /// @returns {Promise<ScreenshotResult>} The screenshot data.
+    #[napi(js_name = "captureScreenshot")]
+    pub async fn capture_screenshot(
+        &self,
+        process: String,
+        selector: Option<String>,
+        entire_monitor: Option<bool>,
+        timeout_ms: Option<f64>,
+    ) -> napi::Result<ScreenshotResult> {
+        use std::time::Duration;
+
+        let entire_monitor = entire_monitor.unwrap_or(false);
+        let timeout = Duration::from_millis(timeout_ms.unwrap_or(10000.0) as u64);
+
+        // Build the full selector string like MCP does
+        let full_selector = if let Some(sel) = &selector {
+            if sel.is_empty() {
+                format!("process:{}", process)
+            } else {
+                format!("process:{} >> {}", process, sel)
+            }
+        } else {
+            format!("process:{}", process)
+        };
+
+        // Create locator and find element
+        let sel_rust: terminator::selector::Selector = full_selector.as_str().into();
+        let locator = self.inner.locator(sel_rust);
+        let element = locator.first(Some(timeout)).await.map_err(map_error)?;
+
+        if entire_monitor {
+            // Monitor mode: get element's monitor and capture it
+            let monitor = element.monitor().map_err(map_error)?;
+            let screenshot = monitor.capture(&self.inner).await.map_err(map_error)?;
+            Ok(ScreenshotResult {
+                width: screenshot.width,
+                height: screenshot.height,
+                image_data: screenshot.image_data,
+                monitor: Some(Monitor::from(monitor)),
+            })
+        } else {
+            // Element/Window mode: capture the element directly
+            let screenshot = element.capture().map_err(map_error)?;
+            Ok(ScreenshotResult {
+                width: screenshot.width,
+                height: screenshot.height,
+                image_data: screenshot.image_data,
+                monitor: screenshot.monitor.map(Monitor::from),
+            })
+        }
+    }
+
     // ============== SCREENSHOT UTILITIES ==============
 
     /// Convert a screenshot to PNG bytes.
