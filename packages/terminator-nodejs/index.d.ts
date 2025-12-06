@@ -862,6 +862,19 @@ export declare class Desktop {
    */
   captureWindowByProcess(process: string): ScreenshotResult
   /**
+   * (async) Captures a screenshot. Three modes:
+   * 1. Element mode: provide process + selector to capture specific element
+   * 2. Window mode: provide process only to capture entire window
+   * 3. Monitor mode: provide process + entireMonitor=true to capture the monitor where the window is located
+   *
+   * @param {string} process - Process name to match (e.g., "chrome", "notepad", "code")
+   * @param {string} [selector] - Optional selector to capture a specific element within the process
+   * @param {boolean} [entireMonitor=false] - If true, captures the entire monitor containing the window
+   * @param {number} [timeoutMs=10000] - Timeout in milliseconds for finding the element
+   * @returns {Promise<ScreenshotResult>} The screenshot data.
+   */
+  captureScreenshot(process: string, selector?: string | undefined | null, entireMonitor?: boolean | undefined | null, timeoutMs?: number | undefined | null): Promise<ScreenshotResult>
+  /**
    * Convert a screenshot to PNG bytes.
    * Converts BGRA to RGBA and encodes as PNG format.
    *
@@ -1386,10 +1399,10 @@ export declare class Locator {
   /**
    * (async) Get the first matching element.
    *
-   * @param {number} timeoutMs - Timeout in milliseconds (required).
+   * @param {number} [timeoutMs] - Timeout in milliseconds (default: 10000).
    * @returns {Promise<Element>} The first matching element.
    */
-  first(timeoutMs: number): Promise<Element>
+  first(timeoutMs?: number | undefined | null): Promise<Element>
   /**
    * (async) Get all matching elements.
    *
