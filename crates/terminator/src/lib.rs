@@ -37,8 +37,8 @@ pub use selector::Selector;
 pub use tokio_util::sync::CancellationToken;
 pub use tree_formatter::{
     format_clustered_tree_from_caches, format_ocr_tree_as_compact_yaml, format_tree_as_compact_yaml,
-    format_ui_node_as_compact_yaml, ClusteredFormattingResult, ElementSource, OcrFormattingResult,
-    TreeFormattingResult, UnifiedElement,
+    format_ui_node_as_compact_yaml, serializable_to_ui_node, ClusteredFormattingResult,
+    ElementSource, OcrFormattingResult, TreeFormattingResult, UnifiedElement,
 };
 pub use types::{FontStyle, HighlightHandle, OmniparserItem, TextPosition, VisionElement};
 
@@ -1108,6 +1108,97 @@ impl Desktop {
             index_to_bounds,
             element_count,
         })
+    }
+
+    /// Get the UI tree with full result, with async support for from_selector
+    ///
+    /// This method extends `get_window_tree_result` with support for `from_selector`
+    /// in the config, which allows building a subtree starting from a specific element
+    /// instead of the full window.
+    ///
+    /// # Arguments
+    /// * `pid` - Process ID of the target application
+    /// * `title` - Optional window title filter
+    /// * `config` - Tree building configuration. Set `from_selector` to scope the tree.
+    ///
+    /// # Returns
+    /// `WindowTreeResult` containing the tree (or subtree), formatted output, and bounds mapping
+    #[instrument(skip(self, pid, title, config))]
+    pub async fn get_window_tree_result_async(
+        &self,
+        pid: u32,
+        title: Option<&str>,
+        config: Option<crate::platforms::TreeBuildConfig>,
+    ) -> Result<WindowTreeResult, AutomationError> {
+        let tree_config = config.unwrap_or_default();
+        let format_output = tree_config.format_output;
+        let from_selector = tree_config.from_selector.clone();
+        let max_depth = tree_config.max_depth.unwrap_or(100);
+
+        // If from_selector is specified, find the element and build subtree from it
+        if let Some(selector_str) = from_selector {
+            // Find app element by PID
+            let apps = self.applications()?;
+            let app_element = apps
+                .into_iter()
+                .find(|app| app.process_id().ok() == Some(pid))
+                .ok_or_else(|| {
+                    AutomationError::ElementNotFound(format!(
+                        "No application found with PID {}",
+                        pid
+                    ))
+                })?;
+
+            // Find element by selector within the app
+            let selector = Selector::from(selector_str.as_str());
+            let locator = app_element.locator(selector)?;
+            let element = locator
+                .first(Some(std::time::Duration::from_millis(2000)))
+                .await?;
+
+            // Build subtree from this element
+            let serializable_tree = element.to_serializable_tree(max_depth);
+            let tree = serializable_to_ui_node(&serializable_tree);
+
+            // Check if browser process
+            #[cfg(target_os = "windows")]
+            let is_browser = is_browser_process(pid);
+            #[cfg(not(target_os = "windows"))]
+            let is_browser = false;
+
+            // Format the tree and get bounds mapping if requested
+            let (formatted, index_to_bounds, element_count) = if format_output {
+                let result = format_tree_as_compact_yaml(&serializable_tree, 0);
+                (
+                    Some(result.formatted),
+                    result.index_to_bounds,
+                    result.element_count,
+                )
+            } else {
+                (None, HashMap::new(), 0)
+            };
+
+            // Populate the UIA cache for index-based clicking
+            if !index_to_bounds.is_empty() {
+                if let Ok(mut cache) = self.uia_cache.lock() {
+                    cache.clear();
+                    cache.extend(index_to_bounds.clone());
+                    debug!("Populated UIA cache with {} elements (from_selector)", cache.len());
+                }
+            }
+
+            return Ok(WindowTreeResult {
+                tree,
+                pid,
+                is_browser,
+                formatted,
+                index_to_bounds,
+                element_count,
+            });
+        }
+
+        // No from_selector - use the sync method
+        self.get_window_tree_result(pid, title, Some(tree_config))
     }
 
     /// Get the UI tree for all open applications in parallel.
