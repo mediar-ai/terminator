@@ -1,6 +1,6 @@
 use crate::types::{
-    ComputerUseResult, ComputerUseStep, Monitor, MonitorScreenshotPair, TreeOutputFormat,
-    WindowTreeResult,
+    ClickResult, ClickType, ComputerUseResult, ComputerUseStep, Monitor, MonitorScreenshotPair,
+    ResizedDimensions, TreeOutputFormat, WindowTreeResult,
 };
 use crate::Selector;
 use crate::{
@@ -106,6 +106,45 @@ impl Desktop {
         self.inner.activate_application(&name).map_err(map_error)
     }
 
+    /// Click within element bounds at a specified position.
+    ///
+    /// This is useful for clicking on elements from UI tree, OCR, omniparser, gemini vision, or DOM
+    /// without needing an element reference - just the bounds.
+    ///
+    /// @param {number} x - X coordinate of the bounds.
+    /// @param {number} y - Y coordinate of the bounds.
+    /// @param {number} width - Width of the bounds.
+    /// @param {number} height - Height of the bounds.
+    /// @param {number} [xPercentage=50] - X position within bounds as percentage (0-100). Defaults to 50 (center).
+    /// @param {number} [yPercentage=50] - Y position within bounds as percentage (0-100). Defaults to 50 (center).
+    /// @param {ClickType} [clickType='left'] - Type of click: 'left', 'double', or 'right'.
+    /// @returns {ClickResult} Result with clicked coordinates and method details.
+    #[napi]
+    pub fn click_at_bounds(
+        &self,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        x_percentage: Option<u8>,
+        y_percentage: Option<u8>,
+        click_type: Option<ClickType>,
+    ) -> napi::Result<ClickResult> {
+        let bounds = (x, y, width, height);
+        let click_position = match (x_percentage, y_percentage) {
+            (Some(xp), Some(yp)) => Some((xp, yp)),
+            (Some(xp), None) => Some((xp, 50)),
+            (None, Some(yp)) => Some((50, yp)),
+            (None, None) => None,
+        };
+        let click_type = click_type.unwrap_or(ClickType::Left);
+
+        self.inner
+            .click_at_bounds(bounds, click_position, click_type.into())
+            .map(ClickResult::from)
+            .map_err(map_error)
+    }
+
     /// (async) Run a shell command.
     ///
     /// @param {string} [windowsCommand] - Command to run on Windows.
@@ -174,22 +213,7 @@ impl Desktop {
     /// @returns {Promise<string>} The extracted text.
     #[napi]
     pub async fn ocr_screenshot(&self, screenshot: ScreenshotResult) -> napi::Result<String> {
-        let rust_screenshot = terminator::ScreenshotResult {
-            image_data: screenshot.image_data,
-            width: screenshot.width,
-            height: screenshot.height,
-            monitor: screenshot.monitor.map(|m| terminator::Monitor {
-                id: m.id,
-                name: m.name,
-                is_primary: m.is_primary,
-                width: m.width,
-                height: m.height,
-                x: m.x,
-                y: m.y,
-                scale_factor: m.scale_factor,
-                work_area: None,
-            }),
-        };
+        let rust_screenshot = screenshot.to_inner();
         self.inner
             .ocr_screenshot(&rust_screenshot)
             .await
@@ -1558,6 +1582,83 @@ impl Desktop {
                     .collect()
             })
             .map_err(map_error)
+    }
+
+    /// Capture a screenshot of a window by process name.
+    ///
+    /// Finds the first window matching the given process name and captures its screenshot.
+    /// Process name matching is case-insensitive and uses substring matching.
+    ///
+    /// @param {string} process - Process name to match (e.g., "chrome", "notepad", "code")
+    /// @returns {ScreenshotResult} The screenshot data.
+    #[napi(js_name = "captureWindowByProcess")]
+    pub fn capture_window_by_process(&self, process: String) -> napi::Result<ScreenshotResult> {
+        self.inner
+            .capture_window_by_process(&process)
+            .map(|r| ScreenshotResult {
+                width: r.width,
+                height: r.height,
+                image_data: r.image_data,
+                monitor: r.monitor.map(Monitor::from),
+            })
+            .map_err(map_error)
+    }
+
+    // ============== SCREENSHOT UTILITIES ==============
+
+    /// Convert a screenshot to PNG bytes.
+    /// Converts BGRA to RGBA and encodes as PNG format.
+    ///
+    /// @param {ScreenshotResult} screenshot - The screenshot to convert.
+    /// @returns {Buffer} PNG-encoded bytes.
+    #[napi(js_name = "screenshotToPng")]
+    pub fn screenshot_to_png(&self, screenshot: ScreenshotResult) -> napi::Result<Vec<u8>> {
+        screenshot.to_inner().to_png().map_err(|e| napi::Error::from_reason(e.to_string()))
+    }
+
+    /// Convert a screenshot to PNG bytes with resizing.
+    /// If the image exceeds maxDimension in either width or height,
+    /// it will be resized while maintaining aspect ratio.
+    ///
+    /// @param {ScreenshotResult} screenshot - The screenshot to convert.
+    /// @param {number} [maxDimension] - Maximum width or height. Defaults to 1920.
+    /// @returns {Buffer} PNG-encoded bytes (potentially resized).
+    #[napi(js_name = "screenshotToPngResized")]
+    pub fn screenshot_to_png_resized(&self, screenshot: ScreenshotResult, max_dimension: Option<u32>) -> napi::Result<Vec<u8>> {
+        screenshot.to_inner().to_png_resized(max_dimension).map_err(|e| napi::Error::from_reason(e.to_string()))
+    }
+
+    /// Convert a screenshot to base64-encoded PNG string.
+    /// Useful for embedding in JSON responses or passing to LLMs.
+    ///
+    /// @param {ScreenshotResult} screenshot - The screenshot to convert.
+    /// @returns {string} Base64-encoded PNG string.
+    #[napi(js_name = "screenshotToBase64Png")]
+    pub fn screenshot_to_base64_png(&self, screenshot: ScreenshotResult) -> napi::Result<String> {
+        screenshot.to_inner().to_base64_png().map_err(|e| napi::Error::from_reason(e.to_string()))
+    }
+
+    /// Convert a screenshot to base64-encoded PNG string with resizing.
+    /// If the image exceeds maxDimension in either width or height,
+    /// it will be resized while maintaining aspect ratio.
+    ///
+    /// @param {ScreenshotResult} screenshot - The screenshot to convert.
+    /// @param {number} [maxDimension] - Maximum width or height. Defaults to 1920.
+    /// @returns {string} Base64-encoded PNG string (potentially resized).
+    #[napi(js_name = "screenshotToBase64PngResized")]
+    pub fn screenshot_to_base64_png_resized(&self, screenshot: ScreenshotResult, max_dimension: Option<u32>) -> napi::Result<String> {
+        screenshot.to_inner().to_base64_png_resized(max_dimension).map_err(|e| napi::Error::from_reason(e.to_string()))
+    }
+
+    /// Get the dimensions a screenshot would have after resizing.
+    ///
+    /// @param {ScreenshotResult} screenshot - The screenshot to check.
+    /// @param {number} maxDimension - Maximum width or height.
+    /// @returns {ResizedDimensions} Object with width and height after resize.
+    #[napi(js_name = "screenshotResizedDimensions")]
+    pub fn screenshot_resized_dimensions(&self, screenshot: ScreenshotResult, max_dimension: u32) -> ResizedDimensions {
+        let (width, height) = screenshot.to_inner().resized_dimensions(max_dimension);
+        ResizedDimensions { width, height }
     }
 
     /// (async) Get all window elements for a given application name.
