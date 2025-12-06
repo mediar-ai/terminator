@@ -32,6 +32,15 @@ export interface ClickResult {
   coordinates?: Coordinates
   details: string
 }
+/** Type of mouse click to perform */
+export const enum ClickType {
+  /** Single left click (default) */
+  Left = 'Left',
+  /** Double left click */
+  Double = 'Double',
+  /** Single right click */
+  Right = 'Right'
+}
 export interface CommandOutput {
   exitStatus?: number
   stdout: string
@@ -47,15 +56,20 @@ export interface Monitor {
   y: number
   scaleFactor: number
 }
-export interface MonitorScreenshotPair {
-  monitor: Monitor
-  screenshot: ScreenshotResult
-}
+/** A screenshot result containing image data and dimensions. */
 export interface ScreenshotResult {
   width: number
   height: number
   imageData: Array<number>
   monitor?: Monitor
+}
+export interface ResizedDimensions {
+  width: number
+  height: number
+}
+export interface MonitorScreenshotPair {
+  monitor: Monitor
+  screenshot: ScreenshotResult
 }
 export interface UIElementAttributes {
   role: string
@@ -463,6 +477,22 @@ export declare class Desktop {
    */
   activateApplication(name: string): void
   /**
+   * Click within element bounds at a specified position.
+   *
+   * This is useful for clicking on elements from UI tree, OCR, omniparser, gemini vision, or DOM
+   * without needing an element reference - just the bounds.
+   *
+   * @param {number} x - X coordinate of the bounds.
+   * @param {number} y - Y coordinate of the bounds.
+   * @param {number} width - Width of the bounds.
+   * @param {number} height - Height of the bounds.
+   * @param {number} [xPercentage=50] - X position within bounds as percentage (0-100). Defaults to 50 (center).
+   * @param {number} [yPercentage=50] - Y position within bounds as percentage (0-100). Defaults to 50 (center).
+   * @param {ClickType} [clickType='left'] - Type of click: 'left', 'double', or 'right'.
+   * @returns {ClickResult} Result with clicked coordinates and method details.
+   */
+  clickAtBounds(x: number, y: number, width: number, height: number, xPercentage?: number | undefined | null, yPercentage?: number | undefined | null, clickType?: ClickType | undefined | null): ClickResult
+  /**
    * (async) Run a shell command.
    *
    * @param {string} [windowsCommand] - Command to run on Windows.
@@ -519,18 +549,20 @@ export declare class Desktop {
   /**
    * (async) Get a clustered tree combining elements from multiple sources grouped by spatial proximity.
    *
-   * Combines accessibility tree (UIA) elements with optional DOM and Omniparser elements,
+   * Combines accessibility tree (UIA) elements with optional DOM, Omniparser, and Gemini Vision elements,
    * clustering nearby elements together. Each element is prefixed with its source:
    * - #u1, #u2... for UIA (accessibility tree)
    * - #d1, #d2... for DOM (browser content)
    * - #p1, #p2... for Omniparser (vision AI detection)
+   * - #g1, #g2... for Gemini Vision (AI element detection)
    *
    * @param {number} pid - Process ID of the window to analyze.
    * @param {number} [maxDomElements=100] - Maximum DOM elements to capture for browsers.
    * @param {boolean} [includeOmniparser=false] - Whether to include Omniparser vision detection.
+   * @param {boolean} [includeGeminiVision=false] - Whether to include Gemini Vision AI detection.
    * @returns {Promise<ClusteredFormattingResult>} Clustered tree with prefixed indices.
    */
-  getClusteredTree(pid: number, maxDomElements?: number | undefined | null, includeOmniparser?: boolean | undefined | null): Promise<ClusteredFormattingResult>
+  getClusteredTree(pid: number, maxDomElements?: number | undefined | null, includeOmniparser?: boolean | undefined | null, includeGeminiVision?: boolean | undefined | null): Promise<ClusteredFormattingResult>
   /**
    * (async) Perform Gemini vision AI detection on a window by PID.
    *
@@ -689,6 +721,60 @@ export declare class Desktop {
    * @returns {Promise<Array<{monitor: Monitor, screenshot: ScreenshotResult}>>} Array of monitor and screenshot pairs.
    */
   captureAllMonitors(): Promise<Array<MonitorScreenshotPair>>
+  /**
+   * Capture a screenshot of a window by process name.
+   *
+   * Finds the first window matching the given process name and captures its screenshot.
+   * Process name matching is case-insensitive and uses substring matching.
+   *
+   * @param {string} process - Process name to match (e.g., "chrome", "notepad", "code")
+   * @returns {ScreenshotResult} The screenshot data.
+   */
+  captureWindowByProcess(process: string): ScreenshotResult
+  /**
+   * Convert a screenshot to PNG bytes.
+   * Converts BGRA to RGBA and encodes as PNG format.
+   *
+   * @param {ScreenshotResult} screenshot - The screenshot to convert.
+   * @returns {Buffer} PNG-encoded bytes.
+   */
+  screenshotToPng(screenshot: ScreenshotResult): Array<number>
+  /**
+   * Convert a screenshot to PNG bytes with resizing.
+   * If the image exceeds maxDimension in either width or height,
+   * it will be resized while maintaining aspect ratio.
+   *
+   * @param {ScreenshotResult} screenshot - The screenshot to convert.
+   * @param {number} [maxDimension] - Maximum width or height. Defaults to 1920.
+   * @returns {Buffer} PNG-encoded bytes (potentially resized).
+   */
+  screenshotToPngResized(screenshot: ScreenshotResult, maxDimension?: number | undefined | null): Array<number>
+  /**
+   * Convert a screenshot to base64-encoded PNG string.
+   * Useful for embedding in JSON responses or passing to LLMs.
+   *
+   * @param {ScreenshotResult} screenshot - The screenshot to convert.
+   * @returns {string} Base64-encoded PNG string.
+   */
+  screenshotToBase64Png(screenshot: ScreenshotResult): string
+  /**
+   * Convert a screenshot to base64-encoded PNG string with resizing.
+   * If the image exceeds maxDimension in either width or height,
+   * it will be resized while maintaining aspect ratio.
+   *
+   * @param {ScreenshotResult} screenshot - The screenshot to convert.
+   * @param {number} [maxDimension] - Maximum width or height. Defaults to 1920.
+   * @returns {string} Base64-encoded PNG string (potentially resized).
+   */
+  screenshotToBase64PngResized(screenshot: ScreenshotResult, maxDimension?: number | undefined | null): string
+  /**
+   * Get the dimensions a screenshot would have after resizing.
+   *
+   * @param {ScreenshotResult} screenshot - The screenshot to check.
+   * @param {number} maxDimension - Maximum width or height.
+   * @returns {ResizedDimensions} Object with width and height after resize.
+   */
+  screenshotResizedDimensions(screenshot: ScreenshotResult, maxDimension: number): ResizedDimensions
   /**
    * (async) Get all window elements for a given application name.
    *
