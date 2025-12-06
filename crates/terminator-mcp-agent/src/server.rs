@@ -4985,8 +4985,17 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
                 .await;
         }
 
-        let action = |element: UIElement| async move {
-            element.mouse_drag(args.start_x, args.start_y, args.end_x, args.end_y)
+        let start_x = args.start_x;
+        let start_y = args.start_y;
+        let end_x = args.end_x;
+        let end_y = args.end_y;
+        let highlight_before = args.highlight.highlight_before_action;
+        let action = move |element: UIElement| async move {
+            // Apply highlighting before action if enabled
+            if highlight_before {
+                let _ = element.highlight_before_action("mouse_drag");
+            }
+            element.mouse_drag(start_x, start_y, end_x, end_y)
         };
 
         let ((_result, element), successful_selector) =
@@ -6992,6 +7001,7 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
             .tree_output_format
             .unwrap_or(crate::mcp_types::TreeOutputFormat::CompactYaml);
 
+        let highlight_before = args.highlight.highlight_before_action;
         let ((result, element), successful_selector, ui_diff) =
             match crate::helpers::find_and_execute_with_ui_diff(
                 &self.desktop,
@@ -7001,8 +7011,10 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
                 args.action.timeout_ms,
                 args.action.retries,
                 |element| async move {
-                    // Ensure element is visible before interaction
-                    let _ = element.ensure_in_view();
+                    // Apply highlighting before action if enabled
+                    if highlight_before {
+                        let _ = element.highlight_before_action("invoke");
+                    }
                     element.invoke_with_state()
                 },
                 args.tree.ui_diff_before_after,
@@ -7261,9 +7273,14 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
         }
 
         let value_to_set = args.value.clone();
+        let highlight_before = args.highlight.highlight_before_action;
         let action = move |element: UIElement| {
             let value_to_set = value_to_set.clone();
             async move {
+                // Apply highlighting before action if enabled
+                if highlight_before {
+                    let _ = element.highlight_before_action("set_value");
+                }
                 // Activate window to ensure it has keyboard focus before setting value
                 if let Err(e) = element.activate_window() {
                     tracing::warn!("Failed to activate window before setting value: {}", e);
