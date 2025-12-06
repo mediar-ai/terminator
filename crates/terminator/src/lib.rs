@@ -30,7 +30,7 @@ pub mod computer_use;
 pub use element::{OcrElement, SerializableUIElement, UIElement, UIElementAttributes};
 pub use errors::AutomationError;
 pub use locator::Locator;
-pub use screenshot::ScreenshotResult;
+pub use screenshot::{ScreenshotError, ScreenshotResult, DEFAULT_MAX_DIMENSION};
 pub use selector::Selector;
 pub use tokio_util::sync::CancellationToken;
 pub use tree_formatter::{
@@ -618,6 +618,46 @@ impl Desktop {
         }
 
         Ok(results)
+    }
+
+    /// Capture a screenshot of a window by process name
+    ///
+    /// Finds the first window matching the given process name and captures its screenshot.
+    /// Process name matching is case-insensitive and uses substring matching.
+    ///
+    /// # Arguments
+    /// * `process` - Process name to match (e.g., "chrome", "notepad", "code")
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use terminator::Desktop;
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let desktop = Desktop::new_default().unwrap();
+    ///     let screenshot = desktop.capture_window_by_process("notepad").await.unwrap();
+    ///     // Convert to base64 PNG for LLM consumption
+    ///     let base64_png = screenshot.to_base64_png_resized(Some(1920)).unwrap();
+    /// }
+    /// ```
+    #[instrument(skip(self))]
+    pub fn capture_window_by_process(&self, process: &str) -> Result<ScreenshotResult, AutomationError> {
+        let apps = self.applications()?;
+
+        // Find matching window by process name
+        let window_element = apps.into_iter().find(|app| {
+            if let Some(proc_name) = app.process_name() {
+                proc_name.to_lowercase().contains(&process.to_lowercase())
+            } else {
+                false
+            }
+        });
+
+        let window_element = window_element.ok_or_else(|| {
+            AutomationError::ElementNotFound(format!("No window found for process '{}'", process))
+        })?;
+
+        window_element.capture()
     }
 
     // ============== DEPRECATED METHODS ==============
