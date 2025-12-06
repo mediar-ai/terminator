@@ -126,6 +126,21 @@ pub enum TreeOutputFormat {
     ClusteredYaml,
 }
 
+/// Source of an element for clustered output
+#[napi(string_enum)]
+pub enum ElementSource {
+    /// #u - Accessibility tree (UIA)
+    Uia,
+    /// #d - Browser DOM
+    Dom,
+    /// #o - OCR text
+    Ocr,
+    /// #p - Omniparser vision
+    Omniparser,
+    /// #g - Gemini vision
+    Gemini,
+}
+
 /// Display mode for inspect overlay labels
 #[napi(string_enum)]
 pub enum OverlayDisplayMode {
@@ -330,6 +345,26 @@ pub struct OmniparserResult {
     pub index_to_bounds: HashMap<String, OmniparserBoundsEntry>,
     /// Total count of detected items
     pub item_count: u32,
+}
+
+/// Entry in clustered index mapping (for click targeting across all sources)
+#[napi(object, js_name = "ClusteredBoundsEntry")]
+pub struct ClusteredBoundsEntry {
+    /// Element source (Uia, Dom, Ocr, Omniparser, Gemini)
+    pub source: ElementSource,
+    /// Original index within the source
+    pub original_index: u32,
+    /// Bounding box in screen coordinates
+    pub bounds: Bounds,
+}
+
+/// Result of clustered tree formatting
+#[napi(object, js_name = "ClusteredFormattingResult")]
+pub struct ClusteredFormattingResult {
+    /// Formatted clustered YAML output
+    pub formatted: String,
+    /// Mapping from prefixed index (e.g., "u1", "d2") to source and bounds
+    pub index_to_source_and_bounds: HashMap<String, ClusteredBoundsEntry>,
 }
 
 #[napi(object, js_name = "TreeBuildConfig")]
