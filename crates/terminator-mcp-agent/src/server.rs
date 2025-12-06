@@ -3463,216 +3463,37 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
     }
 
     #[tool(
-        description = "For SDK usage, use grep_files/read_file with working_directory set to terminator-source path.
+        description = "IMPORTANT: Always use grep_files/read_file with working_directory set to terminator-source to search SDK docs and examples before writing code. Verify API syntax from source.
 
-Executes a shell command (GitHub Actions-style) OR runs inline code via an engine. Use 'run' for shell commands. Or set 'engine' to 'node'/'bun'/'javascript'/'typescript'/'ts' for JS/TS with terminator.js and provide the code in 'run' or 'script_file'. TypeScript is supported with automatic transpilation. When using engine mode, you can pass data to subsequent workflow steps by returning { set_env: { key: value } } or using console.log('::set-env name=key::value'). Access variables in later steps using direct syntax (e.g., 'key' in conditions or {{key}} in substitutions). NEW: Use 'script_file' to load scripts from files, 'env' to inject environment variables as 'var env = {...}'.
+Docs: docs/TERMINATOR_JS_API.md | Selectors: docs/SELECTORS_CHEATSHEET.md | Examples: examples/*.yml | KV: packages/kv/README.md
 
-═══════════════════════════════════════════════════════════════════
-INJECTED GLOBALS (engine mode)
-═══════════════════════════════════════════════════════════════════
-desktop: Desktop      // Terminator SDK instance
-log: console.log      // Shorthand for logging
-sleep(ms): Promise    // Delay execution
-setEnv({key: value})  // Pass data to next steps
-createKVClient(token) // KV client (when @mediar-ai/kv installed)
+Executes shell commands OR inline JS/TS via engine. Use 'run' for shell, or 'engine': 'javascript'/'typescript' for terminator.js code.
 
-═══════════════════════════════════════════════════════════════════
-DESKTOP API
-═══════════════════════════════════════════════════════════════════
-desktop.locator(selector): Locator           // Find elements
-desktop.openApplication(name): Element       // Open app
-desktop.activateApplication(name): void      // Activate app
-desktop.applications(): Element[]            // Get all running applications/windows
-desktop.focusedElement(): Element            // Get focused element
-desktop.pressKey(key): Promise<void>         // Global key press
-desktop.delay(ms): Promise<void>             // Wait
-desktop.run(cmd, shell?, workingDir?): Promise<CommandOutput>  // Shell command
-desktop.executeBrowserScript(script): Promise<string>          // Browser JS (see execute_browser_script tool for patterns)
-  ↳ Must JSON.stringify return values, use typeof checks for injected vars, 30KB limit
-desktop.navigateBrowser(url, browser?): Element                // Navigate browser
-desktop.ocrScreenshot(screenshot): Promise<string>             // OCR
+INJECTED GLOBALS (engine mode):
+desktop, log, sleep(ms), setEnv({k:v}), kv (auto-initialized when ORG_TOKEN set), variables
 
-═══════════════════════════════════════════════════════════════════
-LOCATOR API
-═══════════════════════════════════════════════════════════════════
-locator.first(timeoutMs): Promise<Element>        // Get first match (REQUIRED timeout)
-locator.all(timeoutMs, depth?): Promise<Element[]> // Get all matches (REQUIRED timeout)
-locator.validate(timeoutMs): Promise<ValidationResult>  // Check exists without throwing
-locator.timeout(timeoutMs): Locator               // Set default timeout
-locator.within(element): Locator                  // Scope search to element
-locator.locator(selector): Locator                // Chain selectors
+AVAILABLE APIs (search terminator-source for full signatures):
+- Desktop: locator(), openApplication(), pressKey(), executeBrowserScript(), ocrScreenshot()
+- Locator: .first(timeoutMs), .all(timeoutMs), .validate(), .within(element)
+- Element: .click(), .typeText(), .pressKey(), .text(), .bounds(), .locator()
+- WindowManager: bringWindowToFront(), minimizeIfNeeded(), captureInitialState()
 
-IMPORTANT: .first() and .all() require mandatory timeout in milliseconds:
-- .first(0) - immediate search, no retry
-- .first(1000) - retry for 1 second
-- .first(5000) - retry for 5 seconds (slow UI)
+CRITICAL RULES:
+- .first()/.all() REQUIRE timeout in ms: .first(0) immediate, .first(5000) retry 5s
+- Selectors MUST include process: desktop.locator('process:chrome >> role:Button')
 
-═══════════════════════════════════════════════════════════════════
-ELEMENT API
-═══════════════════════════════════════════════════════════════════
-element.click(options?): ClickResult         // Click (bringToFront: true by default)
-element.doubleClick(options?): ClickResult   // Double click
-element.rightClick(options?): void           // Right click
-element.hover(options?): void                // Hover over element
-element.typeText(text, options?): void       // Type text (options: {useClipboard?, bringToFront?})
-element.pressKey(key, options?): void        // Press key (options: {bringToFront?})
-element.setValue(value): void                // Set value directly
-element.text(maxDepth?): string              // Get text content
-element.name(): string | null                // Get element name
-element.role(): string                       // Get element role
-element.bounds(): Bounds                     // Get x, y, width, height
-element.children(): Element[]                // Get child elements
-element.parent(): Element | null             // Get parent element
-element.locator(selector): Locator           // Search within element
-element.processId(): number                  // Get process ID (PID)
-element.processName(): string                // Get process name (e.g., chrome, notepad)
-element.isFocused(): boolean                 // Check if element has focus
-element.activateWindow(): void               // Bring window to front
+KV STORAGE (persistent state between workflow runs):
+- Basic: kv.get(key), kv.set(key, value), kv.del(key)
+- Options: { ex: 60 } expires in 60s, { nx: true } only if not exists (locks), { xx: true } only if exists
+- Lists: kv.lpush/rpush/lpop/rpop for queues
+- Hashes: kv.hset/hget/hgetall for objects
+- Counter: kv.incr(key)
+Use cases: duplicate tracking, distributed locks, progress checkpoints, cross-VM state
 
-Action Methods (all automatically bring window to front):
-  click(): ClickResult                        // Click element
-  doubleClick(): ClickResult                  // Double click
-  rightClick(): void                          // Right click
-  hover(): void                               // Hover over element
-  typeText(text, options?): void              // Type text (options: { useClipboard?: boolean })
-  pressKey(key): void                         // Press key
-  setValue(value): void                       // Set value directly
-
-═══════════════════════════════════════════════════════════════════
-WINDOW MANAGER API
-═══════════════════════════════════════════════════════════════════
-const wm = new WindowManager();              // Create window manager instance
-wm.updateWindowCache(): Promise<void>        // Refresh window list
-wm.getTopmostWindowForProcess(name): Promise<WindowInfo | null>  // Get top window by process
-wm.getTopmostWindowForPid(pid): Promise<WindowInfo | null>       // Get top window by PID
-wm.getAlwaysOnTopWindows(): Promise<WindowInfo[]>                // Get always-on-top windows
-wm.bringWindowToFront(hwnd): Promise<boolean>                    // Bring window to front (robust)
-wm.minimizeIfNeeded(hwnd): Promise<boolean>                      // Minimize window
-wm.maximizeIfNeeded(hwnd): Promise<boolean>                      // Maximize window
-wm.captureInitialState(): Promise<void>      // Snapshot window states
-wm.restoreAllWindows(): Promise<number>      // Restore to original state
-wm.isUwpApp(pid): Promise<boolean>           // Check if UWP app
-
-WindowInfo: { hwnd, processName, processId, zOrder, isMinimized, isMaximized, isAlwaysOnTop, title }
-
-⚠️ CRITICAL: Selector Scoping (REQUIRED)
-All desktop.locator() calls MUST include `process:` prefix. Without it, search will error.
-Example: `desktop.locator('process:chrome >> role:Button|name:Submit')`
-
-Pattern for Optional Element Detection:
-For optional UI elements (dialogs, popups) that may or may not appear, use try/catch:
-
-✅ RECOMMENDED Pattern - Window-Scoped (Most Accurate):
-// Step 1: Check if optional element exists in specific window
-try {
-  // Scope to specific window first to avoid false positives
-  const chromeWindow = await desktop.locator('process:chrome >> role:Window|name:SAP Business One').first();
-  // Then search within that window
-  await chromeWindow.locator('role:Button|name:Leave').first();
-  return JSON.stringify({
-    dialog_exists: 'true'
-  });
-} catch (e) {
-  // Element not found
-  return JSON.stringify({
-    dialog_exists: 'false'
-  });
-}
-
-// Step 2: In next workflow step, use 'if' condition:
-// if: 'dialog_exists == \"true\"'
-
-Performance Note: Using .first() with try/catch is ~8x faster than .all() for existence checks (1.3s vs 10.8s).
-
-Important Scoping Pattern:
-- desktop.locator('process:X >> selector') scopes search to process X's windows
-- element.locator('selector') searches only within that element's subtree
-
-This pattern:
-- Never fails the step (always returns data)
-- Avoids timeout waiting for non-existent elements
-- Enables conditional workflow execution
-- More robust than validate_element which fails when element not found
-
-Common use cases:
-- Confirmation dialogs ('Are you sure?', 'Unsaved changes', 'Leave')
-- Session/login dialogs that depend on state
-- Browser restore prompts, password save dialogs
-- Any conditionally-appearing UI element
-
-Accessing Workflow Variables:
-Use the 'variables' object (always available, contains workflow inputs merged with defaults):
-const myVar = variables.my_var;
-const count = variables.my_number || 0;
-const config = variables.app_config || {};
-
-Step Results (from previous steps):
-const result = env.step_id_result;
-const status = env.step_id_status;
-
-Data Passing:
-Return fields auto-merge to env for next steps:
-return { file_path: '/data.txt', count: 42 };
-
-System-reserved fields (don't auto-merge): status, error, logs, duration_ms, set_env
-
-include_logs Parameter:
-Set include_logs: true to capture stdout/stderr output. Default is false for cleaner responses. On errors, logs are always included.
-
-Logging:
-All console.* calls redirect to stderr with [LEVEL] prefix. JSON output only on stdout.
-Set include_logs: true to include captured logs in response.
-
-═══════════════════════════════════════════════════════════════════
-KV STORAGE (Persistent Key-Value Store)
-═══════════════════════════════════════════════════════════════════
-
-The 'kv' variable is auto-initialized when ORG_TOKEN is present (desktop app/VM).
-Just use 'kv' directly - no need to call createKVClient().
-
-When to use KV:
-- Workflow processes files from folder → track processed filenames to skip duplicates
-- Workflow runs on schedule (cron) → persist state between scheduled runs
-- Workflow runs on multiple VMs → use locks to prevent concurrent execution
-- Workflow has loops/iterations → checkpoint progress for resume on failure
-
-Basic Usage:
-await kv.set('myKey', 'myValue');           // Set a value
-const val = await kv.get('myKey');          // Get a value
-await kv.del('myKey');                      // Delete a key
-
-With Options:
-await kv.set('lock', 'active', { ex: 60 }); // Expires in 60 seconds
-await kv.set('key', 'val', { nx: true });   // Only set if NOT exists (for locks)
-await kv.set('key', 'val', { xx: true });   // Only set if EXISTS (for updates)
-
-Counters:
-await kv.incr('counter');                   // Increment by 1
-
-Lists (Queues):
-await kv.lpush('queue', 'item1', 'item2');  // Add to front
-await kv.rpush('queue', 'item3');           // Add to back
-const item = await kv.lpop('queue');        // Remove from front
-const item = await kv.rpop('queue');        // Remove from back
-
-Hashes (Objects):
-await kv.hset('user:123', { name: 'Alice', score: 100 });
-const name = await kv.hget('user:123', 'name');
-const all = await kv.hgetall('user:123');   // { name: 'Alice', score: '100' }
-await kv.hincrby('user:123', 'score', 10);  // Increment field
-
-Common Patterns:
-// Duplicate check
-const processed = await kv.get('processed:' + fileHash);
-if (processed) return { skip: true, reason: 'Already processed' };
-
-// Distributed lock
-const locked = await kv.set('lock:resource', 'active', { nx: true, ex: 300 });
-if (!locked) return { error: 'Resource locked by another process' };
-try { /* do work */ } finally { await kv.del('lock:resource'); }
-
-// Progress tracking
-await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
+DATA PASSING:
+- Access: variables.my_var, env.step_id_result
+- Return: { field: value } auto-merges to env for next steps
+- Logs: Set include_logs: true to capture stdout/stderr
 "
     )]
     async fn run_command(
@@ -7465,18 +7286,53 @@ await kv.hset('job:' + jobId, { status: 'running', progress: 50 });
     // Removed: run_javascript tool (merged into run_command with engine)
 
     #[tool(
-        description = "For patterns, use grep_files/read_file with working_directory set to terminator-source path.
+        description = "IMPORTANT: Always use grep_files/read_file with working_directory set to terminator-source to search patterns and examples before writing scripts. Verify syntax from source.
 
-Execute JavaScript in a browser using the Chrome extension bridge. Full access to HTML DOM for data extraction, page analysis, and manipulation.
+Examples: examples/browser_dom_extraction.yml | Full patterns: examples/comprehensive_ui_test.yml
+
+Execute JavaScript in browser via Chrome extension. Full DOM access for extraction and manipulation.
+
+Parameters: script | script_file | env | outputs
 
 Alternative: In run_command with engine: javascript, use desktop.executeBrowserScript(script)
-to execute browser scripts directly without needing a selector. Automatically targets active browser tab.
 
-Parameters:
-- script: JavaScript code to execute (optional if script_file is provided)
-- script_file: Path to JavaScript file to load and execute (optional)
-- env: Environment variables to inject as 'var env = {...}' (optional)
-- outputs: Outputs from previous steps to inject as 'var outputs = {...}' (optional)
+CRITICAL RULES:
+- MUST JSON.stringify() return values for objects/arrays
+- Use typeof checks for injected vars: const x = (typeof my_var !== 'undefined') ? my_var : {}
+- Return descriptive data: return JSON.stringify({ login_required: true, form_count: 3 })
+- DON'T return null/undefined - causes step failure
+- Returning { success: false } intentionally fails the step
+- Max 30KB response - truncate large data
+
+NAVIGATION WARNING:
+Scripts triggering navigation (click links, form submit) can be killed before return executes.
+❌ button.click(); return JSON.stringify({done:true})  // Never executes
+✅ return JSON.stringify({ready_to_navigate:true})     // Let next step navigate
+
+Requires Chrome extension installed."
+    )]
+    async fn execute_browser_script(
+        &self,
+        Parameters(args): Parameters<ExecuteBrowserScriptArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        // Start telemetry span
+        let mut span = StepSpan::new("execute_browser_script", None);
+
+        // Add comprehensive telemetry attributes
+        if let Some(ref script) = args.script {
+            span.set_attribute("script.length", script.len().to_string());
+        }
+        if let Some(ref script_file) = args.script_file {
+            span.set_attribute("script_file", script_file.clone());
+        }
+        use serde_json::json;
+        let start_instant = std::time::Instant::now();
+
+        // Check if we need to perform window management (only for direct MCP calls, not sequences)
+        let should_restore = {
+            let in_sequence = self.in_sequence.lock().unwrap_or_else(|e| e.into_inner());
+            let flag_value = *in_sequence;
+            let should_restore_value = !flag_value;
 
 ═══════════════════════════════════════════════════════════════════
 COMMON BROWSER AUTOMATION PATTERNS
