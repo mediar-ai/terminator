@@ -62,7 +62,7 @@ Only desktop automation tools from the MCP server can be used inside `execute_se
 Server-side tools (like add_workflow_step, update_workflow_step, search_similar_workflow_steps, etc.) must be called as separate top-level tool calls, NOT inside execute_sequence steps.
 
 Contextual information:
-  Actual Directory Structure On Disk, terminator is this project, mediar app (if installed) is a workflow builder app
+  Actual Directory Structure On Disk
 
   %LOCALAPPDATA%/
   ├── terminator/                          # terminator-mcp-agent writes here
@@ -78,22 +78,6 @@ Contextual information:
   │       ├── YYYYMMDD_HHMMSS_workflowId_toolName_before.png  # Screenshot before action
   │       ├── YYYYMMDD_HHMMSS_workflowId_toolName_after.png   # Screenshot after action
   │       └── ...                          # \"standalone\" if no workflow context
-  │
-  ├── mediar/                              # Shared between both apps
-  │   ├── workflows/                       # Workflow storage + state
-  │   │   ├── 198/
-  │   │   │   └── state.json               # Execution state (resumption)
-  │   │   ├── 207/
-  │   │   │   └── state.json
-  │   │   └── ... (numeric or UUID IDs)
-  │   ├── bin/
-  │   │   └── terminator-mcp-agent.exe     # Shared binary
-  │   └── .auth                            # Auth token
-  │
-  └── ai.mediar.desktop.dev1/              # Mediar desktop app writes here
-      ├── logs/
-      │   └── mediar-YYYY-MM-DD_HH-MM-SS.log  # App session logs
-      └── EBWebView/                          # WebView cache
       
 - The current date and time is {current_date_time}.
 - Current operating system: {current_os}.
