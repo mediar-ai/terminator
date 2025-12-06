@@ -8383,6 +8383,9 @@ console.info = function(...args) {
         // Cancel all active requests using the request manager
         self.request_manager.cancel_all().await;
 
+        // Also cancel Desktop operations (triggers inner cancellation checks in gemini_computer_use)
+        self.desktop.stop_execution();
+
         let active_count = self.request_manager.active_count().await;
         info!(
             "✅ Cancelled all active requests. Active count: {}",
