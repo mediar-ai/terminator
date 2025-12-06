@@ -45,6 +45,33 @@ impl From<ClickType> for terminator::ClickType {
     }
 }
 
+/// Source of indexed elements for click targeting
+#[napi(string_enum, js_name = "VisionType")]
+pub enum VisionType {
+    /// UI Automation tree elements (default)
+    UiTree,
+    /// OCR-detected text elements
+    Ocr,
+    /// Omniparser-detected elements
+    Omniparser,
+    /// Gemini Vision-detected elements
+    Gemini,
+    /// Browser DOM elements
+    Dom,
+}
+
+impl From<VisionType> for terminator::VisionType {
+    fn from(vt: VisionType) -> Self {
+        match vt {
+            VisionType::UiTree => terminator::VisionType::UiTree,
+            VisionType::Ocr => terminator::VisionType::Ocr,
+            VisionType::Omniparser => terminator::VisionType::Omniparser,
+            VisionType::Gemini => terminator::VisionType::Gemini,
+            VisionType::Dom => terminator::VisionType::Dom,
+        }
+    }
+}
+
 #[napi(object, js_name = "CommandOutput")]
 pub struct CommandOutput {
     pub exit_status: Option<i32>,
@@ -153,6 +180,10 @@ pub struct WindowTreeResult {
     pub index_to_bounds: HashMap<String, BoundsEntry>,
     /// Total count of indexed elements (elements with bounds)
     pub element_count: u32,
+    /// Path to saved window screenshot (if include_window_screenshot was true)
+    pub window_screenshot_path: Option<String>,
+    /// Paths to saved monitor screenshots (if include_monitor_screenshots was true)
+    pub monitor_screenshot_paths: Option<Vec<String>>,
 }
 
 #[napi(string_enum)]
@@ -438,6 +469,10 @@ pub struct TreeBuildConfig {
     pub tree_output_format: Option<TreeOutputFormat>,
     /// Selector to start tree from instead of window root (e.g., "role:Dialog" to focus on a dialog)
     pub tree_from_selector: Option<String>,
+    /// Include window screenshot in result (saved to executions dir). Defaults to false.
+    pub include_window_screenshot: Option<bool>,
+    /// Include all monitor screenshots in result (saved to executions dir). Defaults to false.
+    pub include_monitor_screenshots: Option<bool>,
 }
 
 impl From<(f64, f64, f64, f64)> for Bounds {
@@ -544,6 +579,8 @@ impl From<terminator::WindowTreeResult> for WindowTreeResult {
             formatted: result.formatted,
             index_to_bounds,
             element_count: result.element_count,
+            window_screenshot_path: None,
+            monitor_screenshot_paths: None,
         }
     }
 }
