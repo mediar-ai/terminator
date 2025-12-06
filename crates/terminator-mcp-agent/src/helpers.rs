@@ -424,9 +424,6 @@ pub async fn maybe_attach_tree(
     found_element: Option<&terminator::UIElement>,
     include_all_bounds: bool,
 ) -> Option<UiaBoundsCache> {
-    use std::time::Duration;
-    use terminator::Selector;
-
     // Check if tree should be included
     if !include_tree_after_action {
         return None;
@@ -435,7 +432,7 @@ pub async fn maybe_attach_tree(
     // Add delay for UI to stabilize (same as ui_diff_before_after mode)
     // This ensures we capture the tree after animations/transitions complete
     tracing::info!("[PERF] ui_settle_delay (maybe_attach_tree): 1500ms");
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
 
     // Only proceed if we have a PID
     let pid = match pid_opt {
@@ -443,8 +440,48 @@ pub async fn maybe_attach_tree(
         None => return None,
     };
 
-    // Build tree config with max_depth and other options
+    // Determine output format (default to CompactYaml)
+    let format = tree_output_format.unwrap_or(TreeOutputFormat::CompactYaml);
+
+    // Track the bounds cache to return
+    let mut bounds_cache: Option<UiaBoundsCache> = None;
+
+    // Helper function to format SerializableUIElement based on output format
+    // Returns (json_value, Option<bounds_cache>)
+    let format_serializable_tree = |tree: terminator::element::SerializableUIElement| -> (Result<Value, String>, Option<UiaBoundsCache>) {
+        match format {
+            TreeOutputFormat::CompactYaml | TreeOutputFormat::ClusteredYaml => {
+                let result = format_tree_as_compact_yaml(&tree, 0);
+                (Ok(json!(result.formatted)), Some(result.index_to_bounds))
+            }
+            TreeOutputFormat::VerboseJson => (serde_json::to_value(tree).map_err(|e| e.to_string()), None),
+        }
+    };
+
+    // Backward compatibility: from_selector="true" uses the found_element
+    if let Some(from_selector_value) = tree_from_selector {
+        if from_selector_value == "true" {
+            if let Some(element) = found_element {
+                let max_depth = tree_max_depth.unwrap_or(100);
+                let subtree = element.to_serializable_tree(max_depth);
+                let (tree_result, cache) = format_serializable_tree(subtree);
+                if let Ok(tree_val) = tree_result {
+                    if let Some(obj) = result_json.as_object_mut() {
+                        obj.insert("ui_tree".to_string(), tree_val);
+                        obj.insert("tree_type".to_string(), json!("subtree"));
+                    }
+                    bounds_cache = cache;
+                }
+                return bounds_cache;
+            }
+        }
+    }
+
+    // Build tree config with from_selector if provided (non-"true" value)
     let detailed = include_detailed_attributes.unwrap_or(true);
+    let from_selector_opt = tree_from_selector
+        .filter(|s| *s != "true")
+        .map(|s| s.to_string());
 
     let tree_config = terminator::platforms::TreeBuildConfig {
         property_mode: if detailed {
@@ -458,122 +495,55 @@ pub async fn maybe_attach_tree(
         max_depth: tree_max_depth,
         include_all_bounds,
         ui_settle_delay_ms: None,
-        format_output: false, // MCP handles formatting separately
+        format_output: true, // Let SDK handle formatting
         show_overlay: false,
         overlay_display_mode: None,
+        from_selector: from_selector_opt.clone(),
     };
 
-    // Determine output format (default to CompactYaml)
-    let format = tree_output_format.unwrap_or(TreeOutputFormat::CompactYaml);
-
-    // Track the bounds cache to return
-    let mut bounds_cache: Option<UiaBoundsCache> = None;
-
-    // Helper function to format tree based on output format
-    // Returns (json_value, Option<bounds_cache>)
-    let format_tree = |tree: terminator::element::SerializableUIElement| -> (Result<Value, String>, Option<UiaBoundsCache>) {
-        match format {
-            TreeOutputFormat::CompactYaml | TreeOutputFormat::ClusteredYaml => {
-                // For ClusteredYaml, we still output individual trees in CompactYaml format
-                // The clustering happens later after all trees are collected
-                let result = format_tree_as_compact_yaml(&tree, 0);
-                (Ok(json!(result.formatted)), Some(result.index_to_bounds))
-            }
-            TreeOutputFormat::VerboseJson => (serde_json::to_value(tree).map_err(|e| e.to_string()), None),
-        }
-    };
-
-    // Handle from_selector logic
-    if let Some(from_selector_value) = tree_from_selector {
-        if from_selector_value == "true" {
-            // Backward compatibility: use the found_element if available
-            if let Some(element) = found_element {
-                let max_depth = tree_max_depth.unwrap_or(100);
-                let subtree = element.to_serializable_tree(max_depth);
-                let (tree_result, cache) = format_tree(subtree);
-                if let Ok(tree_val) = tree_result {
-                    if let Some(obj) = result_json.as_object_mut() {
-                        obj.insert("ui_tree".to_string(), tree_val);
-                        obj.insert("tree_type".to_string(), json!("subtree"));
-                    }
-                    bounds_cache = cache;
-                }
-                return bounds_cache;
-            }
-        } else {
-            // New behavior: treat from_selector as an actual selector string
-            let selector = Selector::from(from_selector_value);
-            let locator = desktop.locator(selector);
-
-            match locator.first(Some(Duration::from_millis(1000))).await {
-                Ok(from_element) => {
-                    // Build tree from this different element
-                    let max_depth = tree_max_depth.unwrap_or(100);
-                    let subtree = from_element.to_serializable_tree(max_depth);
-                    let (tree_result, cache) = format_tree(subtree);
-                    if let Ok(tree_val) = tree_result {
-                        if let Some(obj) = result_json.as_object_mut() {
-                            obj.insert("ui_tree".to_string(), tree_val);
-                            obj.insert("tree_type".to_string(), json!("subtree"));
-                            obj.insert(
-                                "from_selector_used".to_string(),
-                                json!(from_selector_value),
-                            );
-                        }
-                        bounds_cache = cache;
-                    }
-                    return bounds_cache;
-                }
-                Err(e) => {
-                    // Log warning and return with error info
-                    tracing::warn!("from_selector '{}' not found: {}", from_selector_value, e);
-                    // Add error information to result
-                    if let Some(obj) = result_json.as_object_mut() {
-                        obj.insert(
-                            "tree_error".to_string(),
-                            json!(format!(
-                                "from_selector '{}' not found: {}",
-                                from_selector_value, e
-                            )),
-                        );
-                        obj.insert("tree_type".to_string(), json!("none"));
-                    }
-                    return None;
-                }
-            }
-        }
-    }
-
-    // Default: get the full window tree
+    // Use SDK's async method which handles from_selector internally
     let tree_capture_start = std::time::Instant::now();
-    if let Ok(tree) = desktop.get_window_tree(pid, None, Some(tree_config)) {
-        tracing::info!(
-            "[PERF] maybe_attach_tree (get_window_tree): {}ms",
-            tree_capture_start.elapsed().as_millis()
-        );
-        // Format UINode based on output format
-        let (tree_val_result, cache) = match format {
-            TreeOutputFormat::CompactYaml | TreeOutputFormat::ClusteredYaml => {
-                // Convert UINode to SerializableUIElement and use compact formatter
-                // For ClusteredYaml, we still output individual trees in CompactYaml format
-                let result = format_ui_node_as_compact_yaml(&tree, 0);
-                (Ok(json!(result.formatted)), Some(result.index_to_bounds))
-            }
-            TreeOutputFormat::VerboseJson => (serde_json::to_value(tree), None),
-        };
+    match desktop.get_window_tree_result_async(pid, None, Some(tree_config)).await {
+        Ok(result) => {
+            tracing::info!(
+                "[PERF] maybe_attach_tree (get_window_tree_result_async): {}ms",
+                tree_capture_start.elapsed().as_millis()
+            );
 
-        if let Ok(tree_val) = tree_val_result {
-            if let Some(obj) = result_json.as_object_mut() {
-                obj.insert("ui_tree".to_string(), tree_val);
-                obj.insert("tree_type".to_string(), json!("full_window"));
+            // Format based on output format
+            let (tree_val_result, cache) = match format {
+                TreeOutputFormat::CompactYaml | TreeOutputFormat::ClusteredYaml => {
+                    // SDK already formatted, use that
+                    if let Some(formatted) = result.formatted {
+                        (Ok(json!(formatted)), Some(result.index_to_bounds))
+                    } else {
+                        // Fallback: format UINode
+                        let fmt_result = format_ui_node_as_compact_yaml(&result.tree, 0);
+                        (Ok(json!(fmt_result.formatted)), Some(fmt_result.index_to_bounds))
+                    }
+                }
+                TreeOutputFormat::VerboseJson => (serde_json::to_value(&result.tree), None),
+            };
+
+            if let Ok(tree_val) = tree_val_result {
+                if let Some(obj) = result_json.as_object_mut() {
+                    obj.insert("ui_tree".to_string(), tree_val);
+                    let tree_type = if from_selector_opt.is_some() { "subtree" } else { "full_window" };
+                    obj.insert("tree_type".to_string(), json!(tree_type));
+                    if let Some(sel) = &from_selector_opt {
+                        obj.insert("from_selector_used".to_string(), json!(sel));
+                    }
+                }
+                bounds_cache = cache;
             }
-            bounds_cache = cache;
         }
-    } else {
-        tracing::info!(
-            "[PERF] maybe_attach_tree (get_window_tree FAILED): {}ms",
-            tree_capture_start.elapsed().as_millis()
-        );
+        Err(e) => {
+            tracing::warn!("[PERF] maybe_attach_tree FAILED: {}ms - {}", tree_capture_start.elapsed().as_millis(), e);
+            if let Some(obj) = result_json.as_object_mut() {
+                obj.insert("tree_error".to_string(), json!(format!("{}", e)));
+                obj.insert("tree_type".to_string(), json!("none"));
+            }
+        }
     }
 
     bounds_cache
@@ -641,6 +611,7 @@ where
         format_output: false,
         show_overlay: false,
         overlay_display_mode: None,
+        from_selector: None,
     };
 
     // Capture BEFORE tree
@@ -794,6 +765,7 @@ where
                         format_output: false,
                         show_overlay: false,
                         overlay_display_mode: None,
+                        from_selector: None,
                     };
 
                     // Capture BEFORE tree
