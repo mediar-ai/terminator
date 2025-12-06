@@ -310,13 +310,14 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { Desktop, Element, Locator, Selector, ClickType, PropertyLoadingMode, TreeOutputFormat, ElementSource, OverlayDisplayMode, TextPosition, HighlightHandle, WindowManager } = nativeBinding
+const { Desktop, Element, Locator, Selector, ClickType, VisionType, PropertyLoadingMode, TreeOutputFormat, ElementSource, OverlayDisplayMode, TextPosition, HighlightHandle, WindowManager } = nativeBinding
 
 module.exports.Desktop = Desktop
 module.exports.Element = Element
 module.exports.Locator = Locator
 module.exports.Selector = Selector
 module.exports.ClickType = ClickType
+module.exports.VisionType = VisionType
 module.exports.PropertyLoadingMode = PropertyLoadingMode
 module.exports.TreeOutputFormat = TreeOutputFormat
 module.exports.ElementSource = ElementSource
