@@ -107,7 +107,12 @@ export const enum TreeOutputFormat {
   /** Compact YAML format with indexed elements: #1 [ROLE] name */
   CompactYaml = 'CompactYaml',
   /** Full JSON format with all fields and properties */
-  VerboseJson = 'VerboseJson'
+  VerboseJson = 'VerboseJson',
+  /**
+   * Clustered YAML format: groups elements from all sources (UIA, DOM, OCR, Omniparser, Gemini)
+   * by spatial proximity with prefixed indices (#u1, #d2, #o3, #p4, #g5)
+   */
+  ClusteredYaml = 'ClusteredYaml'
 }
 /** Display mode for inspect overlay labels */
 export const enum OverlayDisplayMode {
