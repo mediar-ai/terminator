@@ -1316,50 +1316,16 @@ impl DesktopWrapper {
             tracing::debug!("[get_window_tree] In sequence - skipping window management (dispatch_tool handles it)");
         }
 
-        // Find PID for the process name
-        let apps = self.desktop.applications().map_err(|e| {
+        // Find PID for the process name using shared function
+        let pid = terminator::find_pid_for_process(&self.desktop, &args.process).map_err(|e| {
             McpError::resource_not_found(
-                "Failed to get applications",
-                Some(json!({"reason": e.to_string()})),
+                format!(
+                    "Process '{}' not found. Use open_application to start it first.",
+                    args.process
+                ),
+                Some(json!({"process": args.process, "error": e.to_string()})),
             )
         })?;
-
-        let mut system = System::new();
-        system.refresh_processes(ProcessesToUpdate::All, true);
-
-        // Find first matching process
-        let pid = apps
-            .iter()
-            .filter_map(|app| {
-                let app_pid = app.process_id().unwrap_or(0);
-                if app_pid > 0 {
-                    system
-                        .process(sysinfo::Pid::from_u32(app_pid))
-                        .and_then(|p| {
-                            let process_name = p.name().to_string_lossy().to_string();
-                            if process_name
-                                .to_lowercase()
-                                .contains(&args.process.to_lowercase())
-                            {
-                                Some(app_pid)
-                            } else {
-                                None
-                            }
-                        })
-                } else {
-                    None
-                }
-            })
-            .next()
-            .ok_or_else(|| {
-                McpError::resource_not_found(
-                    format!(
-                        "Process '{}' not found. Use open_application to start it first.",
-                        args.process
-                    ),
-                    Some(json!({"process": args.process})),
-                )
-            })?;
 
         span.set_attribute("pid", pid.to_string());
 
@@ -7310,34 +7276,55 @@ X button.click(); return JSON.stringify({done:true})  // Never executes
 OK return JSON.stringify({ready_to_navigate:true})     // Let next step navigate
 
 Requires Chrome extension installed."
-  const isVisible = element.offsetParent !== null
-  const style = window.getComputedStyle(element)
-  const isVisible = style.display !== 'none' && style.visibility !== 'hidden'
-  
-  // Form state
-  const isDisabled = input.disabled
-  const isRequired = input.required
-  const isEmpty = input.value.trim() === ''
-  
-  // Position
-  const rect = element.getBoundingClientRect()
-  const isInViewport = rect.top >= 0 && rect.bottom <= window.innerHeight
+    )]
+    async fn execute_browser_script(
+        &self,
+        Parameters(args): Parameters<ExecuteBrowserScriptArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        // Start telemetry span
+        let mut span = StepSpan::new("execute_browser_script", None);
 
-Extracting Forms:
-  // Get all forms and their inputs
-  Array.from(document.forms).map(form => ({
-    id: form.id,
-    action: form.action,
-    method: form.method,
-    inputs: Array.from(form.elements).map(el => ({
-      name: el.name,
-      type: el.type,
-      value: el.value,
-      required: el.required
-    }))
-  }))
+        // Add comprehensive telemetry attributes
+        if let Some(ref script) = args.script {
+            span.set_attribute("script.length", script.len().to_string());
+        }
+        if let Some(ref script_file) = args.script_file {
+            span.set_attribute("script_file", script_file.clone());
+        }
+        use serde_json::json;
+        let start_instant = std::time::Instant::now();
 
-Extracting Tables:
+        // Skip window management logic for sequence execution
+        // When called from execute_sequence, window management is handled by dispatch_tool
+        let in_sequence = {
+            let guard = self.current_workflow_id.lock().await;
+            guard.is_some()
+        };
+
+        let should_restore = !in_sequence;
+
+        tracing::debug!(
+            "[execute_browser_script] Flag check: in_sequence={}, should_restore={}",
+            in_sequence,
+            should_restore
+        );
+
+        if !in_sequence {
+            tracing::debug!(
+                "[execute_browser_script] Direct MCP call detected - performing window management"
+            );
+            let _ = self
+                .prepare_window_management(
+                    &args.selector.process,
+                    None,
+                    None,
+                    None,
+                    &args.window_mgmt,
+                )
+                .await;
+        } else {
+            tracing::debug!("[execute_browser_script] In sequence - skipping window management (dispatch_tool handles it)");
+        }
   // Convert table to array of rows
   const table = document.querySelector('table')
   const rows = Array.from(table.querySelectorAll('tbody tr')).map(row => {
