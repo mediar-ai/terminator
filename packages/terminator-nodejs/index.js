@@ -310,7 +310,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { Desktop, Element, Locator, Selector, PropertyLoadingMode, TreeOutputFormat, OverlayDisplayMode, TextPosition, HighlightHandle, WindowManager } = nativeBinding
+const { Desktop, Element, Locator, Selector, PropertyLoadingMode, TreeOutputFormat, ElementSource, OverlayDisplayMode, TextPosition, HighlightHandle, WindowManager } = nativeBinding
 
 module.exports.Desktop = Desktop
 module.exports.Element = Element
@@ -318,6 +318,7 @@ module.exports.Locator = Locator
 module.exports.Selector = Selector
 module.exports.PropertyLoadingMode = PropertyLoadingMode
 module.exports.TreeOutputFormat = TreeOutputFormat
+module.exports.ElementSource = ElementSource
 module.exports.OverlayDisplayMode = OverlayDisplayMode
 module.exports.TextPosition = TextPosition
 module.exports.HighlightHandle = HighlightHandle
