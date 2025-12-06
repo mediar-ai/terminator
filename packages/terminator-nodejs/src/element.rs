@@ -6,12 +6,22 @@ use terminator::{
 };
 
 use crate::{
-    map_error, ActionResult, Bounds, ClickResult, FontStyle, HighlightHandle, Locator, ScreenshotResult,
-    TextPosition, UIElementAttributes,
+    map_error, ActionResult, Bounds, ClickResult, ClickType, FontStyle, HighlightHandle, Locator,
+    ScreenshotResult, TextPosition, UIElementAttributes,
 };
 
 use crate::Selector;
 use napi::bindgen_prelude::Either;
+
+/// Click position within element bounds as percentages (0-100)
+#[napi(object)]
+#[derive(Default, Clone)]
+pub struct ClickPosition {
+    /// X position as percentage from left edge (0-100). 50 = center.
+    pub x_percentage: u8,
+    /// Y position as percentage from top edge (0-100). 50 = center.
+    pub y_percentage: u8,
+}
 
 /// Options for action methods (click, pressKey, scroll, etc.)
 #[napi(object)]
@@ -27,6 +37,16 @@ pub struct ActionOptions {
     pub try_focus_before: Option<bool>,
     /// Whether to try clicking the element if focus fails. Defaults to true.
     pub try_click_before: Option<bool>,
+    /// Whether to capture UI tree before/after action and compute diff. Defaults to false.
+    pub ui_diff_before_after: Option<bool>,
+    /// Whether to include full tree strings in the diff result. Defaults to false.
+    pub ui_diff_include_full_trees: Option<bool>,
+    /// Max depth for tree capture when doing UI diff.
+    pub ui_diff_max_depth: Option<u32>,
+    /// Click position within element bounds. If not specified, clicks at center.
+    pub click_position: Option<ClickPosition>,
+    /// Type of click: 'Left', 'Double', or 'Right'. Defaults to 'Left'.
+    pub click_type: Option<ClickType>,
 }
 
 /// Options for typeText method
@@ -48,6 +68,12 @@ pub struct TypeTextOptions {
     pub try_focus_before: Option<bool>,
     /// Whether to try clicking the element if focus fails. Defaults to true.
     pub try_click_before: Option<bool>,
+    /// Whether to capture UI tree before/after action and compute diff. Defaults to false.
+    pub ui_diff_before_after: Option<bool>,
+    /// Whether to include full tree strings in the diff result. Defaults to false.
+    pub ui_diff_include_full_trees: Option<bool>,
+    /// Max depth for tree capture when doing UI diff.
+    pub ui_diff_max_depth: Option<u32>,
 }
 
 /// Result of screenshot capture for Element methods
@@ -214,15 +240,74 @@ impl Element {
     /// Click on this element.
     ///
     /// @param {ActionOptions} [options] - Options for the click action.
-    /// @returns {ClickResult} Result of the click operation.
+    /// @returns {Promise<ClickResult>} Result of the click operation.
     #[napi]
-    pub fn click(&self, options: Option<ActionOptions>) -> napi::Result<ClickResult> {
+    pub async fn click(&self, options: Option<ActionOptions>) -> napi::Result<ClickResult> {
         let opts = options.unwrap_or_default();
         if opts.highlight_before_action.unwrap_or(false) {
             let _ = self.inner.highlight_before_action("click");
         }
         let _ = self.inner.activate_window();
-        let mut result: ClickResult = self.inner.click().map(ClickResult::from).map_err(map_error)?;
+
+        let mut result = if opts.ui_diff_before_after.unwrap_or(false) {
+            // Use backend's execute_on_element_with_ui_diff for UI diff capture
+            let diff_options = terminator::UiDiffOptions {
+                include_full_trees: opts.ui_diff_include_full_trees.unwrap_or(false),
+                max_depth: opts.ui_diff_max_depth.map(|d| d as usize),
+                settle_delay_ms: Some(1500),
+                include_detailed_attributes: Some(true),
+            };
+
+            // Get desktop to call execute_on_element_with_ui_diff
+            let desktop = terminator::Desktop::new_default().map_err(map_error)?;
+            let element_clone = self.inner.clone();
+
+            match desktop
+                .execute_on_element_with_ui_diff(
+                    element_clone,
+                    |el| async move { el.click() },
+                    Some(diff_options),
+                )
+                .await
+            {
+                Ok((click_result, _element, ui_diff)) => {
+                    let ui_diff_converted = ui_diff.map(|d| crate::types::UiDiffResult {
+                        diff: d.diff,
+                        tree_before: d.tree_before,
+                        tree_after: d.tree_after,
+                        has_changes: d.has_changes,
+                    });
+                    ClickResult {
+                        method: click_result.method,
+                        coordinates: click_result.coordinates.map(|c| crate::Coordinates {
+                            x: c.0,
+                            y: c.1,
+                        }),
+                        details: click_result.details,
+                        window_screenshot_path: None,
+                        monitor_screenshot_paths: None,
+                        ui_diff: ui_diff_converted,
+                    }
+                }
+                Err(e) => {
+                    return Err(map_error(e));
+                }
+            }
+        } else {
+            // Standard click without UI diff
+            let click_res = self.inner.click().map_err(map_error)?;
+            ClickResult {
+                method: click_res.method,
+                coordinates: click_res.coordinates.map(|c| crate::Coordinates {
+                    x: c.0,
+                    y: c.1,
+                }),
+                details: click_res.details,
+                window_screenshot_path: None,
+                monitor_screenshot_paths: None,
+                ui_diff: None,
+            }
+        };
 
         // Capture screenshots if requested
         let screenshots = capture_element_screenshots(
@@ -358,6 +443,7 @@ impl Element {
             success: true,
             window_screenshot_path: screenshots.window_path,
             monitor_screenshot_paths: screenshots.monitor_paths,
+            ui_diff: None,
         })
     }
 
@@ -389,6 +475,7 @@ impl Element {
             success: true,
             window_screenshot_path: screenshots.window_path,
             monitor_screenshot_paths: screenshots.monitor_paths,
+            ui_diff: None,
         })
     }
 
@@ -417,6 +504,7 @@ impl Element {
             success: true,
             window_screenshot_path: screenshots.window_path,
             monitor_screenshot_paths: screenshots.monitor_paths,
+            ui_diff: None,
         })
     }
 
@@ -453,6 +541,7 @@ impl Element {
             success: true,
             window_screenshot_path: screenshots.window_path,
             monitor_screenshot_paths: screenshots.monitor_paths,
+            ui_diff: None,
         })
     }
 
@@ -482,6 +571,7 @@ impl Element {
             success: true,
             window_screenshot_path: screenshots.window_path,
             monitor_screenshot_paths: screenshots.monitor_paths,
+            ui_diff: None,
         })
     }
 
