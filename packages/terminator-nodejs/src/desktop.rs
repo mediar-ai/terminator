@@ -1,6 +1,6 @@
 use crate::types::{
     ClickResult, ClickType, ComputerUseResult, ComputerUseStep, Monitor, MonitorScreenshotPair,
-    ResizedDimensions, TreeOutputFormat, WindowTreeResult,
+    ResizedDimensions, TreeOutputFormat, VisionType, WindowTreeResult,
 };
 use crate::Selector;
 use crate::{
@@ -145,6 +145,41 @@ impl Desktop {
             .map_err(map_error)
     }
 
+    /// Click on an element by its index from the last tree/vision query.
+    ///
+    /// This looks up cached bounds from the appropriate cache based on visionType,
+    /// then clicks at the specified position within those bounds.
+    ///
+    /// @param {number} index - 1-based index from the tree/vision output (e.g., #1, #2).
+    /// @param {VisionType} [visionType='UiTree'] - Source of the index: 'UiTree', 'Ocr', 'Omniparser', 'Gemini', or 'Dom'.
+    /// @param {number} [xPercentage=50] - X position within bounds as percentage (0-100).
+    /// @param {number} [yPercentage=50] - Y position within bounds as percentage (0-100).
+    /// @param {ClickType} [clickType='Left'] - Type of click: 'Left', 'Double', or 'Right'.
+    /// @returns {ClickResult} Result with clicked coordinates, element info, and method details.
+    #[napi]
+    pub fn click_by_index(
+        &self,
+        index: u32,
+        vision_type: Option<VisionType>,
+        x_percentage: Option<u8>,
+        y_percentage: Option<u8>,
+        click_type: Option<ClickType>,
+    ) -> napi::Result<ClickResult> {
+        let vision_type = vision_type.unwrap_or(VisionType::UiTree);
+        let click_position = match (x_percentage, y_percentage) {
+            (Some(xp), Some(yp)) => Some((xp, yp)),
+            (Some(xp), None) => Some((xp, 50)),
+            (None, Some(yp)) => Some((50, yp)),
+            (None, None) => None,
+        };
+        let click_type = click_type.unwrap_or(ClickType::Left);
+
+        self.inner
+            .click_by_index(index, vision_type.into(), click_position, click_type.into())
+            .map(ClickResult::from)
+            .map_err(map_error)
+    }
+
     /// (async) Run a shell command.
     ///
     /// @param {string} [windowsCommand] - Command to run on Windows.
@@ -263,6 +298,10 @@ impl Desktop {
         // Format the OCR tree if requested
         let (formatted, index_to_bounds) = if format_output {
             let result = terminator::format_ocr_tree_as_compact_yaml(&ocr_element, 0);
+
+            // Populate the OCR cache for click_by_index support
+            self.inner.populate_ocr_cache(result.index_to_bounds.clone());
+
             let bounds_map: std::collections::HashMap<String, crate::types::OcrBoundsEntry> = result
                 .index_to_bounds
                 .into_iter()
@@ -528,6 +567,17 @@ impl Desktop {
                 bounds,
             });
         }
+
+        // Populate DOM cache for click_by_index
+        let cache_items: std::collections::HashMap<u32, (String, String, (f64, f64, f64, f64))> = index_to_bounds
+            .iter()
+            .filter_map(|(key, entry)| {
+                key.parse::<u32>().ok().map(|idx| {
+                    (idx, (entry.name.clone(), entry.tag.clone(), (entry.bounds.x, entry.bounds.y, entry.bounds.width, entry.bounds.height)))
+                })
+            })
+            .collect();
+        self.inner.populate_dom_cache(cache_items);
 
         Ok(crate::types::BrowserDomResult {
             elements,
@@ -926,6 +976,28 @@ impl Desktop {
             });
         }
 
+        // Populate the Vision cache for click_by_index support
+        let cache_items: HashMap<u32, terminator::VisionElement> = elements
+            .iter()
+            .enumerate()
+            .filter_map(|(i, elem)| {
+                let box_2d = elem.bounds.as_ref().map(|b| {
+                    [b.x, b.y, b.x + b.width, b.y + b.height]
+                });
+                Some((
+                    (i + 1) as u32,
+                    terminator::VisionElement {
+                        element_type: elem.element_type.clone(),
+                        content: elem.content.clone(),
+                        description: elem.description.clone(),
+                        box_2d,
+                        interactivity: elem.interactivity,
+                    },
+                ))
+            })
+            .collect();
+        self.inner.populate_vision_cache(cache_items);
+
         Ok(crate::types::GeminiVisionResult {
             elements,
             formatted: if format_output { Some(formatted_lines.join("\n")) } else { None },
@@ -1131,6 +1203,26 @@ impl Desktop {
             });
         }
 
+        // Populate the Omniparser cache for click_by_index support
+        let cache_items: HashMap<u32, terminator::OmniparserItem> = items
+            .iter()
+            .enumerate()
+            .filter_map(|(i, item)| {
+                let box_2d = item.bounds.as_ref().map(|b| {
+                    [b.x, b.y, b.x + b.width, b.y + b.height]
+                });
+                Some((
+                    (i + 1) as u32,
+                    terminator::OmniparserItem {
+                        label: item.label.clone(),
+                        content: item.content.clone(),
+                        box_2d,
+                    },
+                ))
+            })
+            .collect();
+        self.inner.populate_omniparser_cache(cache_items);
+
         Ok(crate::types::OmniparserResult {
             items,
             formatted: if format_output { Some(formatted_lines.join("\n")) } else { None },
@@ -1277,7 +1369,9 @@ impl Desktop {
     ///   - formatOutput: Enable formatted output (default: true if treeOutputFormat set)
     ///   - treeOutputFormat: 'CompactYaml' (default) or 'VerboseJson'
     ///   - treeFromSelector: Selector to start tree from (use getWindowTreeResultAsync for this)
-    /// @returns {WindowTreeResult} Complete result with tree, formatted output, and bounds mapping.
+    ///   - includeWindowScreenshot: Save window screenshot to executions dir (default: false)
+    ///   - includeMonitorScreenshots: Save all monitor screenshots to executions dir (default: false)
+    /// @returns {WindowTreeResult} Complete result with tree, formatted output, bounds mapping, and screenshot paths.
     #[napi]
     pub fn get_window_tree_result(
         &self,
@@ -1285,6 +1379,16 @@ impl Desktop {
         title: Option<String>,
         config: Option<TreeBuildConfig>,
     ) -> napi::Result<WindowTreeResult> {
+        // Extract screenshot options before converting config
+        let include_window_screenshot = config
+            .as_ref()
+            .and_then(|c| c.include_window_screenshot)
+            .unwrap_or(false);
+        let include_monitor_screenshots = config
+            .as_ref()
+            .and_then(|c| c.include_monitor_screenshots)
+            .unwrap_or(false);
+
         // Extract options before converting config
         let output_format = config
             .as_ref()
@@ -1314,6 +1418,35 @@ impl Desktop {
         if matches!(output_format, TreeOutputFormat::VerboseJson) {
             sdk_result.formatted =
                 Some(serde_json::to_string_pretty(&sdk_result.tree).unwrap_or_default());
+        }
+
+        // Handle screenshot capture and saving
+        if include_window_screenshot || include_monitor_screenshots {
+            terminator::screenshot_logger::init();
+            let prefix = terminator::screenshot_logger::generate_prefix(None, "getWindowTreeResult");
+
+            if include_window_screenshot {
+                // Try to capture window screenshot by PID
+                if let Ok(apps) = self.inner.applications() {
+                    if let Some(app) = apps.into_iter().find(|a| a.process_id().ok() == Some(pid)) {
+                        if let Ok(screenshot) = app.capture() {
+                            if let Some(saved) = terminator::screenshot_logger::save_window_screenshot(&screenshot, &prefix, None) {
+                                sdk_result.window_screenshot_path = Some(saved.path.to_string_lossy().to_string());
+                            }
+                        }
+                    }
+                }
+            }
+
+            if include_monitor_screenshots {
+                // Capture all monitors - need to use futures executor for sync context
+                if let Ok(monitors) = futures::executor::block_on(self.inner.capture_all_monitors()) {
+                    let saved = terminator::screenshot_logger::save_monitor_screenshots(&monitors, &prefix, None);
+                    if !saved.is_empty() {
+                        sdk_result.monitor_screenshot_paths = Some(saved.into_iter().map(|s| s.path.to_string_lossy().to_string()).collect());
+                    }
+                }
+            }
         }
 
         Ok(sdk_result)
@@ -1438,6 +1571,8 @@ impl Desktop {
                 formatted,
                 index_to_bounds,
                 element_count,
+                window_screenshot_path: None,
+                monitor_screenshot_paths: None,
             });
         }
 
