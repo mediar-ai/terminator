@@ -17,6 +17,19 @@ pub struct Coordinates {
     pub y: f64,
 }
 
+/// Result of UI diff capture
+#[napi(object, js_name = "UiDiffResult")]
+pub struct UiDiffResult {
+    /// The computed diff showing changes (lines starting with + or -)
+    pub diff: String,
+    /// Full tree before action (only if include_full_trees was true)
+    pub tree_before: Option<String>,
+    /// Full tree after action (only if include_full_trees was true)
+    pub tree_after: Option<String>,
+    /// Whether any UI changes were detected
+    pub has_changes: bool,
+}
+
 #[napi(object, js_name = "ClickResult")]
 pub struct ClickResult {
     pub method: String,
@@ -26,6 +39,8 @@ pub struct ClickResult {
     pub window_screenshot_path: Option<String>,
     /// Paths to monitor screenshots if captured
     pub monitor_screenshot_paths: Option<Vec<String>>,
+    /// UI diff result if ui_diff_before_after was enabled
+    pub ui_diff: Option<UiDiffResult>,
 }
 
 /// Result of an action operation (type_text, press_key, scroll, etc.)
@@ -37,6 +52,8 @@ pub struct ActionResult {
     pub window_screenshot_path: Option<String>,
     /// Paths to monitor screenshots if captured
     pub monitor_screenshot_paths: Option<Vec<String>>,
+    /// UI diff result if ui_diff_before_after was enabled
+    pub ui_diff: Option<UiDiffResult>,
 }
 
 /// Type of mouse click to perform
@@ -515,6 +532,7 @@ impl From<terminator::ClickResult> for ClickResult {
             details: r.details,
             window_screenshot_path: None,
             monitor_screenshot_paths: None,
+            ui_diff: None,
         }
     }
 }
