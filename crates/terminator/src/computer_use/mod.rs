@@ -509,6 +509,13 @@ impl Desktop {
         );
 
         for step_num in 1..=max_steps {
+            // Check for cancellation at start of each iteration
+            if self.is_cancelled() {
+                info!("[computer_use] Cancelled by stop_execution");
+                final_status = "cancelled";
+                break;
+            }
+
             info!("[computer_use] Step {}/{}", step_num, max_steps);
 
             // 1. Capture screenshot of target window
@@ -625,7 +632,16 @@ impl Desktop {
 
             // 8. Wait for UI to settle before capturing post-action screenshot
             // This is critical for actions that cause page navigation (e.g., press Enter on search)
-            tokio::time::sleep(Duration::from_millis(1000)).await;
+            // Use select! to allow cancellation during the wait
+            let ct = self.cancellation_token();
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_millis(1000)) => {},
+                _ = ct.cancelled() => {
+                    info!("[computer_use] Cancelled during wait by stop_execution");
+                    final_status = "cancelled";
+                    break;
+                }
+            }
 
             // 9. Capture new screenshot after action for next iteration
             let (post_action_screenshot, post_action_url) =
