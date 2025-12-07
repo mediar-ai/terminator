@@ -699,8 +699,18 @@ try {{
 
         // Check if dependencies need updating by comparing package.json mtime with lockfile
         let needs_install = if workflow_node_modules.exists() {
+            // Bun uses bun.lockb (binary, older) or bun.lock (text, newer)
             let lockfile_path = match runtime {
-                JsRuntime::Bun => workflow_dir.join("bun.lockb"),
+                JsRuntime::Bun => {
+                    let lockb = workflow_dir.join("bun.lockb");
+                    let lock = workflow_dir.join("bun.lock");
+                    // Prefer bun.lock (newer text format), fallback to bun.lockb (older binary)
+                    if lock.exists() {
+                        lock
+                    } else {
+                        lockb
+                    }
+                }
                 JsRuntime::Node => workflow_dir.join("package-lock.json"),
             };
 
