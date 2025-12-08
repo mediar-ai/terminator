@@ -8,6 +8,7 @@
       },
       "devDependencies": {
         "@babel/preset-typescript": "^7.28.5",
+        "@mediar-ai/terminator": "file:../terminator-nodejs",
         "@modelcontextprotocol/sdk": "^1.21.0",
         "@types/jest": "^29.5.11",
         "@types/node": "^20.11.5",
@@ -207,13 +208,15 @@
 
     "@mediar-ai/kv": ["@mediar-ai/kv@0.23.32", "", { "dependencies": { "ioredis": "^5.3.2" } }, "sha512-ZhJarmab2tfzcgMFLmqcuy6FxTPH4Jnz3zLiZ87lUbuCnKQBcO3mB8NEU3bl3SkCMdBmE11qFj1ffcNel828OA=="],
 
-    "@mediar-ai/terminator": ["@mediar-ai/terminator@0.23.32", "", { "dependencies": { "@mediar-ai/kv": "^0.23.30", "esbuild": "^0.25.11" }, "optionalDependencies": { "@mediar-ai/terminator-darwin-arm64": "0.23.32", "@mediar-ai/terminator-darwin-x64": "0.23.32", "@mediar-ai/terminator-linux-x64-gnu": "0.23.32", "@mediar-ai/terminator-win32-arm64-msvc": "0.23.32", "@mediar-ai/terminator-win32-x64-msvc": "0.23.32" } }, "sha512-QF5rhMkmRy6cESvqW/hk5TV/UP99ohfYh+oKjdIOxpeYCrWQLn96ksaJ/QXHnug1145fW25n+hGwvwXxy78Xjg=="],
+    "@mediar-ai/terminator": ["@mediar-ai/terminator@file:../terminator-nodejs", { "dependencies": { "@mediar-ai/kv": "^0.23.30", "esbuild": "^0.25.11" }, "devDependencies": { "@napi-rs/cli": "^2.18.4" }, "optionalDependencies": { "@mediar-ai/terminator-darwin-arm64": "0.23.36", "@mediar-ai/terminator-darwin-x64": "0.23.36", "@mediar-ai/terminator-linux-x64-gnu": "0.23.36", "@mediar-ai/terminator-win32-arm64-msvc": "0.23.36", "@mediar-ai/terminator-win32-x64-msvc": "0.23.36" } }],
 
-    "@mediar-ai/terminator-win32-arm64-msvc": ["@mediar-ai/terminator-win32-arm64-msvc@0.23.32", "", { "os": "win32", "cpu": "arm64" }, "sha512-WWYOVmyZSJq/lHgopolvWzAjCweOmFjnQjWzBLATQv1wkV+dKZcl5igrsS2HQmj4fLiXy4c9chl3zByqq5y7Gw=="],
+    "@mediar-ai/terminator-win32-arm64-msvc": ["@mediar-ai/terminator-win32-arm64-msvc@0.23.36", "", { "os": "win32", "cpu": "arm64" }, "sha512-F75KebUiW/pUX+8A+UhxeFNYHFdbajSEYG/SDT2n+qS6l9aFQR5K44+rYTBle7o0amxGGkhHbSmL8W7eI7UFEw=="],
 
-    "@mediar-ai/terminator-win32-x64-msvc": ["@mediar-ai/terminator-win32-x64-msvc@0.23.32", "", { "os": "win32", "cpu": "x64" }, "sha512-AWvhrWrsWP/wA5ruRgHbFCVBHKGStDB6DsbH6dzzjombKpzUirJFBX30eUKyCnt7cLaOOuQ0zjN1DJA9YEVt9g=="],
+    "@mediar-ai/terminator-win32-x64-msvc": ["@mediar-ai/terminator-win32-x64-msvc@0.23.36", "", { "os": "win32", "cpu": "x64" }, "sha512-ZNCMqdP0+lhfVDG3MMiJlXE0K5WwAEhkliVG9rnTeKcWEmfA95KU5XqO1RFgXGwaXyfAG7ZUeF8Bpq2lYYKj+A=="],
 
     "@modelcontextprotocol/sdk": ["@modelcontextprotocol/sdk@1.21.0", "", { "dependencies": { "ajv": "^8.17.1", "ajv-formats": "^3.0.1", "content-type": "^1.0.5", "cors": "^2.8.5", "cross-spawn": "^7.0.5", "eventsource": "^3.0.2", "eventsource-parser": "^3.0.0", "express": "^5.0.1", "express-rate-limit": "^7.5.0", "pkce-challenge": "^5.0.0", "raw-body": "^3.0.0", "zod": "^3.23.8", "zod-to-json-schema": "^3.24.1" }, "peerDependencies": { "@cfworker/json-schema": "^4.1.1" }, "optionalPeers": ["@cfworker/json-schema"] }, "sha512-YFBsXJMFCyI1zP98u7gezMFKX4lgu/XpoZJk7ufI6UlFKXLj2hAMUuRlQX/nrmIPOmhRrG6tw2OQ2ZA/ZlXYpQ=="],
+
+    "@napi-rs/cli": ["@napi-rs/cli@2.18.4", "", { "bin": { "napi": "scripts/index.js" } }, "sha512-SgJeA4df9DE2iAEpr3M2H0OKl/yjtg1BnRI5/JyowS71tUWhrfSu2LT0V3vlHET+g1hBVlrO60PmEXwUEKp8Mg=="],
 
     "@sinclair/typebox": ["@sinclair/typebox@0.27.8", "", {}, "sha512-+Fj43pSMwJs4KRrH/938Uf+uAELIgVBmQzg/q1YG10djyfA3TnrU8N8XzqCh/okZdszqBQTZf96idMfE5lnwTA=="],
 
@@ -814,12 +817,6 @@
     "@babel/helper-create-class-features-plugin/semver": ["semver@6.3.1", "", { "bin": "bin/semver.js" }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
 
     "@istanbuljs/load-nyc-config/camelcase": ["camelcase@5.3.1", "", {}, "sha512-L28STB170nwWS63UjtlEOE3dldQApaJXZkOI1uMFfzf3rRuPegHaHesyee+YxQ+W6SvRDQV6UrdOdRiR153wJg=="],
-
-    "@mediar-ai/terminator/@mediar-ai/terminator-darwin-arm64": ["@mediar-ai/terminator-darwin-arm64@file:node_modules/@mediar-ai/terminator/node_modules/@mediar-ai/terminator-darwin-arm64", {}],
-
-    "@mediar-ai/terminator/@mediar-ai/terminator-darwin-x64": ["@mediar-ai/terminator-darwin-x64@file:node_modules/@mediar-ai/terminator/node_modules/@mediar-ai/terminator-darwin-x64", {}],
-
-    "@mediar-ai/terminator/@mediar-ai/terminator-linux-x64-gnu": ["@mediar-ai/terminator-linux-x64-gnu@file:node_modules/@mediar-ai/terminator/node_modules/@mediar-ai/terminator-linux-x64-gnu", {}],
 
     "ansi-escapes/type-fest": ["type-fest@0.21.3", "", {}, "sha512-t0rzBq87m3fVcduHDUFhKmyyX+9eo6WQjZvf51Ea/M0Q7+T374Jp1aUiyUl0GKxp8M/OETVHSDvmkyPgvX+X2w=="],
 
