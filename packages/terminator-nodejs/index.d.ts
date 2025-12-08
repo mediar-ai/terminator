@@ -454,6 +454,14 @@ export interface TreeBuildConfig {
   includeWindowScreenshot?: boolean
   /** Include all monitor screenshots in result (saved to executions dir). Defaults to false. */
   includeMonitorScreenshots?: boolean
+  /** Include Gemini Vision AI detection. Elements prefixed with #g1, #g2, etc. */
+  includeGeminiVision?: boolean
+  /** Include Omniparser detection. Elements prefixed with #p1, #p2, etc. */
+  includeOmniparser?: boolean
+  /** Include OCR text detection. Elements prefixed with #o1, #o2, etc. */
+  includeOcr?: boolean
+  /** Include browser DOM elements (requires Terminator Bridge extension). Elements prefixed with #d1, #d2, etc. */
+  includeBrowserDom?: boolean
 }
 export const enum TextPosition {
   Top = 'Top',
