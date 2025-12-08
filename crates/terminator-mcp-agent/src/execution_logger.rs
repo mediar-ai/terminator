@@ -811,18 +811,34 @@ fn transform_yaml_js_to_sdk(code: &str) -> String {
 /// Generate run_command snippet
 fn generate_run_command_snippet(args: &Value) -> String {
     let run = args.get("run").and_then(|v| v.as_str()).unwrap_or("");
-    let engine = args.get("engine").and_then(|v| v.as_str());
+    let engine = args.get("engine").and_then(|v| v.as_str()).unwrap_or("javascript");
 
-    // If using engine mode (typescript/javascript), transform YAML engine APIs to SDK APIs
-    if let Some(eng) = engine {
-        if matches!(eng, "typescript" | "ts" | "javascript" | "js") {
-            return transform_yaml_js_to_sdk(run);
+    // Shell command mode - wrap in desktop.runCommand()
+    if matches!(engine, "shell" | "bash" | "cmd" | "powershell") {
+        let escaped_run = run.replace('\\', "\\\\").replace('`', "\\`").replace('$', "\\$");
+        return format!("const result = await desktop.runCommand(`{}`);", escaped_run);
+    }
+
+    // Default: JavaScript/TypeScript - inline code with API transformations
+    let transformed = transform_yaml_js_to_sdk(run);
+
+    // If the code contains a return statement with state/set_env (for inter-step communication),
+    // we need to capture the IIFE result and return it from the step's execute function
+    // so the SDK can merge the state properly
+    if transformed.contains("return {") && (transformed.contains("state:") || transformed.contains("set_env:")) {
+        // Check if this is an IIFE pattern: (async () => { ... })() or (() => { ... })()
+        let is_iife = transformed.trim_start().starts_with("(async") ||
+                      transformed.trim_start().starts_with("(()") ||
+                      transformed.trim_start().starts_with("( async") ||
+                      transformed.trim_start().starts_with("( ()");
+
+        if is_iife {
+            // Wrap IIFE to capture return value: const __stepResult = await (...); return __stepResult;
+            return format!("const __stepResult = await {};\nreturn __stepResult;", transformed.trim());
         }
     }
 
-    // Shell command mode - wrap in desktop.runCommand() with backticks for multiline support
-    let escaped_run = run.replace('\\', "\\\\").replace('`', "\\`").replace('$', "\\$");
-    format!("const result = await desktop.runCommand(`{}`);", escaped_run)
+    transformed
 }
 
 /// Generate mouse_drag snippet
@@ -975,23 +991,55 @@ fn generate_activate_snippet(args: &Value) -> String {
 fn generate_execute_browser_script_snippet(args: &Value) -> String {
     let script = args.get("script").and_then(|v| v.as_str()).unwrap_or("");
     let script_file = args.get("script_file").and_then(|v| v.as_str());
-    let process = args.get("process").and_then(|v| v.as_str()).unwrap_or("chrome");
-    let timeout_ms = args.get("timeout_ms").and_then(|v| v.as_u64());
 
-    // Build the script argument
-    let script_arg = if let Some(file) = script_file {
-        format!(r#"fs.readFileSync("{}", "utf-8")"#, file.replace('\\', "\\\\"))
-    } else {
-        let escaped = script.replace('\\', "\\\\").replace('`', "\\`").replace("${", "\\${");
-        format!("`{}`", escaped)
-    };
-
-    // Process is required, timeout is optional
-    if let Some(timeout) = timeout_ms {
-        format!(r#"const result = await desktop.executeBrowserScript({}, "{}", {});"#, script_arg, process, timeout)
-    } else {
-        format!(r#"const result = await desktop.executeBrowserScript({}, "{}");"#, script_arg, process)
+    // If script_file provided, use file-based syntax
+    if let Some(file) = script_file {
+        return format!(
+            r#"const result = await desktop.executeBrowserScript({{ file: "{}" }});"#,
+            file.replace('\\', "\\\\")
+        );
     }
+
+    // Extract function body from IIFE patterns like:
+    // (function() { ... })()
+    // (async function() { ... })()
+    // (() => { ... })()
+    let function_body = extract_iife_body(script);
+
+    // Output as async function (SDK will serialize it)
+    format!("const result = await desktop.executeBrowserScript(async function() {{\n{}\n}});", function_body)
+}
+
+/// Extract the body from an IIFE pattern, or return the script as-is if not an IIFE
+fn extract_iife_body(script: &str) -> String {
+    let trimmed = script.trim();
+
+    // Check for IIFE patterns ending with })()
+    // Examples: (function() { ... })() or (async function() { ... })()
+    if (trimmed.starts_with("(function") || trimmed.starts_with("(async function"))
+        && trimmed.ends_with("})()")
+    {
+        if let Some(brace_start) = trimmed.find('{') {
+            // Body is between first { and the last } before })()
+            // The ending is "})(" so last } is at len - 4
+            let last_brace = trimmed.len() - 4;
+            let body = &trimmed[brace_start + 1..last_brace];
+            return body.trim().to_string();
+        }
+    }
+
+    // Check for arrow IIFE: (() => { ... })()
+    if trimmed.starts_with("(() =>") && trimmed.ends_with("})()")
+    {
+        if let Some(brace_start) = trimmed.find('{') {
+            let last_brace = trimmed.len() - 4;
+            let body = &trimmed[brace_start + 1..last_brace];
+            return body.trim().to_string();
+        }
+    }
+
+    // Not an IIFE - return as-is (will be wrapped in async function)
+    trimmed.to_string()
 }
 
 /// Clean up execution logs older than RETENTION_DAYS
