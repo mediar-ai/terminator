@@ -1601,26 +1601,51 @@ impl Desktop {
         title: Option<String>,
         config: Option<TreeBuildConfig>,
     ) -> napi::Result<WindowTreeResult> {
+        use std::collections::HashMap;
+
         // Find PID for the process name
         let pid = find_pid_for_process(&self.inner, &process)?;
 
-        // Extract output format before converting config
+        // Extract vision and format options from config
+        let include_gemini_vision = config.as_ref().and_then(|c| c.include_gemini_vision).unwrap_or(false);
+        let include_omniparser = config.as_ref().and_then(|c| c.include_omniparser).unwrap_or(false);
+        let include_ocr = config.as_ref().and_then(|c| c.include_ocr).unwrap_or(false);
+        let include_browser_dom = config.as_ref().and_then(|c| c.include_browser_dom).unwrap_or(false);
         let output_format = config
             .as_ref()
             .and_then(|c| c.tree_output_format.clone())
             .unwrap_or(TreeOutputFormat::CompactYaml);
 
+        let has_vision_options = include_gemini_vision || include_omniparser || include_ocr || include_browser_dom;
+
         // Build rust config with from_selector passed through
-        let rust_config = config.map(|mut c| {
+        let rust_config = config.as_ref().map(|c| {
+            let mut c_clone = TreeBuildConfig {
+                property_mode: c.property_mode.clone(),
+                timeout_per_operation_ms: c.timeout_per_operation_ms,
+                yield_every_n_elements: c.yield_every_n_elements,
+                batch_size: c.batch_size,
+                max_depth: c.max_depth,
+                ui_settle_delay_ms: c.ui_settle_delay_ms,
+                format_output: c.format_output,
+                tree_output_format: c.tree_output_format.clone(),
+                tree_from_selector: c.tree_from_selector.clone(),
+                include_window_screenshot: c.include_window_screenshot,
+                include_monitor_screenshots: c.include_monitor_screenshots,
+                include_gemini_vision: None,
+                include_omniparser: None,
+                include_ocr: None,
+                include_browser_dom: None,
+            };
             if matches!(output_format, TreeOutputFormat::VerboseJson) {
-                c.format_output = Some(false);
-            } else if c.format_output.is_none() {
-                c.format_output = Some(true);
+                c_clone.format_output = Some(false);
+            } else if c_clone.format_output.is_none() {
+                c_clone.format_output = Some(true);
             }
-            c.into()
+            c_clone.into()
         });
 
-        // Use core SDK's async method which handles from_selector internally
+        // Get UIA tree (always)
         let result = self
             .inner
             .get_window_tree_result_async(pid, title.as_deref(), rust_config)
@@ -1629,9 +1654,121 @@ impl Desktop {
 
         let mut sdk_result = WindowTreeResult::from(result);
 
-        if matches!(output_format, TreeOutputFormat::VerboseJson) {
-            sdk_result.formatted =
-                Some(serde_json::to_string_pretty(&sdk_result.tree).unwrap_or_default());
+        // If no vision options and not clustered format, return simple result
+        if !has_vision_options && !matches!(output_format, TreeOutputFormat::ClusteredYaml) {
+            if matches!(output_format, TreeOutputFormat::VerboseJson) {
+                sdk_result.formatted =
+                    Some(serde_json::to_string_pretty(&sdk_result.tree).unwrap_or_default());
+            }
+            return Ok(sdk_result);
+        }
+
+        // Build UIA bounds cache from formatted result
+        let mut uia_bounds: HashMap<u32, (String, String, (f64, f64, f64, f64), Option<String>)> = HashMap::new();
+        let uia_tree_result = self.inner.get_window_tree_result(pid, None, None).map_err(map_error)?;
+        let formatted_result = terminator::format_ui_node_as_compact_yaml(&uia_tree_result.tree, 0);
+        for (idx, (role, name, bounds, selector)) in formatted_result.index_to_bounds {
+            uia_bounds.insert(idx, (role, name, bounds, selector));
+        }
+
+        // Build DOM bounds cache if requested
+        let mut dom_bounds: HashMap<u32, (String, String, (f64, f64, f64, f64))> = HashMap::new();
+        if include_browser_dom && terminator::is_browser_process(pid) {
+            if let Ok(dom_result) = self.capture_browser_dom(Some(100), Some(true)).await {
+                for (idx_str, entry) in dom_result.index_to_bounds {
+                    if let Ok(idx) = idx_str.parse::<u32>() {
+                        let bounds = (entry.bounds.x, entry.bounds.y, entry.bounds.width, entry.bounds.height);
+                        dom_bounds.insert(idx, (entry.tag, entry.name, bounds));
+                    }
+                }
+            }
+        }
+
+        // Build Omniparser cache if requested
+        let mut omniparser_items: HashMap<u32, terminator::OmniparserItem> = HashMap::new();
+        if include_omniparser {
+            if let Ok(omni_result) = self.perform_omniparser_for_process(process.clone(), None, Some(true)).await {
+                for (idx_str, entry) in omni_result.index_to_bounds {
+                    if let Ok(idx) = idx_str.parse::<u32>() {
+                        omniparser_items.insert(idx, terminator::OmniparserItem {
+                            label: entry.label.clone(),
+                            content: Some(entry.name.clone()),
+                            box_2d: Some([entry.bounds.x, entry.bounds.y, entry.bounds.x + entry.bounds.width, entry.bounds.y + entry.bounds.height]),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Build Gemini Vision cache if requested
+        let mut vision_items: HashMap<u32, terminator::VisionElement> = HashMap::new();
+        if include_gemini_vision {
+            if let Ok(vision_result) = self.perform_gemini_vision_for_process(process.clone(), Some(true)).await {
+                for (idx_str, entry) in vision_result.index_to_bounds {
+                    if let Ok(idx) = idx_str.parse::<u32>() {
+                        vision_items.insert(idx, terminator::VisionElement {
+                            element_type: entry.element_type.clone(),
+                            content: Some(entry.name.clone()),
+                            description: None,
+                            box_2d: Some([entry.bounds.x, entry.bounds.y, entry.bounds.x + entry.bounds.width, entry.bounds.y + entry.bounds.height]),
+                            interactivity: None,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Build OCR cache if requested
+        let mut ocr_bounds: HashMap<u32, (String, (f64, f64, f64, f64))> = HashMap::new();
+        if include_ocr {
+            if let Ok(ocr_result) = self.perform_ocr_for_process(process.clone(), Some(true)).await {
+                for (idx_str, entry) in ocr_result.index_to_bounds {
+                    if let Ok(idx) = idx_str.parse::<u32>() {
+                        let bounds = (entry.bounds.x, entry.bounds.y, entry.bounds.width, entry.bounds.height);
+                        ocr_bounds.insert(idx, (entry.text.clone(), bounds));
+                    }
+                }
+            }
+        }
+
+        // If ClusteredYaml format, use clustering
+        if matches!(output_format, TreeOutputFormat::ClusteredYaml) {
+            let clustered_result = terminator::format_clustered_tree_from_caches(
+                &uia_bounds,
+                &dom_bounds,
+                &ocr_bounds,
+                &omniparser_items,
+                &vision_items,
+            );
+            sdk_result.formatted = Some(clustered_result.formatted);
+        } else {
+            // CompactYaml with vision - append vision trees to UIA tree
+            let mut combined = sdk_result.formatted.unwrap_or_default();
+            if !dom_bounds.is_empty() {
+                combined.push_str("\n\n# Browser DOM elements:\n");
+                for (idx, (tag, name, _)) in &dom_bounds {
+                    combined.push_str(&format!("#d{} [{}] {}\n", idx, tag, name));
+                }
+            }
+            if !omniparser_items.is_empty() {
+                combined.push_str("\n\n# Omniparser elements:\n");
+                for (idx, item) in &omniparser_items {
+                    combined.push_str(&format!("#p{} [{}] {}\n", idx, item.label, item.content.as_deref().unwrap_or("")));
+                }
+            }
+            if !vision_items.is_empty() {
+                combined.push_str("\n\n# Gemini Vision elements:\n");
+                for (idx, item) in &vision_items {
+                    combined.push_str(&format!("#g{} [{}] {}\n", idx, item.element_type, item.content.as_deref().unwrap_or("")));
+                }
+            }
+            if !ocr_bounds.is_empty() {
+                combined.push_str("\n\n# OCR elements:\n");
+                for (idx, (text, _)) in &ocr_bounds {
+                    combined.push_str(&format!("#o{} {}\n", idx, text));
+                }
+            }
+            sdk_result.formatted = Some(combined);
         }
 
         Ok(sdk_result)
