@@ -5220,6 +5220,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "terminator-mcp-agent",
  "tokio",
  "tokio-cron-scheduler",
  "tracing",
