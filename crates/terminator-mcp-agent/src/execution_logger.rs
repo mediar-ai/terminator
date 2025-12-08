@@ -442,27 +442,13 @@ fn generate_typescript_snippet(tool_name: &str, args: &Value, result: Result<&Va
         _ => format!("// Unsupported tool: {}\n// Args: {}", clean_tool, serde_json::to_string_pretty(args).unwrap_or_default()),
     };
 
-    // Build full TypeScript file
+    // Output raw snippet only (desktop is pre-injected in engine mode)
     let status_comment = match result {
-        Ok(_) => "// Status: SUCCESS".to_string(),
-        Err(e) => format!("// Status: ERROR - {}", e),
+        Ok(_) => "// Status: SUCCESS",
+        Err(e) => return format!("// Status: ERROR - {}\n{}", e, snippet),
     };
 
-    format!(
-        r#"import {{ Desktop }} from "@mediar-ai/terminator";
-
-async function main() {{
-  const desktop = new Desktop();
-
-  {}
-
-  {}
-}}
-
-main().catch(console.error);
-"#,
-        status_comment, snippet
-    )
+    format!("{}\n{}\n", status_comment, snippet)
 }
 
 /// Build locator string from args
@@ -906,7 +892,7 @@ mod tests {
         let snippet = generate_type_snippet(&args);
         assert!(snippet.contains("desktop.locator(\"process:notepad >> role:Edit\")"));
         assert!(snippet.contains("typeText(\"Hello World\""));
-        assert!(snippet.contains("clearBefore: true"));
+        assert!(snippet.contains("clearBeforeTyping: true"));
     }
 
     #[test]
@@ -930,7 +916,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_typescript_snippet_full() {
+    fn test_generate_typescript_snippet_raw() {
         let args = json!({
             "process": "chrome",
             "selector": "role:Button|name:OK"
@@ -938,8 +924,10 @@ mod tests {
         let result = json!({"status": "success"});
         let ts = generate_typescript_snippet("click_element", &args, Ok(&result));
 
-        assert!(ts.contains("import { Desktop }"));
-        assert!(ts.contains("const desktop = new Desktop()"));
+        // Should NOT contain boilerplate (desktop is pre-injected in engine mode)
+        assert!(!ts.contains("import { Desktop }"));
+        assert!(!ts.contains("new Desktop()"));
+        // Should contain raw snippet
         assert!(ts.contains("// Status: SUCCESS"));
         assert!(ts.contains("desktop.locator"));
     }
