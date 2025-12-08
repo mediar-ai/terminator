@@ -651,21 +651,22 @@ fn generate_navigate_browser_snippet(args: &Value) -> String {
 /// Generate get_window_tree snippet
 fn generate_get_window_tree_snippet(args: &Value) -> String {
     let process = args.get("process").and_then(|v| v.as_str()).unwrap_or("");
-    let title = args.get("title").and_then(|v| v.as_str());
+    let include_gemini = args.get("include_gemini_vision").and_then(|v| v.as_bool()).unwrap_or(false);
+    let include_omniparser = args.get("include_omniparser").and_then(|v| v.as_bool()).unwrap_or(false);
 
-    // propertyMode is required by TreeBuildConfig
-    let config_str = "{ propertyMode: \"Fast\", formatOutput: true }";
-    if let Some(t) = title {
-        format!(
-            "const result = desktop.getWindowTreeResult(\"{}\", \"{}\", {});\nconsole.log(result.formatted);",
-            process, t, config_str
-        )
-    } else {
-        format!(
-            "const result = desktop.getWindowTreeResult(\"{}\", null, {});\nconsole.log(result.formatted);",
-            process, config_str
-        )
+    // If vision modes requested, use getClusteredTree which combines all sources
+    if include_gemini || include_omniparser {
+        return format!(
+            "const result = await desktop.getClusteredTree(\"{}\", 100, {}, {}, true);\nconsole.log(result.formatted);",
+            process, include_omniparser, include_gemini
+        );
     }
+
+    // Default: accessibility tree only
+    format!(
+        "const result = desktop.getWindowTreeResult(\"{}\", null, {{ propertyMode: \"Fast\", formatOutput: true }});\nconsole.log(result.formatted);",
+        process
+    )
 }
 
 /// Generate capture_screenshot snippet
@@ -737,9 +738,10 @@ fn generate_scroll_snippet(args: &Value) -> String {
     let direction = args.get("direction").and_then(|v| v.as_str()).unwrap_or("down");
     let amount = args.get("amount").and_then(|v| v.as_f64()).unwrap_or(3.0) as u64;
     let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let options = build_action_options(args);
     format!(
-        "const element = await desktop.locator({}).first({});\nelement.scroll(\"{}\", {});",
-        locator, timeout, direction, amount
+        "const element = await desktop.locator({}).first({});\nelement.scroll(\"{}\", {}{});",
+        locator, timeout, direction, amount, if options.is_empty() { String::new() } else { format!(", {}", options) }
     )
 }
 
@@ -771,9 +773,10 @@ fn generate_set_value_snippet(args: &Value) -> String {
     let value = args.get("value").and_then(|v| v.as_str()).unwrap_or("");
     let escaped_value = value.replace('\\', "\\\\").replace('"', "\\\"");
     let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let options = build_action_options(args);
     format!(
-        "const element = await desktop.locator({}).first({});\nelement.setValue(\"{}\");",
-        locator, timeout, escaped_value
+        "const element = await desktop.locator({}).first({});\nelement.setValue(\"{}\"{});",
+        locator, timeout, escaped_value, if options.is_empty() { String::new() } else { format!(", {}", options) }
     )
 }
 
@@ -813,9 +816,10 @@ fn generate_validate_snippet(args: &Value) -> String {
 fn generate_invoke_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
     let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let options = build_action_options(args);
     format!(
-        "const element = await desktop.locator({}).first({});\nelement.invoke();",
-        locator, timeout
+        "const element = await desktop.locator({}).first({});\nelement.invoke({});",
+        locator, timeout, options
     )
 }
 
@@ -824,9 +828,10 @@ fn generate_set_selected_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
     let state = args.get("state").and_then(|v| v.as_bool()).unwrap_or(true);
     let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let options = build_action_options(args);
     format!(
-        "const element = await desktop.locator({}).first({});\nelement.setSelected({});",
-        locator, timeout, state
+        "const element = await desktop.locator({}).first({});\nelement.setSelected({}{});",
+        locator, timeout, state, if options.is_empty() { String::new() } else { format!(", {}", options) }
     )
 }
 
