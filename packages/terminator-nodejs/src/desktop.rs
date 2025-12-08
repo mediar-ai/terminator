@@ -2065,17 +2065,28 @@ impl Desktop {
         self.inner.press_key(&key).await.map_err(map_error)
     }
 
-    /// (async) Execute JavaScript in the currently focused browser tab.
-    /// Automatically finds the active browser window and executes the script.
+    /// (async) Execute JavaScript in a browser tab.
+    /// Finds the browser window by process name and executes the script.
     ///
     /// @param {string} script - The JavaScript code to execute in browser context.
+    /// @param {string} process - Process name to scope the browser window (e.g., 'chrome', 'msedge'). Required.
+    /// @param {number} [timeoutMs=10000] - Timeout in milliseconds for finding the browser window.
     /// @returns {Promise<string>} The result of script execution.
     #[napi]
-    pub async fn execute_browser_script(&self, script: String) -> napi::Result<String> {
-        self.inner
-            .execute_browser_script(&script)
-            .await
-            .map_err(map_error)
+    pub async fn execute_browser_script(
+        &self,
+        script: String,
+        process: String,
+        timeout_ms: Option<f64>,
+    ) -> napi::Result<String> {
+        use std::time::Duration;
+
+        let timeout = Duration::from_millis(timeout_ms.unwrap_or(10000.0) as u64);
+        let selector_str = format!("process:{}", process);
+        let sel: terminator::selector::Selector = selector_str.as_str().into();
+        let locator = self.inner.locator(sel);
+        let element = locator.first(Some(timeout)).await.map_err(map_error)?;
+        element.execute_browser_script(&script).await.map_err(map_error)
     }
 
     /// (async) Delay execution for a specified number of milliseconds.
