@@ -411,7 +411,9 @@ fn strip_screenshot_base64(value: &Value) -> Value {
 
 /// Generate TypeScript SDK snippet from MCP tool call
 /// This creates a .ts file alongside the .json execution log
-fn generate_typescript_snippet(tool_name: &str, args: &Value, result: Result<&Value, &str>) -> String {
+/// Generate TypeScript SDK snippet from MCP tool call.
+/// This is the single source of truth for tool -> TypeScript conversion.
+pub fn generate_typescript_snippet(tool_name: &str, args: &Value, result: Result<&Value, &str>) -> String {
     // Clean tool name (remove mcp__ prefix if present)
     let clean_tool = tool_name
         .strip_prefix("mcp__terminator-mcp-agent__")
@@ -421,7 +423,7 @@ fn generate_typescript_snippet(tool_name: &str, args: &Value, result: Result<&Va
         "click_element" => generate_click_snippet(args),
         "type_into_element" => generate_type_snippet(args),
         "press_key" => generate_press_key_snippet(args),
-        "global_key" => generate_global_key_snippet(args),
+        "global_key" | "press_key_global" => generate_global_key_snippet(args),
         "delay" => generate_delay_snippet(args),
         "open_application" => generate_open_application_snippet(args),
         "navigate_browser" => generate_navigate_browser_snippet(args),
@@ -440,7 +442,12 @@ fn generate_typescript_snippet(tool_name: &str, args: &Value, result: Result<&Va
         "activate_element" => generate_activate_snippet(args),
         "get_applications" | "get_applications_and_windows_list" => "const apps = desktop.getApplications();".to_string(),
         "execute_browser_script" => generate_execute_browser_script_snippet(args),
-        _ => format!("// Unsupported tool: {}\n// Args: {}", clean_tool, serde_json::to_string_pretty(args).unwrap_or_default()),
+        _ => {
+            // Comment out ALL lines of the JSON to avoid syntax errors
+            let args_json = serde_json::to_string_pretty(args).unwrap_or_default();
+            let commented_args = args_json.lines().map(|line| format!("//   {}", line)).collect::<Vec<_>>().join("\n");
+            format!("// Unsupported tool: {}\n// Args:\n{}", clean_tool, commented_args)
+        }
     };
 
     // Output raw snippet only (desktop is pre-injected in engine mode)
@@ -730,15 +737,58 @@ fn generate_capture_screenshot_snippet(args: &Value) -> String {
     }
 }
 
+/// Transform YAML engine JavaScript to TypeScript SDK API.
+/// The YAML execution engine had different globals/APIs than the TypeScript SDK.
+fn transform_yaml_js_to_sdk(code: &str) -> String {
+    let mut transformed = code.to_string();
+
+    // 1. log() -> console.log() (YAML engine had global log function)
+    // Simple string replacement - replace standalone "log(" but not ".log(" or "console.log("
+    // First, temporarily replace known patterns we want to preserve
+    transformed = transformed.replace("console.log(", "__CONSOLE_LOG__");
+    transformed = transformed.replace(".log(", "__DOT_LOG__");
+    // Now replace standalone log(
+    transformed = transformed.replace("log(", "console.log(");
+    // Restore preserved patterns
+    transformed = transformed.replace("__CONSOLE_LOG__", "console.log(");
+    transformed = transformed.replace("__DOT_LOG__", ".log(");
+
+    // 2. .value() -> .getValue() (Element API difference)
+    transformed = transformed.replace(".value()", ".getValue()");
+
+    // 3. .press_key( -> .pressKey( (snake_case to camelCase)
+    transformed = transformed.replace(".press_key(", ".pressKey(");
+
+    // 4. tar -xf -> PowerShell Expand-Archive for Windows compatibility
+    // Use regex to handle whitespace variations in the source code
+    if transformed.contains("tar -xf") && transformed.contains("execSync") {
+        // Match: execSync(`tar -xf "${zipPath}" -C "${destDir}"`, { ... });
+        // The pattern handles varying whitespace and optional trailing semicolon
+        let tar_pattern = regex::Regex::new(
+            r#"execSync\s*\(\s*`tar\s+-xf\s+"?\$\{zipPath\}"?\s+-C\s+"?\$\{destDir\}"?\s*`\s*,\s*\{\s*stdio:\s*['"]inherit['"]\s*,\s*windowsHide:\s*true\s*\}\s*\)"#
+        ).unwrap();
+
+        if tar_pattern.is_match(&transformed) {
+            // Note: $$ in replacement produces literal $ (escaping for regex)
+            transformed = tar_pattern.replace(
+                &transformed,
+                r#"execSync(`powershell -NoProfile -Command "Expand-Archive -Path '$${zipPath}' -DestinationPath '$${destDir}' -Force"`, { stdio: 'inherit', windowsHide: true })"#
+            ).to_string();
+        }
+    }
+
+    transformed
+}
+
 /// Generate run_command snippet
 fn generate_run_command_snippet(args: &Value) -> String {
     let run = args.get("run").and_then(|v| v.as_str()).unwrap_or("");
     let engine = args.get("engine").and_then(|v| v.as_str());
 
-    // If using engine mode (typescript/javascript), output raw script
+    // If using engine mode (typescript/javascript), transform YAML engine APIs to SDK APIs
     if let Some(eng) = engine {
         if matches!(eng, "typescript" | "ts" | "javascript" | "js") {
-            return run.to_string();
+            return transform_yaml_js_to_sdk(run);
         }
     }
 
