@@ -826,15 +826,38 @@ fn generate_run_command_snippet(args: &Value) -> String {
     // we need to capture the IIFE result and return it from the step's execute function
     // so the SDK can merge the state properly
     if transformed.contains("return {") && (transformed.contains("state:") || transformed.contains("set_env:")) {
-        // Check if this is an IIFE pattern: (async () => { ... })() or (() => { ... })()
-        let is_iife = transformed.trim_start().starts_with("(async") ||
-                      transformed.trim_start().starts_with("(()") ||
-                      transformed.trim_start().starts_with("( async") ||
-                      transformed.trim_start().starts_with("( ()");
+        // Check if code contains an IIFE pattern: (async () => { ... })() or (() => { ... })()
+        // The IIFE may be preceded by require statements or other setup code
+        let has_iife = transformed.contains("(async () =>") ||
+                       transformed.contains("(() =>") ||
+                       transformed.contains("(async() =>") ||
+                       transformed.contains("(()=>");
 
-        if is_iife {
-            // Wrap IIFE to capture return value: const __stepResult = await (...); return __stepResult;
-            return format!("const __stepResult = await {};\nreturn __stepResult;", transformed.trim());
+        if has_iife {
+            // Find the IIFE and wrap it to capture its return value
+            // Replace "await (async () => ..." with "const __stepResult = await (async () => ..."
+            // and add "return __stepResult;" at the end
+            let mut result = transformed.clone();
+
+            // Handle "await (async () =>" pattern
+            if result.contains("await (async () =>") {
+                result = result.replacen("await (async () =>", "const __stepResult = await (async () =>", 1);
+            } else if result.contains("await (async() =>") {
+                result = result.replacen("await (async() =>", "const __stepResult = await (async() =>", 1);
+            } else if result.contains("await (() =>") {
+                result = result.replacen("await (() =>", "const __stepResult = await (() =>", 1);
+            } else if result.contains("await (()=>") {
+                result = result.replacen("await (()=>", "const __stepResult = await (()=>", 1);
+            }
+            // Handle non-awaited IIFE at the end (standalone IIFE)
+            else if result.trim_end().ends_with("})()") || result.trim_end().ends_with("})();") {
+                result = format!("const __stepResult = await {};\nreturn __stepResult;", result.trim());
+                return result;
+            }
+
+            // Add return statement at the end
+            result.push_str("\nreturn __stepResult;");
+            return result;
         }
     }
 
