@@ -584,6 +584,33 @@ fn generate_click_snippet(args: &Value) -> String {
     )
 }
 
+/// Format text for TypeScript, handling variable references
+/// - Pure variable like `${input.xxx}` -> `input.xxx` (no quotes)
+/// - Mixed content like `Hello ${input.name}!` -> `` `Hello ${input.name}!` `` (template literal)
+/// - Plain text -> `"plain text"` (double quotes)
+fn format_text_for_typescript(text: &str) -> String {
+    // Check if it's a pure variable reference like ${input.xxx} or ${context.xxx}
+    let pure_var_regex = regex::Regex::new(r"^\$\{([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\}$").unwrap();
+    if let Some(caps) = pure_var_regex.captures(text) {
+        // Pure variable reference - return without quotes
+        return caps.get(1).unwrap().as_str().to_string();
+    }
+
+    // Check if text contains any variable references
+    let has_vars = text.contains("${");
+
+    if has_vars {
+        // Mixed content - use template literal (backticks)
+        // Escape backticks in the content
+        let escaped = text.replace('\\', "\\\\").replace('`', "\\`");
+        format!("`{}`", escaped)
+    } else {
+        // Plain text - use double quotes
+        let escaped = text.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
+        format!("\"{}\"", escaped)
+    }
+}
+
 /// Generate type_into_element snippet
 fn generate_type_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
@@ -595,15 +622,15 @@ fn generate_type_snippet(args: &Value) -> String {
     let clear = args.get("clear_before_typing").and_then(|v| v.as_bool()).unwrap_or(false);
     let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
 
-    // Escape text for TypeScript string
-    let escaped_text = text.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
+    // Format text with proper variable handling
+    let formatted_text = format_text_for_typescript(text);
 
     // Build TypeTextOptions
     let options = build_type_text_options(args, clear);
 
     format!(
-        "const element = await desktop.locator({}).first({});\nawait element.typeText(\"{}\", {});",
-        locator, timeout, escaped_text, options
+        "const element = await desktop.locator({}).first({});\nawait element.typeText({}, {});",
+        locator, timeout, formatted_text, options
     )
 }
 
