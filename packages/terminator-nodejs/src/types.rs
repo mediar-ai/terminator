@@ -505,6 +505,14 @@ pub struct TreeBuildConfig {
     pub include_window_screenshot: Option<bool>,
     /// Include all monitor screenshots in result (saved to executions dir). Defaults to false.
     pub include_monitor_screenshots: Option<bool>,
+    /// Include Gemini Vision AI detection. Elements prefixed with #g1, #g2, etc.
+    pub include_gemini_vision: Option<bool>,
+    /// Include Omniparser detection. Elements prefixed with #p1, #p2, etc.
+    pub include_omniparser: Option<bool>,
+    /// Include OCR text detection. Elements prefixed with #o1, #o2, etc.
+    pub include_ocr: Option<bool>,
+    /// Include browser DOM elements (requires Terminator Bridge extension). Elements prefixed with #d1, #d2, etc.
+    pub include_browser_dom: Option<bool>,
 }
 
 impl From<(f64, f64, f64, f64)> for Bounds {
