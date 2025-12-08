@@ -439,6 +439,7 @@ fn generate_typescript_snippet(tool_name: &str, args: &Value, result: Result<&Va
         "set_selected" => generate_set_selected_snippet(args),
         "activate_element" => generate_activate_snippet(args),
         "get_applications" | "get_applications_and_windows_list" => "const apps = desktop.getApplications();".to_string(),
+        "execute_browser_script" => generate_execute_browser_script_snippet(args),
         _ => format!("// Unsupported tool: {}\n// Args: {}", clean_tool, serde_json::to_string_pretty(args).unwrap_or_default()),
     };
 
@@ -789,10 +790,18 @@ fn generate_select_option_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
     let option = args.get("option_name").and_then(|v| v.as_str()).unwrap_or("");
     let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
-    format!(
-        "const element = await desktop.locator({}).first({});\nawait element.selectOption(\"{}\");",
-        locator, timeout, option
-    )
+    let opts = build_action_options(args);
+    if opts.is_empty() {
+        format!(
+            "const element = await desktop.locator({}).first({});\nawait element.selectOption(\"{}\");",
+            locator, timeout, option
+        )
+    } else {
+        format!(
+            "const element = await desktop.locator({}).first({});\nawait element.selectOption(\"{}\", {});",
+            locator, timeout, option, opts
+        )
+    }
 }
 
 /// Generate set_value snippet
@@ -873,6 +882,20 @@ fn generate_activate_snippet(args: &Value) -> String {
     )
 }
 
+
+/// Generate execute_browser_script snippet
+fn generate_execute_browser_script_snippet(args: &Value) -> String {
+    let script = args.get("script").and_then(|v| v.as_str()).unwrap_or("");
+    let script_file = args.get("script_file").and_then(|v| v.as_str());
+
+    if let Some(file) = script_file {
+        format!(r#"const result = await desktop.executeBrowserScript(fs.readFileSync("{}", "utf-8"));"#, file.replace('\\', "\\\\"))
+    } else {
+        // Escape the script for embedding in template literal
+        let escaped = script.replace('\\', "\\\\").replace('`', "\\`").replace("${", "\\${");
+        format!("const result = await desktop.executeBrowserScript(`{}`);", escaped)
+    }
+}
 /// Clean up execution logs older than RETENTION_DAYS
 async fn cleanup_old_executions() {
     let dir = get_executions_dir();
