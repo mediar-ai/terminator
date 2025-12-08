@@ -819,9 +819,9 @@ fn generate_run_command_snippet(args: &Value) -> String {
         }
     }
 
-    // Shell command mode - wrap in desktop.runCommand()
-    let escaped_run = run.replace('\\', "\\\\").replace('"', "\\\"");
-    format!("const result = await desktop.runCommand(\"{}\");", escaped_run)
+    // Shell command mode - wrap in desktop.runCommand() with backticks for multiline support
+    let escaped_run = run.replace('\\', "\\\\").replace('`', "\\`").replace('$', "\\$");
+    format!("const result = await desktop.runCommand(`{}`);", escaped_run)
 }
 
 /// Generate mouse_drag snippet
