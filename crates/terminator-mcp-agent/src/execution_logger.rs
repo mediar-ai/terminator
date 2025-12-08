@@ -887,15 +887,25 @@ fn generate_activate_snippet(args: &Value) -> String {
 fn generate_execute_browser_script_snippet(args: &Value) -> String {
     let script = args.get("script").and_then(|v| v.as_str()).unwrap_or("");
     let script_file = args.get("script_file").and_then(|v| v.as_str());
+    let process = args.get("process").and_then(|v| v.as_str()).unwrap_or("chrome");
+    let timeout_ms = args.get("timeout_ms").and_then(|v| v.as_u64());
 
-    if let Some(file) = script_file {
-        format!(r#"const result = await desktop.executeBrowserScript(fs.readFileSync("{}", "utf-8"));"#, file.replace('\\', "\\\\"))
+    // Build the script argument
+    let script_arg = if let Some(file) = script_file {
+        format!(r#"fs.readFileSync("{}", "utf-8")"#, file.replace('\\', "\\\\"))
     } else {
-        // Escape the script for embedding in template literal
         let escaped = script.replace('\\', "\\\\").replace('`', "\\`").replace("${", "\\${");
-        format!("const result = await desktop.executeBrowserScript(`{}`);", escaped)
+        format!("`{}`", escaped)
+    };
+
+    // Process is required, timeout is optional
+    if let Some(timeout) = timeout_ms {
+        format!(r#"const result = await desktop.executeBrowserScript({}, "{}", {});"#, script_arg, process, timeout)
+    } else {
+        format!(r#"const result = await desktop.executeBrowserScript({}, "{}");"#, script_arg, process)
     }
 }
+
 /// Clean up execution logs older than RETENTION_DAYS
 async fn cleanup_old_executions() {
     let dir = get_executions_dir();
