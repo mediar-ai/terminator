@@ -6,6 +6,7 @@
   "description": "TypeScript workflow SDK for Terminator",
   "devDependencies": {
     "@babel/preset-typescript": "^7.28.5",
+    "@mediar-ai/terminator": "file:../terminator-nodejs",
     "@modelcontextprotocol/sdk": "^1.21.0",
     "@types/jest": "^29.5.11",
     "@types/node": "^20.11.5",
