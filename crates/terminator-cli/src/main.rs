@@ -185,6 +185,17 @@ enum McpCommands {
     Run(McpRunArgs),
     /// Validate workflow output structure
     Validate(McpValidateArgs),
+    /// Generate TypeScript SDK snippet from MCP tool call
+    Snippet(McpSnippetArgs),
+}
+
+#[derive(Parser, Debug, Clone)]
+struct McpSnippetArgs {
+    /// Tool name (e.g., click_element, type_into_element)
+    tool: String,
+
+    /// Arguments as JSON string
+    args: String,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -998,12 +1009,22 @@ fn handle_mcp_command(cmd: McpCommands) {
         return;
     }
 
+    // Handle snippet generation - doesn't need MCP connection
+    if let McpCommands::Snippet(args) = cmd {
+        if let Err(e) = generate_snippet(args) {
+            eprintln!("❌ Snippet generation error: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     let transport = match cmd {
         McpCommands::Chat(ref args) => parse_transport(args.url.clone(), args.command.clone()),
         McpCommands::AiChat(ref args) => parse_transport(args.url.clone(), args.command.clone()),
         McpCommands::Exec(ref args) => parse_transport(args.url.clone(), args.command.clone()),
         McpCommands::Run(ref args) => parse_transport(args.url.clone(), args.command.clone()),
         McpCommands::Validate(_) => unreachable!(), // Handled above
+        McpCommands::Snippet(_) => unreachable!(), // Handled above
     };
 
     let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
@@ -1017,6 +1038,7 @@ fn handle_mcp_command(cmd: McpCommands) {
             }
             McpCommands::Run(args) => run_workflow(transport, args).await,
             McpCommands::Validate(_) => unreachable!(), // Handled above
+            McpCommands::Snippet(_) => unreachable!(), // Handled above
         }
     });
 
@@ -1072,6 +1094,32 @@ fn validate_workflow_output(args: McpValidateArgs) -> Result<()> {
         std::process::exit(1);
     }
 
+    Ok(())
+}
+
+/// Generate TypeScript SDK snippet from tool name and args
+fn generate_snippet(args: McpSnippetArgs) -> Result<()> {
+    // Parse args JSON
+    let args_value: Value = serde_json::from_str(&args.args)
+        .with_context(|| format!("Failed to parse args JSON: {}", args.args))?;
+
+    // Generate snippet using terminator-mcp-agent's function
+    let snippet = terminator_mcp_agent::execution_logger::generate_typescript_snippet(
+        &args.tool,
+        &args_value,
+        Ok(&serde_json::json!({"status": "success"})), // Assume success for snippet generation
+    );
+
+    // Output just the snippet (without status comment for cleaner output)
+    // The function returns "// Status: SUCCESS\n<snippet>\n" - extract just the snippet
+    let lines: Vec<&str> = snippet.lines().collect();
+    let snippet_only = if lines.len() > 1 && lines[0].starts_with("// Status:") {
+        lines[1..].join("\n")
+    } else {
+        snippet
+    };
+
+    println!("{}", snippet_only);
     Ok(())
 }
 
