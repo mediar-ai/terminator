@@ -440,6 +440,7 @@ pub fn generate_typescript_snippet(tool_name: &str, args: &Value, result: Result
         "invoke_element" => generate_invoke_snippet(args),
         "set_selected" => generate_set_selected_snippet(args),
         "activate_element" => generate_activate_snippet(args),
+        "close_element" => generate_close_snippet(args),
         "get_applications" | "get_applications_and_windows_list" => "const apps = desktop.getApplications();".to_string(),
         "execute_browser_script" => generate_execute_browser_script_snippet(args),
         _ => {
@@ -848,6 +849,16 @@ fn generate_scroll_snippet(args: &Value) -> String {
     format!(
         "const element = await desktop.locator({}).first({});\nelement.scroll(\"{}\", {}{});",
         locator, timeout, direction, amount, if options.is_empty() { String::new() } else { format!(", {}", options) }
+    )
+}
+
+/// Generate close_element snippet
+fn generate_close_snippet(args: &Value) -> String {
+    let locator = build_locator_string(args);
+    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    format!(
+        "const element = await desktop.locator({}).first({});\nawait element.close();",
+        locator, timeout
     )
 }
 
