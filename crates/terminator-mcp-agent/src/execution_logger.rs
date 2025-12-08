@@ -476,6 +476,72 @@ fn build_locator_string(args: &Value) -> String {
     format!("\"{}\"", locator)
 }
 
+/// Build ActionOptions object from MCP params (maps to SDK camelCase)
+fn build_action_options(args: &Value) -> String {
+    let mut opts = Vec::new();
+
+    // highlightBeforeAction
+    if let Some(true) = args.get("highlight_before_action").and_then(|v| v.as_bool()) {
+        opts.push("highlightBeforeAction: true".to_string());
+    }
+
+    // clickPosition
+    if let Some(pos) = args.get("click_position") {
+        let x = pos.get("x_percentage").and_then(|v| v.as_u64());
+        let y = pos.get("y_percentage").and_then(|v| v.as_u64());
+        if let (Some(x), Some(y)) = (x, y) {
+            if x != 50 || y != 50 {
+                opts.push(format!("clickPosition: {{ xPercentage: {}, yPercentage: {} }}", x, y));
+            }
+        }
+    }
+
+    // clickType (only if not default "left")
+    if let Some(ct) = args.get("click_type").and_then(|v| v.as_str()) {
+        if ct != "left" {
+            let sdk_type = match ct {
+                "double" => "Double",
+                "right" => "Right",
+                _ => "Left",
+            };
+            opts.push(format!("clickType: \"{}\"", sdk_type));
+        }
+    }
+
+    // uiDiffBeforeAfter
+    if let Some(true) = args.get("ui_diff_before_after").and_then(|v| v.as_bool()) {
+        opts.push("uiDiffBeforeAfter: true".to_string());
+    }
+
+    if opts.is_empty() {
+        String::new()
+    } else {
+        format!("{{ {} }}", opts.join(", "))
+    }
+}
+
+/// Build TypeTextOptions object from MCP params
+fn build_type_text_options(args: &Value, clear_before_typing: bool) -> String {
+    let mut opts = vec![format!("clearBeforeTyping: {}", clear_before_typing)];
+
+    // highlightBeforeAction
+    if let Some(true) = args.get("highlight_before_action").and_then(|v| v.as_bool()) {
+        opts.push("highlightBeforeAction: true".to_string());
+    }
+
+    // tryFocusBefore (default true, only include if false)
+    if let Some(false) = args.get("try_focus_before").and_then(|v| v.as_bool()) {
+        opts.push("tryFocusBefore: false".to_string());
+    }
+
+    // tryClickBefore (default true, only include if false)
+    if let Some(false) = args.get("try_click_before").and_then(|v| v.as_bool()) {
+        opts.push("tryClickBefore: false".to_string());
+    }
+
+    format!("{{ {} }}", opts.join(", "))
+}
+
 /// Generate click_element snippet
 fn generate_click_snippet(args: &Value) -> String {
     // Check mode: selector, index, or coordinates
@@ -499,18 +565,14 @@ fn generate_click_snippet(args: &Value) -> String {
 
     // Selector mode
     let locator = build_locator_string(args);
-    let click_type = args.get("click_type").and_then(|v| v.as_str()).unwrap_or("left");
-    let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
 
-    let click_method = match click_type {
-        "double" => "doubleClick",
-        "right" => "rightClick",
-        _ => "click",
-    };
+    // Build ActionOptions from MCP params
+    let options = build_action_options(args);
 
     format!(
-        "const element = await desktop.locator({}).first({});\nawait element.{}();",
-        locator, timeout, click_method
+        "const element = await desktop.locator({}).first({});\nawait element.click({});",
+        locator, timeout, options
     )
 }
 
@@ -523,14 +585,17 @@ fn generate_type_snippet(args: &Value) -> String {
         .and_then(|v| v.as_str())
         .unwrap_or("");
     let clear = args.get("clear_before_typing").and_then(|v| v.as_bool()).unwrap_or(false);
-    let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
 
     // Escape text for TypeScript string
     let escaped_text = text.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
 
+    // Build TypeTextOptions
+    let options = build_type_text_options(args, clear);
+
     format!(
-        "const element = await desktop.locator({}).first({});\nawait element.typeText(\"{}\", {{ clearBeforeTyping: {} }});",
-        locator, timeout, escaped_text, clear
+        "const element = await desktop.locator({}).first({});\nawait element.typeText(\"{}\", {});",
+        locator, timeout, escaped_text, options
     )
 }
 
@@ -538,11 +603,12 @@ fn generate_type_snippet(args: &Value) -> String {
 fn generate_press_key_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
     let key = args.get("key").and_then(|v| v.as_str()).unwrap_or("");
-    let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let options = build_action_options(args);
 
     format!(
-        "const element = await desktop.locator({}).first({});\nawait element.pressKey(\"{}\");",
-        locator, timeout, key
+        "const element = await desktop.locator({}).first({});\nawait element.pressKey(\"{}\"{});",
+        locator, timeout, key, if options.is_empty() { String::new() } else { format!(", {}", options) }
     )
 }
 
@@ -637,8 +703,17 @@ fn generate_capture_screenshot_snippet(args: &Value) -> String {
 /// Generate run_command snippet
 fn generate_run_command_snippet(args: &Value) -> String {
     let run = args.get("run").and_then(|v| v.as_str()).unwrap_or("");
+    let engine = args.get("engine").and_then(|v| v.as_str());
+
+    // If using engine mode (typescript/javascript), output raw script
+    if let Some(eng) = engine {
+        if matches!(eng, "typescript" | "ts" | "javascript" | "js") {
+            return run.to_string();
+        }
+    }
+
+    // Shell command mode - wrap in desktop.runCommand()
     let escaped_run = run.replace('\\', "\\\\").replace('"', "\\\"");
-    // runCommand takes (windowsCommand, unixCommand)
     format!("const result = await desktop.runCommand(\"{}\");", escaped_run)
 }
 
