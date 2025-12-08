@@ -653,20 +653,48 @@ fn generate_get_window_tree_snippet(args: &Value) -> String {
     let process = args.get("process").and_then(|v| v.as_str()).unwrap_or("");
     let include_gemini = args.get("include_gemini_vision").and_then(|v| v.as_bool()).unwrap_or(false);
     let include_omniparser = args.get("include_omniparser").and_then(|v| v.as_bool()).unwrap_or(false);
+    let include_ocr = args.get("include_ocr").and_then(|v| v.as_bool()).unwrap_or(false);
+    let include_browser_dom = args.get("include_browser_dom").and_then(|v| v.as_bool()).unwrap_or(false);
+    let tree_output_format = args.get("tree_output_format").and_then(|v| v.as_str());
 
-    // If vision modes requested, use getClusteredTree which combines all sources
-    if include_gemini || include_omniparser {
-        return format!(
-            "const result = await desktop.getClusteredTree(\"{}\", 100, {}, {}, true);\nconsole.log(result.formatted);",
-            process, include_omniparser, include_gemini
-        );
+    // Build config options
+    let mut config_parts = vec!["propertyMode: \"Fast\"".to_string()];
+
+    if include_gemini {
+        config_parts.push("includeGeminiVision: true".to_string());
+    }
+    if include_omniparser {
+        config_parts.push("includeOmniparser: true".to_string());
+    }
+    if include_ocr {
+        config_parts.push("includeOcr: true".to_string());
+    }
+    if include_browser_dom {
+        config_parts.push("includeBrowserDom: true".to_string());
+    }
+    if let Some(format) = tree_output_format {
+        let format_value = match format {
+            "clustered_yaml" => "\"ClusteredYaml\"",
+            "verbose_json" => "\"VerboseJson\"",
+            _ => "\"CompactYaml\"",
+        };
+        config_parts.push(format!("treeOutputFormat: {}", format_value));
     }
 
-    // Default: accessibility tree only
-    format!(
-        "const result = desktop.getWindowTreeResult(\"{}\", null, {{ propertyMode: \"Fast\", formatOutput: true }});\nconsole.log(result.formatted);",
-        process
-    )
+    let config = format!("{{ {} }}", config_parts.join(", "));
+
+    // Use async method when vision options are present
+    if include_gemini || include_omniparser || include_ocr || include_browser_dom {
+        format!(
+            "const result = await desktop.getWindowTreeResultAsync(\"{}\", null, {});\nconsole.log(result.formatted);",
+            process, config
+        )
+    } else {
+        format!(
+            "const result = desktop.getWindowTreeResult(\"{}\", null, {});\nconsole.log(result.formatted);",
+            process, config
+        )
+    }
 }
 
 /// Generate capture_screenshot snippet
