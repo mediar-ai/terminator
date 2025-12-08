@@ -946,13 +946,15 @@ export declare class Desktop {
    */
   pressKey(key: string): Promise<void>
   /**
-   * (async) Execute JavaScript in the currently focused browser tab.
-   * Automatically finds the active browser window and executes the script.
+   * (async) Execute JavaScript in a browser tab.
+   * Finds the browser window by process name and executes the script.
    *
    * @param {string} script - The JavaScript code to execute in browser context.
+   * @param {string} process - Process name to scope the browser window (e.g., 'chrome', 'msedge'). Required.
+   * @param {number} [timeoutMs=10000] - Timeout in milliseconds for finding the browser window.
    * @returns {Promise<string>} The result of script execution.
    */
-  executeBrowserScript(script: string): Promise<string>
+  executeBrowserScript(script: string, process: string, timeoutMs?: number | undefined | null): Promise<string>
   /**
    * (async) Delay execution for a specified number of milliseconds.
    * Useful for waiting between actions to ensure UI stability.
