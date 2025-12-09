@@ -4,7 +4,7 @@
 //! with associated before/after screenshots. 7-day retention with automatic cleanup.
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use chrono::Local;
+use chrono::{DateTime, Local, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs;
@@ -17,6 +17,14 @@ static LOGGING_ENABLED: AtomicBool = AtomicBool::new(true);
 
 /// Retention period in days
 const RETENTION_DAYS: i64 = 7;
+/// A captured log entry from workflow execution
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CapturedLogEntry {
+    pub timestamp: DateTime<Utc>,
+    pub level: String,
+    pub message: String,
+}
+
 
 /// Execution log entry combining request and response
 #[derive(Debug, Serialize, Deserialize)]
@@ -33,6 +41,8 @@ pub struct ExecutionLog {
     pub response: ExecutionResponse,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub screenshots: Option<ScreenshotRefs>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logs: Option<Vec<CapturedLogEntry>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -71,6 +81,14 @@ pub fn get_executions_dir() -> PathBuf {
         .unwrap_or_else(std::env::temp_dir)
         .join("terminator")
         .join("executions")
+}
+
+/// Get the logs directory path
+pub fn get_logs_dir() -> PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("terminator")
+        .join("logs")
 }
 
 /// Initialize execution logging (create dir, check env var, run cleanup)
@@ -189,6 +207,7 @@ pub fn log_response(
             error: result.err().map(String::from),
         },
         screenshots,
+        logs: None,
     };
 
     // Write JSON
@@ -198,6 +217,76 @@ pub fn log_response(
                 warn!("[execution_logger] Failed to write {}: {}", json_path.display(), e);
             } else {
                 info!("[execution_logger] Logged: {}", json_path.display());
+            }
+        }
+        Err(e) => {
+            warn!("[execution_logger] Failed to serialize log: {}", e);
+        }
+    }
+
+    // Write TypeScript snippet file
+    let ts_path = dir.join(format!("{}.ts", ctx.file_prefix));
+    if let Err(e) = fs::write(&ts_path, &ts_snippet) {
+        warn!("[execution_logger] Failed to write {}: {}", ts_path.display(), e);
+    } else {
+        debug!("[execution_logger] TypeScript snippet: {}", ts_path.display());
+    }
+}
+
+/// Complete logging an execution with captured logs (call after tool dispatch)
+/// Same as log_response but includes captured console logs
+pub fn log_response_with_logs(
+    ctx: ExecutionContext,
+    result: Result<&Value, &str>,
+    duration_ms: u64,
+    logs: Option<Vec<CapturedLogEntry>>,
+) {
+    info!("[execution_logger] log_response_with_logs called for tool: {}, enabled: {}, logs: {:?}", 
+          ctx.tool_name, is_enabled(), logs.as_ref().map(|l| l.len()));
+    if !is_enabled() {
+        return;
+    }
+
+    let dir = get_executions_dir();
+    let json_path = dir.join(format!("{}.json", ctx.file_prefix));
+
+    // Extract screenshots from result and save them
+    let screenshots = if let Ok(result_value) = result {
+        extract_and_save_screenshots(&dir, &ctx.file_prefix, result_value)
+    } else {
+        None
+    };
+
+    // Build response, stripping screenshot base64 from result
+    let clean_result = result.ok().map(|v| strip_screenshot_base64(v));
+
+    // Generate TypeScript snippet before moving ctx.request
+    let ts_snippet = generate_typescript_snippet(&ctx.tool_name, &ctx.request, result);
+
+    let log = ExecutionLog {
+        timestamp: ctx.timestamp.to_rfc3339(),
+        workflow_id: ctx.workflow_id,
+        step_id: ctx.step_id,
+        step_index: ctx.step_index,
+        tool_name: ctx.tool_name.clone(),
+        request: ctx.request,
+        response: ExecutionResponse {
+            status: if result.is_ok() { "success" } else { "error" }.to_string(),
+            duration_ms,
+            result: clean_result,
+            error: result.err().map(String::from),
+        },
+        screenshots,
+        logs,
+    };
+
+    // Write JSON
+    match serde_json::to_string_pretty(&log) {
+        Ok(json) => {
+            if let Err(e) = fs::write(&json_path, json) {
+                warn!("[execution_logger] Failed to write {}: {}", json_path.display(), e);
+            } else {
+                info!("[execution_logger] Logged with logs: {}", json_path.display());
             }
         }
         Err(e) => {
