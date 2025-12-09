@@ -235,6 +235,15 @@ impl TypeScriptWorkflow {
                 Some(json!({"url": url})),
             )
         })?;
+        // Handle Windows file:/// URLs (strip leading / before drive letter like /C:)
+        let path_str = if path_str.starts_with('/')
+            && path_str.len() > 2
+            && path_str.chars().nth(2) == Some(':')
+        {
+            &path_str[1..]
+        } else {
+            path_str
+        };
 
         let path = PathBuf::from(path_str);
 
