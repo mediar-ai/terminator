@@ -68,6 +68,14 @@ pub fn extract_content_json(content: &Content) -> Result<serde_json::Value, serd
     }
 }
 
+/// Extract raw text from Content (for log extraction from run_command results)
+pub fn extract_content_text(content: &Content) -> Option<String> {
+    match &content.raw {
+        rmcp::model::RawContent::Text(text_content) => Some(text_content.text.clone()),
+        _ => None,
+    }
+}
+
 /// Capture screenshots of all monitors, save to disk, and return paths
 async fn capture_monitor_screenshots(desktop: &Desktop) -> Vec<String> {
     let mut paths = Vec::new();
@@ -9226,7 +9234,52 @@ impl DesktopWrapper {
         if let Ok(mut stderr_logs) = self.captured_stderr_logs.lock() {
             all_logs.extend(stderr_logs.drain(..));
         }
-        
+
+        // Extract logs from run_command result (logs are embedded in the JSON result)
+        if tool_name == "run_command" {
+            if let Ok(ref call_result) = result {
+                for content in &call_result.content {
+                    if let Some(text) = crate::server::extract_content_text(content) {
+                        if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&text) {
+                            let now = chrono::Utc::now();
+                            // Extract "logs" array (stdout logs)
+                            if let Some(logs_array) = json_val.get("logs").and_then(|v| v.as_array()) {
+                                for (i, log) in logs_array.iter().enumerate() {
+                                    if let Some(msg) = log.as_str() {
+                                        all_logs.push(execution_logger::CapturedLogEntry {
+                                            timestamp: now + chrono::Duration::microseconds(i as i64),
+                                            level: "INFO".to_string(),
+                                            message: msg.to_string(),
+                                        });
+                                    }
+                                }
+                            }
+                            // Extract "stderr" array (error/warn logs)
+                            if let Some(stderr_array) = json_val.get("stderr").and_then(|v| v.as_array()) {
+                                for (i, log) in stderr_array.iter().enumerate() {
+                                    if let Some(msg) = log.as_str() {
+                                        // Determine log level based on content
+                                        let level = if msg.to_lowercase().contains("error") {
+                                            "ERROR"
+                                        } else if msg.to_lowercase().contains("warn") {
+                                            "WARN"
+                                        } else {
+                                            "ERROR" // stderr defaults to ERROR
+                                        };
+                                        all_logs.push(execution_logger::CapturedLogEntry {
+                                            timestamp: now + chrono::Duration::microseconds((1000 + i) as i64),
+                                            level: level.to_string(),
+                                            message: msg.to_string(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Sort logs by timestamp
         all_logs.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
 
