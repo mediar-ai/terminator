@@ -8,6 +8,9 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::{debug, error, info, warn, Instrument};
 
 use rmcp::ErrorData as McpError;
+use crate::execution_logger::CapturedLogEntry;
+use chrono::Utc;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum JsRuntime {
@@ -317,7 +320,7 @@ impl TypeScriptWorkflow {
         end_at_step: Option<&str>,
         restored_state: Option<Value>,
         execution_id: Option<&str>,
-    ) -> Result<TypeScriptWorkflowResult, McpError> {
+    ) -> Result<TypeScriptWorkflowExecutionResult, McpError> {
         use std::env;
 
         // Check execution mode
@@ -423,18 +426,39 @@ impl TypeScriptWorkflow {
             }
         };
 
-        // Take stderr and spawn a task to stream logs through tracing
+        // Take stderr and spawn a task to stream logs through tracing AND capture them
         // execution_id is passed as a structured field for OpenTelemetry/ClickHouse filtering
         let stderr = child.stderr.take();
         let exec_id_for_logs = execution_id.map(|s| s.to_string());
-        if let Some(stderr) = stderr {
-            tokio::spawn(
+        
+        // Create shared vector for captured logs
+        let captured_logs: Arc<Mutex<Vec<CapturedLogEntry>>> = Arc::new(Mutex::new(Vec::new()));
+        let logs_clone = captured_logs.clone();
+        
+        let stderr_handle = if let Some(stderr) = stderr {
+            Some(tokio::spawn(
                 async move {
                     let reader = BufReader::new(stderr);
                     let mut lines = reader.lines();
                     while let Ok(Some(line)) = lines.next_line().await {
                         let parsed = parse_log_line(&line);
-                        let msg = parsed.message;
+                        let msg = parsed.message.clone();
+                        
+                        // Capture the log entry
+                        let level_str = match parsed.level {
+                            LogLevel::Error => "ERROR",
+                            LogLevel::Warn => "WARN",
+                            LogLevel::Debug => "DEBUG",
+                            LogLevel::Info => "INFO",
+                        };
+                        if let Ok(mut logs) = logs_clone.lock() {
+                            logs.push(CapturedLogEntry {
+                                timestamp: Utc::now(),
+                                level: level_str.to_string(),
+                                message: parsed.message.clone(),
+                            });
+                        }
+                        
                         // Pass execution_id as structured field (not in message body)
                         // This keeps logs clean while still enabling ClickHouse filtering via OTEL attributes
                         match (&exec_id_for_logs, parsed.level) {
@@ -466,8 +490,10 @@ impl TypeScriptWorkflow {
                     }
                 }
                 .in_current_span(),
-            );
-        }
+            ))
+        } else {
+            None
+        };
 
         // Wait for completion and get output
         let output = child.wait_with_output().await.map_err(|e| {
@@ -539,7 +565,15 @@ impl TypeScriptWorkflow {
             cleanup_temp_dir(&temp_dir);
         }
 
-        Ok(result)
+        // Wait for stderr handler to finish (with short timeout)
+        if let Some(handle) = stderr_handle {
+            let _ = tokio::time::timeout(std::time::Duration::from_millis(100), handle).await;
+        }
+
+        // Extract captured logs
+        let logs = captured_logs.lock().unwrap_or_else(|e| e.into_inner()).drain(..).collect();
+
+        Ok(TypeScriptWorkflowExecutionResult { result, logs })
     }
 
     fn create_execution_script(
@@ -793,6 +827,13 @@ pub struct TypeScriptWorkflowResult {
     pub result: WorkflowExecutionResult,
     pub state: Value,
 }
+
+/// Result from TypeScript workflow execution including captured logs
+pub struct TypeScriptWorkflowExecutionResult {
+    pub result: TypeScriptWorkflowResult,
+    pub logs: Vec<CapturedLogEntry>,
+}
+
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct WorkflowMetadata {
