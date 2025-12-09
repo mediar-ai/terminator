@@ -36,7 +36,9 @@ pub fn init() {
         .unwrap_or(false)
     {
         LOGGING_ENABLED.store(false, Ordering::Relaxed);
-        info!("[screenshot_logger] Screenshot logging disabled via TERMINATOR_DISABLE_EXECUTION_LOGS");
+        info!(
+            "[screenshot_logger] Screenshot logging disabled via TERMINATOR_DISABLE_EXECUTION_LOGS"
+        );
         return;
     }
 
@@ -47,7 +49,10 @@ pub fn init() {
         return;
     }
 
-    info!("[screenshot_logger] Screenshots will be saved to: {}", dir.display());
+    info!(
+        "[screenshot_logger] Screenshots will be saved to: {}",
+        dir.display()
+    );
 }
 
 /// Check if logging is enabled
@@ -111,7 +116,11 @@ pub fn save_screenshot(
 
     // Write to file
     if let Err(e) = fs::write(&path, &png_bytes) {
-        warn!("[screenshot_logger] Failed to save {}: {}", path.display(), e);
+        warn!(
+            "[screenshot_logger] Failed to save {}: {}",
+            path.display(),
+            e
+        );
         return None;
     }
 
@@ -121,10 +130,7 @@ pub fn save_screenshot(
         png_bytes.len() / 1024
     );
 
-    Some(SavedScreenshot {
-        path,
-        filename,
-    })
+    Some(SavedScreenshot { path, filename })
 }
 
 /// Save multiple monitor screenshots

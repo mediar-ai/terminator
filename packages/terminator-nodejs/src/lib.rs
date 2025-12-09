@@ -17,8 +17,8 @@ pub use types::{
     ElementSource, FontStyle, GeminiVisionResult, HighlightHandle, InspectElement, Monitor,
     MonitorScreenshotPair, OcrBoundsEntry, OcrElement, OcrResult, OmniparserBoundsEntry,
     OmniparserItem, OmniparserResult, OverlayDisplayMode, PropertyLoadingMode, ScreenshotResult,
-    TextPosition, TreeBuildConfig, TreeOutputFormat, UIElementAttributes, UINode, VisionBoundsEntry,
-    VisionElement, VisionType, WindowTreeResult,
+    TextPosition, TreeBuildConfig, TreeOutputFormat, UIElementAttributes, UINode,
+    VisionBoundsEntry, VisionElement, VisionType, WindowTreeResult,
 };
 pub use window_manager::{WindowInfo, WindowManager};
 

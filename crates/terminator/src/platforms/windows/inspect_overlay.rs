@@ -79,8 +79,9 @@ static DISPLAY_MODE: std::sync::OnceLock<std::sync::Mutex<OverlayDisplayMode>> =
     std::sync::OnceLock::new();
 
 // Global storage for the active overlay's should_close flag (allows hiding from any thread)
-static INSPECT_OVERLAY_SHOULD_CLOSE: std::sync::OnceLock<std::sync::Mutex<Option<Arc<AtomicBool>>>> =
-    std::sync::OnceLock::new();
+static INSPECT_OVERLAY_SHOULD_CLOSE: std::sync::OnceLock<
+    std::sync::Mutex<Option<Arc<AtomicBool>>>,
+> = std::sync::OnceLock::new();
 
 fn get_should_close_storage() -> &'static std::sync::Mutex<Option<Arc<AtomicBool>>> {
     INSPECT_OVERLAY_SHOULD_CLOSE.get_or_init(|| std::sync::Mutex::new(None))

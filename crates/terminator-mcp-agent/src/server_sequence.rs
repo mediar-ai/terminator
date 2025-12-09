@@ -420,6 +420,15 @@ impl DesktopWrapper {
             let workflow_content = if url.starts_with("file://") {
                 // Handle local file URLs
                 let file_path = url.strip_prefix("file://").unwrap_or(url);
+                // Handle Windows file:/// URLs (strip leading / before drive letter like /C:)
+                let file_path = if file_path.starts_with('/')
+                    && file_path.len() > 2
+                    && file_path.chars().nth(2) == Some(':')
+                {
+                    &file_path[1..]
+                } else {
+                    file_path
+                };
                 info!("Reading file from path: {}", file_path);
 
                 // Store the workflow directory for relative path resolution
@@ -1555,13 +1564,15 @@ impl DesktopWrapper {
 
                         // Create execution context for window management + logging
                         let step_id = original_step.and_then(|s| s.id.clone());
-                        let execution_context =
-                            Some(crate::utils::ToolExecutionContext::sequence_step(
+                        let execution_context = Some(
+                            crate::utils::ToolExecutionContext::sequence_step(
                                 args.url.clone().unwrap_or_default(),
                                 current_index + 1, // 1-based for user display
                                 total_steps,
                                 last_executed_process.clone(),
-                            ).with_workflow_context(args.workflow_id.clone(), step_id.clone()));
+                            )
+                            .with_workflow_context(args.workflow_id.clone(), step_id.clone()),
+                        );
 
                         let (result, error_occurred) = self
                             .execute_single_tool(
@@ -2000,13 +2011,18 @@ impl DesktopWrapper {
 
                             // Create execution context for window management + logging
                             let step_id_for_ctx = step_tool_call.id.clone();
-                            let tool_execution_context =
-                                Some(crate::utils::ToolExecutionContext::sequence_step(
+                            let tool_execution_context = Some(
+                                crate::utils::ToolExecutionContext::sequence_step(
                                     args.url.clone().unwrap_or_default(),
                                     current_index + 1, // 1-based for user display
                                     total_steps,
                                     last_executed_process.clone(),
-                                ).with_workflow_context(args.workflow_id.clone(), step_id_for_ctx.clone()));
+                                )
+                                .with_workflow_context(
+                                    args.workflow_id.clone(),
+                                    step_id_for_ctx.clone(),
+                                ),
+                            );
 
                             let (result, error_occurred) = self
                                 .execute_single_tool(
@@ -2664,9 +2680,10 @@ impl DesktopWrapper {
                 .await?;
 
             // Save state for resumption (only if last_step_index is provided by runner-based workflows)
-            if let (Some(ref last_step_id), Some(last_step_index)) =
-                (&result.result.result.last_step_id, result.result.result.last_step_index)
-            {
+            if let (Some(ref last_step_id), Some(last_step_index)) = (
+                &result.result.result.last_step_id,
+                result.result.result.last_step_index,
+            ) {
                 Self::save_workflow_state(
                     args.workflow_id.as_deref(),
                     Some(url),
@@ -2719,12 +2736,10 @@ impl DesktopWrapper {
                 );
             }
 
-
-
             // Store captured stderr logs for dispatch_tool to include in execution log
             if let Ok(mut logs) = self.captured_stderr_logs.lock() {
                 logs.clear();
-            logs.extend(result.logs);
+                logs.extend(result.logs);
             }
 
             Ok(CallToolResult {

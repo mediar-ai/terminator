@@ -573,9 +573,9 @@ impl From<terminator::OcrElement> for OcrElement {
             }),
             text_angle: e.text_angle,
             confidence: e.confidence,
-            children: e.children.map(|children| {
-                children.into_iter().map(OcrElement::from).collect()
-            }),
+            children: e
+                .children
+                .map(|children| children.into_iter().map(OcrElement::from).collect()),
         }
     }
 }
@@ -758,7 +758,12 @@ impl From<InspectElement> for terminator::InspectElement {
             index: elem.index,
             role: elem.role,
             name: elem.name,
-            bounds: (elem.bounds.x, elem.bounds.y, elem.bounds.width, elem.bounds.height),
+            bounds: (
+                elem.bounds.x,
+                elem.bounds.y,
+                elem.bounds.width,
+                elem.bounds.height,
+            ),
         }
     }
 }

@@ -113,7 +113,9 @@ impl ScreenshotResult {
 
         // Create image buffer and resize
         let img = ImageBuffer::<Rgba<u8>, _>::from_raw(self.width, self.height, rgba_data)
-            .ok_or_else(|| ScreenshotError::ImageProcessing("Failed to create image buffer".into()))?;
+            .ok_or_else(|| {
+                ScreenshotError::ImageProcessing("Failed to create image buffer".into())
+            })?;
 
         let resized = image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
         encode_rgba_to_png(&resized.into_raw(), new_width, new_height)
@@ -140,7 +142,10 @@ impl ScreenshotResult {
     ///
     /// # Returns
     /// Base64-encoded PNG string (potentially resized)
-    pub fn to_base64_png_resized(&self, max_dimension: Option<u32>) -> Result<String, ScreenshotError> {
+    pub fn to_base64_png_resized(
+        &self,
+        max_dimension: Option<u32>,
+    ) -> Result<String, ScreenshotError> {
         let png_data = self.to_png_resized(max_dimension)?;
         Ok(general_purpose::STANDARD.encode(&png_data))
     }
@@ -173,7 +178,11 @@ pub enum ScreenshotError {
 }
 
 /// Helper function to encode RGBA data to PNG bytes
-fn encode_rgba_to_png(rgba_data: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ScreenshotError> {
+fn encode_rgba_to_png(
+    rgba_data: &[u8],
+    width: u32,
+    height: u32,
+) -> Result<Vec<u8>, ScreenshotError> {
     use image::codecs::png::PngEncoder;
     use image::{ExtendedColorType, ImageEncoder};
 

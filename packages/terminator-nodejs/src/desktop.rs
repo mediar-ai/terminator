@@ -42,7 +42,11 @@ fn capture_screenshots(
             if let Ok(apps) = desktop.applications() {
                 if let Some(app) = apps.into_iter().find(|a| a.process_id().ok() == Some(pid)) {
                     if let Ok(screenshot) = app.capture() {
-                        if let Some(saved) = terminator::screenshot_logger::save_window_screenshot(&screenshot, &prefix, None) {
+                        if let Some(saved) = terminator::screenshot_logger::save_window_screenshot(
+                            &screenshot,
+                            &prefix,
+                            None,
+                        ) {
                             result.window_path = Some(saved.path.to_string_lossy().to_string());
                         }
                     }
@@ -54,9 +58,15 @@ fn capture_screenshots(
     if include_monitors {
         // Capture all monitors using futures executor for sync context
         if let Ok(monitors) = futures::executor::block_on(desktop.capture_all_monitors()) {
-            let saved = terminator::screenshot_logger::save_monitor_screenshots(&monitors, &prefix, None);
+            let saved =
+                terminator::screenshot_logger::save_monitor_screenshots(&monitors, &prefix, None);
             if !saved.is_empty() {
-                result.monitor_paths = Some(saved.into_iter().map(|s| s.path.to_string_lossy().to_string()).collect());
+                result.monitor_paths = Some(
+                    saved
+                        .into_iter()
+                        .map(|s| s.path.to_string_lossy().to_string())
+                        .collect(),
+                );
             }
         }
     }
@@ -156,9 +166,7 @@ impl Desktop {
         include_window_screenshot: Option<bool>,
         include_monitor_screenshots: Option<bool>,
     ) -> napi::Result<Element> {
-        let element = self.inner
-            .open_application(&name)
-            .map_err(map_error)?;
+        let element = self.inner.open_application(&name).map_err(map_error)?;
 
         // Capture screenshots if enabled (window default: true, monitor default: false)
         let _screenshots = capture_screenshots(
@@ -353,7 +361,9 @@ impl Desktop {
         let window_element = apps
             .into_iter()
             .find(|app| app.process_id().ok() == Some(pid))
-            .ok_or_else(|| napi::Error::from_reason(format!("No window found for process '{}'", process)))?;
+            .ok_or_else(|| {
+                napi::Error::from_reason(format!("No window found for process '{}'", process))
+            })?;
 
         // Get window bounds (absolute screen coordinates)
         let bounds = window_element.bounds().map_err(map_error)?;
@@ -377,26 +387,28 @@ impl Desktop {
             let result = terminator::format_ocr_tree_as_compact_yaml(&ocr_element, 0);
 
             // Populate the OCR cache for click_by_index support
-            self.inner.populate_ocr_cache(result.index_to_bounds.clone());
+            self.inner
+                .populate_ocr_cache(result.index_to_bounds.clone());
 
-            let bounds_map: std::collections::HashMap<String, crate::types::OcrBoundsEntry> = result
-                .index_to_bounds
-                .into_iter()
-                .map(|(idx, (text, (x, y, w, h)))| {
-                    (
-                        idx.to_string(),
-                        crate::types::OcrBoundsEntry {
-                            text,
-                            bounds: crate::types::Bounds {
-                                x,
-                                y,
-                                width: w,
-                                height: h,
+            let bounds_map: std::collections::HashMap<String, crate::types::OcrBoundsEntry> =
+                result
+                    .index_to_bounds
+                    .into_iter()
+                    .map(|(idx, (text, (x, y, w, h)))| {
+                        (
+                            idx.to_string(),
+                            crate::types::OcrBoundsEntry {
+                                text,
+                                bounds: crate::types::Bounds {
+                                    x,
+                                    y,
+                                    width: w,
+                                    height: h,
+                                },
                             },
-                        },
-                    )
-                })
-                .collect();
+                        )
+                    })
+                    .collect();
             (Some(result.formatted), bounds_map)
         } else {
             (None, std::collections::HashMap::new())
@@ -567,20 +579,34 @@ impl Desktop {
 
         for (i, elem) in raw_elements.iter().enumerate() {
             let idx = i + 1;
-            let tag = elem.get("tag").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let tag = elem
+                .get("tag")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let id = elem.get("id").and_then(|v| v.as_str()).map(String::from);
             let classes: Vec<String> = elem
                 .get("classes")
                 .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|c| c.as_str().map(String::from)).collect())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|c| c.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
             let text = elem.get("text").and_then(|v| v.as_str()).map(String::from);
             let href = elem.get("href").and_then(|v| v.as_str()).map(String::from);
             let r#type = elem.get("type").and_then(|v| v.as_str()).map(String::from);
             let name = elem.get("name").and_then(|v| v.as_str()).map(String::from);
             let value = elem.get("value").and_then(|v| v.as_str()).map(String::from);
-            let placeholder = elem.get("placeholder").and_then(|v| v.as_str()).map(String::from);
-            let aria_label = elem.get("aria_label").and_then(|v| v.as_str()).map(String::from);
+            let placeholder = elem
+                .get("placeholder")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            let aria_label = elem
+                .get("aria_label")
+                .and_then(|v| v.as_str())
+                .map(String::from);
             let role = elem.get("role").and_then(|v| v.as_str()).map(String::from);
 
             // Build bounds with viewport offset added
@@ -589,7 +615,12 @@ impl Desktop {
             let width = elem.get("width").and_then(|v| v.as_f64()).unwrap_or(0.0);
             let height = elem.get("height").and_then(|v| v.as_f64()).unwrap_or(0.0);
 
-            let bounds = crate::types::Bounds { x, y, width, height };
+            let bounds = crate::types::Bounds {
+                x,
+                y,
+                width,
+                height,
+            };
 
             // Display name for index_to_bounds
             let display_name = text
@@ -607,7 +638,11 @@ impl Desktop {
                 let mut line_parts = vec![format!("#{} [{}]", idx, tag.to_uppercase())];
                 if let Some(ref t) = text {
                     if !t.is_empty() {
-                        let truncated = if t.len() > 40 { format!("{}...", &t[..40]) } else { t.clone() };
+                        let truncated = if t.len() > 40 {
+                            format!("{}...", &t[..40])
+                        } else {
+                            t.clone()
+                        };
                         line_parts.push(truncated);
                     }
                 }
@@ -646,19 +681,36 @@ impl Desktop {
         }
 
         // Populate DOM cache for click_by_index
-        let cache_items: std::collections::HashMap<u32, (String, String, (f64, f64, f64, f64))> = index_to_bounds
-            .iter()
-            .filter_map(|(key, entry)| {
-                key.parse::<u32>().ok().map(|idx| {
-                    (idx, (entry.name.clone(), entry.tag.clone(), (entry.bounds.x, entry.bounds.y, entry.bounds.width, entry.bounds.height)))
+        let cache_items: std::collections::HashMap<u32, (String, String, (f64, f64, f64, f64))> =
+            index_to_bounds
+                .iter()
+                .filter_map(|(key, entry)| {
+                    key.parse::<u32>().ok().map(|idx| {
+                        (
+                            idx,
+                            (
+                                entry.name.clone(),
+                                entry.tag.clone(),
+                                (
+                                    entry.bounds.x,
+                                    entry.bounds.y,
+                                    entry.bounds.width,
+                                    entry.bounds.height,
+                                ),
+                            ),
+                        )
+                    })
                 })
-            })
-            .collect();
+                .collect();
         self.inner.populate_dom_cache(cache_items);
 
         Ok(crate::types::BrowserDomResult {
             elements,
-            formatted: if format_output { Some(formatted_lines.join("\n")) } else { None },
+            formatted: if format_output {
+                Some(formatted_lines.join("\n"))
+            } else {
+                None
+            },
             index_to_bounds,
             element_count: raw_elements.len() as u32,
             page_url,
@@ -721,7 +773,10 @@ impl Desktop {
 
         if is_browser {
             // Try to capture DOM elements
-            match self.capture_browser_dom(Some(max_dom_elements), Some(true)).await {
+            match self
+                .capture_browser_dom(Some(max_dom_elements), Some(true))
+                .await
+            {
                 Ok(dom_result) => {
                     for (idx_str, entry) in dom_result.index_to_bounds {
                         if let Ok(idx) = idx_str.parse::<u32>() {
@@ -745,7 +800,10 @@ impl Desktop {
         let mut omniparser_items: HashMap<u32, terminator::OmniparserItem> = HashMap::new();
 
         if include_omniparser {
-            match self.perform_omniparser_for_process(process.clone(), None, Some(true)).await {
+            match self
+                .perform_omniparser_for_process(process.clone(), None, Some(true))
+                .await
+            {
                 Ok(omni_result) => {
                     for (idx_str, entry) in omni_result.index_to_bounds {
                         if let Ok(idx) = idx_str.parse::<u32>() {
@@ -775,7 +833,10 @@ impl Desktop {
         let mut vision_items: HashMap<u32, terminator::VisionElement> = HashMap::new();
 
         if include_gemini_vision {
-            match self.perform_gemini_vision_for_process(process.clone(), Some(true)).await {
+            match self
+                .perform_gemini_vision_for_process(process.clone(), Some(true))
+                .await
+            {
                 Ok(vision_result) => {
                     for (idx_str, entry) in vision_result.index_to_bounds {
                         if let Ok(idx) = idx_str.parse::<u32>() {
@@ -819,7 +880,8 @@ impl Desktop {
         let mut index_to_source_and_bounds: HashMap<String, crate::types::ClusteredBoundsEntry> =
             HashMap::new();
 
-        for (key, (source, original_idx, (x, y, w, h))) in clustered_result.index_to_source_and_bounds
+        for (key, (source, original_idx, (x, y, w, h))) in
+            clustered_result.index_to_source_and_bounds
         {
             let sdk_source = match source {
                 terminator::ElementSource::Uia => crate::types::ElementSource::Uia,
@@ -864,8 +926,8 @@ impl Desktop {
         format_output: Option<bool>,
     ) -> napi::Result<crate::types::GeminiVisionResult> {
         use base64::{engine::general_purpose, Engine};
-        use image::{codecs::png::PngEncoder, ExtendedColorType, ImageBuffer, ImageEncoder, Rgba};
         use image::imageops::FilterType;
+        use image::{codecs::png::PngEncoder, ExtendedColorType, ImageBuffer, ImageEncoder, Rgba};
         use std::collections::HashMap;
         use std::io::Cursor;
 
@@ -879,7 +941,9 @@ impl Desktop {
         let window_element = apps
             .into_iter()
             .find(|app| app.process_id().ok() == Some(pid))
-            .ok_or_else(|| napi::Error::from_reason(format!("No window found for process '{}'", process)))?;
+            .ok_or_else(|| {
+                napi::Error::from_reason(format!("No window found for process '{}'", process))
+            })?;
 
         // Get window bounds
         let bounds = window_element.bounds().map_err(map_error)?;
@@ -903,26 +967,34 @@ impl Desktop {
 
         // Resize if needed (max 1920px)
         const MAX_DIM: u32 = 1920;
-        let (final_width, final_height, final_rgba_data, scale_factor) =
-            if original_width > MAX_DIM || original_height > MAX_DIM {
-                let scale = (MAX_DIM as f32 / original_width.max(original_height) as f32).min(1.0);
-                let new_width = (original_width as f32 * scale).round() as u32;
-                let new_height = (original_height as f32 * scale).round() as u32;
+        let (final_width, final_height, final_rgba_data, scale_factor) = if original_width > MAX_DIM
+            || original_height > MAX_DIM
+        {
+            let scale = (MAX_DIM as f32 / original_width.max(original_height) as f32).min(1.0);
+            let new_width = (original_width as f32 * scale).round() as u32;
+            let new_height = (original_height as f32 * scale).round() as u32;
 
-                let img = ImageBuffer::<Rgba<u8>, _>::from_raw(original_width, original_height, rgba_data)
+            let img =
+                ImageBuffer::<Rgba<u8>, _>::from_raw(original_width, original_height, rgba_data)
                     .ok_or_else(|| napi::Error::from_reason("Failed to create image buffer"))?;
 
-                let resized = image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
-                (new_width, new_height, resized.into_raw(), scale as f64)
-            } else {
-                (original_width, original_height, rgba_data, 1.0)
-            };
+            let resized =
+                image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
+            (new_width, new_height, resized.into_raw(), scale as f64)
+        } else {
+            (original_width, original_height, rgba_data, 1.0)
+        };
 
         // Encode to PNG
         let mut png_data = Vec::new();
         let encoder = PngEncoder::new(Cursor::new(&mut png_data));
         encoder
-            .write_image(&final_rgba_data, final_width, final_height, ExtendedColorType::Rgba8)
+            .write_image(
+                &final_rgba_data,
+                final_width,
+                final_height,
+                ExtendedColorType::Rgba8,
+            )
             .map_err(|e| napi::Error::from_reason(format!("Failed to encode PNG: {e}")))?;
 
         let base64_image = general_purpose::STANDARD.encode(&png_data);
@@ -952,10 +1024,15 @@ impl Desktop {
 
         if !resp.status().is_success() {
             let text = resp.text().await.unwrap_or_default();
-            return Err(napi::Error::from_reason(format!("Vision backend error: {}", text)));
+            return Err(napi::Error::from_reason(format!(
+                "Vision backend error: {}",
+                text
+            )));
         }
 
-        let response_text = resp.text().await
+        let response_text = resp
+            .text()
+            .await
             .map_err(|e| napi::Error::from_reason(format!("Failed to read response: {e}")))?;
 
         let parsed: serde_json::Value = serde_json::from_str(&response_text)
@@ -977,16 +1054,32 @@ impl Desktop {
         let mut formatted_lines: Vec<String> = Vec::new();
 
         if format_output {
-            formatted_lines.push(format!("Gemini Vision: {} elements (PID: {})", raw_elements.len(), pid));
+            formatted_lines.push(format!(
+                "Gemini Vision: {} elements (PID: {})",
+                raw_elements.len(),
+                pid
+            ));
         }
 
         let inv_scale = 1.0 / scale_factor;
 
         for (i, elem) in raw_elements.iter().enumerate() {
             let idx = i + 1;
-            let element_type = elem.get("type").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-            let content = elem.get("content").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(String::from);
-            let description = elem.get("description").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(String::from);
+            let element_type = elem
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let content = elem
+                .get("content")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(String::from);
+            let description = elem
+                .get("description")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(String::from);
             let interactivity = elem.get("interactivity").and_then(|v| v.as_bool());
 
             // Get normalized bbox [x1, y1, x2, y2] from 0-1
@@ -1026,11 +1119,19 @@ impl Desktop {
             if format_output {
                 let mut line_parts = vec![format!("#{} [{}]", idx, element_type.to_uppercase())];
                 if let Some(ref c) = content {
-                    let truncated = if c.len() > 40 { format!("{}...", &c[..40]) } else { c.clone() };
+                    let truncated = if c.len() > 40 {
+                        format!("{}...", &c[..40])
+                    } else {
+                        c.clone()
+                    };
                     line_parts.push(truncated);
                 }
                 if let Some(ref d) = description {
-                    let truncated = if d.len() > 30 { format!("{}...", &d[..30]) } else { d.clone() };
+                    let truncated = if d.len() > 30 {
+                        format!("{}...", &d[..30])
+                    } else {
+                        d.clone()
+                    };
                     line_parts.push(format!("desc:{}", truncated));
                 }
                 if interactivity == Some(true) {
@@ -1064,9 +1165,10 @@ impl Desktop {
             .iter()
             .enumerate()
             .filter_map(|(i, elem)| {
-                let box_2d = elem.bounds.as_ref().map(|b| {
-                    [b.x, b.y, b.x + b.width, b.y + b.height]
-                });
+                let box_2d = elem
+                    .bounds
+                    .as_ref()
+                    .map(|b| [b.x, b.y, b.x + b.width, b.y + b.height]);
                 Some((
                     (i + 1) as u32,
                     terminator::VisionElement {
@@ -1083,7 +1185,11 @@ impl Desktop {
 
         Ok(crate::types::GeminiVisionResult {
             elements,
-            formatted: if format_output { Some(formatted_lines.join("\n")) } else { None },
+            formatted: if format_output {
+                Some(formatted_lines.join("\n"))
+            } else {
+                None
+            },
             index_to_bounds,
             element_count: raw_elements.len() as u32,
         })
@@ -1106,8 +1212,8 @@ impl Desktop {
         format_output: Option<bool>,
     ) -> napi::Result<crate::types::OmniparserResult> {
         use base64::{engine::general_purpose, Engine};
-        use image::{codecs::png::PngEncoder, ExtendedColorType, ImageBuffer, ImageEncoder, Rgba};
         use image::imageops::FilterType;
+        use image::{codecs::png::PngEncoder, ExtendedColorType, ImageBuffer, ImageEncoder, Rgba};
         use std::collections::HashMap;
         use std::io::Cursor;
 
@@ -1122,7 +1228,9 @@ impl Desktop {
         let window_element = apps
             .into_iter()
             .find(|app| app.process_id().ok() == Some(pid))
-            .ok_or_else(|| napi::Error::from_reason(format!("No window found for process '{}'", process)))?;
+            .ok_or_else(|| {
+                napi::Error::from_reason(format!("No window found for process '{}'", process))
+            })?;
 
         // Get window bounds
         let bounds = window_element.bounds().map_err(map_error)?;
@@ -1146,26 +1254,34 @@ impl Desktop {
 
         // Resize if needed (max 1920px)
         const MAX_DIM: u32 = 1920;
-        let (final_width, final_height, final_rgba_data, scale_factor) =
-            if original_width > MAX_DIM || original_height > MAX_DIM {
-                let scale = (MAX_DIM as f32 / original_width.max(original_height) as f32).min(1.0);
-                let new_width = (original_width as f32 * scale).round() as u32;
-                let new_height = (original_height as f32 * scale).round() as u32;
+        let (final_width, final_height, final_rgba_data, scale_factor) = if original_width > MAX_DIM
+            || original_height > MAX_DIM
+        {
+            let scale = (MAX_DIM as f32 / original_width.max(original_height) as f32).min(1.0);
+            let new_width = (original_width as f32 * scale).round() as u32;
+            let new_height = (original_height as f32 * scale).round() as u32;
 
-                let img = ImageBuffer::<Rgba<u8>, _>::from_raw(original_width, original_height, rgba_data)
+            let img =
+                ImageBuffer::<Rgba<u8>, _>::from_raw(original_width, original_height, rgba_data)
                     .ok_or_else(|| napi::Error::from_reason("Failed to create image buffer"))?;
 
-                let resized = image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
-                (new_width, new_height, resized.into_raw(), scale as f64)
-            } else {
-                (original_width, original_height, rgba_data, 1.0)
-            };
+            let resized =
+                image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
+            (new_width, new_height, resized.into_raw(), scale as f64)
+        } else {
+            (original_width, original_height, rgba_data, 1.0)
+        };
 
         // Encode to PNG
         let mut png_data = Vec::new();
         let encoder = PngEncoder::new(Cursor::new(&mut png_data));
         encoder
-            .write_image(&final_rgba_data, final_width, final_height, ExtendedColorType::Rgba8)
+            .write_image(
+                &final_rgba_data,
+                final_width,
+                final_height,
+                ExtendedColorType::Rgba8,
+            )
             .map_err(|e| napi::Error::from_reason(format!("Failed to encode PNG: {e}")))?;
 
         let base64_image = general_purpose::STANDARD.encode(&png_data);
@@ -1190,21 +1306,31 @@ impl Desktop {
             .json(&payload)
             .send()
             .await
-            .map_err(|e| napi::Error::from_reason(format!("Omniparser backend request failed: {e}")))?;
+            .map_err(|e| {
+                napi::Error::from_reason(format!("Omniparser backend request failed: {e}"))
+            })?;
 
         if !resp.status().is_success() {
             let text = resp.text().await.unwrap_or_default();
-            return Err(napi::Error::from_reason(format!("Omniparser backend error: {}", text)));
+            return Err(napi::Error::from_reason(format!(
+                "Omniparser backend error: {}",
+                text
+            )));
         }
 
-        let response_text = resp.text().await
+        let response_text = resp
+            .text()
+            .await
             .map_err(|e| napi::Error::from_reason(format!("Failed to read response: {e}")))?;
 
         let parsed: serde_json::Value = serde_json::from_str(&response_text)
             .map_err(|e| napi::Error::from_reason(format!("Failed to parse response: {e}")))?;
 
         if let Some(error) = parsed.get("error").and_then(|v| v.as_str()) {
-            return Err(napi::Error::from_reason(format!("Omniparser error: {}", error)));
+            return Err(napi::Error::from_reason(format!(
+                "Omniparser error: {}",
+                error
+            )));
         }
 
         let raw_elements = parsed
@@ -1215,19 +1341,32 @@ impl Desktop {
 
         // Convert to OmniparserItem with absolute screen coordinates
         let mut items = Vec::new();
-        let mut index_to_bounds: HashMap<String, crate::types::OmniparserBoundsEntry> = HashMap::new();
+        let mut index_to_bounds: HashMap<String, crate::types::OmniparserBoundsEntry> =
+            HashMap::new();
         let mut formatted_lines: Vec<String> = Vec::new();
 
         if format_output {
-            formatted_lines.push(format!("Omniparser: {} items (PID: {})", raw_elements.len(), pid));
+            formatted_lines.push(format!(
+                "Omniparser: {} items (PID: {})",
+                raw_elements.len(),
+                pid
+            ));
         }
 
         let inv_scale = 1.0 / scale_factor;
 
         for (i, elem) in raw_elements.iter().enumerate() {
             let idx = i + 1;
-            let label = elem.get("type").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-            let content = elem.get("content").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(String::from);
+            let label = elem
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let content = elem
+                .get("content")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(String::from);
 
             // Get normalized bbox [x1, y1, x2, y2] from 0-1
             let bbox = elem.get("bbox").and_then(|v| v.as_array());
@@ -1265,7 +1404,11 @@ impl Desktop {
             if format_output {
                 let mut line_parts = vec![format!("#{} [{}]", idx, label.to_uppercase())];
                 if let Some(ref c) = content {
-                    let truncated = if c.len() > 50 { format!("{}...", &c[..50]) } else { c.clone() };
+                    let truncated = if c.len() > 50 {
+                        format!("{}...", &c[..50])
+                    } else {
+                        c.clone()
+                    };
                     line_parts.push(truncated);
                 }
                 formatted_lines.push(format!("  {}", line_parts.join(" ")));
@@ -1294,9 +1437,10 @@ impl Desktop {
             .iter()
             .enumerate()
             .filter_map(|(i, item)| {
-                let box_2d = item.bounds.as_ref().map(|b| {
-                    [b.x, b.y, b.x + b.width, b.y + b.height]
-                });
+                let box_2d = item
+                    .bounds
+                    .as_ref()
+                    .map(|b| [b.x, b.y, b.x + b.width, b.y + b.height]);
                 Some((
                     (i + 1) as u32,
                     terminator::OmniparserItem {
@@ -1311,7 +1455,11 @@ impl Desktop {
 
         Ok(crate::types::OmniparserResult {
             items,
-            formatted: if format_output { Some(formatted_lines.join("\n")) } else { None },
+            formatted: if format_output {
+                Some(formatted_lines.join("\n"))
+            } else {
+                None
+            },
             index_to_bounds,
             item_count: raw_elements.len() as u32,
         })
@@ -1445,9 +1593,7 @@ impl Desktop {
             "vivaldi" => terminator::Browser::Vivaldi,
             custom => terminator::Browser::Custom(custom.to_string()),
         });
-        let element = self.inner
-            .open_url(&url, browser_enum)
-            .map_err(map_error)?;
+        let element = self.inner.open_url(&url, browser_enum).map_err(map_error)?;
 
         // Capture screenshots if enabled (window default: true, monitor default: false)
         let _screenshots = capture_screenshots(
@@ -1607,16 +1753,26 @@ impl Desktop {
         let pid = find_pid_for_process(&self.inner, &process)?;
 
         // Extract vision and format options from config
-        let include_gemini_vision = config.as_ref().and_then(|c| c.include_gemini_vision).unwrap_or(false);
-        let include_omniparser = config.as_ref().and_then(|c| c.include_omniparser).unwrap_or(false);
+        let include_gemini_vision = config
+            .as_ref()
+            .and_then(|c| c.include_gemini_vision)
+            .unwrap_or(false);
+        let include_omniparser = config
+            .as_ref()
+            .and_then(|c| c.include_omniparser)
+            .unwrap_or(false);
         let include_ocr = config.as_ref().and_then(|c| c.include_ocr).unwrap_or(false);
-        let include_browser_dom = config.as_ref().and_then(|c| c.include_browser_dom).unwrap_or(false);
+        let include_browser_dom = config
+            .as_ref()
+            .and_then(|c| c.include_browser_dom)
+            .unwrap_or(false);
         let output_format = config
             .as_ref()
             .and_then(|c| c.tree_output_format.clone())
             .unwrap_or(TreeOutputFormat::CompactYaml);
 
-        let has_vision_options = include_gemini_vision || include_omniparser || include_ocr || include_browser_dom;
+        let has_vision_options =
+            include_gemini_vision || include_omniparser || include_ocr || include_browser_dom;
 
         // Build rust config with from_selector passed through
         let rust_config = config.as_ref().map(|c| {
@@ -1664,8 +1820,12 @@ impl Desktop {
         }
 
         // Build UIA bounds cache from formatted result
-        let mut uia_bounds: HashMap<u32, (String, String, (f64, f64, f64, f64), Option<String>)> = HashMap::new();
-        let uia_tree_result = self.inner.get_window_tree_result(pid, None, None).map_err(map_error)?;
+        let mut uia_bounds: HashMap<u32, (String, String, (f64, f64, f64, f64), Option<String>)> =
+            HashMap::new();
+        let uia_tree_result = self
+            .inner
+            .get_window_tree_result(pid, None, None)
+            .map_err(map_error)?;
         let formatted_result = terminator::format_ui_node_as_compact_yaml(&uia_tree_result.tree, 0);
         for (idx, (role, name, bounds, selector)) in formatted_result.index_to_bounds {
             uia_bounds.insert(idx, (role, name, bounds, selector));
@@ -1677,7 +1837,12 @@ impl Desktop {
             if let Ok(dom_result) = self.capture_browser_dom(Some(100), Some(true)).await {
                 for (idx_str, entry) in dom_result.index_to_bounds {
                     if let Ok(idx) = idx_str.parse::<u32>() {
-                        let bounds = (entry.bounds.x, entry.bounds.y, entry.bounds.width, entry.bounds.height);
+                        let bounds = (
+                            entry.bounds.x,
+                            entry.bounds.y,
+                            entry.bounds.width,
+                            entry.bounds.height,
+                        );
                         dom_bounds.insert(idx, (entry.tag, entry.name, bounds));
                     }
                 }
@@ -1687,14 +1852,25 @@ impl Desktop {
         // Build Omniparser cache if requested
         let mut omniparser_items: HashMap<u32, terminator::OmniparserItem> = HashMap::new();
         if include_omniparser {
-            if let Ok(omni_result) = self.perform_omniparser_for_process(process.clone(), None, Some(true)).await {
+            if let Ok(omni_result) = self
+                .perform_omniparser_for_process(process.clone(), None, Some(true))
+                .await
+            {
                 for (idx_str, entry) in omni_result.index_to_bounds {
                     if let Ok(idx) = idx_str.parse::<u32>() {
-                        omniparser_items.insert(idx, terminator::OmniparserItem {
-                            label: entry.label.clone(),
-                            content: Some(entry.name.clone()),
-                            box_2d: Some([entry.bounds.x, entry.bounds.y, entry.bounds.x + entry.bounds.width, entry.bounds.y + entry.bounds.height]),
-                        });
+                        omniparser_items.insert(
+                            idx,
+                            terminator::OmniparserItem {
+                                label: entry.label.clone(),
+                                content: Some(entry.name.clone()),
+                                box_2d: Some([
+                                    entry.bounds.x,
+                                    entry.bounds.y,
+                                    entry.bounds.x + entry.bounds.width,
+                                    entry.bounds.y + entry.bounds.height,
+                                ]),
+                            },
+                        );
                     }
                 }
             }
@@ -1703,16 +1879,27 @@ impl Desktop {
         // Build Gemini Vision cache if requested
         let mut vision_items: HashMap<u32, terminator::VisionElement> = HashMap::new();
         if include_gemini_vision {
-            if let Ok(vision_result) = self.perform_gemini_vision_for_process(process.clone(), Some(true)).await {
+            if let Ok(vision_result) = self
+                .perform_gemini_vision_for_process(process.clone(), Some(true))
+                .await
+            {
                 for (idx_str, entry) in vision_result.index_to_bounds {
                     if let Ok(idx) = idx_str.parse::<u32>() {
-                        vision_items.insert(idx, terminator::VisionElement {
-                            element_type: entry.element_type.clone(),
-                            content: Some(entry.name.clone()),
-                            description: None,
-                            box_2d: Some([entry.bounds.x, entry.bounds.y, entry.bounds.x + entry.bounds.width, entry.bounds.y + entry.bounds.height]),
-                            interactivity: None,
-                        });
+                        vision_items.insert(
+                            idx,
+                            terminator::VisionElement {
+                                element_type: entry.element_type.clone(),
+                                content: Some(entry.name.clone()),
+                                description: None,
+                                box_2d: Some([
+                                    entry.bounds.x,
+                                    entry.bounds.y,
+                                    entry.bounds.x + entry.bounds.width,
+                                    entry.bounds.y + entry.bounds.height,
+                                ]),
+                                interactivity: None,
+                            },
+                        );
                     }
                 }
             }
@@ -1721,10 +1908,18 @@ impl Desktop {
         // Build OCR cache if requested
         let mut ocr_bounds: HashMap<u32, (String, (f64, f64, f64, f64))> = HashMap::new();
         if include_ocr {
-            if let Ok(ocr_result) = self.perform_ocr_for_process(process.clone(), Some(true)).await {
+            if let Ok(ocr_result) = self
+                .perform_ocr_for_process(process.clone(), Some(true))
+                .await
+            {
                 for (idx_str, entry) in ocr_result.index_to_bounds {
                     if let Ok(idx) = idx_str.parse::<u32>() {
-                        let bounds = (entry.bounds.x, entry.bounds.y, entry.bounds.width, entry.bounds.height);
+                        let bounds = (
+                            entry.bounds.x,
+                            entry.bounds.y,
+                            entry.bounds.width,
+                            entry.bounds.height,
+                        );
                         ocr_bounds.insert(idx, (entry.text.clone(), bounds));
                     }
                 }
@@ -1753,13 +1948,23 @@ impl Desktop {
             if !omniparser_items.is_empty() {
                 combined.push_str("\n\n# Omniparser elements:\n");
                 for (idx, item) in &omniparser_items {
-                    combined.push_str(&format!("#p{} [{}] {}\n", idx, item.label, item.content.as_deref().unwrap_or("")));
+                    combined.push_str(&format!(
+                        "#p{} [{}] {}\n",
+                        idx,
+                        item.label,
+                        item.content.as_deref().unwrap_or("")
+                    ));
                 }
             }
             if !vision_items.is_empty() {
                 combined.push_str("\n\n# Gemini Vision elements:\n");
                 for (idx, item) in &vision_items {
-                    combined.push_str(&format!("#g{} [{}] {}\n", idx, item.element_type, item.content.as_deref().unwrap_or("")));
+                    combined.push_str(&format!(
+                        "#g{} [{}] {}\n",
+                        idx,
+                        item.element_type,
+                        item.content.as_deref().unwrap_or("")
+                    ));
                 }
             }
             if !ocr_bounds.is_empty() {
@@ -1982,7 +2187,10 @@ impl Desktop {
     /// @returns {Buffer} PNG-encoded bytes.
     #[napi(js_name = "screenshotToPng")]
     pub fn screenshot_to_png(&self, screenshot: ScreenshotResult) -> napi::Result<Vec<u8>> {
-        screenshot.to_inner().to_png().map_err(|e| napi::Error::from_reason(e.to_string()))
+        screenshot
+            .to_inner()
+            .to_png()
+            .map_err(|e| napi::Error::from_reason(e.to_string()))
     }
 
     /// Convert a screenshot to PNG bytes with resizing.
@@ -1993,8 +2201,15 @@ impl Desktop {
     /// @param {number} [maxDimension] - Maximum width or height. Defaults to 1920.
     /// @returns {Buffer} PNG-encoded bytes (potentially resized).
     #[napi(js_name = "screenshotToPngResized")]
-    pub fn screenshot_to_png_resized(&self, screenshot: ScreenshotResult, max_dimension: Option<u32>) -> napi::Result<Vec<u8>> {
-        screenshot.to_inner().to_png_resized(max_dimension).map_err(|e| napi::Error::from_reason(e.to_string()))
+    pub fn screenshot_to_png_resized(
+        &self,
+        screenshot: ScreenshotResult,
+        max_dimension: Option<u32>,
+    ) -> napi::Result<Vec<u8>> {
+        screenshot
+            .to_inner()
+            .to_png_resized(max_dimension)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))
     }
 
     /// Convert a screenshot to base64-encoded PNG string.
@@ -2004,7 +2219,10 @@ impl Desktop {
     /// @returns {string} Base64-encoded PNG string.
     #[napi(js_name = "screenshotToBase64Png")]
     pub fn screenshot_to_base64_png(&self, screenshot: ScreenshotResult) -> napi::Result<String> {
-        screenshot.to_inner().to_base64_png().map_err(|e| napi::Error::from_reason(e.to_string()))
+        screenshot
+            .to_inner()
+            .to_base64_png()
+            .map_err(|e| napi::Error::from_reason(e.to_string()))
     }
 
     /// Convert a screenshot to base64-encoded PNG string with resizing.
@@ -2015,8 +2233,15 @@ impl Desktop {
     /// @param {number} [maxDimension] - Maximum width or height. Defaults to 1920.
     /// @returns {string} Base64-encoded PNG string (potentially resized).
     #[napi(js_name = "screenshotToBase64PngResized")]
-    pub fn screenshot_to_base64_png_resized(&self, screenshot: ScreenshotResult, max_dimension: Option<u32>) -> napi::Result<String> {
-        screenshot.to_inner().to_base64_png_resized(max_dimension).map_err(|e| napi::Error::from_reason(e.to_string()))
+    pub fn screenshot_to_base64_png_resized(
+        &self,
+        screenshot: ScreenshotResult,
+        max_dimension: Option<u32>,
+    ) -> napi::Result<String> {
+        screenshot
+            .to_inner()
+            .to_base64_png_resized(max_dimension)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))
     }
 
     /// Get the dimensions a screenshot would have after resizing.
@@ -2025,7 +2250,11 @@ impl Desktop {
     /// @param {number} maxDimension - Maximum width or height.
     /// @returns {ResizedDimensions} Object with width and height after resize.
     #[napi(js_name = "screenshotResizedDimensions")]
-    pub fn screenshot_resized_dimensions(&self, screenshot: ScreenshotResult, max_dimension: u32) -> ResizedDimensions {
+    pub fn screenshot_resized_dimensions(
+        &self,
+        screenshot: ScreenshotResult,
+        max_dimension: u32,
+    ) -> ResizedDimensions {
         let (width, height) = screenshot.to_inner().resized_dimensions(max_dimension);
         ResizedDimensions { width, height }
     }
@@ -2086,7 +2315,10 @@ impl Desktop {
         let sel: terminator::selector::Selector = selector_str.as_str().into();
         let locator = self.inner.locator(sel);
         let element = locator.first(Some(timeout)).await.map_err(map_error)?;
-        element.execute_browser_script(&script).await.map_err(map_error)
+        element
+            .execute_browser_script(&script)
+            .await
+            .map_err(map_error)
     }
 
     /// (async) Delay execution for a specified number of milliseconds.

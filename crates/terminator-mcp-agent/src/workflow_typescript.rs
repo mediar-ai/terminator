@@ -7,9 +7,9 @@ use std::process::Command;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::{debug, error, info, warn, Instrument};
 
-use rmcp::ErrorData as McpError;
 use crate::execution_logger::CapturedLogEntry;
 use chrono::Utc;
+use rmcp::ErrorData as McpError;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -235,6 +235,15 @@ impl TypeScriptWorkflow {
                 Some(json!({"url": url})),
             )
         })?;
+        // Handle Windows file:/// URLs (strip leading / before drive letter like /C:)
+        let path_str = if path_str.starts_with('/')
+            && path_str.len() > 2
+            && path_str.chars().nth(2) == Some(':')
+        {
+            &path_str[1..]
+        } else {
+            path_str
+        };
 
         let path = PathBuf::from(path_str);
 
@@ -430,11 +439,11 @@ impl TypeScriptWorkflow {
         // execution_id is passed as a structured field for OpenTelemetry/ClickHouse filtering
         let stderr = child.stderr.take();
         let exec_id_for_logs = execution_id.map(|s| s.to_string());
-        
+
         // Create shared vector for captured logs
         let captured_logs: Arc<Mutex<Vec<CapturedLogEntry>>> = Arc::new(Mutex::new(Vec::new()));
         let logs_clone = captured_logs.clone();
-        
+
         let stderr_handle = if let Some(stderr) = stderr {
             Some(tokio::spawn(
                 async move {
@@ -443,7 +452,7 @@ impl TypeScriptWorkflow {
                     while let Ok(Some(line)) = lines.next_line().await {
                         let parsed = parse_log_line(&line);
                         let msg = parsed.message.clone();
-                        
+
                         // Capture the log entry
                         let level_str = match parsed.level {
                             LogLevel::Error => "ERROR",
@@ -458,7 +467,7 @@ impl TypeScriptWorkflow {
                                 message: parsed.message.clone(),
                             });
                         }
-                        
+
                         // Pass execution_id as structured field (not in message body)
                         // This keeps logs clean while still enabling ClickHouse filtering via OTEL attributes
                         match (&exec_id_for_logs, parsed.level) {
@@ -526,8 +535,10 @@ impl TypeScriptWorkflow {
             let mut parsed_result: Option<serde_json::Value> = None;
 
             // Try to find and parse JSON in stdout
-            let json_str = if let Some(start) = stdout.rfind("
-{") {
+            let json_str = if let Some(start) = stdout.rfind(
+                "
+{",
+            ) {
                 Some(&stdout[start + 1..])
             } else if stdout.trim().starts_with('{') {
                 Some(stdout.trim())
@@ -544,7 +555,8 @@ impl TypeScriptWorkflow {
             if let Some(json_str) = json_str {
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_str) {
                     // Extract error message from result if available
-                    if let Some(msg) = parsed.get("result")
+                    if let Some(msg) = parsed
+                        .get("result")
                         .and_then(|r| r.get("message"))
                         .and_then(|m| m.as_str())
                     {
@@ -568,11 +580,14 @@ impl TypeScriptWorkflow {
 
             // Add captured logs to error data
             if !logs.is_empty() {
-                error_data["logs"] = json!(logs.iter().map(|l| json!({
-                    "timestamp": l.timestamp.to_rfc3339(),
-                    "level": l.level,
-                    "message": l.message
-                })).collect::<Vec<_>>());
+                error_data["logs"] = json!(logs
+                    .iter()
+                    .map(|l| json!({
+                        "timestamp": l.timestamp.to_rfc3339(),
+                        "level": l.level,
+                        "message": l.message
+                    }))
+                    .collect::<Vec<_>>());
             }
 
             return Err(McpError::internal_error(error_message, Some(error_data)));
@@ -631,7 +646,11 @@ impl TypeScriptWorkflow {
         }
 
         // Extract captured logs
-        let logs = captured_logs.lock().unwrap_or_else(|e| e.into_inner()).drain(..).collect();
+        let logs = captured_logs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .drain(..)
+            .collect();
 
         Ok(TypeScriptWorkflowExecutionResult { result, logs })
     }
@@ -893,7 +912,6 @@ pub struct TypeScriptWorkflowExecutionResult {
     pub result: TypeScriptWorkflowResult,
     pub logs: Vec<CapturedLogEntry>,
 }
-
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct WorkflowMetadata {

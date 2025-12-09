@@ -110,7 +110,10 @@ fn save_execution_result(
     let path = executions_dir.join(format!("{}.json", execution_id));
     fs::write(&path, json).map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
 
-    info!("[computer_use] Saved execution result to {}", path.display());
+    info!(
+        "[computer_use] Saved execution result to {}",
+        path.display()
+    );
 
     Ok(())
 }
@@ -652,7 +655,8 @@ impl Desktop {
 
             // 9b. Save post-action screenshot (result of this step's action) - async, non-blocking
             if let Some(ref dir) = executions_dir {
-                let screenshot_path = dir.join(format!("{}_{:03}_after.png", execution_id, step_num));
+                let screenshot_path =
+                    dir.join(format!("{}_{:03}_after.png", execution_id, step_num));
                 save_screenshot_async(post_action_screenshot.clone(), screenshot_path);
             }
 

@@ -503,7 +503,10 @@ pub async fn maybe_attach_tree(
 
     // Use SDK's async method which handles from_selector internally
     let tree_capture_start = std::time::Instant::now();
-    match desktop.get_window_tree_result_async(pid, None, Some(tree_config)).await {
+    match desktop
+        .get_window_tree_result_async(pid, None, Some(tree_config))
+        .await
+    {
         Ok(result) => {
             tracing::info!(
                 "[PERF] maybe_attach_tree (get_window_tree_result_async): {}ms",
@@ -519,7 +522,10 @@ pub async fn maybe_attach_tree(
                     } else {
                         // Fallback: format UINode
                         let fmt_result = format_ui_node_as_compact_yaml(&result.tree, 0);
-                        (Ok(json!(fmt_result.formatted)), Some(fmt_result.index_to_bounds))
+                        (
+                            Ok(json!(fmt_result.formatted)),
+                            Some(fmt_result.index_to_bounds),
+                        )
                     }
                 }
                 TreeOutputFormat::VerboseJson => (serde_json::to_value(&result.tree), None),
@@ -528,7 +534,11 @@ pub async fn maybe_attach_tree(
             if let Ok(tree_val) = tree_val_result {
                 if let Some(obj) = result_json.as_object_mut() {
                     obj.insert("ui_tree".to_string(), tree_val);
-                    let tree_type = if from_selector_opt.is_some() { "subtree" } else { "full_window" };
+                    let tree_type = if from_selector_opt.is_some() {
+                        "subtree"
+                    } else {
+                        "full_window"
+                    };
                     obj.insert("tree_type".to_string(), json!(tree_type));
                     if let Some(sel) = &from_selector_opt {
                         obj.insert("from_selector_used".to_string(), json!(sel));
@@ -538,7 +548,11 @@ pub async fn maybe_attach_tree(
             }
         }
         Err(e) => {
-            tracing::warn!("[PERF] maybe_attach_tree FAILED: {}ms - {}", tree_capture_start.elapsed().as_millis(), e);
+            tracing::warn!(
+                "[PERF] maybe_attach_tree FAILED: {}ms - {}",
+                tree_capture_start.elapsed().as_millis(),
+                e
+            );
             if let Some(obj) = result_json.as_object_mut() {
                 obj.insert("tree_error".to_string(), json!(format!("{}", e)));
                 obj.insert("tree_type".to_string(), json!("none"));

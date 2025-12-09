@@ -36,9 +36,10 @@ pub use screenshot::{ScreenshotError, ScreenshotResult, DEFAULT_MAX_DIMENSION};
 pub use selector::Selector;
 pub use tokio_util::sync::CancellationToken;
 pub use tree_formatter::{
-    format_clustered_tree_from_caches, format_ocr_tree_as_compact_yaml, format_tree_as_compact_yaml,
-    format_ui_node_as_compact_yaml, serializable_to_ui_node, ClusteredFormattingResult,
-    ElementSource, OcrFormattingResult, TreeFormattingResult, UnifiedElement,
+    format_clustered_tree_from_caches, format_ocr_tree_as_compact_yaml,
+    format_tree_as_compact_yaml, format_ui_node_as_compact_yaml, serializable_to_ui_node,
+    ClusteredFormattingResult, ElementSource, OcrFormattingResult, TreeFormattingResult,
+    UnifiedElement,
 };
 pub use types::{FontStyle, HighlightHandle, OmniparserItem, TextPosition, VisionElement};
 pub use utils::find_pid_for_process;
@@ -147,7 +148,8 @@ pub struct WindowTreeResult {
     pub formatted: Option<String>,
     /// Mapping of index to (role, name, bounds, selector) for click targeting
     /// Key is 1-based index, value is (role, name, (x, y, width, height), selector)
-    pub index_to_bounds: std::collections::HashMap<u32, (String, String, (f64, f64, f64, f64), Option<String>)>,
+    pub index_to_bounds:
+        std::collections::HashMap<u32, (String, String, (f64, f64, f64, f64), Option<String>)>,
     /// Total count of indexed elements (elements with bounds)
     pub element_count: u32,
 }
@@ -708,7 +710,10 @@ impl Desktop {
     /// }
     /// ```
     #[instrument(skip(self))]
-    pub fn capture_window_by_process(&self, process: &str) -> Result<ScreenshotResult, AutomationError> {
+    pub fn capture_window_by_process(
+        &self,
+        process: &str,
+    ) -> Result<ScreenshotResult, AutomationError> {
         let apps = self.applications()?;
         let process_lower = process.to_lowercase();
 
@@ -812,7 +817,8 @@ impl Desktop {
         let x = bounds.0 + bounds.2 * x_pct as f64 / 100.0;
         let y = bounds.1 + bounds.3 * y_pct as f64 / 100.0;
 
-        self.engine.click_at_coordinates_with_type(x, y, click_type)?;
+        self.engine
+            .click_at_coordinates_with_type(x, y, click_type)?;
 
         Ok(ClickResult {
             method: "bounds".to_string(),
@@ -889,13 +895,15 @@ impl Desktop {
                     ))
                 })?;
                 let box_2d = item.box_2d.ok_or_else(|| {
-                    AutomationError::Internal(format!(
-                        "Omniparser index #{} has no bounds",
-                        index
-                    ))
+                    AutomationError::Internal(format!("Omniparser index #{} has no bounds", index))
                 })?;
                 // Convert [x_min, y_min, x_max, y_max] to (x, y, width, height)
-                let bounds = (box_2d[0], box_2d[1], box_2d[2] - box_2d[0], box_2d[3] - box_2d[1]);
+                let bounds = (
+                    box_2d[0],
+                    box_2d[1],
+                    box_2d[2] - box_2d[0],
+                    box_2d[3] - box_2d[1],
+                );
                 (item.label.clone(), bounds)
             }
             VisionType::Gemini => {
@@ -909,13 +917,15 @@ impl Desktop {
                     ))
                 })?;
                 let box_2d = item.box_2d.ok_or_else(|| {
-                    AutomationError::Internal(format!(
-                        "Gemini index #{} has no bounds",
-                        index
-                    ))
+                    AutomationError::Internal(format!("Gemini index #{} has no bounds", index))
                 })?;
                 // Convert [x_min, y_min, x_max, y_max] to (x, y, width, height)
-                let bounds = (box_2d[0], box_2d[1], box_2d[2] - box_2d[0], box_2d[3] - box_2d[1]);
+                let bounds = (
+                    box_2d[0],
+                    box_2d[1],
+                    box_2d[2] - box_2d[0],
+                    box_2d[3] - box_2d[1],
+                );
                 (item.element_type.clone(), bounds)
             }
             VisionType::Dom => {
@@ -941,7 +951,8 @@ impl Desktop {
         let x = bounds.0 + bounds.2 * x_pct as f64 / 100.0;
         let y = bounds.1 + bounds.3 * y_pct as f64 / 100.0;
 
-        self.engine.click_at_coordinates_with_type(x, y, click_type)?;
+        self.engine
+            .click_at_coordinates_with_type(x, y, click_type)?;
 
         Ok(ClickResult {
             method: "index".to_string(),
@@ -997,7 +1008,10 @@ impl Desktop {
     ///
     /// # Arguments
     /// * `bounds_map` - Map of index to (tag, id, bounds) from DOM capture
-    pub fn populate_dom_cache(&self, bounds_map: HashMap<u32, (String, String, (f64, f64, f64, f64))>) {
+    pub fn populate_dom_cache(
+        &self,
+        bounds_map: HashMap<u32, (String, String, (f64, f64, f64, f64))>,
+    ) {
         if let Ok(mut cache) = self.dom_cache.lock() {
             cache.clear();
             cache.extend(bounds_map);
@@ -1210,7 +1224,10 @@ impl Desktop {
                 if let Ok(mut cache) = self.uia_cache.lock() {
                     cache.clear();
                     cache.extend(index_to_bounds.clone());
-                    debug!("Populated UIA cache with {} elements (from_selector)", cache.len());
+                    debug!(
+                        "Populated UIA cache with {} elements (from_selector)",
+                        cache.len()
+                    );
                 }
             }
 
@@ -1852,10 +1869,7 @@ impl Desktop {
             .within(scope_element.clone());
 
         // Try to find the element - we WANT this to fail (timeout)
-        match locator
-            .wait(Some(Duration::from_millis(timeout_ms)))
-            .await
-        {
+        match locator.wait(Some(Duration::from_millis(timeout_ms))).await {
             Ok(_found_element) => {
                 // Element was found - this is a verification FAILURE
                 Err(AutomationError::VerificationFailed(format!(

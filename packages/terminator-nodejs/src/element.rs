@@ -103,7 +103,11 @@ fn capture_element_screenshots(
         // Capture via element's application
         if let Ok(Some(app)) = element.application() {
             if let Ok(screenshot) = app.capture() {
-                if let Some(saved) = terminator::screenshot_logger::save_window_screenshot(&screenshot, &prefix, None) {
+                if let Some(saved) = terminator::screenshot_logger::save_window_screenshot(
+                    &screenshot,
+                    &prefix,
+                    None,
+                ) {
                     result.window_path = Some(saved.path.to_string_lossy().to_string());
                 }
             }
@@ -114,9 +118,16 @@ fn capture_element_screenshots(
         // Create temporary desktop for monitor capture
         if let Ok(temp_desktop) = terminator::Desktop::new(false, false) {
             if let Ok(monitors) = futures::executor::block_on(temp_desktop.capture_all_monitors()) {
-                let saved = terminator::screenshot_logger::save_monitor_screenshots(&monitors, &prefix, None);
+                let saved = terminator::screenshot_logger::save_monitor_screenshots(
+                    &monitors, &prefix, None,
+                );
                 if !saved.is_empty() {
-                    result.monitor_paths = Some(saved.into_iter().map(|s| s.path.to_string_lossy().to_string()).collect());
+                    result.monitor_paths = Some(
+                        saved
+                            .into_iter()
+                            .map(|s| s.path.to_string_lossy().to_string())
+                            .collect(),
+                    );
                 }
             }
         }
@@ -303,10 +314,9 @@ impl Element {
                     });
                     ClickResult {
                         method: click_result.method,
-                        coordinates: click_result.coordinates.map(|c| crate::Coordinates {
-                            x: c.0,
-                            y: c.1,
-                        }),
+                        coordinates: click_result
+                            .coordinates
+                            .map(|c| crate::Coordinates { x: c.0, y: c.1 }),
                         details: click_result.details,
                         window_screenshot_path: None,
                         monitor_screenshot_paths: None,
@@ -328,10 +338,9 @@ impl Element {
             };
             ClickResult {
                 method: click_res.method,
-                coordinates: click_res.coordinates.map(|c| crate::Coordinates {
-                    x: c.0,
-                    y: c.1,
-                }),
+                coordinates: click_res
+                    .coordinates
+                    .map(|c| crate::Coordinates { x: c.0, y: c.1 }),
                 details: click_res.details,
                 window_screenshot_path: None,
                 monitor_screenshot_paths: None,
@@ -363,7 +372,11 @@ impl Element {
             let _ = self.inner.highlight_before_action("double_click");
         }
         let _ = self.inner.activate_window();
-        let mut result: ClickResult = self.inner.double_click().map(ClickResult::from).map_err(map_error)?;
+        let mut result: ClickResult = self
+            .inner
+            .double_click()
+            .map(ClickResult::from)
+            .map_err(map_error)?;
 
         // Capture screenshots if requested
         let screenshots = capture_element_screenshots(
@@ -443,7 +456,11 @@ impl Element {
     /// @param {TypeTextOptions} [options] - Options for typing.
     /// @returns {ActionResult} Result of the type operation.
     #[napi]
-    pub fn type_text(&self, text: String, options: Option<TypeTextOptions>) -> napi::Result<ActionResult> {
+    pub fn type_text(
+        &self,
+        text: String,
+        options: Option<TypeTextOptions>,
+    ) -> napi::Result<ActionResult> {
         let opts = options.unwrap_or_default();
         if opts.highlight_before_action.unwrap_or(false) {
             let _ = self.inner.highlight_before_action("type");
@@ -458,7 +475,12 @@ impl Element {
         let try_focus_before = opts.try_focus_before.unwrap_or(true);
         let try_click_before = opts.try_click_before.unwrap_or(true);
         self.inner
-            .type_text_with_state_and_focus(&text, opts.use_clipboard.unwrap_or(false), try_focus_before, try_click_before)
+            .type_text_with_state_and_focus(
+                &text,
+                opts.use_clipboard.unwrap_or(false),
+                try_focus_before,
+                try_click_before,
+            )
             .map_err(map_error)?;
 
         // Capture screenshots if requested
@@ -483,7 +505,11 @@ impl Element {
     /// @param {ActionOptions} [options] - Options for the key press action.
     /// @returns {ActionResult} Result of the key press operation.
     #[napi]
-    pub fn press_key(&self, key: String, options: Option<ActionOptions>) -> napi::Result<ActionResult> {
+    pub fn press_key(
+        &self,
+        key: String,
+        options: Option<ActionOptions>,
+    ) -> napi::Result<ActionResult> {
         let opts = options.unwrap_or_default();
         if opts.highlight_before_action.unwrap_or(false) {
             let _ = self.inner.highlight_before_action("key");
@@ -491,7 +517,9 @@ impl Element {
         let _ = self.inner.activate_window();
         let try_focus_before = opts.try_focus_before.unwrap_or(true);
         let try_click_before = opts.try_click_before.unwrap_or(true);
-        self.inner.press_key_with_state_and_focus(&key, try_focus_before, try_click_before).map_err(map_error)?;
+        self.inner
+            .press_key_with_state_and_focus(&key, try_focus_before, try_click_before)
+            .map_err(map_error)?;
 
         // Capture screenshots if requested
         let screenshots = capture_element_screenshots(
@@ -515,7 +543,11 @@ impl Element {
     /// @param {ActionOptions} [options] - Options for the set value action.
     /// @returns {ActionResult} Result of the set value operation.
     #[napi]
-    pub fn set_value(&self, value: String, options: Option<ActionOptions>) -> napi::Result<ActionResult> {
+    pub fn set_value(
+        &self,
+        value: String,
+        options: Option<ActionOptions>,
+    ) -> napi::Result<ActionResult> {
         let opts = options.unwrap_or_default();
         if opts.highlight_before_action.unwrap_or(false) {
             let _ = self.inner.highlight_before_action("set_value");
@@ -582,7 +614,12 @@ impl Element {
     /// @param {ActionOptions} [options] - Options for the scroll action.
     /// @returns {ActionResult} Result of the scroll operation.
     #[napi]
-    pub fn scroll(&self, direction: String, amount: f64, options: Option<ActionOptions>) -> napi::Result<ActionResult> {
+    pub fn scroll(
+        &self,
+        direction: String,
+        amount: f64,
+        options: Option<ActionOptions>,
+    ) -> napi::Result<ActionResult> {
         let opts = options.unwrap_or_default();
         if opts.highlight_before_action.unwrap_or(false) {
             let _ = self.inner.highlight_before_action("scroll");

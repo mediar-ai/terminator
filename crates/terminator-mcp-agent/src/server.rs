@@ -7,7 +7,7 @@ pub use crate::utils::DesktopWrapper;
 use crate::utils::{
     get_timeout, ActivateElementArgs, CaptureScreenshotArgs, ClickElementArgs, DelayArgs,
     EditFileArgs, ExecuteBrowserScriptArgs, ExecuteSequenceArgs, GeminiComputerUseArgs,
-    GetApplicationsArgs, GetWindowTreeArgs, GlobalKeyArgs, GlobFilesArgs, GrepFilesArgs,
+    GetApplicationsArgs, GetWindowTreeArgs, GlobFilesArgs, GlobalKeyArgs, GrepFilesArgs,
     HighlightElementArgs, InvokeElementArgs, MouseDragArgs, NavigateBrowserArgs,
     OpenApplicationArgs, PressKeyArgs, ReadFileArgs, RunCommandArgs, ScrollElementArgs,
     SelectOptionArgs, SetSelectedArgs, SetValueArgs, StopHighlightingArgs, TypeIntoElementArgs,
@@ -20,8 +20,8 @@ use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
     CallToolResult, Content, Implementation, ProtocolVersion, ServerCapabilities, ServerInfo,
 };
-use rmcp::{tool, ErrorData as McpError, ServerHandler};
 use rmcp::tool_router;
+use rmcp::{tool, ErrorData as McpError, ServerHandler};
 use serde_json::json;
 use std::collections::HashMap;
 use std::io::Cursor;
@@ -86,7 +86,11 @@ async fn capture_monitor_screenshots(desktop: &Desktop) -> Vec<String> {
 
     match desktop.capture_all_monitors().await {
         Ok(screenshots) => {
-            let saved = terminator::screenshot_logger::save_monitor_screenshots(&screenshots, &prefix, None);
+            let saved = terminator::screenshot_logger::save_monitor_screenshots(
+                &screenshots,
+                &prefix,
+                None,
+            );
             for s in saved {
                 info!("Saved monitor screenshot: {}", s.path.display());
                 paths.push(s.path.to_string_lossy().to_string());
@@ -111,7 +115,10 @@ async fn append_monitor_screenshots_if_enabled(
     if include.unwrap_or(false) {
         let paths = capture_monitor_screenshots(desktop).await;
         if !paths.is_empty() {
-            contents.push(Content::text(format!("Monitor screenshots saved: {:?}", paths)));
+            contents.push(Content::text(format!(
+                "Monitor screenshots saved: {:?}",
+                paths
+            )));
         }
     }
     contents
@@ -135,11 +142,18 @@ async fn capture_window_screenshot(desktop: &Desktop, process: &str) -> Option<S
     // Save to disk using screenshot_logger
     match terminator::screenshot_logger::save_window_screenshot(&screenshot, &prefix, None) {
         Some(saved) => {
-            info!("[window_screenshot] Saved '{}' window: {}", process, saved.path.display());
+            info!(
+                "[window_screenshot] Saved '{}' window: {}",
+                process,
+                saved.path.display()
+            );
             Some(saved.path.to_string_lossy().to_string())
         }
         None => {
-            warn!("[window_screenshot] Failed to save screenshot for '{}'", process);
+            warn!(
+                "[window_screenshot] Failed to save screenshot for '{}'",
+                process
+            );
             None
         }
     }
@@ -940,9 +954,14 @@ impl DesktopWrapper {
                     warn!("[capture_browser_dom] Detected chrome:// page, navigating to google.com and retrying");
 
                     // Navigate to google.com
-                    if let Err(nav_err) = self.desktop.open_url("https://www.google.com", Some(Browser::Custom("chrome".to_string()))) {
+                    if let Err(nav_err) = self.desktop.open_url(
+                        "https://www.google.com",
+                        Some(Browser::Custom("chrome".to_string())),
+                    ) {
                         warn!("[capture_browser_dom] Navigation to google.com failed: {nav_err}");
-                        return Err(format!("Cannot capture DOM on chrome:// page, navigation failed: {nav_err}"));
+                        return Err(format!(
+                            "Cannot capture DOM on chrome:// page, navigation failed: {nav_err}"
+                        ));
                     }
 
                     // Wait for page to load
@@ -951,7 +970,10 @@ impl DesktopWrapper {
                     // Retry the script
                     match self.desktop.execute_browser_script(&script).await {
                         Ok(result_str) => {
-                            info!("[capture_browser_dom] Retry succeeded after navigation, len={}", result_str.len());
+                            info!(
+                                "[capture_browser_dom] Retry succeeded after navigation, len={}",
+                                result_str.len()
+                            );
                             match serde_json::from_str::<serde_json::Value>(&result_str) {
                                 Ok(result) => {
                                     let elements = result
@@ -959,17 +981,24 @@ impl DesktopWrapper {
                                         .and_then(|v| v.as_array())
                                         .cloned()
                                         .unwrap_or_default();
-                                    info!("[capture_browser_dom] Returning {} elements after retry", elements.len());
+                                    info!(
+                                        "[capture_browser_dom] Returning {} elements after retry",
+                                        elements.len()
+                                    );
                                     Ok((elements, viewport_offset.0, viewport_offset.1))
                                 }
                                 Err(parse_err) => {
                                     warn!("[capture_browser_dom] JSON parse failed after retry: {parse_err}");
-                                    Err(format!("Failed to parse DOM elements after retry: {parse_err}"))
+                                    Err(format!(
+                                        "Failed to parse DOM elements after retry: {parse_err}"
+                                    ))
                                 }
                             }
                         }
                         Err(retry_err) => {
-                            warn!("[capture_browser_dom] Retry failed after navigation: {retry_err}");
+                            warn!(
+                                "[capture_browser_dom] Retry failed after navigation: {retry_err}"
+                            );
                             Err(format!("DOM capture failed after navigating away from chrome:// page: {retry_err}"))
                         }
                     }
@@ -2107,7 +2136,6 @@ impl DesktopWrapper {
 
         Ok(CallToolResult::success(vec![Content::json(result_json)?]))
     }
-
 
     // NOTE: ensure_element_in_view logic moved to terminator backend UIElement::ensure_in_view()
 
@@ -8119,7 +8147,11 @@ console.info = function(...args) {
     /// - "executions" → %LOCALAPPDATA%/terminator/executions
     /// - "terminator-source" → %LOCALAPPDATA%/mediar/terminator-source
     /// - "logs" → %LOCALAPPDATA%/terminator/logs
-    async fn resolve_file_path(&self, path: &str, working_directory: Option<&str>) -> Result<PathBuf, String> {
+    async fn resolve_file_path(
+        &self,
+        path: &str,
+        working_directory: Option<&str>,
+    ) -> Result<PathBuf, String> {
         let path_buf = PathBuf::from(path);
 
         // If absolute path, use as-is
@@ -8160,7 +8192,10 @@ console.info = function(...args) {
         use std::fs;
         use std::io::{BufRead, BufReader};
 
-        let full_path = match self.resolve_file_path(&args.path, args.working_directory.as_deref()).await {
+        let full_path = match self
+            .resolve_file_path(&args.path, args.working_directory.as_deref())
+            .await
+        {
             Ok(p) => p,
             Err(e) => {
                 return Ok(CallToolResult::success(vec![Content::text(format!(
@@ -8228,7 +8263,10 @@ console.info = function(...args) {
     ) -> Result<CallToolResult, McpError> {
         use std::fs;
 
-        let full_path = match self.resolve_file_path(&args.path, args.working_directory.as_deref()).await {
+        let full_path = match self
+            .resolve_file_path(&args.path, args.working_directory.as_deref())
+            .await
+        {
             Ok(p) => p,
             Err(e) => {
                 return Ok(CallToolResult::success(vec![Content::text(format!(
@@ -8269,7 +8307,10 @@ console.info = function(...args) {
     ) -> Result<CallToolResult, McpError> {
         use std::fs;
 
-        let full_path = match self.resolve_file_path(&args.path, args.working_directory.as_deref()).await {
+        let full_path = match self
+            .resolve_file_path(&args.path, args.working_directory.as_deref())
+            .await
+        {
             Ok(p) => p,
             Err(e) => {
                 return Ok(CallToolResult::success(vec![Content::text(format!(
@@ -8376,19 +8417,14 @@ console.info = function(...args) {
 
         if paths.is_empty() {
             return Ok(CallToolResult::success(vec![Content::text(
-                "No files found matching pattern".to_string()
+                "No files found matching pattern".to_string(),
             )]));
         }
 
         let relative_paths: Vec<String> = paths
             .iter()
             .take(100)
-            .map(|p| {
-                p.strip_prefix(&base_dir)
-                    .unwrap_or(p)
-                    .display()
-                    .to_string()
-            })
+            .map(|p| p.strip_prefix(&base_dir).unwrap_or(p).display().to_string())
             .collect();
 
         let truncated = if paths.len() > 100 {
@@ -8474,8 +8510,23 @@ console.info = function(...args) {
                 let ext = ext.to_string_lossy().to_lowercase();
                 if matches!(
                     ext.as_str(),
-                    "exe" | "dll" | "so" | "dylib" | "png" | "jpg" | "jpeg" | "gif" | "ico"
-                        | "woff" | "woff2" | "ttf" | "eot" | "pdf" | "zip" | "tar" | "gz"
+                    "exe"
+                        | "dll"
+                        | "so"
+                        | "dylib"
+                        | "png"
+                        | "jpg"
+                        | "jpeg"
+                        | "gif"
+                        | "ico"
+                        | "woff"
+                        | "woff2"
+                        | "ttf"
+                        | "eot"
+                        | "pdf"
+                        | "zip"
+                        | "tar"
+                        | "gz"
                 ) {
                     continue;
                 }
@@ -8493,14 +8544,14 @@ console.info = function(...args) {
                 if pattern.is_match(line) {
                     match_count += 1;
                     if match_count > max_results {
-                        results.push(format!("\n... (truncated, {} more matches)", match_count - max_results));
+                        results.push(format!(
+                            "\n... (truncated, {} more matches)",
+                            match_count - max_results
+                        ));
                         break 'file_loop;
                     }
 
-                    let rel_path = entry
-                        .strip_prefix(&base_dir)
-                        .unwrap_or(&entry)
-                        .display();
+                    let rel_path = entry.strip_prefix(&base_dir).unwrap_or(&entry).display();
 
                     // Add context
                     let start = line_num.saturating_sub(context_lines);
@@ -8518,8 +8569,7 @@ console.info = function(...args) {
         if results.is_empty() {
             Ok(CallToolResult::success(vec![Content::text(format!(
                 "No matches found for pattern '{}' in {}",
-                args.pattern,
-                file_pattern
+                args.pattern, file_pattern
             ))]))
         } else {
             Ok(CallToolResult::success(vec![Content::text(format!(
@@ -8626,8 +8676,9 @@ pub fn check_terminator_source() {
                 if let Ok(meta) = serde_json::from_str::<serde_json::Value>(&content) {
                     if let Some(updated) = meta.get("updated").and_then(|v| v.as_str()) {
                         if let Ok(updated_time) = chrono::DateTime::parse_from_rfc3339(updated) {
-                            let hours_since = (chrono::Utc::now() - updated_time.with_timezone(&chrono::Utc))
-                                .num_hours();
+                            let hours_since = (chrono::Utc::now()
+                                - updated_time.with_timezone(&chrono::Utc))
+                            .num_hours();
                             hours_since > 24
                         } else {
                             true
@@ -8662,16 +8713,20 @@ fn download_terminator_source() {
     // First check if we're in a development environment
     let script_paths = [
         // npm package location
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|p| p.join("scripts").join("download-source.js"))),
+        std::env::current_exe().ok().and_then(|p| {
+            p.parent()
+                .map(|p| p.join("scripts").join("download-source.js"))
+        }),
         // Development location
         Some(PathBuf::from("scripts/download-source.js")),
     ];
 
     for path_opt in script_paths.iter().flatten() {
         if path_opt.exists() {
-            info!("[terminator-source] Running download script: {}", path_opt.display());
+            info!(
+                "[terminator-source] Running download script: {}",
+                path_opt.display()
+            );
             match Command::new("node").arg(path_opt).output() {
                 Ok(output) => {
                     if !output.status.success() {
@@ -8761,7 +8816,12 @@ fn download_terminator_source_direct() -> Result<(), Box<dyn std::error::Error +
     #[cfg(not(target_os = "windows"))]
     {
         std::process::Command::new("unzip")
-            .args(["-q", &zip_path.to_string_lossy(), "-d", &temp_dir.to_string_lossy()])
+            .args([
+                "-q",
+                &zip_path.to_string_lossy(),
+                "-d",
+                &temp_dir.to_string_lossy(),
+            ])
             .output()?;
     }
 
@@ -8795,10 +8855,13 @@ fn download_terminator_source_direct() -> Result<(), Box<dyn std::error::Error +
     let mut file = fs::File::create(&marker_file)?;
     file.write_all(serde_json::to_string_pretty(&meta)?.as_bytes())?;
 
-    info!("[terminator-source] Installed {} to {}", tag, source_dir.display());
+    info!(
+        "[terminator-source] Installed {} to {}",
+        tag,
+        source_dir.display()
+    );
     Ok(())
 }
-
 
 impl DesktopWrapper {
     pub(crate) async fn dispatch_tool(
@@ -8858,7 +8921,13 @@ impl DesktopWrapper {
         let start_time = std::time::Instant::now();
         let (workflow_id, step_id, step_index) = execution_context
             .as_ref()
-            .map(|ctx| (ctx.workflow_id.clone(), ctx.step_id.clone(), Some(ctx.current_step)))
+            .map(|ctx| {
+                (
+                    ctx.workflow_id.clone(),
+                    ctx.step_id.clone(),
+                    Some(ctx.current_step),
+                )
+            })
             .unwrap_or((None, None, None));
         let log_ctx = execution_logger::log_request(
             tool_name,
@@ -8872,7 +8941,6 @@ impl DesktopWrapper {
         if let Some(ref log_capture) = self.log_capture {
             log_capture.start_capture();
         }
-
 
         // Wrap each tool call with cancellation support
         let result = match tool_name {
@@ -9196,51 +9264,41 @@ impl DesktopWrapper {
                     )),
                 }
             }
-            "read_file" => {
-                match serde_json::from_value::<ReadFileArgs>(arguments.clone()) {
-                    Ok(args) => self.read_file(Parameters(args)).await,
-                    Err(e) => Err(McpError::invalid_params(
-                        "Invalid arguments for read_file",
-                        Some(json!({"error": e.to_string()})),
-                    )),
-                }
-            }
-            "write_file" => {
-                match serde_json::from_value::<WriteFileArgs>(arguments.clone()) {
-                    Ok(args) => self.write_file(Parameters(args)).await,
-                    Err(e) => Err(McpError::invalid_params(
-                        "Invalid arguments for write_file",
-                        Some(json!({"error": e.to_string()})),
-                    )),
-                }
-            }
-            "edit_file" => {
-                match serde_json::from_value::<EditFileArgs>(arguments.clone()) {
-                    Ok(args) => self.edit_file(Parameters(args)).await,
-                    Err(e) => Err(McpError::invalid_params(
-                        "Invalid arguments for edit_file",
-                        Some(json!({"error": e.to_string()})),
-                    )),
-                }
-            }
-            "glob_files" => {
-                match serde_json::from_value::<GlobFilesArgs>(arguments.clone()) {
-                    Ok(args) => self.glob_files(Parameters(args)).await,
-                    Err(e) => Err(McpError::invalid_params(
-                        "Invalid arguments for glob_files",
-                        Some(json!({"error": e.to_string()})),
-                    )),
-                }
-            }
-            "grep_files" => {
-                match serde_json::from_value::<GrepFilesArgs>(arguments.clone()) {
-                    Ok(args) => self.grep_files(Parameters(args)).await,
-                    Err(e) => Err(McpError::invalid_params(
-                        "Invalid arguments for grep_files",
-                        Some(json!({"error": e.to_string()})),
-                    )),
-                }
-            }
+            "read_file" => match serde_json::from_value::<ReadFileArgs>(arguments.clone()) {
+                Ok(args) => self.read_file(Parameters(args)).await,
+                Err(e) => Err(McpError::invalid_params(
+                    "Invalid arguments for read_file",
+                    Some(json!({"error": e.to_string()})),
+                )),
+            },
+            "write_file" => match serde_json::from_value::<WriteFileArgs>(arguments.clone()) {
+                Ok(args) => self.write_file(Parameters(args)).await,
+                Err(e) => Err(McpError::invalid_params(
+                    "Invalid arguments for write_file",
+                    Some(json!({"error": e.to_string()})),
+                )),
+            },
+            "edit_file" => match serde_json::from_value::<EditFileArgs>(arguments.clone()) {
+                Ok(args) => self.edit_file(Parameters(args)).await,
+                Err(e) => Err(McpError::invalid_params(
+                    "Invalid arguments for edit_file",
+                    Some(json!({"error": e.to_string()})),
+                )),
+            },
+            "glob_files" => match serde_json::from_value::<GlobFilesArgs>(arguments.clone()) {
+                Ok(args) => self.glob_files(Parameters(args)).await,
+                Err(e) => Err(McpError::invalid_params(
+                    "Invalid arguments for glob_files",
+                    Some(json!({"error": e.to_string()})),
+                )),
+            },
+            "grep_files" => match serde_json::from_value::<GrepFilesArgs>(arguments.clone()) {
+                Ok(args) => self.grep_files(Parameters(args)).await,
+                Err(e) => Err(McpError::invalid_params(
+                    "Invalid arguments for grep_files",
+                    Some(json!({"error": e.to_string()})),
+                )),
+            },
             _ => Err(McpError::internal_error(
                 "Unknown tool called",
                 Some(json!({"tool_name": tool_name})),
@@ -9249,7 +9307,7 @@ impl DesktopWrapper {
 
         // Stop log capture and collect all logs (tracing + stderr)
         let mut all_logs: Vec<execution_logger::CapturedLogEntry> = Vec::new();
-        
+
         // Get tracing logs
         if let Some(ref log_capture) = self.log_capture {
             let tracing_logs = log_capture.stop_capture();
@@ -9261,7 +9319,7 @@ impl DesktopWrapper {
                 });
             }
         }
-        
+
         // Get stderr logs from TypeScript workflow execution
         if let Ok(mut stderr_logs) = self.captured_stderr_logs.lock() {
             all_logs.extend(stderr_logs.drain(..));
@@ -9275,11 +9333,14 @@ impl DesktopWrapper {
                         if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&text) {
                             let now = chrono::Utc::now();
                             // Extract "logs" array (stdout logs)
-                            if let Some(logs_array) = json_val.get("logs").and_then(|v| v.as_array()) {
+                            if let Some(logs_array) =
+                                json_val.get("logs").and_then(|v| v.as_array())
+                            {
                                 for (i, log) in logs_array.iter().enumerate() {
                                     if let Some(msg) = log.as_str() {
                                         all_logs.push(execution_logger::CapturedLogEntry {
-                                            timestamp: now + chrono::Duration::microseconds(i as i64),
+                                            timestamp: now
+                                                + chrono::Duration::microseconds(i as i64),
                                             level: "INFO".to_string(),
                                             message: msg.to_string(),
                                         });
@@ -9287,7 +9348,9 @@ impl DesktopWrapper {
                                 }
                             }
                             // Extract "stderr" array (error/warn logs)
-                            if let Some(stderr_array) = json_val.get("stderr").and_then(|v| v.as_array()) {
+                            if let Some(stderr_array) =
+                                json_val.get("stderr").and_then(|v| v.as_array())
+                            {
                                 for (i, log) in stderr_array.iter().enumerate() {
                                     if let Some(msg) = log.as_str() {
                                         // Determine log level based on content
@@ -9299,7 +9362,8 @@ impl DesktopWrapper {
                                             "ERROR" // stderr defaults to ERROR
                                         };
                                         all_logs.push(execution_logger::CapturedLogEntry {
-                                            timestamp: now + chrono::Duration::microseconds((1000 + i) as i64),
+                                            timestamp: now
+                                                + chrono::Duration::microseconds((1000 + i) as i64),
                                             level: level.to_string(),
                                             message: msg.to_string(),
                                         });
@@ -9318,7 +9382,11 @@ impl DesktopWrapper {
         // Log execution response with duration, result, and captured logs
         if let Some(ctx) = log_ctx {
             let duration_ms = start_time.elapsed().as_millis() as u64;
-            let logs_option = if all_logs.is_empty() { None } else { Some(all_logs) };
+            let logs_option = if all_logs.is_empty() {
+                None
+            } else {
+                Some(all_logs)
+            };
             match &result {
                 Ok(call_result) => {
                     // Extract JSON from ALL CallToolResult content items (to capture screenshots)
@@ -9333,12 +9401,22 @@ impl DesktopWrapper {
                         None
                     };
                     if let Some(json_value) = result_json {
-                        execution_logger::log_response_with_logs(ctx, Ok(&json_value), duration_ms, logs_option);
+                        execution_logger::log_response_with_logs(
+                            ctx,
+                            Ok(&json_value),
+                            duration_ms,
+                            logs_option,
+                        );
                     }
                 }
                 Err(e) => {
                     let error_msg = serde_json::to_string(&e).unwrap_or_else(|_| e.to_string());
-                    execution_logger::log_response_with_logs(ctx, Err(&error_msg), duration_ms, logs_option);
+                    execution_logger::log_response_with_logs(
+                        ctx,
+                        Err(&error_msg),
+                        duration_ms,
+                        logs_option,
+                    );
                 }
             }
         }
@@ -9414,13 +9492,17 @@ impl ServerHandler for DesktopWrapper {
         let result = self.tool_router.call(tcc).await;
 
         // Get stderr logs from TypeScript workflow execution (if any)
-        let stderr_logs: Vec<execution_logger::CapturedLogEntry> = 
+        let stderr_logs: Vec<execution_logger::CapturedLogEntry> =
             if let Ok(mut logs) = self.captured_stderr_logs.lock() {
                 logs.drain(..).collect()
             } else {
                 Vec::new()
             };
-        let logs_option = if stderr_logs.is_empty() { None } else { Some(stderr_logs) };
+        let logs_option = if stderr_logs.is_empty() {
+            None
+        } else {
+            Some(stderr_logs)
+        };
 
         // Log response after execution
         if let Some(ctx) = log_ctx {
@@ -9431,12 +9513,23 @@ impl ServerHandler for DesktopWrapper {
                     // The execution_logger::extract_and_save_screenshots expects an array of content items
                     let content_value = serde_json::to_value(&call_result.content)
                         .unwrap_or(serde_json::Value::Null);
-                    execution_logger::log_response_with_logs(ctx, Ok(&content_value), duration_ms, logs_option);
+                    execution_logger::log_response_with_logs(
+                        ctx,
+                        Ok(&content_value),
+                        duration_ms,
+                        logs_option,
+                    );
                 }
                 Err(e) => {
                     // Serialize error as JSON instead of Debug format
-                    let error_msg = serde_json::to_string(&e).unwrap_or_else(|_| format!("{:?}", e));
-                    execution_logger::log_response_with_logs(ctx, Err(&error_msg), duration_ms, logs_option);
+                    let error_msg =
+                        serde_json::to_string(&e).unwrap_or_else(|_| format!("{:?}", e));
+                    execution_logger::log_response_with_logs(
+                        ctx,
+                        Err(&error_msg),
+                        duration_ms,
+                        logs_option,
+                    );
                 }
             }
         }

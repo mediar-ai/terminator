@@ -178,9 +178,7 @@ impl WindowManager {
             self.inner
                 .minimize_all_except(target_hwnd as isize)
                 .await
-                .map_err(|e| {
-                    napi::Error::from_reason(format!("Failed to minimize windows: {}", e))
-                })
+                .map_err(|e| napi::Error::from_reason(format!("Failed to minimize windows: {}", e)))
         }
         #[cfg(not(target_os = "windows"))]
         {
@@ -199,9 +197,7 @@ impl WindowManager {
             self.inner
                 .maximize_if_needed(hwnd as isize)
                 .await
-                .map_err(|e| {
-                    napi::Error::from_reason(format!("Failed to maximize window: {}", e))
-                })
+                .map_err(|e| napi::Error::from_reason(format!("Failed to maximize window: {}", e)))
         }
         #[cfg(not(target_os = "windows"))]
         {
@@ -243,9 +239,7 @@ impl WindowManager {
             self.inner
                 .minimize_if_needed(hwnd as isize)
                 .await
-                .map_err(|e| {
-                    napi::Error::from_reason(format!("Failed to minimize window: {}", e))
-                })
+                .map_err(|e| napi::Error::from_reason(format!("Failed to minimize window: {}", e)))
         }
         #[cfg(not(target_os = "windows"))]
         {
@@ -278,9 +272,10 @@ impl WindowManager {
     pub async fn restore_all_windows(&self) -> napi::Result<u32> {
         #[cfg(target_os = "windows")]
         {
-            self.inner.restore_all_windows().await.map_err(|e| {
-                napi::Error::from_reason(format!("Failed to restore windows: {}", e))
-            })
+            self.inner
+                .restore_all_windows()
+                .await
+                .map_err(|e| napi::Error::from_reason(format!("Failed to restore windows: {}", e)))
         }
         #[cfg(not(target_os = "windows"))]
         {

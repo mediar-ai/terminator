@@ -1,7 +1,6 @@
 use crate::cancellation::RequestManager;
 use crate::mcp_types::{FontStyle, TextPosition, TreeOutputFormat};
 use crate::tool_logging::{LogCapture, LogCaptureLayer};
-use terminator::WindowManager;
 use anyhow::Result;
 use rmcp::{schemars, schemars::JsonSchema};
 use serde::{Deserialize, Serialize};
@@ -10,6 +9,7 @@ use std::env;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
+use terminator::WindowManager;
 use terminator::{AutomationError, Desktop, UIElement};
 use tokio::sync::Mutex as TokioMutex;
 use tracing::{warn, Instrument, Level};
@@ -303,7 +303,11 @@ impl ToolExecutionContext {
     }
 
     /// Set workflow context for execution logging
-    pub fn with_workflow_context(mut self, workflow_id: Option<String>, step_id: Option<String>) -> Self {
+    pub fn with_workflow_context(
+        mut self,
+        workflow_id: Option<String>,
+        step_id: Option<String>,
+    ) -> Self {
         self.workflow_id = workflow_id;
         self.step_id = step_id;
         self
@@ -713,15 +717,13 @@ impl ClickElementArgs {
                 return Err("Coordinate mode requires both 'x' and 'y' parameters".to_string());
             }
             return Err(
-                "Must specify one of: (selector), (index), or (x + y coordinates)"
-                    .to_string(),
+                "Must specify one of: (selector), (index), or (x + y coordinates)".to_string(),
             );
         }
 
         if mode_count > 1 {
             return Err(
-                "Cannot mix modes: specify only one of (selector), (index), or (x + y)"
-                    .to_string(),
+                "Cannot mix modes: specify only one of (selector), (index), or (x + y)".to_string(),
             );
         }
 
@@ -1602,10 +1604,14 @@ pub struct GeminiComputerUseArgs {
 /// Arguments for reading a file
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ReadFileArgs {
-    #[schemars(description = "Path to the file to read. Can be relative (resolved from working_directory) or absolute.")]
+    #[schemars(
+        description = "Path to the file to read. Can be relative (resolved from working_directory) or absolute."
+    )]
     pub path: String,
 
-    #[schemars(description = "Working directory for resolving relative paths. Injected automatically by mediar-app based on focused workflow.")]
+    #[schemars(
+        description = "Working directory for resolving relative paths. Injected automatically by mediar-app based on focused workflow."
+    )]
     pub working_directory: Option<String>,
 
     #[schemars(description = "Line number to start reading from (1-indexed). Defaults to 1.")]
@@ -1618,42 +1624,58 @@ pub struct ReadFileArgs {
 /// Arguments for writing a file
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct WriteFileArgs {
-    #[schemars(description = "Path to the file to write. Can be relative (resolved from working_directory) or absolute.")]
+    #[schemars(
+        description = "Path to the file to write. Can be relative (resolved from working_directory) or absolute."
+    )]
     pub path: String,
 
     #[schemars(description = "Content to write to the file.")]
     pub content: String,
 
-    #[schemars(description = "Working directory for resolving relative paths. Injected automatically by mediar-app based on focused workflow.")]
+    #[schemars(
+        description = "Working directory for resolving relative paths. Injected automatically by mediar-app based on focused workflow."
+    )]
     pub working_directory: Option<String>,
 }
 
 /// Arguments for editing a file (string replacement)
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct EditFileArgs {
-    #[schemars(description = "Path to the file to edit. Can be relative (resolved from working_directory) or absolute.")]
+    #[schemars(
+        description = "Path to the file to edit. Can be relative (resolved from working_directory) or absolute."
+    )]
     pub path: String,
 
-    #[schemars(description = "Exact string to find and replace. Must be unique in the file unless replace_all is true.")]
+    #[schemars(
+        description = "Exact string to find and replace. Must be unique in the file unless replace_all is true."
+    )]
     pub old_string: String,
 
     #[schemars(description = "String to replace with.")]
     pub new_string: String,
 
-    #[schemars(description = "Replace all occurrences instead of requiring uniqueness. Defaults to false.")]
+    #[schemars(
+        description = "Replace all occurrences instead of requiring uniqueness. Defaults to false."
+    )]
     pub replace_all: Option<bool>,
 
-    #[schemars(description = "Working directory for resolving relative paths. Injected automatically by mediar-app based on focused workflow.")]
+    #[schemars(
+        description = "Working directory for resolving relative paths. Injected automatically by mediar-app based on focused workflow."
+    )]
     pub working_directory: Option<String>,
 }
 
 /// Arguments for finding files by glob pattern
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct GlobFilesArgs {
-    #[schemars(description = "Glob pattern to match files. Examples: '**/*.ts', 'src/*.rs', '*.yml'")]
+    #[schemars(
+        description = "Glob pattern to match files. Examples: '**/*.ts', 'src/*.rs', '*.yml'"
+    )]
     pub pattern: String,
 
-    #[schemars(description = "Working directory for resolving the glob pattern. Injected automatically by mediar-app based on focused workflow.")]
+    #[schemars(
+        description = "Working directory for resolving the glob pattern. Injected automatically by mediar-app based on focused workflow."
+    )]
     pub working_directory: Option<String>,
 }
 
@@ -1663,19 +1685,25 @@ pub struct GrepFilesArgs {
     #[schemars(description = "Regex pattern to search for in file contents.")]
     pub pattern: String,
 
-    #[schemars(description = "Optional glob pattern to filter which files to search. Examples: '*.ts', '**/*.rs'")]
+    #[schemars(
+        description = "Optional glob pattern to filter which files to search. Examples: '*.ts', '**/*.rs'"
+    )]
     pub glob: Option<String>,
 
     #[schemars(description = "Case insensitive search. Defaults to false.")]
     pub ignore_case: Option<bool>,
 
-    #[schemars(description = "Number of context lines before and after each match. Defaults to 2.")]
+    #[schemars(
+        description = "Number of context lines before and after each match. Defaults to 2."
+    )]
     pub context_lines: Option<usize>,
 
     #[schemars(description = "Maximum number of results to return. Defaults to 50.")]
     pub max_results: Option<usize>,
 
-    #[schemars(description = "Working directory for resolving relative paths. Injected automatically by mediar-app based on focused workflow.")]
+    #[schemars(
+        description = "Working directory for resolving relative paths. Injected automatically by mediar-app based on focused workflow."
+    )]
     pub working_directory: Option<String>,
 }
 
