@@ -420,6 +420,15 @@ impl DesktopWrapper {
             let workflow_content = if url.starts_with("file://") {
                 // Handle local file URLs
                 let file_path = url.strip_prefix("file://").unwrap_or(url);
+                // Handle Windows file:/// URLs (strip leading / before drive letter like /C:)
+                let file_path = if file_path.starts_with('/')
+                    && file_path.len() > 2
+                    && file_path.chars().nth(2) == Some(':')
+                {
+                    &file_path[1..]
+                } else {
+                    file_path
+                };
                 info!("Reading file from path: {}", file_path);
 
                 // Store the workflow directory for relative path resolution
