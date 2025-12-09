@@ -591,6 +591,33 @@ fn build_locator_string(args: &Value) -> String {
     format!("\"{}\"", locator)
 }
 
+/// Build locator string for fallback selector (uses same process/window_selector but different element selector)
+fn build_fallback_locator_string(args: &Value, fallback_selector: &str) -> String {
+    let process = args.get("process").and_then(|v| v.as_str()).unwrap_or("");
+    let window_selector = args.get("window_selector").and_then(|v| v.as_str());
+
+    if process.is_empty() && fallback_selector.is_empty() {
+        return "\"\"".to_string();
+    }
+
+    let mut locator = format!("process:{}", process);
+
+    if let Some(ws) = window_selector {
+        if !ws.is_empty() {
+            locator = format!("{} >> {}", locator, ws);
+        }
+    }
+
+    if !fallback_selector.is_empty() {
+        // Convert MCP fallback selector format (pipe-separated) to SDK format (&&)
+        // e.g., "role:Button|name:Log On" -> "role:Button && name:Log On"
+        let sdk_selector = fallback_selector.replace('|', " && ");
+        locator = format!("{} >> {}", locator, sdk_selector);
+    }
+
+    format!("\"{}\"", locator)
+}
+
 /// Build ActionOptions object from MCP params (maps to SDK camelCase)
 fn build_action_options(args: &Value) -> String {
     let mut opts = Vec::new();
@@ -684,6 +711,24 @@ fn generate_click_snippet(args: &Value) -> String {
 
     // Build ActionOptions from MCP params
     let options = build_action_options(args);
+
+    // Check for fallback_selectors - generate try/catch if present
+    if let Some(fallback) = args.get("fallback_selectors").and_then(|v| v.as_str()) {
+        if !fallback.is_empty() {
+            let fallback_locator = build_fallback_locator_string(args, fallback);
+            return format!(
+                r#"let element;
+try {{
+  element = await desktop.locator({}).first({});
+}} catch (e) {{
+  // Primary selector failed, trying fallback: {}
+  element = await desktop.locator({}).first({});
+}}
+await element.click({});"#,
+                locator, timeout, fallback, fallback_locator, timeout, options
+            );
+        }
+    }
 
     format!(
         "const element = await desktop.locator({}).first({});\nawait element.click({});",
@@ -1148,25 +1193,31 @@ fn generate_execute_browser_script_snippet(args: &Value) -> String {
 fn extract_iife_body(script: &str) -> String {
     let trimmed = script.trim();
 
-    // Check for IIFE patterns ending with })()
-    // Examples: (function() { ... })() or (async function() { ... })()
+    // Determine IIFE ending offset: })() is 4 chars, })(); is 5 chars
+    let (is_iife_ending, end_offset) = if trimmed.ends_with("})();") {
+        (true, 5)
+    } else if trimmed.ends_with("})()") {
+        (true, 4)
+    } else {
+        (false, 0)
+    };
+
+    // Check for IIFE patterns: (function() { ... })() or (async function() { ... })()
     if (trimmed.starts_with("(function") || trimmed.starts_with("(async function"))
-        && trimmed.ends_with("})()")
+        && is_iife_ending
     {
         if let Some(brace_start) = trimmed.find('{') {
-            // Body is between first { and the last } before })()
-            // The ending is "})(" so last } is at len - 4
-            let last_brace = trimmed.len() - 4;
+            // Body is between first { and the last } before })() or })();
+            let last_brace = trimmed.len() - end_offset;
             let body = &trimmed[brace_start + 1..last_brace];
             return body.trim().to_string();
         }
     }
 
-    // Check for arrow IIFE: (() => { ... })()
-    if trimmed.starts_with("(() =>") && trimmed.ends_with("})()")
-    {
+    // Check for arrow IIFE: (() => { ... })() or (() => { ... })();
+    if trimmed.starts_with("(() =>") && is_iife_ending {
         if let Some(brace_start) = trimmed.find('{') {
-            let last_brace = trimmed.len() - 4;
+            let last_brace = trimmed.len() - end_offset;
             let body = &trimmed[brace_start + 1..last_brace];
             return body.trim().to_string();
         }
