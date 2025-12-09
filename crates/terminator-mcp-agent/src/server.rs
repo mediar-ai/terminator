@@ -9305,7 +9305,8 @@ impl DesktopWrapper {
                     }
                 }
                 Err(e) => {
-                    execution_logger::log_response_with_logs(ctx, Err(&e.to_string()), duration_ms, logs_option);
+                    let error_msg = serde_json::to_string(&e).unwrap_or_else(|_| e.to_string());
+                    execution_logger::log_response_with_logs(ctx, Err(&error_msg), duration_ms, logs_option);
                 }
             }
         }
@@ -9401,7 +9402,8 @@ impl ServerHandler for DesktopWrapper {
                     execution_logger::log_response_with_logs(ctx, Ok(&content_value), duration_ms, logs_option);
                 }
                 Err(e) => {
-                    let error_msg = format!("{:?}", e);
+                    // Serialize error as JSON instead of Debug format
+                    let error_msg = serde_json::to_string(&e).unwrap_or_else(|_| format!("{:?}", e));
                     execution_logger::log_response_with_logs(ctx, Err(&error_msg), duration_ms, logs_option);
                 }
             }
