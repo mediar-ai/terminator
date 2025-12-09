@@ -1,5 +1,8 @@
 # [Want a turnkey automation? mediar.ai](https://mediar.ai)
 
+[![Run in Smithery](https://smithery.ai/badge/skills/mediar-ai)](https://smithery.ai/skills?ns=mediar-ai&utm_source=github&utm_medium=badge)
+
+
 ## [Want No code workflow builder? app.mediar.ai](https://app.mediar.ai)
 
 ## 💰 Bounty Developer Program
