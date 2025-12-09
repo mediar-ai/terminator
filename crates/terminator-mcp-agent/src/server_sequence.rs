@@ -2724,7 +2724,6 @@ impl DesktopWrapper {
             // Store captured stderr logs for dispatch_tool to include in execution log
             if let Ok(mut logs) = self.captured_stderr_logs.lock() {
                 logs.clear();
-                tracing::info!("[debug] Storing {} stderr logs in server field", result.logs.len());
             logs.extend(result.logs);
             }
 
