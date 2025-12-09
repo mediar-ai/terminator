@@ -1120,12 +1120,14 @@ fn generate_activate_snippet(args: &Value) -> String {
 fn generate_execute_browser_script_snippet(args: &Value) -> String {
     let script = args.get("script").and_then(|v| v.as_str()).unwrap_or("");
     let script_file = args.get("script_file").and_then(|v| v.as_str());
+    let process = args.get("process").and_then(|v| v.as_str()).unwrap_or("chrome");
 
     // If script_file provided, use file-based syntax
     if let Some(file) = script_file {
         return format!(
-            r#"const result = await desktop.executeBrowserScript({{ file: "{}" }});"#,
-            file.replace('\\', "\\\\")
+            r#"const result = await desktop.executeBrowserScript({{ file: "{}" }}, "{}");"#,
+            file.replace('\\', "\\\\"),
+            process
         );
     }
 
@@ -1136,7 +1138,10 @@ fn generate_execute_browser_script_snippet(args: &Value) -> String {
     let function_body = extract_iife_body(script);
 
     // Output as async function (SDK will serialize it)
-    format!("const result = await desktop.executeBrowserScript(async function() {{\n{}\n}});", function_body)
+    // Desktop.executeBrowserScript requires process as second argument
+    format!(r#"const result = await desktop.executeBrowserScript(async function() {{
+{}
+}}, "{}");"#, function_body, process)
 }
 
 /// Extract the body from an IIFE pattern, or return the script as-is if not an IIFE
