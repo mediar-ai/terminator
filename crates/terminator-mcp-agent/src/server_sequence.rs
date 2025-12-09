@@ -352,7 +352,7 @@ impl DesktopWrapper {
         let trace_id_val = args.trace_id.clone().unwrap_or_default();
         let execution_id_val = args.execution_id.clone().unwrap_or_default();
         let tracing_span = info_span!(
-            "execute_sequence",
+            "execute_ts_workflow",
             trace_id = %trace_id_val,
             execution_id = %execution_id_val,
             log_source = "agent",
@@ -2308,7 +2308,7 @@ impl DesktopWrapper {
         );
 
         let mut summary = json!({
-            "action": "execute_sequence",
+            "action": "execute_ts_workflow",
             "status": final_status,
             "total_tools": sequence_items.len(),
             "executed_tools": actually_executed_count,
@@ -2665,31 +2665,31 @@ impl DesktopWrapper {
 
             // Save state for resumption (only if last_step_index is provided by runner-based workflows)
             if let (Some(ref last_step_id), Some(last_step_index)) =
-                (&result.result.last_step_id, result.result.last_step_index)
+                (&result.result.result.last_step_id, result.result.result.last_step_index)
             {
                 Self::save_workflow_state(
                     args.workflow_id.as_deref(),
                     Some(url),
                     Some(last_step_id),
                     last_step_index,
-                    &result.state,
+                    &result.result.state,
                 )
                 .await?;
             }
 
             // Return result
             let mut output = json!({
-                "status": result.result.status,
-                "message": result.result.message,
-                "data": result.result.data,
-                "metadata": result.metadata,
-                "state": result.state,
-                "last_step_id": result.result.last_step_id,
-                "last_step_index": result.result.last_step_index,
+                "status": result.result.result.status,
+                "message": result.result.result.message,
+                "data": result.result.result.data,
+                "metadata": result.result.metadata,
+                "state": result.result.state,
+                "last_step_id": result.result.result.last_step_id,
+                "last_step_index": result.result.result.last_step_index,
             });
 
             // If there's data from context.data, add it as parsed_output for CLI compatibility
-            if let Some(data) = &result.result.data {
+            if let Some(data) = &result.result.result.data {
                 if !data.is_null() {
                     if let Some(obj) = output.as_object_mut() {
                         obj.insert(
@@ -2719,11 +2719,20 @@ impl DesktopWrapper {
                 );
             }
 
+
+
+            // Store captured stderr logs for dispatch_tool to include in execution log
+            if let Ok(mut logs) = self.captured_stderr_logs.lock() {
+                logs.clear();
+                tracing::info!("[debug] Storing {} stderr logs in server field", result.logs.len());
+            logs.extend(result.logs);
+            }
+
             Ok(CallToolResult {
                 content: vec![Content::text(
                     serde_json::to_string_pretty(&output).unwrap(),
                 )],
-                is_error: Some(result.result.status != "success"),
+                is_error: Some(result.result.result.status != "success"),
                 meta: None,
                 structured_content: None,
             })
