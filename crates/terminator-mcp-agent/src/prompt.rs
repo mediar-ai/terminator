@@ -101,7 +101,11 @@ Contextual information:
   ├── docs/                                    # General documentation
   └── scripts/                                 # Build/utility scripts
 
-  Use grep_files/read_file with working_directory: \"%LOCALAPPDATA%/mediar/terminator-source\" to search SDK docs.
+  **working_directory Shortcuts** (use with file tools like glob_files, read_file, grep_files):
+  - \"executions\" → %LOCALAPPDATA%/terminator/executions (execution logs + screenshots)
+  - \"logs\" → %LOCALAPPDATA%/terminator/logs (MCP agent daily logs)
+  - \"workflows\" → %LOCALAPPDATA%/mediar/workflows (TypeScript workflow folders)
+  - \"terminator-source\" → %LOCALAPPDATA%/mediar/terminator-source (SDK docs)
 
 - The current date and time is {current_date_time}.
 - Current operating system: {current_os}.
