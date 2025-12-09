@@ -548,7 +548,6 @@ pub fn format_browser_dom_as_compact_yaml(elements: &[serde_json::Value]) -> Dom
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

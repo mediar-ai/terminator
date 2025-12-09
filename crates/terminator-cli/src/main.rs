@@ -1024,7 +1024,7 @@ fn handle_mcp_command(cmd: McpCommands) {
         McpCommands::Exec(ref args) => parse_transport(args.url.clone(), args.command.clone()),
         McpCommands::Run(ref args) => parse_transport(args.url.clone(), args.command.clone()),
         McpCommands::Validate(_) => unreachable!(), // Handled above
-        McpCommands::Snippet(_) => unreachable!(), // Handled above
+        McpCommands::Snippet(_) => unreachable!(),  // Handled above
     };
 
     let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
@@ -1038,7 +1038,7 @@ fn handle_mcp_command(cmd: McpCommands) {
             }
             McpCommands::Run(args) => run_workflow(transport, args).await,
             McpCommands::Validate(_) => unreachable!(), // Handled above
-            McpCommands::Snippet(_) => unreachable!(), // Handled above
+            McpCommands::Snippet(_) => unreachable!(),  // Handled above
         }
     });
 

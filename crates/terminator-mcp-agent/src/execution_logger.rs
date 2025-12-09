@@ -25,7 +25,6 @@ pub struct CapturedLogEntry {
     pub message: String,
 }
 
-
 /// Execution log entry combining request and response
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExecutionLog {
@@ -99,7 +98,9 @@ pub fn init() {
         .unwrap_or(false)
     {
         LOGGING_ENABLED.store(false, Ordering::Relaxed);
-        info!("[execution_logger] Execution logging disabled via TERMINATOR_DISABLE_EXECUTION_LOGS");
+        info!(
+            "[execution_logger] Execution logging disabled via TERMINATOR_DISABLE_EXECUTION_LOGS"
+        );
         return;
     }
 
@@ -110,7 +111,10 @@ pub fn init() {
         return;
     }
 
-    info!("[execution_logger] Execution logs will be written to: {}", dir.display());
+    info!(
+        "[execution_logger] Execution logs will be written to: {}",
+        dir.display()
+    );
 
     // Run cleanup in background
     tokio::spawn(async {
@@ -135,7 +139,7 @@ fn generate_file_prefix(
     let clean_tool = tool_name
         .strip_prefix("mcp__terminator-mcp-agent__")
         .unwrap_or(tool_name);
-    format!("{}_{}_{}",date_time, wf_id, clean_tool)
+    format!("{}_{}_{}", date_time, wf_id, clean_tool)
 }
 
 /// Start logging an execution (call before tool dispatch)
@@ -147,7 +151,11 @@ pub fn log_request(
     step_id: Option<&str>,
     step_index: Option<usize>,
 ) -> Option<ExecutionContext> {
-    info!("[execution_logger] log_request called for tool: {}, enabled: {}", tool_name, is_enabled());
+    info!(
+        "[execution_logger] log_request called for tool: {}, enabled: {}",
+        tool_name,
+        is_enabled()
+    );
     if !is_enabled() {
         return None;
     }
@@ -167,12 +175,12 @@ pub fn log_request(
 }
 
 /// Complete logging an execution (call after tool dispatch)
-pub fn log_response(
-    ctx: ExecutionContext,
-    result: Result<&Value, &str>,
-    duration_ms: u64,
-) {
-    info!("[execution_logger] log_response called for tool: {}, enabled: {}", ctx.tool_name, is_enabled());
+pub fn log_response(ctx: ExecutionContext, result: Result<&Value, &str>, duration_ms: u64) {
+    info!(
+        "[execution_logger] log_response called for tool: {}, enabled: {}",
+        ctx.tool_name,
+        is_enabled()
+    );
     if !is_enabled() {
         return;
     }
@@ -214,7 +222,11 @@ pub fn log_response(
     match serde_json::to_string_pretty(&log) {
         Ok(json) => {
             if let Err(e) = fs::write(&json_path, json) {
-                warn!("[execution_logger] Failed to write {}: {}", json_path.display(), e);
+                warn!(
+                    "[execution_logger] Failed to write {}: {}",
+                    json_path.display(),
+                    e
+                );
             } else {
                 info!("[execution_logger] Logged: {}", json_path.display());
             }
@@ -227,9 +239,16 @@ pub fn log_response(
     // Write TypeScript snippet file
     let ts_path = dir.join(format!("{}.ts", ctx.file_prefix));
     if let Err(e) = fs::write(&ts_path, &ts_snippet) {
-        warn!("[execution_logger] Failed to write {}: {}", ts_path.display(), e);
+        warn!(
+            "[execution_logger] Failed to write {}: {}",
+            ts_path.display(),
+            e
+        );
     } else {
-        debug!("[execution_logger] TypeScript snippet: {}", ts_path.display());
+        debug!(
+            "[execution_logger] TypeScript snippet: {}",
+            ts_path.display()
+        );
     }
 }
 
@@ -241,8 +260,12 @@ pub fn log_response_with_logs(
     duration_ms: u64,
     logs: Option<Vec<CapturedLogEntry>>,
 ) {
-    info!("[execution_logger] log_response_with_logs called for tool: {}, enabled: {}, logs: {:?}", 
-          ctx.tool_name, is_enabled(), logs.as_ref().map(|l| l.len()));
+    info!(
+        "[execution_logger] log_response_with_logs called for tool: {}, enabled: {}, logs: {:?}",
+        ctx.tool_name,
+        is_enabled(),
+        logs.as_ref().map(|l| l.len())
+    );
     if !is_enabled() {
         return;
     }
@@ -284,9 +307,16 @@ pub fn log_response_with_logs(
     match serde_json::to_string_pretty(&log) {
         Ok(json) => {
             if let Err(e) = fs::write(&json_path, json) {
-                warn!("[execution_logger] Failed to write {}: {}", json_path.display(), e);
+                warn!(
+                    "[execution_logger] Failed to write {}: {}",
+                    json_path.display(),
+                    e
+                );
             } else {
-                info!("[execution_logger] Logged with logs: {}", json_path.display());
+                info!(
+                    "[execution_logger] Logged with logs: {}",
+                    json_path.display()
+                );
             }
         }
         Err(e) => {
@@ -297,9 +327,16 @@ pub fn log_response_with_logs(
     // Write TypeScript snippet file
     let ts_path = dir.join(format!("{}.ts", ctx.file_prefix));
     if let Err(e) = fs::write(&ts_path, &ts_snippet) {
-        warn!("[execution_logger] Failed to write {}: {}", ts_path.display(), e);
+        warn!(
+            "[execution_logger] Failed to write {}: {}",
+            ts_path.display(),
+            e
+        );
     } else {
-        debug!("[execution_logger] TypeScript snippet: {}", ts_path.display());
+        debug!(
+            "[execution_logger] TypeScript snippet: {}",
+            ts_path.display()
+        );
     }
 }
 
@@ -321,7 +358,9 @@ fn extract_and_save_screenshots(
     // Also in content array: content[].screenshot, content[].image
 
     // Try direct screenshot field (usually "after" or single screenshot)
-    if let Some(screenshot) = extract_base64_image(result, &["screenshot", "image", "screenshot_base64"]) {
+    if let Some(screenshot) =
+        extract_base64_image(result, &["screenshot", "image", "screenshot_base64"])
+    {
         let filename = format!("{}_after.png", file_prefix);
         if save_screenshot(dir, &filename, &screenshot) {
             refs.after.push(filename);
@@ -330,7 +369,9 @@ fn extract_and_save_screenshots(
     }
 
     // Try screenshot_before
-    if let Some(screenshot) = extract_base64_image(result, &["screenshot_before", "before_screenshot"]) {
+    if let Some(screenshot) =
+        extract_base64_image(result, &["screenshot_before", "before_screenshot"])
+    {
         let filename = format!("{}_before.png", file_prefix);
         if save_screenshot(dir, &filename, &screenshot) {
             refs.before = Some(filename);
@@ -339,7 +380,9 @@ fn extract_and_save_screenshots(
 
     // Try screenshot_after (explicit) - only if no screenshots saved yet
     if refs.after.is_empty() {
-        if let Some(screenshot) = extract_base64_image(result, &["screenshot_after", "after_screenshot"]) {
+        if let Some(screenshot) =
+            extract_base64_image(result, &["screenshot_after", "after_screenshot"])
+        {
             let filename = format!("{}_after.png", file_prefix);
             if save_screenshot(dir, &filename, &screenshot) {
                 refs.after.push(filename);
@@ -375,7 +418,9 @@ fn extract_and_save_screenshots(
             // Text content with embedded screenshot
             if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
                 if let Ok(parsed) = serde_json::from_str::<Value>(text) {
-                    if let Some(screenshot) = extract_base64_image(&parsed, &["screenshot", "image"]) {
+                    if let Some(screenshot) =
+                        extract_base64_image(&parsed, &["screenshot", "image"])
+                    {
                         let filename = if screenshot_counter == 0 {
                             format!("{}_after.png", file_prefix)
                         } else {
@@ -403,7 +448,9 @@ fn extract_base64_image(value: &Value, field_names: &[&str]) -> Option<String> {
     for name in field_names {
         if let Some(img) = value.get(*name).and_then(|v| v.as_str()) {
             // Check if it looks like base64 image data (minimum ~80 chars for minimal 1x1 PNG)
-            if img.len() >= 80 && (img.starts_with("iVBOR") || img.starts_with("/9j/") || img.contains("base64,")) {
+            if img.len() >= 80
+                && (img.starts_with("iVBOR") || img.starts_with("/9j/") || img.contains("base64,"))
+            {
                 // Strip data URL prefix if present
                 let data = if let Some(pos) = img.find("base64,") {
                     &img[pos + 7..]
@@ -428,13 +475,19 @@ fn save_screenshot(dir: &PathBuf, filename: &str, base64_data: &str) -> bool {
                     true
                 }
                 Err(e) => {
-                    warn!("[execution_logger] Failed to save screenshot {}: {}", filename, e);
+                    warn!(
+                        "[execution_logger] Failed to save screenshot {}: {}",
+                        filename, e
+                    );
                     false
                 }
             }
         }
         Err(e) => {
-            warn!("[execution_logger] Failed to decode screenshot base64: {}", e);
+            warn!(
+                "[execution_logger] Failed to decode screenshot base64: {}",
+                e
+            );
             false
         }
     }
@@ -458,7 +511,10 @@ fn strip_screenshot_base64(value: &Value) -> Value {
     if let Some(obj) = result.as_object_mut() {
         for field in &screenshot_fields {
             if obj.contains_key(*field) {
-                obj.insert(field.to_string(), Value::String("[extracted to file]".to_string()));
+                obj.insert(
+                    field.to_string(),
+                    Value::String("[extracted to file]".to_string()),
+                );
             }
         }
     }
@@ -468,7 +524,10 @@ fn strip_screenshot_base64(value: &Value) -> Value {
         for item in content.iter_mut() {
             if item.get("type").and_then(|t| t.as_str()) == Some("image") {
                 if let Some(obj) = item.as_object_mut() {
-                    obj.insert("data".to_string(), Value::String("[extracted to file]".to_string()));
+                    obj.insert(
+                        "data".to_string(),
+                        Value::String("[extracted to file]".to_string()),
+                    );
                 }
             }
             // Handle text content with embedded JSON
@@ -478,7 +537,10 @@ fn strip_screenshot_base64(value: &Value) -> Value {
                     if let Some(obj) = parsed.as_object_mut() {
                         for field in &screenshot_fields {
                             if obj.contains_key(*field) {
-                                obj.insert(field.to_string(), Value::String("[extracted to file]".to_string()));
+                                obj.insert(
+                                    field.to_string(),
+                                    Value::String("[extracted to file]".to_string()),
+                                );
                                 modified = true;
                             }
                         }
@@ -502,7 +564,11 @@ fn strip_screenshot_base64(value: &Value) -> Value {
 /// This creates a .ts file alongside the .json execution log
 /// Generate TypeScript SDK snippet from MCP tool call.
 /// This is the single source of truth for tool -> TypeScript conversion.
-pub fn generate_typescript_snippet(tool_name: &str, args: &Value, result: Result<&Value, &str>) -> String {
+pub fn generate_typescript_snippet(
+    tool_name: &str,
+    args: &Value,
+    result: Result<&Value, &str>,
+) -> String {
     // Clean tool name (remove mcp__ prefix if present)
     let clean_tool = tool_name
         .strip_prefix("mcp__terminator-mcp-agent__")
@@ -533,13 +599,22 @@ pub fn generate_typescript_snippet(tool_name: &str, args: &Value, result: Result
         "set_selected" => generate_set_selected_snippet(args),
         "activate_element" => generate_activate_snippet(args),
         "close_element" => generate_close_snippet(args),
-        "get_applications" | "get_applications_and_windows_list" => "const apps = desktop.getApplications();".to_string(),
+        "get_applications" | "get_applications_and_windows_list" => {
+            "const apps = desktop.getApplications();".to_string()
+        }
         "execute_browser_script" => generate_execute_browser_script_snippet(args),
         _ => {
             // Comment out ALL lines of the JSON to avoid syntax errors
             let args_json = serde_json::to_string_pretty(args).unwrap_or_default();
-            let commented_args = args_json.lines().map(|line| format!("//   {}", line)).collect::<Vec<_>>().join("\n");
-            format!("// Unsupported tool: {}\n// Args:\n{}", clean_tool, commented_args)
+            let commented_args = args_json
+                .lines()
+                .map(|line| format!("//   {}", line))
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!(
+                "// Unsupported tool: {}\n// Args:\n{}",
+                clean_tool, commented_args
+            )
         }
     };
 
@@ -623,7 +698,10 @@ fn build_action_options(args: &Value) -> String {
     let mut opts = Vec::new();
 
     // highlightBeforeAction
-    if let Some(true) = args.get("highlight_before_action").and_then(|v| v.as_bool()) {
+    if let Some(true) = args
+        .get("highlight_before_action")
+        .and_then(|v| v.as_bool())
+    {
         opts.push("highlightBeforeAction: true".to_string());
     }
 
@@ -633,7 +711,10 @@ fn build_action_options(args: &Value) -> String {
         let y = pos.get("y_percentage").and_then(|v| v.as_u64());
         if let (Some(x), Some(y)) = (x, y) {
             if x != 50 || y != 50 {
-                opts.push(format!("clickPosition: {{ xPercentage: {}, yPercentage: {} }}", x, y));
+                opts.push(format!(
+                    "clickPosition: {{ xPercentage: {}, yPercentage: {} }}",
+                    x, y
+                ));
             }
         }
     }
@@ -667,7 +748,10 @@ fn build_type_text_options(args: &Value, clear_before_typing: bool) -> String {
     let mut opts = vec![format!("clearBeforeTyping: {}", clear_before_typing)];
 
     // highlightBeforeAction
-    if let Some(true) = args.get("highlight_before_action").and_then(|v| v.as_bool()) {
+    if let Some(true) = args
+        .get("highlight_before_action")
+        .and_then(|v| v.as_bool())
+    {
         opts.push("highlightBeforeAction: true".to_string());
     }
 
@@ -692,7 +776,10 @@ fn generate_click_snippet(args: &Value) -> String {
         args.get("y").and_then(|v| v.as_f64()),
     ) {
         // Coordinate mode
-        let click_type = args.get("click_type").and_then(|v| v.as_str()).unwrap_or("left");
+        let click_type = args
+            .get("click_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("left");
         return match click_type {
             "double" => format!("await desktop.doubleClick({}, {});", x as i32, y as i32),
             "right" => format!("await desktop.rightClick({}, {});", x as i32, y as i32),
@@ -702,12 +789,18 @@ fn generate_click_snippet(args: &Value) -> String {
 
     if let Some(index) = args.get("index").and_then(|v| v.as_u64()) {
         // Index mode (from get_window_tree)
-        return format!("// Index-based click: item #{}\n// Use locator from get_window_tree result", index);
+        return format!(
+            "// Index-based click: item #{}\n// Use locator from get_window_tree result",
+            index
+        );
     }
 
     // Selector mode
     let locator = build_locator_string(args);
-    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let timeout = args
+        .get("timeout_ms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(5000);
 
     // Build ActionOptions from MCP params
     let options = build_action_options(args);
@@ -742,7 +835,9 @@ await element.click({});"#,
 /// - Plain text -> `"plain text"` (double quotes)
 fn format_text_for_typescript(text: &str) -> String {
     // Check if it's a pure variable reference like ${input.xxx} or ${context.xxx}
-    let pure_var_regex = regex::Regex::new(r"^\$\{([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\}$").unwrap();
+    let pure_var_regex =
+        regex::Regex::new(r"^\$\{([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\}$")
+            .unwrap();
     if let Some(caps) = pure_var_regex.captures(text) {
         // Pure variable reference - return without quotes
         return caps.get(1).unwrap().as_str().to_string();
@@ -758,7 +853,10 @@ fn format_text_for_typescript(text: &str) -> String {
         format!("`{}`", escaped)
     } else {
         // Plain text - use double quotes
-        let escaped = text.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
+        let escaped = text
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', "\\n");
         format!("\"{}\"", escaped)
     }
 }
@@ -767,12 +865,19 @@ fn format_text_for_typescript(text: &str) -> String {
 fn generate_type_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
     // MCP uses text_to_type, SDK uses text
-    let text = args.get("text_to_type")
+    let text = args
+        .get("text_to_type")
         .or_else(|| args.get("text"))
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    let clear = args.get("clear_before_typing").and_then(|v| v.as_bool()).unwrap_or(false);
-    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let clear = args
+        .get("clear_before_typing")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let timeout = args
+        .get("timeout_ms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(5000);
 
     // Format text with proper variable handling
     let formatted_text = format_text_for_typescript(text);
@@ -790,12 +895,22 @@ fn generate_type_snippet(args: &Value) -> String {
 fn generate_press_key_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
     let key = args.get("key").and_then(|v| v.as_str()).unwrap_or("");
-    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let timeout = args
+        .get("timeout_ms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(5000);
     let options = build_action_options(args);
 
     format!(
         "const element = await desktop.locator({}).first({});\nawait element.pressKey(\"{}\"{});",
-        locator, timeout, key, if options.is_empty() { String::new() } else { format!(", {}", options) }
+        locator,
+        timeout,
+        key,
+        if options.is_empty() {
+            String::new()
+        } else {
+            format!(", {}", options)
+        }
     )
 }
 
@@ -808,7 +923,8 @@ fn generate_global_key_snippet(args: &Value) -> String {
 /// Generate delay snippet
 fn generate_delay_snippet(args: &Value) -> String {
     // MCP uses delay_ms, fallback to ms for compatibility
-    let ms = args.get("delay_ms")
+    let ms = args
+        .get("delay_ms")
         .or_else(|| args.get("ms"))
         .and_then(|v| v.as_u64())
         .unwrap_or(1000);
@@ -824,7 +940,8 @@ fn generate_open_application_snippet(args: &Value) -> String {
 /// Generate navigate_browser snippet
 fn generate_navigate_browser_snippet(args: &Value) -> String {
     let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
-    let browser = args.get("browser")
+    let browser = args
+        .get("browser")
         .or_else(|| args.get("process"))
         .and_then(|v| v.as_str());
 
@@ -838,10 +955,22 @@ fn generate_navigate_browser_snippet(args: &Value) -> String {
 /// Generate get_window_tree snippet
 fn generate_get_window_tree_snippet(args: &Value) -> String {
     let process = args.get("process").and_then(|v| v.as_str()).unwrap_or("");
-    let include_gemini = args.get("include_gemini_vision").and_then(|v| v.as_bool()).unwrap_or(false);
-    let include_omniparser = args.get("include_omniparser").and_then(|v| v.as_bool()).unwrap_or(false);
-    let include_ocr = args.get("include_ocr").and_then(|v| v.as_bool()).unwrap_or(false);
-    let include_browser_dom = args.get("include_browser_dom").and_then(|v| v.as_bool()).unwrap_or(false);
+    let include_gemini = args
+        .get("include_gemini_vision")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let include_omniparser = args
+        .get("include_omniparser")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let include_ocr = args
+        .get("include_ocr")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let include_browser_dom = args
+        .get("include_browser_dom")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let tree_output_format = args.get("tree_output_format").and_then(|v| v.as_str());
 
     // Build config options
@@ -888,8 +1017,14 @@ fn generate_get_window_tree_snippet(args: &Value) -> String {
 fn generate_capture_screenshot_snippet(args: &Value) -> String {
     let process = args.get("process").and_then(|v| v.as_str()).unwrap_or("");
     let selector = args.get("selector").and_then(|v| v.as_str());
-    let entire_monitor = args.get("entire_monitor").and_then(|v| v.as_bool()).unwrap_or(false);
-    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let entire_monitor = args
+        .get("entire_monitor")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let timeout = args
+        .get("timeout_ms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(5000);
 
     if let Some(sel) = selector {
         if !sel.is_empty() {
@@ -964,16 +1099,17 @@ fn looks_like_shell_code(code: &str) -> bool {
     let trimmed = code.trim();
 
     // PowerShell patterns
-    if trimmed.contains("$env:") ||
-       trimmed.contains("Get-") ||
-       trimmed.contains("Set-") ||
-       trimmed.contains("New-") ||
-       trimmed.contains("Remove-") ||
-       trimmed.contains("Write-") ||
-       trimmed.contains("Invoke-") ||
-       trimmed.contains("Select-") ||
-       trimmed.contains("Where-") ||
-       trimmed.contains("ForEach-") {
+    if trimmed.contains("$env:")
+        || trimmed.contains("Get-")
+        || trimmed.contains("Set-")
+        || trimmed.contains("New-")
+        || trimmed.contains("Remove-")
+        || trimmed.contains("Write-")
+        || trimmed.contains("Invoke-")
+        || trimmed.contains("Select-")
+        || trimmed.contains("Where-")
+        || trimmed.contains("ForEach-")
+    {
         return true;
     }
 
@@ -989,11 +1125,12 @@ fn looks_like_shell_code(code: &str) -> bool {
     }
 
     // Bash/shell patterns
-    if trimmed.starts_with("#!/") ||
-       trimmed.starts_with("export ") ||
-       trimmed.starts_with("source ") ||
-       trimmed.contains(" && ") ||
-       trimmed.contains(" || ") {
+    if trimmed.starts_with("#!/")
+        || trimmed.starts_with("export ")
+        || trimmed.starts_with("source ")
+        || trimmed.contains(" && ")
+        || trimmed.contains(" || ")
+    {
         return true;
     }
 
@@ -1015,8 +1152,14 @@ fn generate_run_command_snippet(args: &Value) -> String {
 
     // Shell command mode - wrap in desktop.runCommand()
     if is_shell {
-        let escaped_run = run.replace('\\', "\\\\").replace('`', "\\`").replace('$', "\\$");
-        return format!("const result = await desktop.runCommand(`{}`);", escaped_run);
+        let escaped_run = run
+            .replace('\\', "\\\\")
+            .replace('`', "\\`")
+            .replace('$', "\\$");
+        return format!(
+            "const result = await desktop.runCommand(`{}`);",
+            escaped_run
+        );
     }
 
     // Default: JavaScript/TypeScript - inline code with API transformations
@@ -1025,13 +1168,15 @@ fn generate_run_command_snippet(args: &Value) -> String {
     // If the code contains a return statement with state/set_env (for inter-step communication),
     // we need to capture the IIFE result and return it from the step's execute function
     // so the SDK can merge the state properly
-    if transformed.contains("return {") && (transformed.contains("state:") || transformed.contains("set_env:")) {
+    if transformed.contains("return {")
+        && (transformed.contains("state:") || transformed.contains("set_env:"))
+    {
         // Check if code contains an IIFE pattern: (async () => { ... })() or (() => { ... })()
         // The IIFE may be preceded by require statements or other setup code
-        let has_iife = transformed.contains("(async () =>") ||
-                       transformed.contains("(() =>") ||
-                       transformed.contains("(async() =>") ||
-                       transformed.contains("(()=>");
+        let has_iife = transformed.contains("(async () =>")
+            || transformed.contains("(() =>")
+            || transformed.contains("(async() =>")
+            || transformed.contains("(()=>");
 
         if has_iife {
             // Find the IIFE and wrap it to capture its return value
@@ -1041,9 +1186,17 @@ fn generate_run_command_snippet(args: &Value) -> String {
 
             // Handle "await (async () =>" pattern
             if result.contains("await (async () =>") {
-                result = result.replacen("await (async () =>", "const __stepResult = await (async () =>", 1);
+                result = result.replacen(
+                    "await (async () =>",
+                    "const __stepResult = await (async () =>",
+                    1,
+                );
             } else if result.contains("await (async() =>") {
-                result = result.replacen("await (async() =>", "const __stepResult = await (async() =>", 1);
+                result = result.replacen(
+                    "await (async() =>",
+                    "const __stepResult = await (async() =>",
+                    1,
+                );
             } else if result.contains("await (() =>") {
                 result = result.replacen("await (() =>", "const __stepResult = await (() =>", 1);
             } else if result.contains("await (()=>") {
@@ -1051,7 +1204,10 @@ fn generate_run_command_snippet(args: &Value) -> String {
             }
             // Handle non-awaited IIFE at the end (standalone IIFE)
             else if result.trim_end().ends_with("})()") || result.trim_end().ends_with("})();") {
-                result = format!("const __stepResult = await {};\nreturn __stepResult;", result.trim());
+                result = format!(
+                    "const __stepResult = await {};\nreturn __stepResult;",
+                    result.trim()
+                );
                 return result;
             }
 
@@ -1071,7 +1227,10 @@ fn generate_mouse_drag_snippet(args: &Value) -> String {
     let start_y = args.get("start_y").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
     let end_x = args.get("end_x").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
     let end_y = args.get("end_y").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
-    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let timeout = args
+        .get("timeout_ms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(5000);
     format!(
         "const element = await desktop.locator({}).first({});\nelement.mouseDrag({}, {}, {}, {});",
         locator, timeout, start_x, start_y, end_x, end_y
@@ -1081,20 +1240,37 @@ fn generate_mouse_drag_snippet(args: &Value) -> String {
 /// Generate scroll_element snippet
 fn generate_scroll_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
-    let direction = args.get("direction").and_then(|v| v.as_str()).unwrap_or("down");
+    let direction = args
+        .get("direction")
+        .and_then(|v| v.as_str())
+        .unwrap_or("down");
     let amount = args.get("amount").and_then(|v| v.as_f64()).unwrap_or(3.0) as u64;
-    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let timeout = args
+        .get("timeout_ms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(5000);
     let options = build_action_options(args);
     format!(
         "const element = await desktop.locator({}).first({});\nelement.scroll(\"{}\", {}{});",
-        locator, timeout, direction, amount, if options.is_empty() { String::new() } else { format!(", {}", options) }
+        locator,
+        timeout,
+        direction,
+        amount,
+        if options.is_empty() {
+            String::new()
+        } else {
+            format!(", {}", options)
+        }
     )
 }
 
 /// Generate close_element snippet
 fn generate_close_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
-    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let timeout = args
+        .get("timeout_ms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(5000);
     format!(
         "const element = await desktop.locator({}).first({});\nawait element.close();",
         locator, timeout
@@ -1104,8 +1280,14 @@ fn generate_close_snippet(args: &Value) -> String {
 /// Generate wait_for_element snippet
 fn generate_wait_for_element_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
-    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(30000);
-    let condition = args.get("condition").and_then(|v| v.as_str()).unwrap_or("exists");
+    let timeout = args
+        .get("timeout_ms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(30000);
+    let condition = args
+        .get("condition")
+        .and_then(|v| v.as_str())
+        .unwrap_or("exists");
     format!(
         "await desktop.locator({}).waitFor(\"{}\", {});",
         locator, condition, timeout
@@ -1115,8 +1297,14 @@ fn generate_wait_for_element_snippet(args: &Value) -> String {
 /// Generate select_option snippet
 fn generate_select_option_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
-    let option = args.get("option_name").and_then(|v| v.as_str()).unwrap_or("");
-    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let option = args
+        .get("option_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let timeout = args
+        .get("timeout_ms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(5000);
     let opts = build_action_options(args);
     if opts.is_empty() {
         format!(
@@ -1136,27 +1324,45 @@ fn generate_set_value_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
     let value = args.get("value").and_then(|v| v.as_str()).unwrap_or("");
     let escaped_value = value.replace('\\', "\\\\").replace('"', "\\\"");
-    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let timeout = args
+        .get("timeout_ms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(5000);
     let options = build_action_options(args);
     format!(
         "const element = await desktop.locator({}).first({});\nelement.setValue(\"{}\"{});",
-        locator, timeout, escaped_value, if options.is_empty() { String::new() } else { format!(", {}", options) }
+        locator,
+        timeout,
+        escaped_value,
+        if options.is_empty() {
+            String::new()
+        } else {
+            format!(", {}", options)
+        }
     )
 }
 
 /// Generate highlight_element snippet
 fn generate_highlight_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
-    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let timeout = args
+        .get("timeout_ms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(5000);
     let color = args.get("color").and_then(|v| v.as_u64());
     let duration = args.get("duration_ms").and_then(|v| v.as_u64());
 
     if color.is_some() || duration.is_some() {
         format!(
             "const element = await desktop.locator({}).first({});\nelement.highlight({}, {});",
-            locator, timeout,
-            color.map(|c| c.to_string()).unwrap_or("undefined".to_string()),
-            duration.map(|d| d.to_string()).unwrap_or("undefined".to_string())
+            locator,
+            timeout,
+            color
+                .map(|c| c.to_string())
+                .unwrap_or("undefined".to_string()),
+            duration
+                .map(|d| d.to_string())
+                .unwrap_or("undefined".to_string())
         )
     } else {
         format!(
@@ -1169,7 +1375,10 @@ fn generate_highlight_snippet(args: &Value) -> String {
 /// Generate validate_element snippet
 fn generate_validate_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
-    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let timeout = args
+        .get("timeout_ms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(5000);
     format!(
         "const result = await desktop.locator({}).validate({});\nconsole.log(\"exists:\", result.exists);",
         locator, timeout
@@ -1179,7 +1388,10 @@ fn generate_validate_snippet(args: &Value) -> String {
 /// Generate invoke_element snippet
 fn generate_invoke_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
-    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let timeout = args
+        .get("timeout_ms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(5000);
     let options = build_action_options(args);
     format!(
         "const element = await desktop.locator({}).first({});\nelement.invoke({});",
@@ -1191,30 +1403,45 @@ fn generate_invoke_snippet(args: &Value) -> String {
 fn generate_set_selected_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
     let state = args.get("state").and_then(|v| v.as_bool()).unwrap_or(true);
-    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let timeout = args
+        .get("timeout_ms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(5000);
     let options = build_action_options(args);
     format!(
         "const element = await desktop.locator({}).first({});\nelement.setSelected({}{});",
-        locator, timeout, state, if options.is_empty() { String::new() } else { format!(", {}", options) }
+        locator,
+        timeout,
+        state,
+        if options.is_empty() {
+            String::new()
+        } else {
+            format!(", {}", options)
+        }
     )
 }
 
 /// Generate activate_element snippet
 fn generate_activate_snippet(args: &Value) -> String {
     let locator = build_locator_string(args);
-    let timeout = args.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(5000);
+    let timeout = args
+        .get("timeout_ms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(5000);
     format!(
         "const element = await desktop.locator({}).first({});\nelement.activate();",
         locator, timeout
     )
 }
 
-
 /// Generate execute_browser_script snippet
 fn generate_execute_browser_script_snippet(args: &Value) -> String {
     let script = args.get("script").and_then(|v| v.as_str()).unwrap_or("");
     let script_file = args.get("script_file").and_then(|v| v.as_str());
-    let process = args.get("process").and_then(|v| v.as_str()).unwrap_or("chrome");
+    let process = args
+        .get("process")
+        .and_then(|v| v.as_str())
+        .unwrap_or("chrome");
 
     // If script_file provided, use file-based syntax
     if let Some(file) = script_file {
@@ -1233,9 +1460,12 @@ fn generate_execute_browser_script_snippet(args: &Value) -> String {
 
     // Output as async function (SDK will serialize it)
     // Desktop.executeBrowserScript requires process as second argument
-    format!(r#"const result = await desktop.executeBrowserScript(async function() {{
+    format!(
+        r#"const result = await desktop.executeBrowserScript(async function() {{
 {}
-}}, "{}");"#, function_body, process)
+}}, "{}");"#,
+        function_body, process
+    )
 }
 
 /// Extract the body from an IIFE pattern, or return the script as-is if not an IIFE
@@ -1286,7 +1516,10 @@ async fn cleanup_old_executions() {
     let cutoff_date = Local::now().date_naive() - chrono::Duration::days(RETENTION_DAYS);
     let cutoff_prefix = cutoff_date.format("%Y%m%d").to_string();
 
-    debug!("[execution_logger] Cleaning up files older than {} (prefix < {})", cutoff_date, cutoff_prefix);
+    debug!(
+        "[execution_logger] Cleaning up files older than {} (prefix < {})",
+        cutoff_date, cutoff_prefix
+    );
 
     let mut deleted_count = 0;
     let mut error_count = 0;
@@ -1317,7 +1550,10 @@ async fn cleanup_old_executions() {
             }
         }
         Err(e) => {
-            warn!("[execution_logger] Failed to read executions dir for cleanup: {}", e);
+            warn!(
+                "[execution_logger] Failed to read executions dir for cleanup: {}",
+                e
+            );
         }
     }
 
@@ -1451,7 +1687,10 @@ mod tests {
             "selector": "role:Button|name:Submit"
         });
         let locator = build_locator_string(&args);
-        assert_eq!(locator, "\"process:chrome >> role:Window|name:Google >> role:Button|name:Submit\"");
+        assert_eq!(
+            locator,
+            "\"process:chrome >> role:Window|name:Google >> role:Button|name:Submit\""
+        );
     }
 
     #[test]
@@ -1467,7 +1706,10 @@ mod tests {
             "click_type": "double",
             "timeout": 10000
         });
-        println!("\n=== 1. click_element (selector) ===\n{}", generate_click_snippet(&click_selector));
+        println!(
+            "\n=== 1. click_element (selector) ===\n{}",
+            generate_click_snippet(&click_selector)
+        );
 
         // 2. click_element - coordinate mode
         let click_coord = json!({
@@ -1475,14 +1717,20 @@ mod tests {
             "y": 300.0,
             "click_type": "right"
         });
-        println!("\n=== 2. click_element (coordinates) ===\n{}", generate_click_snippet(&click_coord));
+        println!(
+            "\n=== 2. click_element (coordinates) ===\n{}",
+            generate_click_snippet(&click_coord)
+        );
 
         // 3. click_element - index mode
         let click_index = json!({
             "index": 5,
             "vision_type": "ocr"
         });
-        println!("\n=== 3. click_element (index) ===\n{}", generate_click_snippet(&click_index));
+        println!(
+            "\n=== 3. click_element (index) ===\n{}",
+            generate_click_snippet(&click_index)
+        );
 
         // 4. type_into_element
         let type_args = json!({
@@ -1492,7 +1740,10 @@ mod tests {
             "clear_before_typing": true,
             "timeout": 8000
         });
-        println!("\n=== 4. type_into_element ===\n{}", generate_type_snippet(&type_args));
+        println!(
+            "\n=== 4. type_into_element ===\n{}",
+            generate_type_snippet(&type_args)
+        );
 
         // 5. press_key
         let press_key = json!({
@@ -1501,13 +1752,19 @@ mod tests {
             "key": "{Ctrl}s",
             "timeout": 5000
         });
-        println!("\n=== 5. press_key ===\n{}", generate_press_key_snippet(&press_key));
+        println!(
+            "\n=== 5. press_key ===\n{}",
+            generate_press_key_snippet(&press_key)
+        );
 
         // 6. global_key
         let global_key = json!({
             "key": "{Alt}{F4}"
         });
-        println!("\n=== 6. global_key ===\n{}", generate_global_key_snippet(&global_key));
+        println!(
+            "\n=== 6. global_key ===\n{}",
+            generate_global_key_snippet(&global_key)
+        );
 
         // 7. delay
         let delay = json!({
@@ -1519,14 +1776,20 @@ mod tests {
         let open_app = json!({
             "path": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
         });
-        println!("\n=== 8. open_application ===\n{}", generate_open_application_snippet(&open_app));
+        println!(
+            "\n=== 8. open_application ===\n{}",
+            generate_open_application_snippet(&open_app)
+        );
 
         // 9. navigate_browser
         let navigate = json!({
             "url": "https://example.com/page?q=test",
             "browser": "firefox"
         });
-        println!("\n=== 9. navigate_browser ===\n{}", generate_navigate_browser_snippet(&navigate));
+        println!(
+            "\n=== 9. navigate_browser ===\n{}",
+            generate_navigate_browser_snippet(&navigate)
+        );
 
         // 10. get_window_tree
         let tree = json!({
@@ -1534,7 +1797,10 @@ mod tests {
             "window_selector": "role:Window|name:Google",
             "timeout": 15000
         });
-        println!("\n=== 10. get_window_tree ===\n{}", generate_get_window_tree_snippet(&tree));
+        println!(
+            "\n=== 10. get_window_tree ===\n{}",
+            generate_get_window_tree_snippet(&tree)
+        );
 
         // 11. capture_screenshot (element)
         let screenshot = json!({
@@ -1542,13 +1808,19 @@ mod tests {
             "selector": "role:Document",
             "timeout": 5000
         });
-        println!("\n=== 11. capture_screenshot ===\n{}", generate_capture_screenshot_snippet(&screenshot));
+        println!(
+            "\n=== 11. capture_screenshot ===\n{}",
+            generate_capture_screenshot_snippet(&screenshot)
+        );
 
         // 12. run_command
         let cmd = json!({
             "command": "echo \"Hello World\" && dir"
         });
-        println!("\n=== 12. run_command ===\n{}", generate_run_command_snippet(&cmd));
+        println!(
+            "\n=== 12. run_command ===\n{}",
+            generate_run_command_snippet(&cmd)
+        );
 
         // 13. mouse_drag
         let drag = json!({
@@ -1557,7 +1829,10 @@ mod tests {
             "end_x": 400.0,
             "end_y": 500.0
         });
-        println!("\n=== 13. mouse_drag ===\n{}", generate_mouse_drag_snippet(&drag));
+        println!(
+            "\n=== 13. mouse_drag ===\n{}",
+            generate_mouse_drag_snippet(&drag)
+        );
 
         // 14. scroll_element
         let scroll = json!({
@@ -1567,7 +1842,10 @@ mod tests {
             "amount": 5,
             "timeout": 3000
         });
-        println!("\n=== 14. scroll_element ===\n{}", generate_scroll_snippet(&scroll));
+        println!(
+            "\n=== 14. scroll_element ===\n{}",
+            generate_scroll_snippet(&scroll)
+        );
 
         // 15. wait_for_element
         let wait = json!({
@@ -1575,7 +1853,10 @@ mod tests {
             "selector": "role:Button|name:Submit",
             "timeout": 30000
         });
-        println!("\n=== 15. wait_for_element ===\n{}", generate_wait_for_element_snippet(&wait));
+        println!(
+            "\n=== 15. wait_for_element ===\n{}",
+            generate_wait_for_element_snippet(&wait)
+        );
 
         // 16. select_option
         let select = json!({
@@ -1584,7 +1865,10 @@ mod tests {
             "option": "United States",
             "timeout": 5000
         });
-        println!("\n=== 16. select_option ===\n{}", generate_select_option_snippet(&select));
+        println!(
+            "\n=== 16. select_option ===\n{}",
+            generate_select_option_snippet(&select)
+        );
 
         // 17. set_value
         let set_val = json!({
@@ -1593,7 +1877,10 @@ mod tests {
             "value": "75",
             "timeout": 3000
         });
-        println!("\n=== 17. set_value ===\n{}", generate_set_value_snippet(&set_val));
+        println!(
+            "\n=== 17. set_value ===\n{}",
+            generate_set_value_snippet(&set_val)
+        );
 
         // 18. highlight_element
         let highlight = json!({
@@ -1601,7 +1888,10 @@ mod tests {
             "selector": "role:Link|name:Click here",
             "timeout": 5000
         });
-        println!("\n=== 18. highlight_element ===\n{}", generate_highlight_snippet(&highlight));
+        println!(
+            "\n=== 18. highlight_element ===\n{}",
+            generate_highlight_snippet(&highlight)
+        );
 
         // 19. validate_element
         let validate = json!({
@@ -1609,10 +1899,16 @@ mod tests {
             "selector": "role:Button|name:Submit",
             "timeout": 10000
         });
-        println!("\n=== 19. validate_element ===\n{}", generate_validate_snippet(&validate));
+        println!(
+            "\n=== 19. validate_element ===\n{}",
+            generate_validate_snippet(&validate)
+        );
 
         // 20. get_applications
-        println!("\n=== 20. get_applications ===\n{}", "const apps = await desktop.getApplications();");
+        println!(
+            "\n=== 20. get_applications ===\n{}",
+            "const apps = await desktop.getApplications();"
+        );
 
         // 21. Full TypeScript file generation
         let full_args = json!({
@@ -1620,10 +1916,16 @@ mod tests {
             "selector": "role:Button|name:OK",
             "timeout": 5000
         });
-        println!("\n=== 21. FULL FILE (click_element) ===\n{}", generate_typescript_snippet("click_element", &full_args, ok_result));
+        println!(
+            "\n=== 21. FULL FILE (click_element) ===\n{}",
+            generate_typescript_snippet("click_element", &full_args, ok_result)
+        );
 
         // 22. Unsupported tool
         let unsupported = json!({"foo": "bar"});
-        println!("\n=== 22. unsupported_tool ===\n{}", generate_typescript_snippet("some_unknown_tool", &unsupported, ok_result));
+        println!(
+            "\n=== 22. unsupported_tool ===\n{}",
+            generate_typescript_snippet("some_unknown_tool", &unsupported, ok_result)
+        );
     }
 }

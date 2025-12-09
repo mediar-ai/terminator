@@ -646,8 +646,10 @@ pub fn format_clustered_tree_from_caches(
     }
 
     // Build the index mapping before clustering
-    let mut index_to_source_and_bounds: HashMap<String, (ElementSource, u32, (f64, f64, f64, f64))> =
-        HashMap::new();
+    let mut index_to_source_and_bounds: HashMap<
+        String,
+        (ElementSource, u32, (f64, f64, f64, f64)),
+    > = HashMap::new();
     for elem in &all_elements {
         let key = elem.prefixed_index();
         index_to_source_and_bounds.insert(key, (elem.source, elem.index, elem.bounds));
@@ -700,7 +702,10 @@ pub fn format_clustered_tree_from_caches(
 
             // Add bounds
             let (x, y, w, h) = elem.bounds;
-            output.push_str(&format!("(bounds: [{:.0},{:.0},{:.0},{:.0}])\n", x, y, w, h));
+            output.push_str(&format!(
+                "(bounds: [{:.0},{:.0},{:.0},{:.0}])\n",
+                x, y, w, h
+            ));
         }
 
         output.push('\n'); // Blank line between clusters
@@ -894,6 +899,9 @@ mod tests {
 
         // Check index_to_bounds has selector
         let button_entry = result.index_to_bounds.get(&2).unwrap();
-        assert_eq!(button_entry.3, Some("role:Button && name:Click Me".to_string()));
+        assert_eq!(
+            button_entry.3,
+            Some("role:Button && name:Click Me".to_string())
+        );
     }
 }

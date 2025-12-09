@@ -1226,7 +1226,10 @@ impl UIElement {
         let handle = match self.highlight(color, duration, text, text_position, font_style) {
             Ok(h) => Some(h),
             Err(e) => {
-                warn!("Failed to apply highlighting before {} action: {}", action_name, e);
+                warn!(
+                    "Failed to apply highlighting before {} action: {}",
+                    action_name, e
+                );
                 None
             }
         };
@@ -1267,7 +1270,10 @@ impl UIElement {
         let handle = match self.highlight(color, duration, None, None, None) {
             Ok(h) => Some(h),
             Err(e) => {
-                warn!("Failed to apply highlighting before {} action: {}", action_name, e);
+                warn!(
+                    "Failed to apply highlighting before {} action: {}",
+                    action_name, e
+                );
                 None
             }
         };
@@ -1321,10 +1327,7 @@ impl UIElement {
             scroll_start.elapsed().as_millis()
         );
 
-        info!(
-            "[PERF] ensure_in_view: {}ms",
-            start.elapsed().as_millis()
-        );
+        info!("[PERF] ensure_in_view: {}ms", start.elapsed().as_millis());
 
         Ok(())
     }
