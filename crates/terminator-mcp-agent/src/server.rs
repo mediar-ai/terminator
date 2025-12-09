@@ -7015,7 +7015,39 @@ DATA PASSING:
     }
     // Tool functions continue below - part of impl block with #[tool_router]
     #[tool(
-        description = "Executes multiple tools in sequence. Useful for automating complex workflows that require multiple steps. Each tool in the sequence can have its own error handling and delay configuration. Tool names can be provided either in short form (e.g., 'click_element') or full form (e.g., 'mcp_terminator-mcp-agent_click_element'). When using run_command with engine mode, data can be passed between steps using set_env - return { set_env: { key: value } } from one step. Access variables using direct syntax (e.g., 'key == \"value\"' in conditions or {{key}} in substitutions). IMPORTANT: Locator methods (.first, .all) require mandatory timeout parameters in milliseconds - use .first(0) for immediate search (no polling/retry), .first(1000) to retry for 1 second, or .first(5000) for slow-loading UI. Default timeout changed from 30s to 0ms (no polling) for performance. Supports conditional jumps with 'jumps' array - each jump has 'if' (expression evaluated on success), 'to_id' (target step), and optional 'reason' (logged explanation). Multiple jump conditions are evaluated in order with first-match-wins. Step results are accessible as {step_id}_status and {step_id}_result in jump expressions. Expressions support equality (==, !=), numeric comparison (>, <, >=, <=), logical operators (&&, ||, !), and functions (contains, startsWith, endsWith, always). Undefined variables are handled gracefully (undefined != 'value' returns true). Type coercion automatically converts strings to numbers for numeric comparisons. Supports partial execution with 'start_from_step' and 'end_at_step' parameters to run specific step ranges. By default, jumps are skipped at the 'end_at_step' boundary for predictable execution; use 'execute_jumps_at_end: true' to allow jumps at the boundary (e.g., for loops). State is automatically persisted to .mediar/workflows/ folder in workflow's directory when using file:// URLs, allowing workflows to be resumed from any step."
+        description = "Executes workflow steps. Supports full workflows, step ranges, or single steps.
+
+**EXECUTION MODES:**
+
+1. **Full workflow from file:**
+   {\"url\": \"file:///C:/Users/matt/workflows/my-workflow/terminator.ts\"}
+
+2. **Single step by ID:**
+   {\"url\": \"file:///path/to/workflow.ts\", \"start_from_step\": \"login_step\", \"end_at_step\": \"login_step\"}
+
+3. **Step range:**
+   {\"url\": \"file:///path/to/workflow.ts\", \"start_from_step\": \"step_1\", \"end_at_step\": \"step_5\"}
+
+4. **Inline steps (no file):**
+   {\"steps\": [{\"id\": \"click_btn\", \"tool_name\": \"click_element\", \"arguments\": {...}}]}
+
+**KEY PARAMETERS:**
+- `url`: File path to workflow (file:// URL). Preferred over inline steps.
+- `start_from_step`: Step ID to start from. Loads saved state from previous runs.
+- `end_at_step`: Step ID to stop at (inclusive). Same as start_from_step for single step.
+- `inputs`: Variables to pass to workflow (e.g., {\"username\": \"test\"}).
+- `workflow_id`: Optional identifier for state persistence when using inline steps.
+
+**ADVANCED OPTIONS:**
+- `execute_jumps_at_end`: Allow jump conditions at end_at_step boundary (default: false).
+- `follow_fallback`: Follow fallback_id beyond end_at_step on failures (default: false for bounded execution).
+- `skip_preflight_check`: Skip browser extension connectivity check.
+
+**DATA PASSING:** Use run_command with engine mode. Return {set_env: {key: value}} to pass data between steps. Access via {{key}} substitution or direct variable names in conditions.
+
+**LOCATOR TIMEOUTS:** .first(0) = immediate, .first(5000) = retry 5s. Default is 0ms (no polling).
+
+**STATE PERSISTENCE:** When using file:// URLs, state is saved to .mediar/workflows/ folder, allowing resume from any step."
     )]
     pub async fn execute_sequence(
         &self,
