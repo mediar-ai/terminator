@@ -769,6 +769,7 @@ impl DesktopWrapper {
             request_manager: crate::cancellation::RequestManager::new(),
             active_highlights: Arc::new(Mutex::new(Vec::new())),
             log_capture,
+            captured_stderr_logs: Arc::new(std::sync::Mutex::new(Vec::new())),
             current_workflow_dir: Arc::new(Mutex::new(None)),
             current_scripts_base_path: Arc::new(Mutex::new(None)),
             window_manager: Arc::new(terminator::WindowManager::new()),
@@ -8073,7 +8074,11 @@ console.info = function(...args) {
 
     // ===== File Operation Tools =====
 
-    /// Resolve a file path, using working_directory or current_workflow_dir as base for relative paths
+    /// Resolve a file path, using working_directory or current_workflow_dir as base for relative paths.
+    /// Supports shortcuts for common directories:
+    /// - "executions" → %LOCALAPPDATA%/terminator/executions
+    /// - "terminator-source" → %LOCALAPPDATA%/mediar/terminator-source
+    /// - "logs" → %LOCALAPPDATA%/terminator/logs
     async fn resolve_file_path(&self, path: &str, working_directory: Option<&str>) -> Result<PathBuf, String> {
         let path_buf = PathBuf::from(path);
 
@@ -8082,9 +8087,17 @@ console.info = function(...args) {
             return Ok(path_buf);
         }
 
-        // Try working_directory first (injected by mediar-app)
+        // Try working_directory first (injected by mediar-app or specified by AI)
         if let Some(wd) = working_directory {
-            let resolved = PathBuf::from(wd).join(path);
+            // Expand known shortcuts to full paths
+            let expanded_wd = match wd {
+                "executions" => execution_logger::get_executions_dir(),
+                "logs" => execution_logger::get_logs_dir(),
+                "workflows" => get_workflows_dir(),
+                "terminator-source" => get_terminator_source_dir(),
+                _ => PathBuf::from(wd),
+            };
+            let resolved = expanded_wd.join(path);
             return Ok(resolved);
         }
 
@@ -8519,6 +8532,46 @@ fn get_terminator_source_dir() -> PathBuf {
     }
 }
 
+/// Get the path to the workflows directory
+fn get_workflows_dir() -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        std::env::var("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                dirs::home_dir()
+                    .unwrap_or_else(|| PathBuf::from("."))
+                    .join("AppData")
+                    .join("Local")
+            })
+            .join("mediar")
+            .join("workflows")
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("Library")
+            .join("Application Support")
+            .join("mediar")
+            .join("workflows")
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        std::env::var("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                dirs::home_dir()
+                    .unwrap_or_else(|| PathBuf::from("."))
+                    .join(".local")
+                    .join("share")
+            })
+            .join("mediar")
+            .join("workflows")
+    }
+}
 /// Check if terminator source needs to be downloaded/updated
 pub fn check_terminator_source() {
     let source_dir = get_terminator_source_dir();
@@ -8774,6 +8827,12 @@ impl DesktopWrapper {
             step_id.as_deref(),
             step_index,
         );
+
+        // Start capturing tracing logs for this tool execution
+        if let Some(ref log_capture) = self.log_capture {
+            log_capture.start_capture();
+        }
+
 
         // Wrap each tool call with cancellation support
         let result = match tool_name {
@@ -9148,9 +9207,34 @@ impl DesktopWrapper {
             )),
         };
 
-        // Log execution response with duration and result (including all content items for screenshots)
+        // Stop log capture and collect all logs (tracing + stderr)
+        let mut all_logs: Vec<execution_logger::CapturedLogEntry> = Vec::new();
+        
+        // Get tracing logs
+        if let Some(ref log_capture) = self.log_capture {
+            let tracing_logs = log_capture.stop_capture();
+            for log in tracing_logs {
+                all_logs.push(execution_logger::CapturedLogEntry {
+                    timestamp: log.timestamp,
+                    level: log.level,
+                    message: log.message,
+                });
+            }
+        }
+        
+        // Get stderr logs from TypeScript workflow execution
+        if let Ok(mut stderr_logs) = self.captured_stderr_logs.lock() {
+            all_logs.extend(stderr_logs.drain(..));
+        }
+        
+        // Sort logs by timestamp
+        tracing::info!("[debug] dispatch_tool: collected {} total logs (before sort)", all_logs.len());
+        all_logs.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+
+        // Log execution response with duration, result, and captured logs
         if let Some(ctx) = log_ctx {
             let duration_ms = start_time.elapsed().as_millis() as u64;
+            let logs_option = if all_logs.is_empty() { None } else { Some(all_logs) };
             match &result {
                 Ok(call_result) => {
                     // Extract JSON from ALL CallToolResult content items (to capture screenshots)
@@ -9165,11 +9249,11 @@ impl DesktopWrapper {
                         None
                     };
                     if let Some(json_value) = result_json {
-                        execution_logger::log_response(ctx, Ok(&json_value), duration_ms);
+                        execution_logger::log_response_with_logs(ctx, Ok(&json_value), duration_ms, logs_option);
                     }
                 }
                 Err(e) => {
-                    execution_logger::log_response(ctx, Err(&e.to_string()), duration_ms);
+                    execution_logger::log_response_with_logs(ctx, Err(&e.to_string()), duration_ms, logs_option);
                 }
             }
         }
