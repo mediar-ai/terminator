@@ -341,6 +341,8 @@ pub struct DesktopWrapper {
     #[serde(skip)]
     pub log_capture: Option<LogCapture>,
     #[serde(skip)]
+    pub captured_stderr_logs: Arc<Mutex<Vec<crate::execution_logger::CapturedLogEntry>>>,
+    #[serde(skip)]
     pub current_workflow_dir: Arc<TokioMutex<Option<std::path::PathBuf>>>,
     #[serde(skip)]
     pub current_scripts_base_path: Arc<TokioMutex<Option<String>>>,
