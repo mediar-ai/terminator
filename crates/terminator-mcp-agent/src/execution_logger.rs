@@ -959,13 +959,62 @@ fn transform_yaml_js_to_sdk(code: &str) -> String {
     transformed
 }
 
+/// Detect if code looks like shell/PowerShell rather than JavaScript
+fn looks_like_shell_code(code: &str) -> bool {
+    let trimmed = code.trim();
+
+    // PowerShell patterns
+    if trimmed.contains("$env:") ||
+       trimmed.contains("Get-") ||
+       trimmed.contains("Set-") ||
+       trimmed.contains("New-") ||
+       trimmed.contains("Remove-") ||
+       trimmed.contains("Write-") ||
+       trimmed.contains("Invoke-") ||
+       trimmed.contains("Select-") ||
+       trimmed.contains("Where-") ||
+       trimmed.contains("ForEach-") {
+        return true;
+    }
+
+    // PowerShell variable assignment at start of line (not JS destructuring)
+    // $var = "value" but not ${ or $(
+    for line in trimmed.lines() {
+        let line = line.trim();
+        if line.starts_with('$') && !line.starts_with("${") && !line.starts_with("$(") {
+            if line.contains(" = ") || line.contains("=") {
+                return true;
+            }
+        }
+    }
+
+    // Bash/shell patterns
+    if trimmed.starts_with("#!/") ||
+       trimmed.starts_with("export ") ||
+       trimmed.starts_with("source ") ||
+       trimmed.contains(" && ") ||
+       trimmed.contains(" || ") {
+        return true;
+    }
+
+    false
+}
+
 /// Generate run_command snippet
 fn generate_run_command_snippet(args: &Value) -> String {
     let run = args.get("run").and_then(|v| v.as_str()).unwrap_or("");
-    let engine = args.get("engine").and_then(|v| v.as_str()).unwrap_or("javascript");
+    let engine = args.get("engine").and_then(|v| v.as_str());
+
+    // Determine if this is shell code:
+    // 1. Explicit engine set to shell/bash/cmd/powershell
+    // 2. Engine not set but code looks like shell/PowerShell
+    let is_shell = match engine {
+        Some(e) => matches!(e, "shell" | "bash" | "cmd" | "powershell"),
+        None => looks_like_shell_code(run),
+    };
 
     // Shell command mode - wrap in desktop.runCommand()
-    if matches!(engine, "shell" | "bash" | "cmd" | "powershell") {
+    if is_shell {
         let escaped_run = run.replace('\\', "\\\\").replace('`', "\\`").replace('$', "\\$");
         return format!("const result = await desktop.runCommand(`{}`);", escaped_run);
     }
