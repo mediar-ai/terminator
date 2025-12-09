@@ -505,17 +505,77 @@ impl TypeScriptWorkflow {
 
         if !output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            return Err(McpError::internal_error(
-                format!(
-                    "Workflow execution failed with exit code: {:?}",
-                    output.status.code()
-                ),
-                Some(json!({
-                    "stdout": stdout.to_string(),
-                    "stderr": String::from_utf8_lossy(&output.stderr).to_string(),
-                    "exit_code": output.status.code()
-                })),
-            ));
+
+            // Wait for stderr handler to finish before extracting logs
+            if let Some(handle) = stderr_handle {
+                let _ = tokio::time::timeout(std::time::Duration::from_millis(100), handle).await;
+            }
+
+            // Extract captured logs even on failure
+            let logs: Vec<CapturedLogEntry> = captured_logs
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .drain(..)
+                .collect();
+
+            // Try to extract JSON from stdout (same logic as success case)
+            let mut error_message = format!(
+                "Workflow execution failed with exit code: {:?}",
+                output.status.code()
+            );
+            let mut parsed_result: Option<serde_json::Value> = None;
+
+            // Try to find and parse JSON in stdout
+            let json_str = if let Some(start) = stdout.rfind("
+{") {
+                Some(&stdout[start + 1..])
+            } else if stdout.trim().starts_with('{') {
+                Some(stdout.trim())
+            } else if let Some(start) = stdout.find('{') {
+                if let Some(end) = stdout.rfind('}') {
+                    Some(&stdout[start..=end])
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            if let Some(json_str) = json_str {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_str) {
+                    // Extract error message from result if available
+                    if let Some(msg) = parsed.get("result")
+                        .and_then(|r| r.get("message"))
+                        .and_then(|m| m.as_str())
+                    {
+                        error_message = msg.to_string();
+                    }
+                    parsed_result = Some(parsed);
+                }
+            }
+
+            // Build error data with logs
+            let mut error_data = json!({
+                "exit_code": output.status.code(),
+                "stderr": String::from_utf8_lossy(&output.stderr).to_string(),
+            });
+
+            if let Some(result) = parsed_result {
+                error_data["workflow_result"] = result;
+            } else {
+                error_data["stdout"] = json!(stdout.to_string());
+            }
+
+            // Add captured logs to error data
+            if !logs.is_empty() {
+                error_data["logs"] = json!(logs.iter().map(|l| json!({
+                    "timestamp": l.timestamp.to_rfc3339(),
+                    "level": l.level,
+                    "message": l.message
+                })).collect::<Vec<_>>());
+            }
+
+            return Err(McpError::internal_error(error_message, Some(error_data)));
         }
 
         // Parse result - try to extract JSON from potentially mixed output
