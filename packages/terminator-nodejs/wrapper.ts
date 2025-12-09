@@ -190,9 +190,9 @@ async function enhancedExecuteBrowserScript(
   processOrEnv?: string | any,
   timeoutMs?: number,
 ): Promise<any> {
-  // Detect if this is Desktop (has process param) or Element (no process param)
-  // Desktop's original method has 3 params, Element's has 1
-  const isDesktop = this._originalExecuteBrowserScript?.length >= 2;
+  // Detect if this is Desktop or Element
+  // Can't use .length on napi functions (always returns 0), so check constructor name
+  const isDesktop = this.constructor?.name === 'Desktop';
 
   // For Desktop: second param is process name, third is timeout
   // For Element: second param is env options (backward compatible)
