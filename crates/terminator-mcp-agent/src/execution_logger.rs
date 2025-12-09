@@ -419,7 +419,10 @@ pub fn generate_typescript_snippet(tool_name: &str, args: &Value, result: Result
         .strip_prefix("mcp__terminator-mcp-agent__")
         .unwrap_or(tool_name);
 
-    let snippet = match clean_tool {
+    // Extract delay_ms (step-level metadata, not a tool arg)
+    let delay_ms = args.get("delay_ms").and_then(|v| v.as_u64()).unwrap_or(0);
+
+    let mut snippet = match clean_tool {
         "click_element" => generate_click_snippet(args),
         "type_into_element" => generate_type_snippet(args),
         "press_key" => generate_press_key_snippet(args),
@@ -450,6 +453,20 @@ pub fn generate_typescript_snippet(tool_name: &str, args: &Value, result: Result
             format!("// Unsupported tool: {}\n// Args:\n{}", clean_tool, commented_args)
         }
     };
+
+    // Add delay if specified - must come BEFORE any "return __stepResult;"
+    if delay_ms > 0 {
+        let sleep_code = format!("await sleep({});", delay_ms);
+        if snippet.trim_end().ends_with("return __stepResult;") {
+            // Insert sleep before the return statement
+            if let Some(pos) = snippet.rfind("return __stepResult;") {
+                snippet.insert_str(pos, &format!("{}\n", sleep_code));
+            }
+        } else {
+            // Append sleep at the end
+            snippet.push_str(&format!("\n{}", sleep_code));
+        }
+    }
 
     // Output raw snippet only (desktop is pre-injected in engine mode)
     let status_comment = match result {
