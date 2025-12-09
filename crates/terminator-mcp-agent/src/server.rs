@@ -9328,6 +9328,15 @@ impl ServerHandler for DesktopWrapper {
         let tcc = ToolCallContext::new(self, request, context);
         let result = self.tool_router.call(tcc).await;
 
+        // Get stderr logs from TypeScript workflow execution (if any)
+        let stderr_logs: Vec<execution_logger::CapturedLogEntry> = 
+            if let Ok(mut logs) = self.captured_stderr_logs.lock() {
+                logs.drain(..).collect()
+            } else {
+                Vec::new()
+            };
+        let logs_option = if stderr_logs.is_empty() { None } else { Some(stderr_logs) };
+
         // Log response after execution
         if let Some(ctx) = log_ctx {
             let duration_ms = start_time.elapsed().as_millis() as u64;
@@ -9337,11 +9346,11 @@ impl ServerHandler for DesktopWrapper {
                     // The execution_logger::extract_and_save_screenshots expects an array of content items
                     let content_value = serde_json::to_value(&call_result.content)
                         .unwrap_or(serde_json::Value::Null);
-                    execution_logger::log_response(ctx, Ok(&content_value), duration_ms);
+                    execution_logger::log_response_with_logs(ctx, Ok(&content_value), duration_ms, logs_option);
                 }
                 Err(e) => {
                     let error_msg = format!("{:?}", e);
-                    execution_logger::log_response(ctx, Err(&error_msg), duration_ms);
+                    execution_logger::log_response_with_logs(ctx, Err(&error_msg), duration_ms, logs_option);
                 }
             }
         }
