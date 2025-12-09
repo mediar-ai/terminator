@@ -9228,7 +9228,6 @@ impl DesktopWrapper {
         }
         
         // Sort logs by timestamp
-        tracing::info!("[debug] dispatch_tool: collected {} total logs (before sort)", all_logs.len());
         all_logs.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
 
         // Log execution response with duration, result, and captured logs
