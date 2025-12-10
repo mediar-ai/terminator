@@ -200,7 +200,7 @@ impl Desktop {
     /// @param {number} [xPercentage=50] - X position within bounds as percentage (0-100). Defaults to 50 (center).
     /// @param {number} [yPercentage=50] - Y position within bounds as percentage (0-100). Defaults to 50 (center).
     /// @param {ClickType} [clickType='left'] - Type of click: 'left', 'double', or 'right'.
-    /// @param {boolean} [restoreCursor=false] - If true, restore cursor to original position after clicking.
+    /// @param {boolean} [restoreCursor=true] - If true, restore cursor to original position after clicking.
     /// @returns {ClickResult} Result with clicked coordinates and method details.
     #[napi]
     pub fn click_at_bounds(
@@ -222,7 +222,7 @@ impl Desktop {
             (None, None) => None,
         };
         let click_type = click_type.unwrap_or(ClickType::Left);
-        let restore_cursor = restore_cursor.unwrap_or(false);
+        let restore_cursor = restore_cursor.unwrap_or(true);
 
         self.inner
             .click_at_bounds(bounds, click_position, click_type.into(), restore_cursor)
@@ -240,7 +240,7 @@ impl Desktop {
     /// @param {number} [xPercentage=50] - X position within bounds as percentage (0-100).
     /// @param {number} [yPercentage=50] - Y position within bounds as percentage (0-100).
     /// @param {ClickType} [clickType='Left'] - Type of click: 'Left', 'Double', or 'Right'.
-    /// @param {boolean} [restoreCursor=false] - If true, restore cursor to original position after clicking.
+    /// @param {boolean} [restoreCursor=true] - If true, restore cursor to original position after clicking.
     /// @returns {ClickResult} Result with clicked coordinates, element info, and method details.
     #[napi]
     pub fn click_by_index(
@@ -260,7 +260,7 @@ impl Desktop {
             (None, None) => None,
         };
         let click_type = click_type.unwrap_or(ClickType::Left);
-        let restore_cursor = restore_cursor.unwrap_or(false);
+        let restore_cursor = restore_cursor.unwrap_or(true);
 
         self.inner
             .click_by_index(index, vision_type.into(), click_position, click_type.into(), restore_cursor)
