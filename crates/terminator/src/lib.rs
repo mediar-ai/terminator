@@ -786,21 +786,30 @@ impl Desktop {
 
     /// Click at absolute screen coordinates
     /// This is useful for clicking on OCR-detected text elements
+    /// If `restore_cursor` is true, the cursor position will be restored after the click
     #[instrument(skip(self))]
-    pub fn click_at_coordinates(&self, x: f64, y: f64) -> Result<(), AutomationError> {
-        self.engine.click_at_coordinates(x, y)
+    pub fn click_at_coordinates(
+        &self,
+        x: f64,
+        y: f64,
+        restore_cursor: bool,
+    ) -> Result<(), AutomationError> {
+        self.engine.click_at_coordinates(x, y, restore_cursor)
     }
 
     /// Click at absolute screen coordinates with specified click type (left, double, right)
     /// This is useful for clicking on OCR-detected text elements with different click types
+    /// If `restore_cursor` is true, the cursor position will be restored after the click
     #[instrument(skip(self))]
     pub fn click_at_coordinates_with_type(
         &self,
         x: f64,
         y: f64,
         click_type: ClickType,
+        restore_cursor: bool,
     ) -> Result<(), AutomationError> {
-        self.engine.click_at_coordinates_with_type(x, y, click_type)
+        self.engine
+            .click_at_coordinates_with_type(x, y, click_type, restore_cursor)
     }
 
     /// Click within element bounds at a specified position (percentage-based).
@@ -812,6 +821,7 @@ impl Desktop {
     /// * `bounds` - Element bounds as (x, y, width, height)
     /// * `click_position` - Optional (x_percentage, y_percentage) within bounds. Defaults to center (50, 50)
     /// * `click_type` - Type of click: Left, Double, or Right
+    /// * `restore_cursor` - If true, cursor position will be restored after the click
     ///
     /// # Returns
     /// ClickResult with coordinates and method details
@@ -821,13 +831,14 @@ impl Desktop {
         bounds: (f64, f64, f64, f64),
         click_position: Option<(u8, u8)>,
         click_type: ClickType,
+        restore_cursor: bool,
     ) -> Result<ClickResult, AutomationError> {
         let (x_pct, y_pct) = click_position.unwrap_or((50, 50));
         let x = bounds.0 + bounds.2 * x_pct as f64 / 100.0;
         let y = bounds.1 + bounds.3 * y_pct as f64 / 100.0;
 
         self.engine
-            .click_at_coordinates_with_type(x, y, click_type)?;
+            .click_at_coordinates_with_type(x, y, click_type, restore_cursor)?;
 
         Ok(ClickResult {
             method: "bounds".to_string(),
@@ -849,6 +860,7 @@ impl Desktop {
     /// * `vision_type` - Source of the index: UiTree, Ocr, Omniparser, Gemini, or Dom
     /// * `click_position` - Optional (x_percentage, y_percentage) within bounds. Defaults to center (50, 50)
     /// * `click_type` - Type of click: Left, Double, or Right
+    /// * `restore_cursor` - If true, cursor position will be restored after the click
     ///
     /// # Returns
     /// ClickResult with coordinates, element info, and method details
@@ -862,6 +874,7 @@ impl Desktop {
         vision_type: VisionType,
         click_position: Option<(u8, u8)>,
         click_type: ClickType,
+        restore_cursor: bool,
     ) -> Result<ClickResult, AutomationError> {
         let (label, bounds) = match vision_type {
             VisionType::UiTree => {
@@ -961,7 +974,7 @@ impl Desktop {
         let y = bounds.1 + bounds.3 * y_pct as f64 / 100.0;
 
         self.engine
-            .click_at_coordinates_with_type(x, y, click_type)?;
+            .click_at_coordinates_with_type(x, y, click_type, restore_cursor)?;
 
         Ok(ClickResult {
             method: "index".to_string(),
