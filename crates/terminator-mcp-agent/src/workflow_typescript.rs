@@ -14,17 +14,21 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum JsRuntime {
-    Bun,
+    /// Bun runtime with the resolved executable path
+    Bun(String),
     Node,
 }
 
 /// Detect available JavaScript runtime (prefer bun, fallback to node)
+/// Uses bundled bun from mediar-app if available, otherwise searches PATH
 pub fn detect_js_runtime() -> JsRuntime {
-    // Try bun first
-    if let Ok(output) = Command::new("bun").arg("--version").output() {
-        if output.status.success() {
-            info!("Using bun runtime");
-            return JsRuntime::Bun;
+    // Use find_executable which checks bundled location first, then PATH
+    if let Some(bun_path) = crate::scripting_engine::find_executable("bun") {
+        if let Ok(output) = Command::new(&bun_path).arg("--version").output() {
+            if output.status.success() {
+                info!("Using bun runtime: {}", bun_path);
+                return JsRuntime::Bun(bun_path);
+            }
         }
     }
 
@@ -391,13 +395,13 @@ impl TypeScriptWorkflow {
 
         use std::process::Stdio;
         let mut child = match runtime {
-            JsRuntime::Bun => {
+            JsRuntime::Bun(ref bun_path) => {
                 info!(
                     "Executing workflow with bun: {}/{}",
                     execution_dir.display(),
                     self.entry_file
                 );
-                tokio::process::Command::new("bun")
+                tokio::process::Command::new(bun_path)
                     .current_dir(&execution_dir)
                     .arg("--eval")
                     .arg(&exec_script)
@@ -813,8 +817,8 @@ try {{
         // Check if dependencies need updating by comparing package.json mtime with lockfile
         let needs_install = if workflow_node_modules.exists() {
             // Bun uses bun.lockb (binary, older) or bun.lock (text, newer)
-            let lockfile_path = match runtime {
-                JsRuntime::Bun => {
+            let lockfile_path = match &runtime {
+                JsRuntime::Bun(_) => {
                     let lockb = workflow_dir.join("bun.lockb");
                     let lock = workflow_dir.join("bun.lock");
                     // Prefer bun.lock (newer text format), fallback to bun.lockb (older binary)
@@ -866,8 +870,8 @@ try {{
         // Install dependencies in workflow directory
         info!("⏳ Installing dependencies...");
 
-        let install_result = match runtime {
-            JsRuntime::Bun => Command::new("bun")
+        let install_result = match &runtime {
+            JsRuntime::Bun(bun_path) => Command::new(bun_path)
                 .arg("install")
                 .current_dir(workflow_dir)
                 .output(),
@@ -948,7 +952,7 @@ mod tests {
     fn test_detect_bun_or_node() {
         let runtime = detect_js_runtime();
         // Should return either Bun or Node (depending on environment)
-        assert!(matches!(runtime, JsRuntime::Bun) || matches!(runtime, JsRuntime::Node));
+        assert!(matches!(runtime, JsRuntime::Bun(_)) || matches!(runtime, JsRuntime::Node));
     }
 
     #[test]

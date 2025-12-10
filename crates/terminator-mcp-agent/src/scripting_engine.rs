@@ -41,10 +41,35 @@ impl ScriptLogBuffer {
     }
 }
 
+/// Find bundled bun executable next to the current binary (for mediar-app distribution)
+fn find_bundled_bun() -> Option<String> {
+    let exe_path = std::env::current_exe().ok()?;
+    let exe_dir = exe_path.parent()?;
+
+    // Check for bun.exe in the same directory as this binary
+    let bun_path = exe_dir.join("bun.exe");
+    if bun_path.exists() && bun_path.is_file() {
+        info!(
+            "Found bundled bun at: {}",
+            bun_path.display()
+        );
+        return Some(bun_path.to_string_lossy().to_string());
+    }
+
+    None
+}
+
 /// Find executable with cross-platform path resolution
 pub fn find_executable(name: &str) -> Option<String> {
     use std::env;
     use std::path::Path;
+
+    // Special case: for bun, check bundled location first (mediar-app distribution)
+    if name == "bun" {
+        if let Some(bundled) = find_bundled_bun() {
+            return Some(bundled);
+        }
+    }
 
     // On Windows, try multiple extensions, prioritizing executable types
     let candidates = if cfg!(windows) {

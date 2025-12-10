@@ -2318,31 +2318,70 @@ impl DesktopWrapper {
         });
 
         // POST-ACTION VERIFICATION: Magic auto-verification or explicit verification
-        // 1. If verify_element_exists/not_exists is explicitly set, use it
-        // 2. Otherwise, auto-infer verification from tool arguments (magic)
-        // 3. To disable auto-verification, set verify_element_exists to empty string ""
+        // 1. If verify_element_exists/not_exists is explicitly set, use selector-based verification
+        // 2. Otherwise, auto-verify using element.get_value() to check typed text
+        // 3. Both empty = auto-verification (checks value property directly)
 
         let should_auto_verify = args.action.verify_element_exists.is_empty()
             && args.action.verify_element_not_exists.is_empty();
 
-        let verify_exists = if should_auto_verify {
-            // MAGIC AUTO-VERIFICATION: Infer from text_to_type
-            // Auto-verify that typed text appears in the element
-            tracing::debug!("[type_into_element] Auto-verification enabled for typed text");
+        if should_auto_verify {
+            // MAGIC AUTO-VERIFICATION: Check element's value property directly
+            // This is more reliable than searching for text:X child elements
+            tracing::debug!(
+                "[type_into_element] Auto-verification: checking get_value() contains '{}'",
+                args.text_to_type
+            );
             span.set_attribute("verification.auto_inferred", "true".to_string());
-            format!("text:{}", args.text_to_type)
-        } else {
-            // Use explicit verification selector (supports variable substitution)
-            args.action.verify_element_exists.clone()
-        };
 
-        let verify_not_exists = args.action.verify_element_not_exists.clone();
+            let actual_value = element.get_value().unwrap_or(None).unwrap_or_default();
 
-        // Skip verification if both are empty strings (explicit opt-out)
-        let skip_verification = verify_exists.is_empty() && verify_not_exists.is_empty();
+            // Check if the typed text is in the element's value
+            // Use contains() for partial match (handles cases where value has more than just typed text)
+            if !actual_value.contains(&args.text_to_type) {
+                tracing::error!(
+                    "[type_into_element] Auto-verification failed: expected value to contain '{}', got '{}'",
+                    args.text_to_type,
+                    actual_value
+                );
+                span.set_attribute("verification.passed", "false".to_string());
+                span.set_status(false, Some("Value verification failed"));
+                span.end();
+                return Err(McpError::internal_error(
+                    format!(
+                        "Value verification failed: expected value to contain '{}', got '{}'",
+                        args.text_to_type, actual_value
+                    ),
+                    Some(json!({
+                        "expected_text": args.text_to_type,
+                        "actual_value": actual_value,
+                        "selector_used": successful_selector,
+                    })),
+                ));
+            }
 
-        // Perform verification if any selector is specified (auto or explicit) and not explicitly disabled
-        if !skip_verification {
+            tracing::info!(
+                "[type_into_element] Auto-verification passed: value contains '{}'",
+                args.text_to_type
+            );
+            span.set_attribute("verification.passed", "true".to_string());
+            span.set_attribute("verification.method", "direct_value_read".to_string());
+
+            if let Some(obj) = result_json.as_object_mut() {
+                obj.insert(
+                    "verification".to_string(),
+                    json!({
+                        "passed": true,
+                        "method": "direct_value_read",
+                        "expected_text": args.text_to_type,
+                        "actual_value": actual_value,
+                    }),
+                );
+            }
+        } else if !args.action.verify_element_exists.is_empty()
+            || !args.action.verify_element_not_exists.is_empty()
+        {
+            // Explicit verification using selectors
             span.add_event("verification_started", vec![]);
 
             let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
@@ -2354,8 +2393,8 @@ impl DesktopWrapper {
                 "selector": args.selector.selector,
             });
 
-            let mut substituted_exists = verify_exists.clone();
-            let mut substituted_not_exists = verify_not_exists.clone();
+            let mut substituted_exists = args.action.verify_element_exists.clone();
+            let mut substituted_not_exists = args.action.verify_element_not_exists.clone();
 
             if !substituted_exists.is_empty() {
                 let mut val = json!(&substituted_exists);
@@ -2373,7 +2412,6 @@ impl DesktopWrapper {
                 }
             }
 
-            // Call the new generic verification function (uses window-scoped search with .within())
             let verify_exists_opt = if substituted_exists.is_empty() {
                 None
             } else {
@@ -2408,7 +2446,6 @@ impl DesktopWrapper {
                         verification_result.elapsed_ms.to_string(),
                     );
 
-                    // Add verification details to result
                     let verification_json = json!({
                         "passed": verification_result.passed,
                         "method": verification_result.method,
@@ -7197,37 +7234,79 @@ DATA PASSING:
         });
 
         // POST-ACTION VERIFICATION: Magic auto-verification or explicit verification
+        // 1. If verify_element_exists/not_exists is explicitly set, use selector-based verification
+        // 2. Otherwise, auto-verify using element.get_value() to check the value was set
+        // 3. Both empty = auto-verification (checks value property directly)
+
         let should_auto_verify = args.action.verify_element_exists.is_empty()
             && args.action.verify_element_not_exists.is_empty();
 
-        let verify_exists = if should_auto_verify {
-            // MAGIC AUTO-VERIFICATION: Verify the value was actually set
+        if should_auto_verify {
+            // MAGIC AUTO-VERIFICATION: Check element's value property directly
             tracing::debug!(
-                "[set_value] Auto-verification enabled for value: {}",
+                "[set_value] Auto-verification: checking get_value() contains '{}'",
                 args.value
             );
             span.set_attribute("verification.auto_inferred", "true".to_string());
-            format!("text:{}", args.value)
-        } else {
-            args.action.verify_element_exists.clone()
-        };
 
-        let verify_not_exists = args.action.verify_element_not_exists.clone();
+            let actual_value = element.get_value().unwrap_or(None).unwrap_or_default();
 
-        let skip_verification = verify_exists.is_empty() && verify_not_exists.is_empty();
+            // Check if the set value is in the element's value
+            if !actual_value.contains(&args.value) {
+                tracing::error!(
+                    "[set_value] Auto-verification failed: expected value to contain '{}', got '{}'",
+                    args.value,
+                    actual_value
+                );
+                span.set_attribute("verification.passed", "false".to_string());
+                span.set_status(false, Some("Value verification failed"));
+                span.end();
+                return Err(McpError::internal_error(
+                    format!(
+                        "Value verification failed: expected value to contain '{}', got '{}'",
+                        args.value, actual_value
+                    ),
+                    Some(json!({
+                        "expected_value": args.value,
+                        "actual_value": actual_value,
+                        "selector_used": successful_selector,
+                    })),
+                ));
+            }
 
-        if !skip_verification {
+            tracing::info!(
+                "[set_value] Auto-verification passed: value contains '{}'",
+                args.value
+            );
+            span.set_attribute("verification.passed", "true".to_string());
+            span.set_attribute("verification.method", "direct_value_read".to_string());
+
+            if let Some(obj) = result_json.as_object_mut() {
+                obj.insert(
+                    "verification".to_string(),
+                    json!({
+                        "passed": true,
+                        "method": "direct_value_read",
+                        "expected_value": args.value,
+                        "actual_value": actual_value,
+                    }),
+                );
+            }
+        } else if !args.action.verify_element_exists.is_empty()
+            || !args.action.verify_element_not_exists.is_empty()
+        {
+            // Explicit verification using selectors
             let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
 
-            let verify_exists_opt = if verify_exists.is_empty() {
+            let verify_exists_opt = if args.action.verify_element_exists.is_empty() {
                 None
             } else {
-                Some(verify_exists.as_str())
+                Some(args.action.verify_element_exists.as_str())
             };
-            let verify_not_exists_opt = if verify_not_exists.is_empty() {
+            let verify_not_exists_opt = if args.action.verify_element_not_exists.is_empty() {
                 None
             } else {
-                Some(verify_not_exists.as_str())
+                Some(args.action.verify_element_not_exists.as_str())
             };
 
             match crate::helpers::verify_post_action(
@@ -7268,7 +7347,7 @@ DATA PASSING:
                         format!("Post-action verification failed: {e}"),
                         Some(json!({
                             "selector_used": successful_selector,
-                            "verify_exists": verify_exists,
+                            "verify_exists": args.action.verify_element_exists,
                             "timeout_ms": verify_timeout_ms,
                         })),
                     ));
