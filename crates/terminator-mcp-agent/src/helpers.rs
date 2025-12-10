@@ -567,8 +567,6 @@ pub async fn maybe_attach_tree(
 #[derive(Debug, Clone)]
 pub struct UiDiffResult {
     pub diff: String,
-    pub tree_before: String,
-    pub tree_after: String,
     pub has_changes: bool,
 }
 
@@ -626,7 +624,6 @@ where
 
     // Build UiDiffOptions for the backend
     let diff_options = terminator::UiDiffOptions {
-        include_full_trees: true, // MCP always captures full trees when diff is requested
         max_depth: tree_max_depth,
         settle_delay_ms: Some(1500),
         include_detailed_attributes,
@@ -653,8 +650,6 @@ where
                         // Convert backend UiDiffResult to MCP UiDiffResult
                         let mcp_diff = ui_diff.map(|d| UiDiffResult {
                             diff: d.diff,
-                            tree_before: d.tree_before.unwrap_or_default(),
-                            tree_after: d.tree_after.unwrap_or_default(),
                             has_changes: d.has_changes,
                         });
                         return Ok(((result, returned_element), successful_selector, mcp_diff));

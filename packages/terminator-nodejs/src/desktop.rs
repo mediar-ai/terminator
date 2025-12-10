@@ -200,6 +200,7 @@ impl Desktop {
     /// @param {number} [xPercentage=50] - X position within bounds as percentage (0-100). Defaults to 50 (center).
     /// @param {number} [yPercentage=50] - Y position within bounds as percentage (0-100). Defaults to 50 (center).
     /// @param {ClickType} [clickType='left'] - Type of click: 'left', 'double', or 'right'.
+    /// @param {boolean} [restoreCursor=true] - If true, restore cursor to original position after clicking.
     /// @returns {ClickResult} Result with clicked coordinates and method details.
     #[napi]
     pub fn click_at_bounds(
@@ -211,6 +212,7 @@ impl Desktop {
         x_percentage: Option<u8>,
         y_percentage: Option<u8>,
         click_type: Option<ClickType>,
+        restore_cursor: Option<bool>,
     ) -> napi::Result<ClickResult> {
         let bounds = (x, y, width, height);
         let click_position = match (x_percentage, y_percentage) {
@@ -220,9 +222,10 @@ impl Desktop {
             (None, None) => None,
         };
         let click_type = click_type.unwrap_or(ClickType::Left);
+        let restore_cursor = restore_cursor.unwrap_or(true);
 
         self.inner
-            .click_at_bounds(bounds, click_position, click_type.into())
+            .click_at_bounds(bounds, click_position, click_type.into(), restore_cursor)
             .map(ClickResult::from)
             .map_err(map_error)
     }
@@ -237,6 +240,7 @@ impl Desktop {
     /// @param {number} [xPercentage=50] - X position within bounds as percentage (0-100).
     /// @param {number} [yPercentage=50] - Y position within bounds as percentage (0-100).
     /// @param {ClickType} [clickType='Left'] - Type of click: 'Left', 'Double', or 'Right'.
+    /// @param {boolean} [restoreCursor=true] - If true, restore cursor to original position after clicking.
     /// @returns {ClickResult} Result with clicked coordinates, element info, and method details.
     #[napi]
     pub fn click_by_index(
@@ -246,6 +250,7 @@ impl Desktop {
         x_percentage: Option<u8>,
         y_percentage: Option<u8>,
         click_type: Option<ClickType>,
+        restore_cursor: Option<bool>,
     ) -> napi::Result<ClickResult> {
         let vision_type = vision_type.unwrap_or(VisionType::UiTree);
         let click_position = match (x_percentage, y_percentage) {
@@ -255,9 +260,10 @@ impl Desktop {
             (None, None) => None,
         };
         let click_type = click_type.unwrap_or(ClickType::Left);
+        let restore_cursor = restore_cursor.unwrap_or(true);
 
         self.inner
-            .click_by_index(index, vision_type.into(), click_position, click_type.into())
+            .click_by_index(index, vision_type.into(), click_position, click_type.into(), restore_cursor)
             .map(ClickResult::from)
             .map_err(map_error)
     }

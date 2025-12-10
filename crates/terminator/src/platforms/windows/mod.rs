@@ -43,3 +43,6 @@ pub use virtual_display::{
 
 // Re-export window manager
 pub use window_manager::{WindowCache, WindowInfo, WindowManager, WindowPlacement};
+
+// Re-export input functions
+pub use input::send_mouse_click;

@@ -172,8 +172,6 @@ pub struct WindowTreeResult {
 /// Options for UI diff capture during action execution
 #[derive(Debug, Clone, Default)]
 pub struct UiDiffOptions {
-    /// Include full tree strings (before/after) in response, not just the diff
-    pub include_full_trees: bool,
     /// Maximum depth for tree capture
     pub max_depth: Option<usize>,
     /// Delay in ms after action for UI to settle (default 1500)
@@ -187,10 +185,6 @@ pub struct UiDiffOptions {
 pub struct UiDiffResult {
     /// The computed diff showing changes (lines starting with + or -)
     pub diff: String,
-    /// Full tree before action (only if include_full_trees was true)
-    pub tree_before: Option<String>,
-    /// Full tree after action (only if include_full_trees was true)
-    pub tree_after: Option<String>,
     /// Whether any UI changes were detected
     pub has_changes: bool,
 }
@@ -792,21 +786,30 @@ impl Desktop {
 
     /// Click at absolute screen coordinates
     /// This is useful for clicking on OCR-detected text elements
+    /// If `restore_cursor` is true, the cursor position will be restored after the click
     #[instrument(skip(self))]
-    pub fn click_at_coordinates(&self, x: f64, y: f64) -> Result<(), AutomationError> {
-        self.engine.click_at_coordinates(x, y)
+    pub fn click_at_coordinates(
+        &self,
+        x: f64,
+        y: f64,
+        restore_cursor: bool,
+    ) -> Result<(), AutomationError> {
+        self.engine.click_at_coordinates(x, y, restore_cursor)
     }
 
     /// Click at absolute screen coordinates with specified click type (left, double, right)
     /// This is useful for clicking on OCR-detected text elements with different click types
+    /// If `restore_cursor` is true, the cursor position will be restored after the click
     #[instrument(skip(self))]
     pub fn click_at_coordinates_with_type(
         &self,
         x: f64,
         y: f64,
         click_type: ClickType,
+        restore_cursor: bool,
     ) -> Result<(), AutomationError> {
-        self.engine.click_at_coordinates_with_type(x, y, click_type)
+        self.engine
+            .click_at_coordinates_with_type(x, y, click_type, restore_cursor)
     }
 
     /// Click within element bounds at a specified position (percentage-based).
@@ -818,6 +821,7 @@ impl Desktop {
     /// * `bounds` - Element bounds as (x, y, width, height)
     /// * `click_position` - Optional (x_percentage, y_percentage) within bounds. Defaults to center (50, 50)
     /// * `click_type` - Type of click: Left, Double, or Right
+    /// * `restore_cursor` - If true, cursor position will be restored after the click
     ///
     /// # Returns
     /// ClickResult with coordinates and method details
@@ -827,13 +831,14 @@ impl Desktop {
         bounds: (f64, f64, f64, f64),
         click_position: Option<(u8, u8)>,
         click_type: ClickType,
+        restore_cursor: bool,
     ) -> Result<ClickResult, AutomationError> {
         let (x_pct, y_pct) = click_position.unwrap_or((50, 50));
         let x = bounds.0 + bounds.2 * x_pct as f64 / 100.0;
         let y = bounds.1 + bounds.3 * y_pct as f64 / 100.0;
 
         self.engine
-            .click_at_coordinates_with_type(x, y, click_type)?;
+            .click_at_coordinates_with_type(x, y, click_type, restore_cursor)?;
 
         Ok(ClickResult {
             method: "bounds".to_string(),
@@ -855,6 +860,7 @@ impl Desktop {
     /// * `vision_type` - Source of the index: UiTree, Ocr, Omniparser, Gemini, or Dom
     /// * `click_position` - Optional (x_percentage, y_percentage) within bounds. Defaults to center (50, 50)
     /// * `click_type` - Type of click: Left, Double, or Right
+    /// * `restore_cursor` - If true, cursor position will be restored after the click
     ///
     /// # Returns
     /// ClickResult with coordinates, element info, and method details
@@ -868,6 +874,7 @@ impl Desktop {
         vision_type: VisionType,
         click_position: Option<(u8, u8)>,
         click_type: ClickType,
+        restore_cursor: bool,
     ) -> Result<ClickResult, AutomationError> {
         let (label, bounds) = match vision_type {
             VisionType::UiTree => {
@@ -967,7 +974,7 @@ impl Desktop {
         let y = bounds.1 + bounds.3 * y_pct as f64 / 100.0;
 
         self.engine
-            .click_at_coordinates_with_type(x, y, click_type)?;
+            .click_at_coordinates_with_type(x, y, click_type, restore_cursor)?;
 
         Ok(ClickResult {
             method: "index".to_string(),
@@ -1609,16 +1616,6 @@ impl Desktop {
                 );
                 UiDiffResult {
                     diff,
-                    tree_before: if opts.include_full_trees {
-                        Some(before_str)
-                    } else {
-                        None
-                    },
-                    tree_after: if opts.include_full_trees {
-                        Some(after_str)
-                    } else {
-                        None
-                    },
                     has_changes: true,
                 }
             }
@@ -1626,16 +1623,6 @@ impl Desktop {
                 debug!("[ui_diff] No UI changes detected");
                 UiDiffResult {
                     diff: "No UI changes detected".to_string(),
-                    tree_before: if opts.include_full_trees {
-                        Some(before_str)
-                    } else {
-                        None
-                    },
-                    tree_after: if opts.include_full_trees {
-                        Some(after_str)
-                    } else {
-                        None
-                    },
                     has_changes: false,
                 }
             }
@@ -1755,16 +1742,6 @@ impl Desktop {
                 );
                 UiDiffResult {
                     diff,
-                    tree_before: if opts.include_full_trees {
-                        Some(before_str)
-                    } else {
-                        None
-                    },
-                    tree_after: if opts.include_full_trees {
-                        Some(after_str)
-                    } else {
-                        None
-                    },
                     has_changes: true,
                 }
             }
@@ -1772,16 +1749,6 @@ impl Desktop {
                 debug!("[ui_diff] No UI changes detected");
                 UiDiffResult {
                     diff: "No UI changes detected".to_string(),
-                    tree_before: if opts.include_full_trees {
-                        Some(before_str)
-                    } else {
-                        None
-                    },
-                    tree_after: if opts.include_full_trees {
-                        Some(after_str)
-                    } else {
-                        None
-                    },
                     has_changes: false,
                 }
             }

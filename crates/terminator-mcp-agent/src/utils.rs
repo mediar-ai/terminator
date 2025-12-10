@@ -63,14 +63,9 @@ pub struct WindowManagementOptions {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 pub struct DiffTreeOptions {
     #[schemars(
-        description = "REQUIRED: Capture UI tree before and after action execution, then compute and return the diff. Returns ui_diff and has_ui_changes fields. Set include_full_trees: true to also get tree_before and tree_after."
+        description = "REQUIRED: Capture UI tree before and after action execution, then compute and return the diff. Returns ui_diff and has_ui_changes fields."
     )]
     pub ui_diff_before_after: bool,
-
-    #[schemars(
-        description = "Include full tree_before and tree_after in response. Defaults to false (only ui_diff and has_ui_changes). Set to true for debugging or when you need the complete trees."
-    )]
-    pub ui_diff_include_full_trees_in_response: Option<bool>,
 
     #[schemars(description = "Maximum depth to traverse when building tree")]
     pub tree_max_depth: Option<usize>,
@@ -665,6 +660,12 @@ pub struct ClickElementArgs {
     #[schemars(description = "Type of click: 'left' (default), 'double', or 'right'.")]
     #[serde(default)]
     pub click_type: ClickType,
+
+    #[schemars(
+        description = "If true, restore cursor to its original position after clicking. Defaults to true."
+    )]
+    #[serde(default = "default_true")]
+    pub restore_cursor: bool,
 
     #[serde(flatten)]
     pub action: ActionOptions,

@@ -2,7 +2,7 @@
 //!
 //! This module provides window management functionality including:
 //! - Window enumeration with Z-order tracking
-//! - Bringing windows to front (with AttachThreadInput trick)
+//! - Bringing windows to top of Z-order (without stealing focus)
 //! - Minimizing/maximizing windows
 //! - State capture and restoration for workflows
 //! - Always-on-top window detection and management
@@ -15,15 +15,15 @@ use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::System::Threading::{
-    AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
-    PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+    PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, GetForegroundWindow, GetTopWindow, GetWindow, GetWindowLongPtrW,
-    GetWindowPlacement, GetWindowThreadProcessId, IsIconic, IsWindowVisible, IsZoomed,
-    SendMessageTimeoutW, SetForegroundWindow, SetWindowPlacement, ShowWindow, GWL_EXSTYLE,
-    GW_HWNDNEXT, SMTO_ABORTIFHUNG, SMTO_BLOCK, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SW_SHOW,
-    WINDOWPLACEMENT, WM_GETTEXT, WS_EX_TOPMOST,
+    GetTopWindow, GetWindow, GetWindowLongPtrW, GetWindowPlacement, GetWindowThreadProcessId,
+    IsIconic, IsWindowVisible, IsZoomed, SendMessageTimeoutW, SetWindowPlacement, SetWindowPos,
+    ShowWindow, GWL_EXSTYLE, GW_HWNDNEXT, HWND_TOP, SMTO_ABORTIFHUNG, SMTO_BLOCK, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, WINDOWPLACEMENT,
+    WM_GETTEXT, WS_EX_TOPMOST,
 };
 
 /// Information about a window
@@ -211,7 +211,7 @@ impl WindowManager {
             .collect()
     }
 
-    /// Minimize only always-on-top windows (excluding target)
+    /// Minimize only always-on-top windows (excluding target and system components like explorer.exe)
     /// Returns the number of windows minimized
     pub async fn minimize_always_on_top_windows(&self, target_hwnd: isize) -> Result<u32, String> {
         let mut cache = self.window_cache.lock().await;
@@ -219,6 +219,10 @@ impl WindowManager {
         let mut minimized_hwnds = Vec::new();
 
         for window in &cache.visible_windows {
+            // Skip explorer.exe - minimizing taskbar/shell causes focus issues that close browser dropdowns
+            if window.process_name.eq_ignore_ascii_case("explorer.exe") {
+                continue;
+            }
             if window.hwnd != target_hwnd && window.is_always_on_top && !window.is_minimized {
                 unsafe {
                     let hwnd = HWND(window.hwnd as *mut _);
@@ -278,12 +282,13 @@ impl WindowManager {
         }
     }
 
-    /// Bring window to front using AttachThreadInput trick
-    ///
-    /// This uses AttachThreadInput to bypass Windows' focus-stealing prevention.
-    /// It attaches to both the foreground thread and target thread to gain permission
-    /// to call SetForegroundWindow.
+    /// Brings window to front and activates it using SetForegroundWindow.
     pub async fn bring_window_to_front(&self, hwnd: isize) -> Result<bool, String> {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            BringWindowToTop, SetForegroundWindow,
+        };
+        use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+
         // Track this window as the target for restoration
         {
             let mut cache = self.window_cache.lock().await;
@@ -293,88 +298,43 @@ impl WindowManager {
         unsafe {
             let hwnd_win = HWND(hwnd as *mut _);
 
-            // Check foreground window before our operation
-            let foreground_before = GetForegroundWindow();
-            let was_foreground = foreground_before.0 == hwnd_win.0;
-
-            debug!(
-                "bring_window_to_front: hwnd={:?}, was_foreground={}",
-                hwnd, was_foreground
-            );
-
             // If window is minimized, restore it first
             if IsIconic(hwnd_win).as_bool() {
                 let _ = ShowWindow(hwnd_win, SW_RESTORE);
-                debug!("bring_window_to_front: Restored minimized window");
             }
 
-            // Get thread IDs for the AttachThreadInput trick
-            let current_thread_id = GetCurrentThreadId();
-            let target_thread_id = GetWindowThreadProcessId(hwnd_win, None);
-            let foreground_thread_id = GetWindowThreadProcessId(foreground_before, None);
+            // Get thread IDs for focus manipulation
+            let foreground_hwnd = windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow();
+            let foreground_thread = GetWindowThreadProcessId(foreground_hwnd, None);
+            let target_thread = GetWindowThreadProcessId(hwnd_win, None);
+            let current_thread = GetCurrentThreadId();
 
-            debug!(
-                "bring_window_to_front: current_thread={}, target_thread={}, foreground_thread={}",
-                current_thread_id, target_thread_id, foreground_thread_id
-            );
+            // Attach threads to allow focus change
+            let attached_fg = if foreground_thread != current_thread {
+                AttachThreadInput(current_thread, foreground_thread, true).as_bool()
+            } else {
+                false
+            };
 
-            // Attach to foreground window's thread to gain permission to set foreground
-            let mut attached_to_foreground = false;
-            let mut attached_to_target = false;
+            let attached_target = if target_thread != current_thread && target_thread != foreground_thread {
+                AttachThreadInput(current_thread, target_thread, true).as_bool()
+            } else {
+                false
+            };
 
-            if foreground_thread_id != 0
-                && foreground_thread_id != current_thread_id
-                && AttachThreadInput(current_thread_id, foreground_thread_id, true).as_bool()
-            {
-                attached_to_foreground = true;
-                debug!("bring_window_to_front: Attached to foreground thread");
-            }
-
-            // Also attach to target window's thread
-            if target_thread_id != 0
-                && target_thread_id != current_thread_id
-                && target_thread_id != foreground_thread_id
-                && AttachThreadInput(current_thread_id, target_thread_id, true).as_bool()
-            {
-                attached_to_target = true;
-                debug!("bring_window_to_front: Attached to target thread");
-            }
-
-            // Now try to bring the window to front
-            // First, bring to top of Z-order
+            // Bring window to top and activate
             let _ = BringWindowToTop(hwnd_win);
-            debug!("bring_window_to_front: Called BringWindowToTop");
+            let result = SetForegroundWindow(hwnd_win);
 
-            // Make visible and active
-            let _ = ShowWindow(hwnd_win, SW_SHOW);
-
-            // Set as foreground window
-            let fg_result = SetForegroundWindow(hwnd_win);
-            debug!(
-                "bring_window_to_front: SetForegroundWindow returned {}",
-                fg_result.as_bool()
-            );
-
-            // Detach from threads
-            if attached_to_target {
-                let _ = AttachThreadInput(current_thread_id, target_thread_id, false);
-                debug!("bring_window_to_front: Detached from target thread");
+            // Detach threads
+            if attached_fg {
+                let _ = AttachThreadInput(current_thread, foreground_thread, false);
             }
-            if attached_to_foreground {
-                let _ = AttachThreadInput(current_thread_id, foreground_thread_id, false);
-                debug!("bring_window_to_front: Detached from foreground thread");
+            if attached_target {
+                let _ = AttachThreadInput(current_thread, target_thread, false);
             }
 
-            // Check if window is foreground after our attempts
-            let foreground_after = GetForegroundWindow();
-            let is_now_foreground = foreground_after.0 == hwnd_win.0;
-
-            debug!(
-                "bring_window_to_front: hwnd={:?}, is_foreground={} (was: {})",
-                hwnd, is_now_foreground, was_foreground
-            );
-
-            Ok(is_now_foreground)
+            Ok(result.as_bool())
         }
     }
 

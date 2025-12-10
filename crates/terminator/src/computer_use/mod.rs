@@ -274,7 +274,7 @@ async fn execute_action(
                 x, y, screen_x, screen_y
             );
             desktop
-                .click_at_coordinates(screen_x, screen_y)
+                .click_at_coordinates(screen_x, screen_y, false)
                 .map_err(|e| format!("Click failed: {e}"))?;
         }
         "type_text_at" => {
@@ -289,7 +289,7 @@ async fn execute_action(
             );
             // Click first to focus
             desktop
-                .click_at_coordinates(screen_x, screen_y)
+                .click_at_coordinates(screen_x, screen_y, false)
                 .map_err(|e| format!("Click before type failed: {e}"))?;
             tokio::time::sleep(Duration::from_millis(100)).await;
             // Select all (Ctrl+A) to clear existing text before typing
@@ -335,7 +335,7 @@ async fn execute_action(
             if let (Some(x), Some(y)) = (get_f64("x"), get_f64("y")) {
                 let (screen_x, screen_y) = convert_coord(x, y);
                 desktop
-                    .click_at_coordinates(screen_x, screen_y)
+                    .click_at_coordinates(screen_x, screen_y, false)
                     .map_err(|e| format!("Click before scroll failed: {e}"))?;
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
