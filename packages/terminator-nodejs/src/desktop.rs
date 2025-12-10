@@ -1699,7 +1699,7 @@ impl Desktop {
         // Extract options before converting config
         let output_format = config
             .as_ref()
-            .and_then(|c| c.tree_output_format.clone())
+            .and_then(|c| c.tree_output_format)
             .unwrap_or(TreeOutputFormat::CompactYaml);
 
         // If format is VerboseJson, we don't need formatted output from core
@@ -1780,7 +1780,7 @@ impl Desktop {
             .unwrap_or(false);
         let output_format = config
             .as_ref()
-            .and_then(|c| c.tree_output_format.clone())
+            .and_then(|c| c.tree_output_format)
             .unwrap_or(TreeOutputFormat::CompactYaml);
 
         let has_vision_options =
@@ -1789,14 +1789,14 @@ impl Desktop {
         // Build rust config with from_selector passed through
         let rust_config = config.as_ref().map(|c| {
             let mut c_clone = TreeBuildConfig {
-                property_mode: c.property_mode.clone(),
+                property_mode: c.property_mode,
                 timeout_per_operation_ms: c.timeout_per_operation_ms,
                 yield_every_n_elements: c.yield_every_n_elements,
                 batch_size: c.batch_size,
                 max_depth: c.max_depth,
                 ui_settle_delay_ms: c.ui_settle_delay_ms,
                 format_output: c.format_output,
-                tree_output_format: c.tree_output_format.clone(),
+                tree_output_format: c.tree_output_format,
                 tree_from_selector: c.tree_from_selector.clone(),
                 include_window_screenshot: c.include_window_screenshot,
                 include_monitor_screenshots: c.include_monitor_screenshots,

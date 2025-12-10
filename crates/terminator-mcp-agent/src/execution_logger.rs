@@ -196,7 +196,7 @@ pub fn log_response(ctx: ExecutionContext, result: Result<&Value, &str>, duratio
     };
 
     // Build response, stripping screenshot base64 from result
-    let clean_result = result.ok().map(|v| strip_screenshot_base64(v));
+    let clean_result = result.ok().map(strip_screenshot_base64);
 
     // Generate TypeScript snippet before moving ctx.request
     let ts_snippet = generate_typescript_snippet(&ctx.tool_name, &ctx.request, result);
@@ -281,7 +281,7 @@ pub fn log_response_with_logs(
     };
 
     // Build response, stripping screenshot base64 from result
-    let clean_result = result.ok().map(|v| strip_screenshot_base64(v));
+    let clean_result = result.ok().map(strip_screenshot_base64);
 
     // Generate TypeScript snippet before moving ctx.request
     let ts_snippet = generate_typescript_snippet(&ctx.tool_name, &ctx.request, result);
@@ -343,7 +343,7 @@ pub fn log_response_with_logs(
 /// Extract screenshots from result and save as PNG files
 /// Returns screenshot references for the JSON
 fn extract_and_save_screenshots(
-    dir: &PathBuf,
+    dir: &std::path::Path,
     file_prefix: &str,
     result: &Value,
 ) -> Option<ScreenshotRefs> {
@@ -465,7 +465,7 @@ fn extract_base64_image(value: &Value, field_names: &[&str]) -> Option<String> {
 }
 
 /// Save base64 screenshot as PNG file
-fn save_screenshot(dir: &PathBuf, filename: &str, base64_data: &str) -> bool {
+fn save_screenshot(dir: &std::path::Path, filename: &str, base64_data: &str) -> bool {
     match BASE64.decode(base64_data.trim()) {
         Ok(bytes) => {
             let path = dir.join(filename);
@@ -1117,10 +1117,12 @@ fn looks_like_shell_code(code: &str) -> bool {
     // $var = "value" but not ${ or $(
     for line in trimmed.lines() {
         let line = line.trim();
-        if line.starts_with('$') && !line.starts_with("${") && !line.starts_with("$(") {
-            if line.contains(" = ") || line.contains("=") {
-                return true;
-            }
+        if line.starts_with('$')
+            && !line.starts_with("${")
+            && !line.starts_with("$(")
+            && (line.contains(" = ") || line.contains('='))
+        {
+            return true;
         }
     }
 
@@ -1907,7 +1909,7 @@ mod tests {
         // 20. get_applications
         println!(
             "\n=== 20. get_applications ===\n{}",
-            "const apps = await desktop.getApplications();"
+            "const apps = await desktop.getApplications();",
         );
 
         // 21. Full TypeScript file generation

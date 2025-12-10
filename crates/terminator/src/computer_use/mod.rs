@@ -101,7 +101,7 @@ fn save_screenshot_async(base64_image: String, path: PathBuf) {
 /// Save the execution result as JSON (flat structure).
 fn save_execution_result(
     result: &ComputerUseResult,
-    executions_dir: &PathBuf,
+    executions_dir: &std::path::Path,
     execution_id: &str,
 ) -> Result<(), String> {
     let json = serde_json::to_string_pretty(result)
@@ -160,8 +160,7 @@ fn capture_window_for_computer_use(
         let window_name = window_element
             .name()
             .unwrap_or_default()
-            .replace(' ', "_")
-            .replace('/', "_");
+            .replace([' ', '/'], "_");
         Some(format!("app://{}/{}", process, window_name))
     });
 

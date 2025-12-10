@@ -19,10 +19,9 @@ use windows::Win32::System::Threading::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetTopWindow, GetWindow, GetWindowLongPtrW, GetWindowPlacement, GetWindowThreadProcessId,
-    IsIconic, IsWindowVisible, IsZoomed, SendMessageTimeoutW, SetWindowPlacement, SetWindowPos,
-    ShowWindow, GWL_EXSTYLE, GW_HWNDNEXT, HWND_TOP, SMTO_ABORTIFHUNG, SMTO_BLOCK, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, WINDOWPLACEMENT,
-    WM_GETTEXT, WS_EX_TOPMOST,
+    IsIconic, IsWindowVisible, IsZoomed, SendMessageTimeoutW, SetWindowPlacement, ShowWindow,
+    GWL_EXSTYLE, GW_HWNDNEXT, SMTO_ABORTIFHUNG, SMTO_BLOCK, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE,
+    WINDOWPLACEMENT, WM_GETTEXT, WS_EX_TOPMOST,
 };
 
 /// Information about a window

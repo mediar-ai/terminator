@@ -57,6 +57,12 @@ pub struct WindowManager {
 }
 
 #[napi]
+impl Default for WindowManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WindowManager {
     /// Create a new WindowManager instance
     #[napi(constructor)]

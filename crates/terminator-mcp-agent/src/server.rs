@@ -2146,7 +2146,7 @@ impl DesktopWrapper {
         &self,
         Parameters(args): Parameters<TypeIntoElementArgs>,
     ) -> Result<CallToolResult, McpError> {
-        let operation_start = std::time::Instant::now();
+        let _operation_start = std::time::Instant::now();
         let mut span = StepSpan::new("type_into_element", None);
 
         // Add comprehensive telemetry attributes
@@ -8592,9 +8592,9 @@ console.info = function(...args) {
                     let end = (line_num + context_lines + 1).min(lines.len());
 
                     results.push(format!("\n--- {}:{} ---", rel_path, line_num + 1));
-                    for i in start..end {
+                    for (i, line) in lines.iter().enumerate().skip(start).take(end - start) {
                         let marker = if i == line_num { ">" } else { " " };
-                        results.push(format!("{}{:4}: {}", marker, i + 1, &lines[i]));
+                        results.push(format!("{}{:4}: {}", marker, i + 1, line));
                     }
                 }
             }
