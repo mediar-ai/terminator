@@ -22,10 +22,6 @@ pub struct Coordinates {
 pub struct UiDiffResult {
     /// The computed diff showing changes (lines starting with + or -)
     pub diff: String,
-    /// Full tree before action (only if include_full_trees was true)
-    pub tree_before: Option<String>,
-    /// Full tree after action (only if include_full_trees was true)
-    pub tree_after: Option<String>,
     /// Whether any UI changes were detected
     pub has_changes: bool,
 }
