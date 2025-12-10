@@ -1195,9 +1195,7 @@ try {{
                         );
                     }
                     WorkflowEvent::StepStarted {
-                        step_id,
-                        step_name,
-                        ..
+                        step_id, step_name, ..
                     } => {
                         info!(
                             target: "run_command.event",

@@ -1508,15 +1508,13 @@ impl UIElementImpl for WindowsUIElement {
     fn get_value(&self) -> Result<Option<String>, AutomationError> {
         // Try to get the ValuePattern - if element doesn't support it, return None
         match self.element.0.get_pattern::<patterns::UIValuePattern>() {
-            Ok(value_pattern) => {
-                match value_pattern.get_value() {
-                    Ok(value) => Ok(Some(value)),
-                    Err(e) => {
-                        debug!("Failed to get value from ValuePattern: {}", e);
-                        Ok(None)
-                    }
+            Ok(value_pattern) => match value_pattern.get_value() {
+                Ok(value) => Ok(Some(value)),
+                Err(e) => {
+                    debug!("Failed to get value from ValuePattern: {}", e);
+                    Ok(None)
                 }
-            }
+            },
             Err(_) => {
                 // Element doesn't support ValuePattern - this is normal for many elements
                 Ok(None)
@@ -2940,7 +2938,11 @@ impl UIElementImpl for WindowsUIElement {
                     passed,
                     expected: text.to_string(),
                     actual: Some(actual),
-                    error: if passed { None } else { Some("Value does not contain expected text".to_string()) },
+                    error: if passed {
+                        None
+                    } else {
+                        Some("Value does not contain expected text".to_string())
+                    },
                 })
             }
             Ok(None) => Some(crate::TypeVerification {

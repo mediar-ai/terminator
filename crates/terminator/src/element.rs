@@ -499,7 +499,11 @@ pub trait UIElementImpl: Send + Sync + Debug {
                     passed,
                     expected: text.to_string(),
                     actual: Some(actual),
-                    error: if passed { None } else { Some("Value does not contain expected text".to_string()) },
+                    error: if passed {
+                        None
+                    } else {
+                        Some("Value does not contain expected text".to_string())
+                    },
                 })
             }
             Ok(None) => Some(crate::TypeVerification {
