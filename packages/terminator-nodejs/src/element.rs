@@ -39,8 +39,6 @@ pub struct ActionOptions {
     pub try_click_before: Option<bool>,
     /// Whether to capture UI tree before/after action and compute diff. Defaults to false.
     pub ui_diff_before_after: Option<bool>,
-    /// Whether to include full tree strings in the diff result. Defaults to false.
-    pub ui_diff_include_full_trees: Option<bool>,
     /// Max depth for tree capture when doing UI diff.
     pub ui_diff_max_depth: Option<u32>,
     /// Click position within element bounds. If not specified, clicks at center.
@@ -70,8 +68,6 @@ pub struct TypeTextOptions {
     pub try_click_before: Option<bool>,
     /// Whether to capture UI tree before/after action and compute diff. Defaults to false.
     pub ui_diff_before_after: Option<bool>,
-    /// Whether to include full tree strings in the diff result. Defaults to false.
-    pub ui_diff_include_full_trees: Option<bool>,
     /// Max depth for tree capture when doing UI diff.
     pub ui_diff_max_depth: Option<u32>,
 }
@@ -276,7 +272,6 @@ impl Element {
         let mut result = if opts.ui_diff_before_after.unwrap_or(false) {
             // Use backend's execute_on_element_with_ui_diff for UI diff capture
             let diff_options = terminator::UiDiffOptions {
-                include_full_trees: opts.ui_diff_include_full_trees.unwrap_or(false),
                 max_depth: opts.ui_diff_max_depth.map(|d| d as usize),
                 settle_delay_ms: Some(1500),
                 include_detailed_attributes: Some(true),
@@ -308,8 +303,6 @@ impl Element {
                 Ok((click_result, _element, ui_diff)) => {
                     let ui_diff_converted = ui_diff.map(|d| crate::types::UiDiffResult {
                         diff: d.diff,
-                        tree_before: d.tree_before,
-                        tree_after: d.tree_after,
                         has_changes: d.has_changes,
                     });
                     ClickResult {
