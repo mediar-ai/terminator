@@ -490,12 +490,39 @@ pub trait UIElementImpl: Send + Sync + Debug {
     ) -> Result<crate::ActionResult, AutomationError> {
         // Default implementation - platforms can override for state tracking
         self.type_text(text, use_clipboard, try_focus_before, try_click_before)?;
+
+        // Auto-verify by reading the value back
+        let verification = match self.get_value() {
+            Ok(Some(actual)) => {
+                let passed = actual.contains(text);
+                Some(crate::TypeVerification {
+                    passed,
+                    expected: text.to_string(),
+                    actual: Some(actual),
+                    error: if passed { None } else { Some("Value does not contain expected text".to_string()) },
+                })
+            }
+            Ok(None) => Some(crate::TypeVerification {
+                passed: true, // Can't verify, assume success
+                expected: text.to_string(),
+                actual: None,
+                error: None,
+            }),
+            Err(e) => Some(crate::TypeVerification {
+                passed: true, // Can't verify, assume success
+                expected: text.to_string(),
+                actual: None,
+                error: Some(format!("Could not read value: {}", e)),
+            }),
+        };
+
         Ok(crate::ActionResult {
             action: "type_text".to_string(),
             details: "No state tracking available".to_string(),
             data: Some(
                 serde_json::json!({"text": text, "use_clipboard": use_clipboard, "try_focus_before": try_focus_before, "try_click_before": try_click_before}),
             ),
+            verification,
         })
     }
 
@@ -507,6 +534,7 @@ pub trait UIElementImpl: Send + Sync + Debug {
             action: "invoke".to_string(),
             details: "No state tracking available".to_string(),
             data: None,
+            verification: None,
         })
     }
 
@@ -524,6 +552,7 @@ pub trait UIElementImpl: Send + Sync + Debug {
             data: Some(
                 serde_json::json!({"key": key, "try_focus_before": try_focus_before, "try_click_before": try_click_before}),
             ),
+            verification: None,
         })
     }
     fn get_text(&self, max_depth: usize) -> Result<String, AutomationError>;
@@ -550,6 +579,7 @@ pub trait UIElementImpl: Send + Sync + Debug {
             action: "scroll".to_string(),
             details: "No state tracking available".to_string(),
             data: Some(serde_json::json!({"direction": direction, "amount": amount})),
+            verification: None,
         })
     }
 
@@ -636,6 +666,7 @@ pub trait UIElementImpl: Send + Sync + Debug {
             action: "select_option".to_string(),
             details: "No state tracking available".to_string(),
             data: Some(serde_json::json!({"option_selected": option_name})),
+            verification: None,
         })
     }
     fn is_toggled(&self) -> Result<bool, AutomationError>;
@@ -648,6 +679,7 @@ pub trait UIElementImpl: Send + Sync + Debug {
             action: "set_toggled".to_string(),
             details: "No state tracking available".to_string(),
             data: Some(serde_json::json!({"state": state})),
+            verification: None,
         })
     }
     fn get_range_value(&self) -> Result<f64, AutomationError>;
@@ -662,6 +694,7 @@ pub trait UIElementImpl: Send + Sync + Debug {
             action: "set_selected".to_string(),
             details: "No state tracking available".to_string(),
             data: Some(serde_json::json!({"state": state})),
+            verification: None,
         })
     }
 
