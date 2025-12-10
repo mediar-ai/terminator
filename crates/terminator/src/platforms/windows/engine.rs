@@ -3530,12 +3530,31 @@ impl AccessibilityEngine for WindowsEngine {
         )
     }
 
-    fn click_at_coordinates(&self, x: f64, y: f64) -> Result<(), AutomationError> {
+    fn click_at_coordinates(
+        &self,
+        x: f64,
+        y: f64,
+        restore_cursor: bool,
+    ) -> Result<(), AutomationError> {
+        use windows::Win32::Foundation::POINT;
         use windows::Win32::UI::Input::KeyboardAndMouse::{
             SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN,
             MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE, MOUSEINPUT,
         };
-        use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetCursorPos, GetSystemMetrics, SetCursorPos, SM_CXSCREEN, SM_CYSCREEN,
+        };
+
+        // Save original cursor position if restore is requested
+        let original_pos = if restore_cursor {
+            let mut pos = POINT { x: 0, y: 0 };
+            unsafe {
+                let _ = GetCursorPos(&mut pos);
+            }
+            Some(pos)
+        } else {
+            None
+        };
 
         // Convert screen coordinates to absolute input coordinates (0-65535 range)
         let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
@@ -3595,6 +3614,13 @@ impl AccessibilityEngine for WindowsEngine {
             SendInput(&[up_input], std::mem::size_of::<INPUT>() as i32);
         }
 
+        // Restore cursor position if requested
+        if let Some(pos) = original_pos {
+            unsafe {
+                let _ = SetCursorPos(pos.x, pos.y);
+            }
+        }
+
         Ok(())
     }
 
@@ -3603,13 +3629,28 @@ impl AccessibilityEngine for WindowsEngine {
         x: f64,
         y: f64,
         click_type: crate::ClickType,
+        restore_cursor: bool,
     ) -> Result<(), AutomationError> {
+        use windows::Win32::Foundation::POINT;
         use windows::Win32::UI::Input::KeyboardAndMouse::{
             SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN,
             MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
             MOUSEINPUT,
         };
-        use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetCursorPos, GetSystemMetrics, SetCursorPos, SM_CXSCREEN, SM_CYSCREEN,
+        };
+
+        // Save original cursor position if restore is requested
+        let original_pos = if restore_cursor {
+            let mut pos = POINT { x: 0, y: 0 };
+            unsafe {
+                let _ = GetCursorPos(&mut pos);
+            }
+            Some(pos)
+        } else {
+            None
+        };
 
         // Convert screen coordinates to absolute input coordinates (0-65535 range)
         let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
@@ -3684,6 +3725,13 @@ impl AccessibilityEngine for WindowsEngine {
                 std::thread::sleep(std::time::Duration::from_millis(50));
                 SendInput(&[down_input], std::mem::size_of::<INPUT>() as i32);
                 SendInput(&[up_input], std::mem::size_of::<INPUT>() as i32);
+            }
+        }
+
+        // Restore cursor position if requested
+        if let Some(pos) = original_pos {
+            unsafe {
+                let _ = SetCursorPos(pos.x, pos.y);
             }
         }
 
