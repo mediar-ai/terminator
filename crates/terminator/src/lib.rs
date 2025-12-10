@@ -115,11 +115,26 @@ pub struct ClickResult {
     pub details: String,
 }
 
+/// Result of text verification after typing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TypeVerification {
+    /// Whether verification passed
+    pub passed: bool,
+    /// The expected text that was typed
+    pub expected: String,
+    /// The actual value read from the element
+    pub actual: Option<String>,
+    /// Error message if verification failed
+    pub error: Option<String>,
+}
+
 /// Generic result struct for UI actions with state tracking
 pub struct ActionResult {
     pub action: String,
     pub details: String,
     pub data: Option<serde_json::Value>,
+    /// Verification result for type operations
+    pub verification: Option<TypeVerification>,
 }
 
 /// Holds the output of a terminal command execution
