@@ -222,7 +222,7 @@ impl Desktop {
         let click_type = click_type.unwrap_or(ClickType::Left);
 
         self.inner
-            .click_at_bounds(bounds, click_position, click_type.into())
+            .click_at_bounds(bounds, click_position, click_type.into(), false)
             .map(ClickResult::from)
             .map_err(map_error)
     }
@@ -257,7 +257,7 @@ impl Desktop {
         let click_type = click_type.unwrap_or(ClickType::Left);
 
         self.inner
-            .click_by_index(index, vision_type.into(), click_position, click_type.into())
+            .click_by_index(index, vision_type.into(), click_position, click_type.into(), false)
             .map(ClickResult::from)
             .map_err(map_error)
     }
