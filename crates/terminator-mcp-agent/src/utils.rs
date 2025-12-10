@@ -661,6 +661,12 @@ pub struct ClickElementArgs {
     #[serde(default)]
     pub click_type: ClickType,
 
+    #[schemars(
+        description = "If true, restore cursor to its original position after clicking. Defaults to false."
+    )]
+    #[serde(default)]
+    pub restore_cursor: bool,
+
     #[serde(flatten)]
     pub action: ActionOptions,
 
