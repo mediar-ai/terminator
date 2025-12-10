@@ -202,15 +202,13 @@ pub struct ActionOptions {
     #[schemars(description = "Number of times to retry this step on failure.")]
     pub retries: Option<u32>,
 
-    #[serde(default)]
     #[schemars(
-        description = "Optional: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If not provided or empty, uses automatic verification when available."
+        description = "REQUIRED: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. Use empty string \"\" to skip this check."
     )]
     pub verify_element_exists: String,
 
-    #[serde(default)]
     #[schemars(
-        description = "Optional: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If not provided or empty, skips this check."
+        description = "REQUIRED: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). Use empty string \"\" to skip this check."
     )]
     pub verify_element_not_exists: String,
 
@@ -819,8 +817,12 @@ pub struct TypeIntoElementArgs {
     #[serde(flatten)]
     pub selector: SelectorOptions,
 
-    #[serde(flatten)]
-    pub action: ActionOptions,
+    // Note: No ActionOptions here - typing uses auto-verification from core library
+    #[schemars(description = "Optional timeout in milliseconds for the action")]
+    pub timeout_ms: Option<u64>,
+
+    #[schemars(description = "Number of times to retry this step on failure.")]
+    pub retries: Option<u32>,
 
     #[serde(flatten)]
     pub highlight: HighlightOptions,
