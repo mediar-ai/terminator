@@ -1107,7 +1107,7 @@ pub async fn execute_command_with_progress_and_retry(
                         Err(e) => {
                             let error_str = e.to_string();
                             // TypeScript workflows: don't retry on timeout (should handle retries internally)
-                            // YAML workflows: retry on timeout
+                            // Workflows: retry on timeout
                             // Other tools: retry on timeout
                             let is_retryable = if is_typescript_workflow {
                                 // TypeScript workflows should handle retries internally
@@ -1118,7 +1118,7 @@ pub async fn execute_command_with_progress_and_retry(
                                     || error_str.contains("503")
                                     || error_str.contains("504")
                             } else {
-                                // YAML workflows and other tools can retry on timeout
+                                // Workflows can retry on timeout
                                 error_str.contains("401")
                                     || error_str.contains("Unauthorized")
                                     || error_str.contains("500")
@@ -1271,7 +1271,7 @@ pub async fn execute_command_with_progress_and_retry(
                         Err(e) => {
                             let error_str = e.to_string();
                             // TypeScript workflows: don't retry on timeout (should handle retries internally)
-                            // YAML workflows: retry on timeout
+                            // Workflows: retry on timeout
                             // Other tools: retry on timeout
                             let is_retryable = if is_typescript_workflow {
                                 // TypeScript workflows should handle retries internally
@@ -1282,7 +1282,7 @@ pub async fn execute_command_with_progress_and_retry(
                                     || error_str.contains("503")
                                     || error_str.contains("504")
                             } else {
-                                // YAML workflows and other tools can retry on timeout
+                                // Workflows can retry on timeout
                                 error_str.contains("401")
                                     || error_str.contains("Unauthorized")
                                     || error_str.contains("500")
@@ -1370,23 +1370,6 @@ mod tests {
 
         assert!(is_js, "Should detect .js file as JavaScript workflow");
 
-        // Test YAML workflow detection (URL ends with .yml or .yaml)
-        let args_yaml = serde_json::json!({
-            "url": "file:///path/to/workflow.yml"
-        });
-        let args_map_yaml = args_yaml.as_object().cloned();
-
-        let is_yaml = args_map_yaml
-            .as_ref()
-            .and_then(|args| args.get("url"))
-            .and_then(|url| url.as_str())
-            .map(|url| url.ends_with(".ts") || url.ends_with(".js"))
-            .unwrap_or(false);
-
-        assert!(
-            !is_yaml,
-            "Should NOT detect .yml file as TypeScript workflow"
-        );
 
         // Test no URL provided
         let args_no_url = serde_json::json!({
@@ -1419,7 +1402,7 @@ mod tests {
                 || error_str.contains("503")
                 || error_str.contains("504")
         } else {
-            // YAML workflows and other tools can retry on timeout
+            // Workflows can retry on timeout
             error_str.contains("401")
                 || error_str.contains("Unauthorized")
                 || error_str.contains("500")
@@ -1460,57 +1443,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_retry_logic_for_yaml_workflows() {
-        // Test that timeout errors ARE retryable for YAML workflows
-        let error_str = "timeout waiting for element"; // lowercase to match contains() check
-        let is_typescript_workflow = false;
-
-        let is_retryable = if is_typescript_workflow {
-            error_str.contains("401")
-                || error_str.contains("Unauthorized")
-                || error_str.contains("500")
-                || error_str.contains("502")
-                || error_str.contains("503")
-                || error_str.contains("504")
-        } else {
-            error_str.contains("401")
-                || error_str.contains("Unauthorized")
-                || error_str.contains("500")
-                || error_str.contains("502")
-                || error_str.contains("503")
-                || error_str.contains("504")
-                || error_str.contains("timeout")
-        };
-
-        assert!(
-            is_retryable,
-            "YAML workflows SHOULD retry on timeout errors"
-        );
-
-        // Test that HTTP errors ARE retryable for YAML workflows
-        let error_str_502 = "502 Bad Gateway";
-
-        let is_retryable_502 = if is_typescript_workflow {
-            error_str_502.contains("401")
-                || error_str_502.contains("Unauthorized")
-                || error_str_502.contains("500")
-                || error_str_502.contains("502")
-                || error_str_502.contains("503")
-                || error_str_502.contains("504")
-        } else {
-            error_str_502.contains("401")
-                || error_str_502.contains("Unauthorized")
-                || error_str_502.contains("500")
-                || error_str_502.contains("502")
-                || error_str_502.contains("503")
-                || error_str_502.contains("504")
-                || error_str_502.contains("timeout")
-        };
-
-        assert!(
-            is_retryable_502,
-            "YAML workflows SHOULD retry on HTTP 502 errors"
-        );
-    }
 }

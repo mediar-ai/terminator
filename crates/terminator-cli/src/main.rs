@@ -116,7 +116,7 @@ struct McpRunArgs {
     #[clap(long, short = 'c', conflicts_with = "url")]
     command: Option<String>,
 
-    /// Input source - can be a GitHub gist URL, raw gist URL, or local file path (JSON/YAML)
+    /// Input source - can be a GitHub gist URL, raw gist URL, or local file path (JSON)
     input: String,
 
     /// Input type (auto-detected by default)
@@ -1491,7 +1491,7 @@ async fn run_workflow(transport: mcp_client::Transport, args: McpRunArgs) -> any
         return Ok(());
     }
 
-    // Fetch workflow content (for YAML workflows)
+    // Fetch workflow content (for workflows)
     let content = match resolved_type {
         InputType::File => {
             info!("Reading local file");
@@ -1711,7 +1711,7 @@ async fn run_workflow(transport: mcp_client::Transport, args: McpRunArgs) -> any
     Ok(())
 }
 
-/// Extract cron expression from workflow YAML
+/// Extract cron expression from workflow
 fn extract_cron_from_workflow(workflow: &Value) -> Option<String> {
     // Primary format: cron field at root level (simpler format)
     if let Some(cron) = workflow.get("cron") {
@@ -1914,7 +1914,7 @@ async fn run_workflow_once(
         return Ok(());
     }
 
-    // Fetch workflow content (for YAML workflows)
+    // Fetch workflow content (for workflows)
     let content = match resolved_type {
         InputType::File => read_local_file(&args.input).await?,
         InputType::Gist => {
@@ -2164,7 +2164,7 @@ fn parse_workflow_content(content: &str) -> anyhow::Result<serde_json::Value> {
         }
     }
 
-    // Strategy 2: Try direct YAML workflow
+    // Strategy 2: Try as wrapper object
     if let Ok(val) = serde_json::from_str::<serde_json::Value>(content) {
         // Check if it's a valid workflow (has steps field)
         if val.get("steps").is_some() {
@@ -2184,12 +2184,6 @@ fn parse_workflow_content(content: &str) -> anyhow::Result<serde_json::Value> {
         }
     }
 
-    // Strategy 4: Try parsing as YAML wrapper first, then extract
-    if let Ok(val) = serde_json::from_str::<serde_json::Value>(content) {
-        if let Some(extracted) = extract_workflow_from_wrapper(&val)? {
-            return Ok(extracted);
-        }
-    }
 
     Err(anyhow::anyhow!(
         "Unable to parse content as JSON workflow or wrapper object. Content must either be:\n\
