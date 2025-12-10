@@ -233,7 +233,8 @@ pub trait AccessibilityEngine: Send + Sync {
 
     /// Click at absolute screen coordinates
     /// Default implementation returns UnsupportedOperation - override in platform-specific engines
-    fn click_at_coordinates(&self, _x: f64, _y: f64) -> Result<(), AutomationError> {
+    /// If `restore_cursor` is true, the cursor position will be restored after the click
+    fn click_at_coordinates(&self, _x: f64, _y: f64, _restore_cursor: bool) -> Result<(), AutomationError> {
         Err(AutomationError::UnsupportedOperation(
             "Click at coordinates not supported on this platform".to_string(),
         ))
@@ -241,11 +242,13 @@ pub trait AccessibilityEngine: Send + Sync {
 
     /// Click at absolute screen coordinates with specified click type (left, double, right)
     /// Default implementation returns UnsupportedOperation - override in platform-specific engines
+    /// If `restore_cursor` is true, the cursor position will be restored after the click
     fn click_at_coordinates_with_type(
         &self,
         _x: f64,
         _y: f64,
         _click_type: crate::ClickType,
+        _restore_cursor: bool,
     ) -> Result<(), AutomationError> {
         Err(AutomationError::UnsupportedOperation(
             "Click at coordinates with type not supported on this platform".to_string(),
