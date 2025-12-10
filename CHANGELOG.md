@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.38] - 2025-12-10
+
+### Added
+- MCP: Add workflow event streaming support with Windows named pipes IPC
+- MCP: Add `emit` API to TypeScript workflows for real-time progress updates
+- MCP: Add event streaming to `run_command` tool (event_sender, execution_id params)
+- SDK: Add `@mediar-ai/workflow` events module with `emit.progress()`, `emit.stepStarted()`, `emit.stepCompleted()`, etc.
+- SDK: Add `createStepEmitter()` for scoped event emission with auto-prefixed step context
+- Core: Add `get_value()` API for retrieving element values (#407)
+- Core: Move `type_into_element` auto-verification to core library (#408)
+
+### Changed
+- MCP: Use Windows named pipes instead of stderr JSON parsing for cleaner event IPC
+- Build: Bundle bun runtime support for workflows (#407)
+
 ## [0.23.36] - 2025-12-04
 
 ### Added
