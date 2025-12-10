@@ -4580,12 +4580,6 @@ DATA PASSING:
             "success_unverified"
         };
 
-        let recommendation = if verified_success {
-            "Window activated and verified successfully. The target application is now in the foreground."
-        } else {
-            "Window activation was called but could not be verified. The target application may not be in the foreground."
-        };
-
         let mut result_json = json!({
             "action": "activate_element",
             "status": final_status,
@@ -4593,8 +4587,7 @@ DATA PASSING:
             "selector_used": successful_selector,
             "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), None, args.selector.build_fallback_selectors().as_deref()),
             "timestamp": chrono::Utc::now().to_rfc3339(),
-            "verification": verification,
-            "recommendation": recommendation
+            "verification": verification
         });
 
         // Always attach UI tree for activated elements to help with next actions
