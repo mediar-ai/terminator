@@ -1379,7 +1379,6 @@ impl DesktopWrapper {
             "title": args.title,
             "detailed_attributes": args.tree.include_detailed_attributes.unwrap_or(true),
             "timestamp": chrono::Utc::now().to_rfc3339(),
-            "recommendation": "Prefer role|name selectors (e.g., 'button|Submit'). For large trees, use tree_from_selector: \"role:Dialog\" to focus on specific UI regions."
         });
 
         // Add browser detection metadata
@@ -3856,6 +3855,8 @@ DATA PASSING:
                     cancellation_token,
                     script_working_dir,
                     log_buffer.clone(),
+                    None, // event_sender - TODO: wire up from run_command_impl when called via MCP
+                    None, // execution_id
                 );
 
                 let execution_result = if timeout_ms == 0 {
@@ -3992,6 +3993,8 @@ DATA PASSING:
                     cancellation_token,
                     script_working_dir,
                     log_buffer.clone(),
+                    None, // event_sender - TODO: wire up from run_command_impl when called via MCP
+                    None, // execution_id
                 );
 
                 let execution_result = if timeout_ms == 0 {
