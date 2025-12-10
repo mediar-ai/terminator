@@ -662,9 +662,9 @@ pub struct ClickElementArgs {
     pub click_type: ClickType,
 
     #[schemars(
-        description = "If true, restore cursor to its original position after clicking. Defaults to false."
+        description = "If true, restore cursor to its original position after clicking. Defaults to true."
     )]
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub restore_cursor: bool,
 
     #[serde(flatten)]
