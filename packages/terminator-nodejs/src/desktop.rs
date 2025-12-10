@@ -263,7 +263,13 @@ impl Desktop {
         let restore_cursor = restore_cursor.unwrap_or(true);
 
         self.inner
-            .click_by_index(index, vision_type.into(), click_position, click_type.into(), restore_cursor)
+            .click_by_index(
+                index,
+                vision_type.into(),
+                click_position,
+                click_type.into(),
+                restore_cursor,
+            )
             .map(ClickResult::from)
             .map_err(map_error)
     }

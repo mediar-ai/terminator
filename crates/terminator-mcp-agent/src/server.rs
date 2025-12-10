@@ -2450,10 +2450,12 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                 span.set_attribute("click_y", y.to_string());
                 tracing::info!("[click_element] Coordinate mode: ({}, {})", x, y);
 
-                match self
-                    .desktop
-                    .click_at_coordinates_with_type(x, y, terminator_click_type, args.restore_cursor)
-                {
+                match self.desktop.click_at_coordinates_with_type(
+                    x,
+                    y,
+                    terminator_click_type,
+                    args.restore_cursor,
+                ) {
                     Ok(()) => {
                         let ct_str = match args.click_type {
                             crate::utils::ClickType::Left => "left",
@@ -2732,15 +2734,31 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                                         + (bounds.2 * click_position.x_percentage as f64 / 100.0);
                                     let y = bounds.1
                                         + (bounds.3 * click_position.y_percentage as f64 / 100.0);
-                                    tracing::debug!("[click_element] Clicking at ({}, {}), restore_cursor={}", x, y, restore_cursor);
+                                    tracing::debug!(
+                                        "[click_element] Clicking at ({}, {}), restore_cursor={}",
+                                        x,
+                                        y,
+                                        restore_cursor
+                                    );
 
                                     // Use shared click function with restore_cursor support
                                     let terminator_click_type = match click_type {
-                                        crate::utils::ClickType::Left => terminator::ClickType::Left,
-                                        crate::utils::ClickType::Double => terminator::ClickType::Double,
-                                        crate::utils::ClickType::Right => terminator::ClickType::Right,
+                                        crate::utils::ClickType::Left => {
+                                            terminator::ClickType::Left
+                                        }
+                                        crate::utils::ClickType::Double => {
+                                            terminator::ClickType::Double
+                                        }
+                                        crate::utils::ClickType::Right => {
+                                            terminator::ClickType::Right
+                                        }
                                     };
-                                    terminator::platforms::windows::send_mouse_click(x, y, terminator_click_type, restore_cursor)?;
+                                    terminator::platforms::windows::send_mouse_click(
+                                        x,
+                                        y,
+                                        terminator_click_type,
+                                        restore_cursor,
+                                    )?;
 
                                     use terminator::ClickResult;
                                     Ok(ClickResult {

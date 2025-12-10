@@ -207,6 +207,9 @@ mod text_input_tracker_tests {
         fn invoke(&self) -> Result<(), AutomationError> {
             todo!()
         }
+        fn get_value(&self) -> Result<Option<String>, AutomationError> {
+            Ok(Some(self.text.clone()))
+        }
     }
 
     fn create_tracker_with_text(text: &str) -> TextInputTracker {

@@ -15,7 +15,10 @@ fn main() {
         let get_cursor_time = t1.elapsed();
 
         println!("GetCursorPos result: {:?}", result);
-        println!("Original cursor position: ({}, {})", original_pos.x, original_pos.y);
+        println!(
+            "Original cursor position: ({}, {})",
+            original_pos.x, original_pos.y
+        );
         println!("GetCursorPos took: {:?}", get_cursor_time);
 
         // 2. Move cursor somewhere else (with timing)
@@ -55,7 +58,10 @@ fn main() {
         println!("GetCursorPos:  {:?}", get_cursor_time);
         println!("SetCursorPos:  {:?}", set_cursor_time);
         println!("Restore:       {:?}", restore_time);
-        println!("Total overhead for save+restore: {:?}", get_cursor_time + restore_time);
+        println!(
+            "Total overhead for save+restore: {:?}",
+            get_cursor_time + restore_time
+        );
 
         // Check if restoration worked
         if final_pos.x == original_pos.x && final_pos.y == original_pos.y {

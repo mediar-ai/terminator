@@ -193,6 +193,11 @@ mod performance_benchmarks {
                 batch_size: Some(50),
                 max_depth: None,
                 include_all_bounds: false,
+                ui_settle_delay_ms: None,
+                format_output: false,
+                show_overlay: false,
+                overlay_display_mode: None,
+                from_selector: None,
             };
 
             match engine.get_window_tree(pid, Some(&window_title), config) {

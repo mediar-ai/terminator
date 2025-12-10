@@ -533,6 +533,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         );
                     }
                 }
+                terminator_workflow_recorder::WorkflowEvent::PendingAction(pending_event) => {
+                    println!(
+                        "⏳ Pending Action {}: {:?}",
+                        event_count, pending_event.action_type
+                    );
+                    if let Some(pos) = &pending_event.position {
+                        println!("     └─ Position: ({}, {})", pos.x, pos.y);
+                    }
+                }
             }
         }
     });

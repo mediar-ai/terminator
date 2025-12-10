@@ -381,7 +381,12 @@ impl WindowsUIElement {
     }
 
     // Helper: Execute physical mouse click (delegates to shared input module)
-    fn execute_mouse_click(&self, x: f64, y: f64, restore_cursor: bool) -> Result<(), AutomationError> {
+    fn execute_mouse_click(
+        &self,
+        x: f64,
+        y: f64,
+        restore_cursor: bool,
+    ) -> Result<(), AutomationError> {
         super::input::send_mouse_click(x, y, crate::ClickType::Left, restore_cursor)
     }
 

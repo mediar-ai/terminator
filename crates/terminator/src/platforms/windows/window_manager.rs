@@ -15,8 +15,7 @@ use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
-    PROCESS_QUERY_LIMITED_INFORMATION,
+    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetTopWindow, GetWindow, GetWindowLongPtrW, GetWindowPlacement, GetWindowThreadProcessId,
@@ -284,10 +283,8 @@ impl WindowManager {
 
     /// Brings window to front and activates it using SetForegroundWindow.
     pub async fn bring_window_to_front(&self, hwnd: isize) -> Result<bool, String> {
-        use windows::Win32::UI::WindowsAndMessaging::{
-            BringWindowToTop, SetForegroundWindow,
-        };
         use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+        use windows::Win32::UI::WindowsAndMessaging::{BringWindowToTop, SetForegroundWindow};
 
         // Track this window as the target for restoration
         {
@@ -316,11 +313,12 @@ impl WindowManager {
                 false
             };
 
-            let attached_target = if target_thread != current_thread && target_thread != foreground_thread {
-                AttachThreadInput(current_thread, target_thread, true).as_bool()
-            } else {
-                false
-            };
+            let attached_target =
+                if target_thread != current_thread && target_thread != foreground_thread {
+                    AttachThreadInput(current_thread, target_thread, true).as_bool()
+                } else {
+                    false
+                };
 
             // Bring window to top and activate
             let _ = BringWindowToTop(hwnd_win);
