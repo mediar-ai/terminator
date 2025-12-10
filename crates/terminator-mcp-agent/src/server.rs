@@ -2368,14 +2368,6 @@ impl DesktopWrapper {
 
             result_json["ui_diff"] = json!(diff_result.diff);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-            if args
-                .tree
-                .ui_diff_include_full_trees_in_response
-                .unwrap_or(false)
-            {
-                result_json["tree_before"] = json!(diff_result.tree_before);
-                result_json["tree_after"] = json!(diff_result.tree_after);
-            }
         }
 
         // Restore windows after typing into element
@@ -2895,14 +2887,6 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                     span.set_attribute("ui_diff.has_changes", diff_result.has_changes.to_string());
                     result_json["ui_diff"] = json!(diff_result.diff);
                     result_json["has_ui_changes"] = json!(diff_result.has_changes);
-                    if args
-                        .tree
-                        .ui_diff_include_full_trees_in_response
-                        .unwrap_or(false)
-                    {
-                        result_json["tree_before"] = json!(diff_result.tree_before);
-                        result_json["tree_after"] = json!(diff_result.tree_after);
-                    }
                 }
 
                 self.restore_window_management(should_restore).await;
@@ -3160,14 +3144,6 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
 
             result_json["ui_diff"] = json!(diff_result.diff);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-            if args
-                .tree
-                .ui_diff_include_full_trees_in_response
-                .unwrap_or(false)
-            {
-                result_json["tree_before"] = json!(diff_result.tree_before);
-                result_json["tree_after"] = json!(diff_result.tree_after);
-            }
         }
 
         // Restore windows after pressing key
@@ -6030,14 +6006,6 @@ DATA PASSING:
 
             result_json["ui_diff"] = json!(diff_result.diff);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-            if args
-                .tree
-                .ui_diff_include_full_trees_in_response
-                .unwrap_or(false)
-            {
-                result_json["tree_before"] = json!(diff_result.tree_before);
-                result_json["tree_after"] = json!(diff_result.tree_after);
-            }
         }
 
         self.restore_window_management(should_restore).await;
@@ -6178,14 +6146,6 @@ DATA PASSING:
 
             result_json["ui_diff"] = json!(diff_result.diff);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-            if args
-                .tree
-                .ui_diff_include_full_trees_in_response
-                .unwrap_or(false)
-            {
-                result_json["tree_before"] = json!(diff_result.tree_before);
-                result_json["tree_after"] = json!(diff_result.tree_after);
-            }
         }
 
         self.restore_window_management(should_restore).await;
@@ -6433,14 +6393,6 @@ DATA PASSING:
 
             result_json["ui_diff"] = json!(diff_result.diff);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-            if args
-                .tree
-                .ui_diff_include_full_trees_in_response
-                .unwrap_or(false)
-            {
-                result_json["tree_before"] = json!(diff_result.tree_before);
-                result_json["tree_after"] = json!(diff_result.tree_after);
-            }
         }
 
         self.restore_window_management(should_restore).await;
@@ -6885,14 +6837,6 @@ DATA PASSING:
 
             result_json["ui_diff"] = json!(diff_result.diff);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-            if args
-                .tree
-                .ui_diff_include_full_trees_in_response
-                .unwrap_or(false)
-            {
-                result_json["tree_before"] = json!(diff_result.tree_before);
-                result_json["tree_after"] = json!(diff_result.tree_after);
-            }
         }
 
         // Restore windows after invoking element
@@ -7251,14 +7195,6 @@ DATA PASSING:
 
             result_json["ui_diff"] = json!(diff_result.diff);
             result_json["has_ui_changes"] = json!(diff_result.has_changes);
-            if args
-                .tree
-                .ui_diff_include_full_trees_in_response
-                .unwrap_or(false)
-            {
-                result_json["tree_before"] = json!(diff_result.tree_before);
-                result_json["tree_after"] = json!(diff_result.tree_after);
-            }
         }
 
         self.restore_window_management(should_restore).await;
