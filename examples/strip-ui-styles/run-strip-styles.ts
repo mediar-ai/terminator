@@ -10,7 +10,6 @@
  */
 
 import { Desktop } from "@mediar-ai/terminator";
-import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
 
@@ -44,13 +43,11 @@ async function main() {
     process.exit(0);
   }
 
-  // Read script content directly (workaround for wrapper.ts bug with file paths)
-  const scriptContent = fs.readFileSync(scriptPath, "utf-8");
   console.log(`📜 Executing browser script from: ${scriptPath}`);
 
   try {
-    // Pass script as string directly, not as file path
-    const result = await desktop.executeBrowserScript(scriptContent, "chrome", 30000);
+    // Use file path directly - local v0.23.38 has the fix for Desktop vs Element detection
+    const result = await desktop.executeBrowserScript(scriptPath, "chrome", 30000);
     console.log("✅ Script executed successfully!");
     console.log("📊 Result:", result);
   } catch (error: any) {
