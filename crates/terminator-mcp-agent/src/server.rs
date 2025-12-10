@@ -8232,21 +8232,21 @@ console.info = function(...args) {
         {
             Ok(p) => p,
             Err(e) => {
-                return Ok(CallToolResult::success(vec![Content::text(format!(
+                return Ok(CallToolResult::error(vec![Content::text(format!(
                     "Error: {e}"
                 ))]));
             }
         };
 
         if !full_path.exists() {
-            return Ok(CallToolResult::success(vec![Content::text(format!(
+            return Ok(CallToolResult::error(vec![Content::text(format!(
                 "File not found: {}",
                 full_path.display()
             ))]));
         }
 
         if !full_path.is_file() {
-            return Ok(CallToolResult::success(vec![Content::text(format!(
+            return Ok(CallToolResult::error(vec![Content::text(format!(
                 "Path is not a file: {}",
                 full_path.display()
             ))]));
@@ -8255,7 +8255,7 @@ console.info = function(...args) {
         let file = match fs::File::open(&full_path) {
             Ok(f) => f,
             Err(e) => {
-                return Ok(CallToolResult::success(vec![Content::text(format!(
+                return Ok(CallToolResult::error(vec![Content::text(format!(
                     "Failed to open file: {e}"
                 ))]));
             }
@@ -8303,7 +8303,7 @@ console.info = function(...args) {
         {
             Ok(p) => p,
             Err(e) => {
-                return Ok(CallToolResult::success(vec![Content::text(format!(
+                return Ok(CallToolResult::error(vec![Content::text(format!(
                     "Error: {e}"
                 ))]));
             }
@@ -8313,7 +8313,7 @@ console.info = function(...args) {
         if let Some(parent) = full_path.parent() {
             if !parent.exists() {
                 if let Err(e) = fs::create_dir_all(parent) {
-                    return Ok(CallToolResult::success(vec![Content::text(format!(
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
                         "Failed to create directory: {e}"
                     ))]));
                 }
@@ -8326,7 +8326,7 @@ console.info = function(...args) {
                 args.content.len(),
                 args.path
             ))])),
-            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
                 "Failed to write file: {e}"
             ))])),
         }
@@ -8347,14 +8347,14 @@ console.info = function(...args) {
         {
             Ok(p) => p,
             Err(e) => {
-                return Ok(CallToolResult::success(vec![Content::text(format!(
+                return Ok(CallToolResult::error(vec![Content::text(format!(
                     "Error: {e}"
                 ))]));
             }
         };
 
         if !full_path.exists() {
-            return Ok(CallToolResult::success(vec![Content::text(format!(
+            return Ok(CallToolResult::error(vec![Content::text(format!(
                 "File not found: {}",
                 full_path.display()
             ))]));
@@ -8363,7 +8363,7 @@ console.info = function(...args) {
         let content = match fs::read_to_string(&full_path) {
             Ok(c) => c,
             Err(e) => {
-                return Ok(CallToolResult::success(vec![Content::text(format!(
+                return Ok(CallToolResult::error(vec![Content::text(format!(
                     "Failed to read file: {e}"
                 ))]));
             }
@@ -8378,14 +8378,14 @@ console.info = function(...args) {
             } else {
                 args.old_string.clone()
             };
-            return Ok(CallToolResult::success(vec![Content::text(format!(
+            return Ok(CallToolResult::error(vec![Content::text(format!(
                 "String not found in file: \"{}\"",
                 preview
             ))]));
         }
 
         if !args.replace_all.unwrap_or(false) && occurrences > 1 {
-            return Ok(CallToolResult::success(vec![Content::text(format!(
+            return Ok(CallToolResult::error(vec![Content::text(format!(
                 "String found {} times. Use replace_all: true or provide more context to make it unique.",
                 occurrences
             ))]));
@@ -8409,7 +8409,7 @@ console.info = function(...args) {
                 "Successfully made {} replacement(s) in {}",
                 replacements, args.path
             ))])),
-            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
                 "Failed to write file: {e}"
             ))])),
         }
@@ -8429,7 +8429,7 @@ console.info = function(...args) {
                 match &*workflow_dir_guard {
                     Some(dir) => dir.clone(),
                     None => {
-                        return Ok(CallToolResult::success(vec![Content::text(
+                        return Ok(CallToolResult::error(vec![Content::text(
                             "Error: No working directory available. Either provide working_directory or ensure a workflow is focused.".to_string()
                         )]));
                     }
@@ -8443,7 +8443,7 @@ console.info = function(...args) {
         let paths: Vec<_> = match glob::glob(&glob_str) {
             Ok(paths) => paths.flatten().collect(),
             Err(e) => {
-                return Ok(CallToolResult::success(vec![Content::text(format!(
+                return Ok(CallToolResult::error(vec![Content::text(format!(
                     "Invalid glob pattern: {e}"
                 ))]));
             }
@@ -8492,7 +8492,7 @@ console.info = function(...args) {
                 match &*workflow_dir_guard {
                     Some(dir) => dir.clone(),
                     None => {
-                        return Ok(CallToolResult::success(vec![Content::text(
+                        return Ok(CallToolResult::error(vec![Content::text(
                             "Error: No working directory available. Either provide working_directory or ensure a workflow is focused.".to_string()
                         )]));
                     }
@@ -8508,7 +8508,7 @@ console.info = function(...args) {
         let pattern = match pattern {
             Ok(p) => p,
             Err(e) => {
-                return Ok(CallToolResult::success(vec![Content::text(format!(
+                return Ok(CallToolResult::error(vec![Content::text(format!(
                     "Invalid regex pattern: {e}"
                 ))]));
             }
@@ -8528,7 +8528,7 @@ console.info = function(...args) {
         let paths = match glob::glob(&glob_str) {
             Ok(paths) => paths,
             Err(e) => {
-                return Ok(CallToolResult::success(vec![Content::text(format!(
+                return Ok(CallToolResult::error(vec![Content::text(format!(
                     "Invalid glob pattern: {e}"
                 ))]));
             }
