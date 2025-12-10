@@ -45,6 +45,8 @@ pub struct ActionOptions {
     pub click_position: Option<ClickPosition>,
     /// Type of click: 'Left', 'Double', or 'Right'. Defaults to 'Left'.
     pub click_type: Option<ClickType>,
+    /// Whether to restore cursor to original position after click. Defaults to false.
+    pub restore_cursor: Option<bool>,
 }
 
 /// Options for typeText method
