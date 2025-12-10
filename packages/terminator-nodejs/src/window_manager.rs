@@ -63,6 +63,7 @@ impl Default for WindowManager {
     }
 }
 
+#[napi]
 impl WindowManager {
     /// Create a new WindowManager instance
     #[napi(constructor)]

@@ -52,28 +52,40 @@ unsafe fn test_simple_save_restore() {
     let save_start = Instant::now();
 
     // Save mouse
+    let t0 = Instant::now();
     let mut saved_mouse = POINT { x: 0, y: 0 };
     let _ = GetCursorPos(&mut saved_mouse);
-    println!("  Mouse: ({}, {})", saved_mouse.x, saved_mouse.y);
+    println!("  - GetCursorPos: {:?} -> ({}, {})", t0.elapsed(), saved_mouse.x, saved_mouse.y);
 
     // Save focused element + caret
+    let t1 = Instant::now();
     let focused = automation.GetFocusedElement().expect("GetFocusedElement failed");
+    println!("  - GetFocusedElement: {:?}", t1.elapsed());
 
     if let Ok(name) = focused.CurrentName() {
-        println!("  Focused: '{}'", name);
+        println!("    Name: '{}'", name);
     }
     if let Ok(ctrl_type) = focused.CurrentControlType() {
-        println!("  Control type: {}", ctrl_type.0);
+        println!("    Control type: {}", ctrl_type.0);
     }
 
+    let t2 = Instant::now();
     let saved_caret: Option<IUIAutomationTextRange> =
         if let Ok(pattern) = focused.GetCurrentPatternAs::<IUIAutomationTextPattern2>(UIA_TextPattern2Id) {
-            println!("  TextPattern2: SUPPORTED");
+            let pattern_time = t2.elapsed();
+            let t3 = Instant::now();
             let mut is_active = BOOL::default();
             if let Ok(range) = pattern.GetCaretRange(&mut is_active) {
-                println!("  Caret active: {}", is_active.as_bool());
-                range.Clone().ok()
+                let caret_time = t3.elapsed();
+                let t4 = Instant::now();
+                let cloned = range.Clone().ok();
+                println!("  - GetCurrentPatternAs<TextPattern2>: {:?}", pattern_time);
+                println!("  - GetCaretRange: {:?} (active: {})", caret_time, is_active.as_bool());
+                println!("  - Clone: {:?}", t4.elapsed());
+                cloned
             } else {
+                println!("  - GetCurrentPatternAs<TextPattern2>: {:?}", pattern_time);
+                println!("  - GetCaretRange: FAILED");
                 None
             }
         } else {
@@ -83,10 +95,44 @@ unsafe fn test_simple_save_restore() {
 
     println!("  Save time: {:?}", save_start.elapsed());
 
-    // === SIMULATE WORK (just print, no new windows) ===
-    println!("\n=== SIMULATING AUTOMATION WORK ===");
-    println!("  (In real use, this would type into another window)");
-    thread::sleep(Duration::from_secs(2));
+    // === TYPE INTO NOTEPAD ===
+    println!("\n=== TYPING INTO NOTEPAD ===");
+
+    // Spawn a new Notepad instance and type into it
+    use std::process::Command;
+    let _ = Command::new("notepad.exe").spawn();
+    thread::sleep(Duration::from_millis(1000)); // Wait for Notepad to open
+
+    // Find the Notepad window and bring to front
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, SetForegroundWindow};
+    use windows::core::w;
+
+    // Win11 Notepad class name
+    let notepad_hwnd = FindWindowW(w!("Notepad"), None)
+        .ok()
+        .filter(|h| *h != HWND(std::ptr::null_mut()));
+
+    if let Some(hwnd) = notepad_hwnd {
+        let _ = SetForegroundWindow(hwnd);
+        thread::sleep(Duration::from_millis(300));
+
+        // Click in the center of the window to focus the text area
+        let mut rect = windows::Win32::Foundation::RECT::default();
+        let _ = windows::Win32::UI::WindowsAndMessaging::GetWindowRect(hwnd, &mut rect);
+        let center_x = (rect.left + rect.right) / 2;
+        let center_y = (rect.top + rect.bottom) / 2;
+
+        // Click to focus the text area
+        click_at(center_x, center_y);
+        thread::sleep(Duration::from_millis(200));
+
+        type_text("<<AUTOMATION TYPED THIS>>");
+        println!("  Typed into Notepad at ({}, {})!", center_x, center_y);
+    } else {
+        println!("  No Notepad found, skipping type");
+    }
+    thread::sleep(Duration::from_millis(500));
 
     // Move mouse to prove it changed
     let _ = SetCursorPos(100, 100);
@@ -97,21 +143,24 @@ unsafe fn test_simple_save_restore() {
     let restore_start = Instant::now();
 
     // Restore focus
+    let t5 = Instant::now();
     let _ = focused.SetFocus();
-    println!("  Focus restored");
+    println!("  - SetFocus: {:?}", t5.elapsed());
 
     // Restore caret if we have it
     if let Some(ref range) = saved_caret {
-        thread::sleep(Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(50)); // let focus settle
+        let t6 = Instant::now();
         let _ = range.Select();
-        println!("  Caret restored");
+        println!("  - Select (caret restore): {:?}", t6.elapsed());
     }
 
     // Restore mouse
+    let t7 = Instant::now();
     let _ = SetCursorPos(saved_mouse.x, saved_mouse.y);
-    println!("  Mouse restored to ({}, {})", saved_mouse.x, saved_mouse.y);
+    println!("  - SetCursorPos: {:?} -> ({}, {})", t7.elapsed(), saved_mouse.x, saved_mouse.y);
 
-    println!("  Restore time: {:?}", restore_start.elapsed());
+    println!("  Total restore: {:?} (includes 50ms settle delay)", restore_start.elapsed());
     println!("\n=== DONE ===");
 }
 
