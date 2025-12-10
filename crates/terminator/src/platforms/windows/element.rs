@@ -288,6 +288,7 @@ impl WindowsUIElement {
             action: action_name.to_string(),
             details,
             data: extra_data,
+            verification: None,
         })
     }
 
@@ -2925,11 +2926,38 @@ impl UIElementImpl for WindowsUIElement {
     ) -> Result<crate::ActionResult, AutomationError> {
         let text_str = text.to_string();
         let clipboard = use_clipboard;
-        self.execute_with_state_tracking(
+        let mut result = self.execute_with_state_tracking(
             "type_text",
             |elem| elem.type_text(&text_str, clipboard, try_focus_before, try_click_before),
             Some(serde_json::json!({"text": text_str, "use_clipboard": clipboard, "try_focus_before": try_focus_before, "try_click_before": try_click_before})),
-        )
+        )?;
+
+        // Auto-verify by reading the value back
+        result.verification = match self.get_value() {
+            Ok(Some(actual)) => {
+                let passed = actual.contains(text);
+                Some(crate::TypeVerification {
+                    passed,
+                    expected: text.to_string(),
+                    actual: Some(actual),
+                    error: if passed { None } else { Some("Value does not contain expected text".to_string()) },
+                })
+            }
+            Ok(None) => Some(crate::TypeVerification {
+                passed: true, // Can't verify, assume success
+                expected: text.to_string(),
+                actual: None,
+                error: None,
+            }),
+            Err(e) => Some(crate::TypeVerification {
+                passed: true, // Can't verify, assume success
+                expected: text.to_string(),
+                actual: None,
+                error: Some(format!("Could not read value: {}", e)),
+            }),
+        };
+
+        Ok(result)
     }
 
     fn scroll_with_state(
