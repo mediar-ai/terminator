@@ -2165,7 +2165,7 @@ fn parse_workflow_content(content: &str) -> anyhow::Result<serde_json::Value> {
     }
 
     // Strategy 2: Try direct YAML workflow
-    if let Ok(val) = serde_yaml::from_str::<serde_json::Value>(content) {
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(content) {
         // Check if it's a valid workflow (has steps field)
         if val.get("steps").is_some() {
             return Ok(val);
@@ -2185,17 +2185,17 @@ fn parse_workflow_content(content: &str) -> anyhow::Result<serde_json::Value> {
     }
 
     // Strategy 4: Try parsing as YAML wrapper first, then extract
-    if let Ok(val) = serde_yaml::from_str::<serde_json::Value>(content) {
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(content) {
         if let Some(extracted) = extract_workflow_from_wrapper(&val)? {
             return Ok(extracted);
         }
     }
 
     Err(anyhow::anyhow!(
-        "Unable to parse content as JSON or YAML workflow or wrapper object. Content must either be:\n\
+        "Unable to parse content as JSON workflow or wrapper object. Content must either be:\n\
         1. A workflow with 'steps' field\n\
         2. A wrapper object with tool_name='execute_sequence' and 'arguments' field\n\
-        3. Valid JSON or YAML format"
+        3. Valid JSON format"
     ))
 }
 

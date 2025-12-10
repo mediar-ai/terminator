@@ -6,7 +6,7 @@ pub mod expression_eval;
 pub mod helpers;
 pub mod mcp_types;
 pub mod omniparser;
-pub mod output_parser;
+
 pub mod prompt;
 pub mod scripting_engine;
 pub mod sentry;
@@ -17,7 +17,7 @@ pub mod tool_logging;
 pub mod tree_formatter;
 pub mod utils;
 pub mod vision;
-pub mod workflow_format;
+
 pub mod workflow_typescript;
 
 // Re-export ui_tree_diff from terminator crate (single source of truth)

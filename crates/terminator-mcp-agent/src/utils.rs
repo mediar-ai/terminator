@@ -1460,16 +1460,6 @@ pub struct ExecuteSequenceArgs {
         description = "Whether to include detailed results from each tool execution (default: true)"
     )]
     pub include_detailed_results: Option<bool>,
-    #[schemars(
-        description = "An optional, structured parser to process the final tool output and extract structured data."
-    )]
-    pub output_parser: Option<serde_json::Value>,
-
-    // Simplified aliases for common parameters (keeping originals for backward compatibility)
-    #[schemars(
-        description = "Simplified alias for 'output_parser'. Processes the final tool output and extracts structured data. Supports JavaScript code or file path."
-    )]
-    pub output: Option<serde_json::Value>,
 
     #[schemars(
         description = "Continue execution on errors. Opposite of stop_on_error. When true, workflow continues even if steps fail (default: false)."
@@ -1778,39 +1768,6 @@ pub fn validate_selectors(selectors: &serde_json::Value) -> Result<(), Validatio
             &format!("{selectors:?}"),
         )),
     }
-}
-
-pub fn validate_output_parser(parser: &serde_json::Value) -> Result<(), ValidationError> {
-    let obj = parser
-        .as_object()
-        .ok_or_else(|| ValidationError::new("output_parser", "object", &format!("{parser:?}")))?;
-
-    // Check required fields
-    if !obj.contains_key("uiTreeJsonPath") {
-        return Err(ValidationError::new(
-            "output_parser.uiTreeJsonPath",
-            "string",
-            "missing",
-        ));
-    }
-
-    if !obj.contains_key("itemContainerDefinition") {
-        return Err(ValidationError::new(
-            "output_parser.itemContainerDefinition",
-            "object",
-            "missing",
-        ));
-    }
-
-    if !obj.contains_key("fieldsToExtract") {
-        return Err(ValidationError::new(
-            "output_parser.fieldsToExtract",
-            "object",
-            "missing",
-        ));
-    }
-
-    Ok(())
 }
 
 // Removed: RunJavascriptArgs (merged into RunCommandArgs via engine + script)

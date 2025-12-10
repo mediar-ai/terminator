@@ -19,8 +19,6 @@ fn test_execute_sequence_args_serialization() {
         }]),
         stop_on_error: Some(false),
         include_detailed_results: Some(true),
-        output_parser: None,
-        output: None,
         r#continue: None,
         verbosity: None,
         variables: None,
@@ -825,7 +823,7 @@ try {
 
     println!("🧪 Testing complete Node.js terminator.js execution...");
 
-    let result = execute_javascript_with_nodejs(test_script.to_string(), None, None).await;
+    let result = execute_javascript_with_nodejs(test_script.to_string(), None, None, None, None, None).await;
 
     match result {
         Ok(value) => {
