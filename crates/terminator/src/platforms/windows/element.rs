@@ -1504,6 +1504,25 @@ impl UIElementImpl for WindowsUIElement {
             .map_err(|e| AutomationError::PlatformError(e.to_string()))
     }
 
+    fn get_value(&self) -> Result<Option<String>, AutomationError> {
+        // Try to get the ValuePattern - if element doesn't support it, return None
+        match self.element.0.get_pattern::<patterns::UIValuePattern>() {
+            Ok(value_pattern) => {
+                match value_pattern.get_value() {
+                    Ok(value) => Ok(Some(value)),
+                    Err(e) => {
+                        debug!("Failed to get value from ValuePattern: {}", e);
+                        Ok(None)
+                    }
+                }
+            }
+            Err(_) => {
+                // Element doesn't support ValuePattern - this is normal for many elements
+                Ok(None)
+            }
+        }
+    }
+
     fn is_enabled(&self) -> Result<bool, AutomationError> {
         self.element
             .0
