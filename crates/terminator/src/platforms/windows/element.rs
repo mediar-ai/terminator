@@ -380,254 +380,20 @@ impl WindowsUIElement {
         }
     }
 
-    // Helper: Execute physical mouse click
-    fn execute_mouse_click(&self, x: f64, y: f64) -> Result<(), AutomationError> {
-        use windows::Win32::UI::Input::KeyboardAndMouse::{
-            SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN,
-            MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE, MOUSEINPUT,
-        };
-        use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
-
-        unsafe {
-            let screen_width = GetSystemMetrics(SM_CXSCREEN) as f64;
-            let screen_height = GetSystemMetrics(SM_CYSCREEN) as f64;
-
-            let abs_x = ((x * 65535.0) / screen_width) as i32;
-            let abs_y = ((y * 65535.0) / screen_height) as i32;
-
-            let inputs = [
-                INPUT {
-                    r#type: INPUT_MOUSE,
-                    Anonymous: INPUT_0 {
-                        mi: MOUSEINPUT {
-                            dx: abs_x,
-                            dy: abs_y,
-                            mouseData: 0,
-                            dwFlags: MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE,
-                            time: 0,
-                            dwExtraInfo: 0,
-                        },
-                    },
-                },
-                INPUT {
-                    r#type: INPUT_MOUSE,
-                    Anonymous: INPUT_0 {
-                        mi: MOUSEINPUT {
-                            dx: abs_x,
-                            dy: abs_y,
-                            mouseData: 0,
-                            dwFlags: MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTDOWN,
-                            time: 0,
-                            dwExtraInfo: 0,
-                        },
-                    },
-                },
-                INPUT {
-                    r#type: INPUT_MOUSE,
-                    Anonymous: INPUT_0 {
-                        mi: MOUSEINPUT {
-                            dx: abs_x,
-                            dy: abs_y,
-                            mouseData: 0,
-                            dwFlags: MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTUP,
-                            time: 0,
-                            dwExtraInfo: 0,
-                        },
-                    },
-                },
-            ];
-
-            let result = SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
-
-            if result != 3 {
-                return Err(AutomationError::PlatformError(format!(
-                    "SendInput sent only {result} of 3 events"
-                )));
-            }
-        }
-
-        Ok(())
+    // Helper: Execute physical mouse click (delegates to shared input module)
+    fn execute_mouse_click(&self, x: f64, y: f64, restore_cursor: bool) -> Result<(), AutomationError> {
+        super::input::send_mouse_click(x, y, crate::ClickType::Left, restore_cursor)
     }
 
-    /// Execute mouse click with specified click type at given coordinates
+    /// Execute mouse click with specified click type at given coordinates (delegates to shared input module)
     fn execute_mouse_click_with_type(
         &self,
         x: f64,
         y: f64,
         click_type: crate::ClickType,
+        restore_cursor: bool,
     ) -> Result<(), AutomationError> {
-        use windows::Win32::UI::Input::KeyboardAndMouse::{
-            SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN,
-            MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
-            MOUSEINPUT,
-        };
-        use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
-
-        unsafe {
-            let screen_width = GetSystemMetrics(SM_CXSCREEN) as f64;
-            let screen_height = GetSystemMetrics(SM_CYSCREEN) as f64;
-
-            let abs_x = ((x * 65535.0) / screen_width) as i32;
-            let abs_y = ((y * 65535.0) / screen_height) as i32;
-
-            // Move to position first
-            let move_input = INPUT {
-                r#type: INPUT_MOUSE,
-                Anonymous: INPUT_0 {
-                    mi: MOUSEINPUT {
-                        dx: abs_x,
-                        dy: abs_y,
-                        mouseData: 0,
-                        dwFlags: MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE,
-                        time: 0,
-                        dwExtraInfo: 0,
-                    },
-                },
-            };
-
-            match click_type {
-                crate::ClickType::Left => {
-                    let inputs = [
-                        move_input,
-                        INPUT {
-                            r#type: INPUT_MOUSE,
-                            Anonymous: INPUT_0 {
-                                mi: MOUSEINPUT {
-                                    dx: abs_x,
-                                    dy: abs_y,
-                                    mouseData: 0,
-                                    dwFlags: MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTDOWN,
-                                    time: 0,
-                                    dwExtraInfo: 0,
-                                },
-                            },
-                        },
-                        INPUT {
-                            r#type: INPUT_MOUSE,
-                            Anonymous: INPUT_0 {
-                                mi: MOUSEINPUT {
-                                    dx: abs_x,
-                                    dy: abs_y,
-                                    mouseData: 0,
-                                    dwFlags: MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTUP,
-                                    time: 0,
-                                    dwExtraInfo: 0,
-                                },
-                            },
-                        },
-                    ];
-                    let result = SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
-                    if result != 3 {
-                        return Err(AutomationError::PlatformError(format!(
-                            "SendInput sent only {result} of 3 events for left click"
-                        )));
-                    }
-                }
-                crate::ClickType::Double => {
-                    // Double click = 2x left click
-                    let inputs = [
-                        move_input,
-                        INPUT {
-                            r#type: INPUT_MOUSE,
-                            Anonymous: INPUT_0 {
-                                mi: MOUSEINPUT {
-                                    dx: abs_x,
-                                    dy: abs_y,
-                                    mouseData: 0,
-                                    dwFlags: MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTDOWN,
-                                    time: 0,
-                                    dwExtraInfo: 0,
-                                },
-                            },
-                        },
-                        INPUT {
-                            r#type: INPUT_MOUSE,
-                            Anonymous: INPUT_0 {
-                                mi: MOUSEINPUT {
-                                    dx: abs_x,
-                                    dy: abs_y,
-                                    mouseData: 0,
-                                    dwFlags: MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTUP,
-                                    time: 0,
-                                    dwExtraInfo: 0,
-                                },
-                            },
-                        },
-                        INPUT {
-                            r#type: INPUT_MOUSE,
-                            Anonymous: INPUT_0 {
-                                mi: MOUSEINPUT {
-                                    dx: abs_x,
-                                    dy: abs_y,
-                                    mouseData: 0,
-                                    dwFlags: MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTDOWN,
-                                    time: 0,
-                                    dwExtraInfo: 0,
-                                },
-                            },
-                        },
-                        INPUT {
-                            r#type: INPUT_MOUSE,
-                            Anonymous: INPUT_0 {
-                                mi: MOUSEINPUT {
-                                    dx: abs_x,
-                                    dy: abs_y,
-                                    mouseData: 0,
-                                    dwFlags: MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTUP,
-                                    time: 0,
-                                    dwExtraInfo: 0,
-                                },
-                            },
-                        },
-                    ];
-                    let result = SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
-                    if result != 5 {
-                        return Err(AutomationError::PlatformError(format!(
-                            "SendInput sent only {result} of 5 events for double click"
-                        )));
-                    }
-                }
-                crate::ClickType::Right => {
-                    let inputs = [
-                        move_input,
-                        INPUT {
-                            r#type: INPUT_MOUSE,
-                            Anonymous: INPUT_0 {
-                                mi: MOUSEINPUT {
-                                    dx: abs_x,
-                                    dy: abs_y,
-                                    mouseData: 0,
-                                    dwFlags: MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_RIGHTDOWN,
-                                    time: 0,
-                                    dwExtraInfo: 0,
-                                },
-                            },
-                        },
-                        INPUT {
-                            r#type: INPUT_MOUSE,
-                            Anonymous: INPUT_0 {
-                                mi: MOUSEINPUT {
-                                    dx: abs_x,
-                                    dy: abs_y,
-                                    mouseData: 0,
-                                    dwFlags: MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_RIGHTUP,
-                                    time: 0,
-                                    dwExtraInfo: 0,
-                                },
-                            },
-                        },
-                    ];
-                    let result = SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
-                    if result != 3 {
-                        return Err(AutomationError::PlatformError(format!(
-                            "SendInput sent only {result} of 3 events for right click"
-                        )));
-                    }
-                }
-            }
-        }
-
-        Ok(())
+        super::input::send_mouse_click(x, y, click_type, restore_cursor)
     }
 }
 
@@ -851,7 +617,7 @@ impl UIElementImpl for WindowsUIElement {
             click_y,
             path_used
         );
-        self.execute_mouse_click(click_x, click_y)?;
+        self.execute_mouse_click(click_x, click_y, false)?;
 
         // PHASE 5: POST-ACTION VERIFICATION
         // Removed 200ms delay - relying on tree capture delay instead
@@ -935,7 +701,7 @@ impl UIElementImpl for WindowsUIElement {
         let _ = self.element.0.try_focus();
 
         // Execute click at position
-        self.execute_mouse_click_with_type(click_x, click_y, click_type)?;
+        self.execute_mouse_click_with_type(click_x, click_y, click_type, false)?;
 
         let click_type_str = match click_type {
             crate::ClickType::Left => "Left",
