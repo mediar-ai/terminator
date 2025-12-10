@@ -2681,12 +2681,20 @@ impl DesktopWrapper {
                 format!("workflow-{}", execution_id_val).into(),
             ));
 
+            // Shared storage for collecting screenshots from events with metadata
+            // (index, timestamp, annotation, element, base64)
+            let collected_screenshots: Arc<
+                std::sync::Mutex<Vec<(usize, String, Option<String>, Option<String>, String)>>,
+            > = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let screenshots_clone = collected_screenshots.clone();
+
             // Spawn task to forward events as MCP notifications
             let peer_clone = peer.clone();
             let progress_token_clone = progress_token.clone();
             let notification_handle = tokio::spawn(async move {
                 let mut step_counter: u32 = 0;
                 let mut total_steps: Option<u32> = None;
+                let mut screenshot_index: usize = 0;
 
                 while let Some(event) = event_rx.recv().await {
                     match event {
@@ -2804,8 +2812,25 @@ impl DesktopWrapper {
                                 .await;
                         }
                         WorkflowEvent::Screenshot {
-                            path, annotation, ..
+                            path,
+                            base64,
+                            annotation,
+                            element,
+                            timestamp,
                         } => {
+                            // Collect base64 screenshots with metadata for inclusion in the result
+                            if let Some(ref b64) = base64 {
+                                if let Ok(mut screenshots) = screenshots_clone.lock() {
+                                    screenshots.push((
+                                        screenshot_index,
+                                        timestamp.clone(),
+                                        annotation.clone(),
+                                        element.clone(),
+                                        b64.clone(),
+                                    ));
+                                    screenshot_index += 1;
+                                }
+                            }
                             let _ = peer_clone
                                 .notify_logging_message(LoggingMessageNotificationParam {
                                     level: LoggingLevel::Info,
@@ -2813,7 +2838,8 @@ impl DesktopWrapper {
                                     data: json!({
                                         "type": "screenshot",
                                         "path": path,
-                                        "annotation": annotation
+                                        "annotation": annotation,
+                                        "index": screenshot_index.saturating_sub(1)
                                     }),
                                 })
                                 .await;
@@ -2900,10 +2926,47 @@ impl DesktopWrapper {
                 logs.extend(result.logs);
             }
 
+            // Build content with JSON response and any collected screenshots
+            // Add screenshot metadata to output for ordering context
+            if let Ok(screenshots) = collected_screenshots.lock() {
+                if !screenshots.is_empty() {
+                    let screenshot_metadata: Vec<serde_json::Value> = screenshots
+                        .iter()
+                        .map(|(idx, ts, annotation, element, _)| {
+                            json!({
+                                "index": idx,
+                                "timestamp": ts,
+                                "annotation": annotation,
+                                "element": element
+                            })
+                        })
+                        .collect();
+                    output["screenshots"] = json!(screenshot_metadata);
+                }
+            }
+
+            let mut contents = vec![Content::text(
+                serde_json::to_string_pretty(&output).unwrap(),
+            )];
+
+            // Append collected screenshots as image content for MCP vision support (in order)
+            if let Ok(screenshots) = collected_screenshots.lock() {
+                for (_, _, _, _, base64_image) in screenshots.iter() {
+                    contents.push(Content::image(
+                        base64_image.clone(),
+                        "image/png".to_string(),
+                    ));
+                }
+                if !screenshots.is_empty() {
+                    info!(
+                        "[execute_sequence] Appended {} screenshots to response",
+                        screenshots.len()
+                    );
+                }
+            }
+
             Ok(CallToolResult {
-                content: vec![Content::text(
-                    serde_json::to_string_pretty(&output).unwrap(),
-                )],
+                content: contents,
                 is_error: Some(result.result.result.status != "success"),
                 meta: None,
                 structured_content: None,

@@ -1,3 +1,4 @@
+use crate::event_pipe::{create_event_channel, WorkflowEvent};
 use crate::execution_logger;
 use crate::helpers::*;
 use crate::scripting_engine;
@@ -3819,13 +3820,42 @@ DATA PASSING:
                     None
                 };
 
+                // Create event channel to collect workflow events (including screenshots)
+                let (event_tx, mut event_rx) = create_event_channel();
+                // Store screenshots with metadata: (index, timestamp, annotation, element, base64)
+                let collected_screenshots: Arc<
+                    std::sync::Mutex<Vec<(usize, String, Option<String>, Option<String>, String)>>,
+                > = Arc::new(std::sync::Mutex::new(Vec::new()));
+                let screenshots_clone = collected_screenshots.clone();
+
+                // Spawn task to collect screenshot events
+                let screenshot_collector = tokio::spawn(async move {
+                    let mut index = 0usize;
+                    while let Some(event) = event_rx.recv().await {
+                        if let WorkflowEvent::Screenshot {
+                            base64: Some(b64),
+                            timestamp,
+                            annotation,
+                            element,
+                            ..
+                        } = event
+                        {
+                            if let Ok(mut screenshots) = screenshots_clone.lock() {
+                                screenshots.push((index, timestamp, annotation, element, b64));
+                                index += 1;
+                            }
+                        }
+                    }
+                });
+
+                let execution_id = format!("run-js-{}", std::process::id());
                 let execution_future = scripting_engine::execute_javascript_with_nodejs(
                     final_script,
                     cancellation_token,
                     script_working_dir,
                     log_buffer.clone(),
-                    None, // event_sender - TODO: wire up from run_command_impl when called via MCP
-                    None, // execution_id
+                    Some(event_tx),
+                    Some(&execution_id),
                 );
 
                 let execution_result = if timeout_ms == 0 {
@@ -3857,6 +3887,9 @@ DATA PASSING:
                         }
                     }
                 };
+
+                // Wait for screenshot collector to finish
+                let _ = screenshot_collector.await;
 
                 // Extract logs, stderr, and actual result
                 let logs = execution_result.get("logs").cloned();
@@ -3926,13 +3959,45 @@ DATA PASSING:
                 span.set_status(true, None);
                 span.end();
 
+                // Build content with JSON response and any collected screenshots
+                // Add screenshot metadata to response for ordering context
+                if let Ok(screenshots) = collected_screenshots.lock() {
+                    if !screenshots.is_empty() {
+                        let screenshot_metadata: Vec<serde_json::Value> = screenshots
+                            .iter()
+                            .map(|(idx, ts, annotation, element, _)| {
+                                json!({
+                                    "index": idx,
+                                    "timestamp": ts,
+                                    "annotation": annotation,
+                                    "element": element
+                                })
+                            })
+                            .collect();
+                        response["screenshots"] = json!(screenshot_metadata);
+                    }
+                }
+
+                let mut contents = vec![Content::json(response)?];
+
+                // Append collected screenshots as image content (in order)
+                if let Ok(screenshots) = collected_screenshots.lock() {
+                    for (_, _, _, _, base64_image) in screenshots.iter() {
+                        contents.push(Content::image(
+                            base64_image.clone(),
+                            "image/png".to_string(),
+                        ));
+                    }
+                    if !screenshots.is_empty() {
+                        info!(
+                            "[run_command] Appended {} screenshots to response",
+                            screenshots.len()
+                        );
+                    }
+                }
+
                 return Ok(CallToolResult::success(
-                    append_monitor_screenshots_if_enabled(
-                        &self.desktop,
-                        vec![Content::json(response)?],
-                        None,
-                    )
-                    .await,
+                    append_monitor_screenshots_if_enabled(&self.desktop, contents, None).await,
                 ));
             } else if is_ts {
                 // Determine the working directory for script execution
@@ -3957,13 +4022,42 @@ DATA PASSING:
                     None
                 };
 
+                // Create event channel to collect workflow events (including screenshots)
+                let (event_tx, mut event_rx) = create_event_channel();
+                // Store screenshots with metadata: (index, timestamp, annotation, element, base64)
+                let collected_screenshots: Arc<
+                    std::sync::Mutex<Vec<(usize, String, Option<String>, Option<String>, String)>>,
+                > = Arc::new(std::sync::Mutex::new(Vec::new()));
+                let screenshots_clone = collected_screenshots.clone();
+
+                // Spawn task to collect screenshot events
+                let screenshot_collector = tokio::spawn(async move {
+                    let mut index = 0usize;
+                    while let Some(event) = event_rx.recv().await {
+                        if let WorkflowEvent::Screenshot {
+                            base64: Some(b64),
+                            timestamp,
+                            annotation,
+                            element,
+                            ..
+                        } = event
+                        {
+                            if let Ok(mut screenshots) = screenshots_clone.lock() {
+                                screenshots.push((index, timestamp, annotation, element, b64));
+                                index += 1;
+                            }
+                        }
+                    }
+                });
+
+                let execution_id = format!("run-ts-{}", std::process::id());
                 let execution_future = scripting_engine::execute_typescript_with_nodejs(
                     final_script,
                     cancellation_token,
                     script_working_dir,
                     log_buffer.clone(),
-                    None, // event_sender - TODO: wire up from run_command_impl when called via MCP
-                    None, // execution_id
+                    Some(event_tx),
+                    Some(&execution_id),
                 );
 
                 let execution_result = if timeout_ms == 0 {
@@ -3995,6 +4089,9 @@ DATA PASSING:
                         }
                     }
                 };
+
+                // Wait for screenshot collector to finish
+                let _ = screenshot_collector.await;
 
                 // Extract logs, stderr, and actual result (same as JS)
                 let logs = execution_result.get("logs").cloned();
@@ -4053,13 +4150,45 @@ DATA PASSING:
                 span.set_status(true, None);
                 span.end();
 
+                // Build content with JSON response and any collected screenshots
+                // Add screenshot metadata to response for ordering context
+                if let Ok(screenshots) = collected_screenshots.lock() {
+                    if !screenshots.is_empty() {
+                        let screenshot_metadata: Vec<serde_json::Value> = screenshots
+                            .iter()
+                            .map(|(idx, ts, annotation, element, _)| {
+                                json!({
+                                    "index": idx,
+                                    "timestamp": ts,
+                                    "annotation": annotation,
+                                    "element": element
+                                })
+                            })
+                            .collect();
+                        response["screenshots"] = json!(screenshot_metadata);
+                    }
+                }
+
+                let mut contents = vec![Content::json(response)?];
+
+                // Append collected screenshots as image content (in order)
+                if let Ok(screenshots) = collected_screenshots.lock() {
+                    for (_, _, _, _, base64_image) in screenshots.iter() {
+                        contents.push(Content::image(
+                            base64_image.clone(),
+                            "image/png".to_string(),
+                        ));
+                    }
+                    if !screenshots.is_empty() {
+                        info!(
+                            "[run_command] Appended {} screenshots to response",
+                            screenshots.len()
+                        );
+                    }
+                }
+
                 return Ok(CallToolResult::success(
-                    append_monitor_screenshots_if_enabled(
-                        &self.desktop,
-                        vec![Content::json(response)?],
-                        None,
-                    )
-                    .await,
+                    append_monitor_screenshots_if_enabled(&self.desktop, contents, None).await,
                 ));
             } else if is_py {
                 // Determine the working directory for script execution
