@@ -172,8 +172,6 @@ pub struct WindowTreeResult {
 /// Options for UI diff capture during action execution
 #[derive(Debug, Clone, Default)]
 pub struct UiDiffOptions {
-    /// Include full tree strings (before/after) in response, not just the diff
-    pub include_full_trees: bool,
     /// Maximum depth for tree capture
     pub max_depth: Option<usize>,
     /// Delay in ms after action for UI to settle (default 1500)
@@ -187,10 +185,6 @@ pub struct UiDiffOptions {
 pub struct UiDiffResult {
     /// The computed diff showing changes (lines starting with + or -)
     pub diff: String,
-    /// Full tree before action (only if include_full_trees was true)
-    pub tree_before: Option<String>,
-    /// Full tree after action (only if include_full_trees was true)
-    pub tree_after: Option<String>,
     /// Whether any UI changes were detected
     pub has_changes: bool,
 }
@@ -1609,16 +1603,6 @@ impl Desktop {
                 );
                 UiDiffResult {
                     diff,
-                    tree_before: if opts.include_full_trees {
-                        Some(before_str)
-                    } else {
-                        None
-                    },
-                    tree_after: if opts.include_full_trees {
-                        Some(after_str)
-                    } else {
-                        None
-                    },
                     has_changes: true,
                 }
             }
@@ -1626,16 +1610,6 @@ impl Desktop {
                 debug!("[ui_diff] No UI changes detected");
                 UiDiffResult {
                     diff: "No UI changes detected".to_string(),
-                    tree_before: if opts.include_full_trees {
-                        Some(before_str)
-                    } else {
-                        None
-                    },
-                    tree_after: if opts.include_full_trees {
-                        Some(after_str)
-                    } else {
-                        None
-                    },
                     has_changes: false,
                 }
             }
@@ -1755,16 +1729,6 @@ impl Desktop {
                 );
                 UiDiffResult {
                     diff,
-                    tree_before: if opts.include_full_trees {
-                        Some(before_str)
-                    } else {
-                        None
-                    },
-                    tree_after: if opts.include_full_trees {
-                        Some(after_str)
-                    } else {
-                        None
-                    },
                     has_changes: true,
                 }
             }
@@ -1772,16 +1736,6 @@ impl Desktop {
                 debug!("[ui_diff] No UI changes detected");
                 UiDiffResult {
                     diff: "No UI changes detected".to_string(),
-                    tree_before: if opts.include_full_trees {
-                        Some(before_str)
-                    } else {
-                        None
-                    },
-                    tree_after: if opts.include_full_trees {
-                        Some(after_str)
-                    } else {
-                        None
-                    },
                     has_changes: false,
                 }
             }
