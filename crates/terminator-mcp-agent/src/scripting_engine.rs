@@ -1,4 +1,4 @@
-﻿use rmcp::ErrorData as McpError;
+use rmcp::ErrorData as McpError;
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -49,10 +49,7 @@ fn find_bundled_bun() -> Option<String> {
     // Check for bun.exe in the same directory as this binary
     let bun_path = exe_dir.join("bun.exe");
     if bun_path.exists() && bun_path.is_file() {
-        info!(
-            "Found bundled bun at: {}",
-            bun_path.display()
-        );
+        info!("Found bundled bun at: {}", bun_path.display());
         return Some(bun_path.to_string_lossy().to_string());
     }
 

@@ -1,0 +1,20 @@
+{
+  "name": "workflow-events-demo",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Demo of workflow event streaming via MCP notifications",
+  "main": "src/workflow.ts",
+  "scripts": {
+    "build": "bun build src/workflow.ts --outdir dist",
+    "client": "bun run src/mcp-client.ts"
+  },
+  "dependencies": {
+    "@mediar-ai/terminator": "^0.23.0",
+    "@mediar-ai/workflow": "^0.1.0",
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.0.0"
+  }
+}

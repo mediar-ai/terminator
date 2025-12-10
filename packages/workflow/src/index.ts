@@ -19,6 +19,18 @@ export {
     NextStepMarker,
 } from "./types";
 
+// Event streaming API
+export { emit, createStepEmitter } from "./events";
+export type {
+    WorkflowEvent,
+    ProgressEvent,
+    StepEvent,
+    ScreenshotEvent,
+    DataEvent,
+    LogEvent,
+    StepEmitter,
+} from "./events";
+
 export type {
     Desktop,
     Locator,
