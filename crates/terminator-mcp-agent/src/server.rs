@@ -2153,16 +2153,12 @@ impl DesktopWrapper {
         span.set_attribute("selector", args.selector.selector.clone());
         span.set_attribute("text.length", args.text_to_type.len().to_string());
         span.set_attribute("clear_before_typing", args.clear_before_typing.to_string());
-        // Log if explicit verification is requested
-        if !args.action.verify_element_exists.is_empty()
-            || !args.action.verify_element_not_exists.is_empty()
-        {
-            span.set_attribute("verification.explicit", "true".to_string());
-        }
-        if let Some(timeout) = args.action.timeout_ms {
+        // Auto-verification is now built into the core library
+        span.set_attribute("verification.auto", "true".to_string());
+        if let Some(timeout) = args.timeout_ms {
             span.set_attribute("timeout_ms", timeout.to_string());
         }
-        if let Some(retries) = args.action.retries {
+        if let Some(retries) = args.retries {
             span.set_attribute("retry.max_attempts", retries.to_string());
         }
 
@@ -2261,8 +2257,8 @@ impl DesktopWrapper {
                 &full_selector,
                 alternative_selectors.as_deref(),
                 fallback_selectors.as_deref(),
-                args.action.timeout_ms,
-                args.action.retries,
+                args.timeout_ms,
+                args.retries,
                 action,
                 args.tree.ui_diff_before_after,
                 args.tree.tree_max_depth,
@@ -2317,44 +2313,29 @@ impl DesktopWrapper {
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
 
-        // POST-ACTION VERIFICATION: Magic auto-verification or explicit verification
-        // 1. If verify_element_exists/not_exists is explicitly set, use selector-based verification
-        // 2. Otherwise, auto-verify using element.get_value() to check typed text
-        // 3. Both empty = auto-verification (checks value property directly)
+        // AUTO-VERIFICATION: Core library handles verification via result.verification
+        // The type_text_with_state function now auto-verifies by reading element value
+        if let Some(ref verification) = result.verification {
+            span.set_attribute("verification.method", "direct_value_read".to_string());
+            span.set_attribute("verification.passed", verification.passed.to_string());
 
-        let should_auto_verify = args.action.verify_element_exists.is_empty()
-            && args.action.verify_element_not_exists.is_empty();
-
-        if should_auto_verify {
-            // MAGIC AUTO-VERIFICATION: Check element's value property directly
-            // This is more reliable than searching for text:X child elements
-            tracing::debug!(
-                "[type_into_element] Auto-verification: checking get_value() contains '{}'",
-                args.text_to_type
-            );
-            span.set_attribute("verification.auto_inferred", "true".to_string());
-
-            let actual_value = element.get_value().unwrap_or(None).unwrap_or_default();
-
-            // Check if the typed text is in the element's value
-            // Use contains() for partial match (handles cases where value has more than just typed text)
-            if !actual_value.contains(&args.text_to_type) {
+            if !verification.passed {
                 tracing::error!(
-                    "[type_into_element] Auto-verification failed: expected value to contain '{}', got '{}'",
-                    args.text_to_type,
-                    actual_value
+                    "[type_into_element] Auto-verification failed: expected '{}', got '{:?}'",
+                    verification.expected,
+                    verification.actual
                 );
-                span.set_attribute("verification.passed", "false".to_string());
                 span.set_status(false, Some("Value verification failed"));
                 span.end();
                 return Err(McpError::internal_error(
                     format!(
                         "Value verification failed: expected value to contain '{}', got '{}'",
-                        args.text_to_type, actual_value
+                        verification.expected,
+                        verification.actual.as_deref().unwrap_or("<none>")
                     ),
                     Some(json!({
-                        "expected_text": args.text_to_type,
-                        "actual_value": actual_value,
+                        "expected_text": verification.expected,
+                        "actual_value": verification.actual,
                         "selector_used": successful_selector,
                     })),
                 ));
@@ -2362,117 +2343,19 @@ impl DesktopWrapper {
 
             tracing::info!(
                 "[type_into_element] Auto-verification passed: value contains '{}'",
-                args.text_to_type
+                verification.expected
             );
-            span.set_attribute("verification.passed", "true".to_string());
-            span.set_attribute("verification.method", "direct_value_read".to_string());
 
             if let Some(obj) = result_json.as_object_mut() {
                 obj.insert(
                     "verification".to_string(),
                     json!({
-                        "passed": true,
+                        "passed": verification.passed,
                         "method": "direct_value_read",
-                        "expected_text": args.text_to_type,
-                        "actual_value": actual_value,
+                        "expected_text": verification.expected,
+                        "actual_value": verification.actual,
                     }),
                 );
-            }
-        } else if !args.action.verify_element_exists.is_empty()
-            || !args.action.verify_element_not_exists.is_empty()
-        {
-            // Explicit verification using selectors
-            span.add_event("verification_started", vec![]);
-
-            let verify_timeout_ms = args.action.verify_timeout_ms.unwrap_or(2000);
-            span.set_attribute("verification.timeout_ms", verify_timeout_ms.to_string());
-
-            // Substitute variables in verification selectors
-            let context = json!({
-                "text_to_type": args.text_to_type,
-                "selector": args.selector.selector,
-            });
-
-            let mut substituted_exists = args.action.verify_element_exists.clone();
-            let mut substituted_not_exists = args.action.verify_element_not_exists.clone();
-
-            if !substituted_exists.is_empty() {
-                let mut val = json!(&substituted_exists);
-                crate::helpers::substitute_variables(&mut val, &context);
-                if let Some(s) = val.as_str() {
-                    substituted_exists = s.to_string();
-                }
-            }
-
-            if !substituted_not_exists.is_empty() {
-                let mut val = json!(&substituted_not_exists);
-                crate::helpers::substitute_variables(&mut val, &context);
-                if let Some(s) = val.as_str() {
-                    substituted_not_exists = s.to_string();
-                }
-            }
-
-            let verify_exists_opt = if substituted_exists.is_empty() {
-                None
-            } else {
-                Some(substituted_exists.as_str())
-            };
-            let verify_not_exists_opt = if substituted_not_exists.is_empty() {
-                None
-            } else {
-                Some(substituted_not_exists.as_str())
-            };
-
-            match crate::helpers::verify_post_action(
-                &self.desktop,
-                &element,
-                verify_exists_opt,
-                verify_not_exists_opt,
-                verify_timeout_ms,
-                &successful_selector,
-            )
-            .await
-            {
-                Ok(verification_result) => {
-                    tracing::info!(
-                        "[type_into_element] Verification passed: method={}, details={}",
-                        verification_result.method,
-                        verification_result.details
-                    );
-                    span.set_attribute("verification.passed", "true".to_string());
-                    span.set_attribute("verification.method", verification_result.method.clone());
-                    span.set_attribute(
-                        "verification.elapsed_ms",
-                        verification_result.elapsed_ms.to_string(),
-                    );
-
-                    let verification_json = json!({
-                        "passed": verification_result.passed,
-                        "method": verification_result.method,
-                        "details": verification_result.details,
-                        "elapsed_ms": verification_result.elapsed_ms,
-                        "timestamp": chrono::Utc::now().to_rfc3339(),
-                    });
-
-                    if let Some(obj) = result_json.as_object_mut() {
-                        obj.insert("verification".to_string(), verification_json);
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("[type_into_element] Verification failed: {}", e);
-                    span.set_attribute("verification.passed", "false".to_string());
-                    span.set_status(false, Some("Verification failed"));
-                    span.end();
-                    return Err(McpError::internal_error(
-                        format!("Post-action verification failed: {e}"),
-                        Some(json!({
-                            "selector_used": successful_selector,
-                            "verify_exists": substituted_exists,
-                            "verify_not_exists": substituted_not_exists,
-                            "timeout_ms": verify_timeout_ms,
-                        })),
-                    ));
-                }
             }
         }
 
