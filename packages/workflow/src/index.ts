@@ -20,7 +20,7 @@ export {
 } from "./types";
 
 // Event streaming API
-export { emit, createStepEmitter } from "./events";
+export { emit, createStepEmitter, _getTransportMode } from "./events";
 export type {
     WorkflowEvent,
     ProgressEvent,

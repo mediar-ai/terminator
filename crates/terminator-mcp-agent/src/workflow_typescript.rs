@@ -5,204 +5,16 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn, Instrument};
 
+use crate::event_pipe::{create_event_channel, try_parse_event, EventPipeServer};
 use crate::execution_logger::CapturedLogEntry;
 use chrono::Utc;
 use rmcp::ErrorData as McpError;
 use std::sync::{Arc, Mutex};
 
-/// Workflow event emitted from TypeScript workflows via stderr
-/// These events are parsed from JSON lines with "__mcp_event__": true
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum WorkflowEvent {
-    /// Progress update - maps to MCP notifications/progress
-    Progress {
-        current: f64,
-        total: Option<f64>,
-        message: Option<String>,
-        timestamp: String,
-    },
-    /// Step lifecycle events
-    StepStarted {
-        #[serde(rename = "stepId")]
-        step_id: String,
-        #[serde(rename = "stepName")]
-        step_name: String,
-        #[serde(rename = "stepIndex")]
-        step_index: Option<u32>,
-        #[serde(rename = "totalSteps")]
-        total_steps: Option<u32>,
-        timestamp: String,
-    },
-    StepCompleted {
-        #[serde(rename = "stepId")]
-        step_id: String,
-        #[serde(rename = "stepName")]
-        step_name: String,
-        duration: Option<u64>,
-        #[serde(rename = "stepIndex")]
-        step_index: Option<u32>,
-        #[serde(rename = "totalSteps")]
-        total_steps: Option<u32>,
-        timestamp: String,
-    },
-    StepFailed {
-        #[serde(rename = "stepId")]
-        step_id: String,
-        #[serde(rename = "stepName")]
-        step_name: String,
-        error: Option<String>,
-        duration: Option<u64>,
-        timestamp: String,
-    },
-    /// Screenshot for visual debugging
-    Screenshot {
-        path: Option<String>,
-        base64: Option<String>,
-        annotation: Option<String>,
-        element: Option<String>,
-        timestamp: String,
-    },
-    /// Custom data event
-    Data {
-        key: String,
-        value: Value,
-        timestamp: String,
-    },
-    /// Structured log message
-    Log {
-        level: String,
-        message: String,
-        data: Option<Value>,
-        timestamp: String,
-    },
-}
-
-/// Raw event structure for parsing (before tag-based deserialization)
-#[derive(Debug, Deserialize)]
-struct RawEvent {
-    #[serde(rename = "__mcp_event__")]
-    is_mcp_event: bool,
-    #[serde(rename = "type")]
-    event_type: String,
-    timestamp: String,
-    // Progress fields
-    current: Option<f64>,
-    total: Option<f64>,
-    message: Option<String>,
-    // Step fields
-    #[serde(rename = "stepId")]
-    step_id: Option<String>,
-    #[serde(rename = "stepName")]
-    step_name: Option<String>,
-    #[serde(rename = "stepIndex")]
-    step_index: Option<u32>,
-    #[serde(rename = "totalSteps")]
-    total_steps: Option<u32>,
-    duration: Option<u64>,
-    error: Option<String>,
-    // Screenshot fields
-    path: Option<String>,
-    base64: Option<String>,
-    annotation: Option<String>,
-    element: Option<String>,
-    // Data fields
-    key: Option<String>,
-    value: Option<Value>,
-    // Log fields
-    level: Option<String>,
-    data: Option<Value>,
-}
-
-impl TryFrom<RawEvent> for WorkflowEvent {
-    type Error = String;
-
-    fn try_from(raw: RawEvent) -> Result<Self, Self::Error> {
-        if !raw.is_mcp_event {
-            return Err("Not an MCP event".to_string());
-        }
-
-        match raw.event_type.as_str() {
-            "progress" => Ok(WorkflowEvent::Progress {
-                current: raw.current.unwrap_or(0.0),
-                total: raw.total,
-                message: raw.message,
-                timestamp: raw.timestamp,
-            }),
-            "step_started" => Ok(WorkflowEvent::StepStarted {
-                step_id: raw.step_id.unwrap_or_default(),
-                step_name: raw.step_name.unwrap_or_default(),
-                step_index: raw.step_index,
-                total_steps: raw.total_steps,
-                timestamp: raw.timestamp,
-            }),
-            "step_completed" => Ok(WorkflowEvent::StepCompleted {
-                step_id: raw.step_id.unwrap_or_default(),
-                step_name: raw.step_name.unwrap_or_default(),
-                duration: raw.duration,
-                step_index: raw.step_index,
-                total_steps: raw.total_steps,
-                timestamp: raw.timestamp,
-            }),
-            "step_failed" => Ok(WorkflowEvent::StepFailed {
-                step_id: raw.step_id.unwrap_or_default(),
-                step_name: raw.step_name.unwrap_or_default(),
-                error: raw.error,
-                duration: raw.duration,
-                timestamp: raw.timestamp,
-            }),
-            "screenshot" => Ok(WorkflowEvent::Screenshot {
-                path: raw.path,
-                base64: raw.base64,
-                annotation: raw.annotation,
-                element: raw.element,
-                timestamp: raw.timestamp,
-            }),
-            "data" => Ok(WorkflowEvent::Data {
-                key: raw.key.unwrap_or_default(),
-                value: raw.value.unwrap_or(Value::Null),
-                timestamp: raw.timestamp,
-            }),
-            "log" => Ok(WorkflowEvent::Log {
-                level: raw.level.unwrap_or_else(|| "info".to_string()),
-                message: raw.message.unwrap_or_default(),
-                data: raw.data,
-                timestamp: raw.timestamp,
-            }),
-            other => Err(format!("Unknown event type: {}", other)),
-        }
-    }
-}
-
-/// Try to parse a line as a workflow event
-/// Returns Some(event) if the line is a valid MCP event JSON, None otherwise
-pub fn try_parse_event(line: &str) -> Option<WorkflowEvent> {
-    // Quick check - MCP events start with {"__mcp_event__":true
-    if !line.trim_start().starts_with("{\"__mcp_event__\":true") {
-        return None;
-    }
-
-    // Try to parse as raw event
-    match serde_json::from_str::<RawEvent>(line) {
-        Ok(raw) => match WorkflowEvent::try_from(raw) {
-            Ok(event) => Some(event),
-            Err(e) => {
-                debug!("Failed to convert raw event: {}", e);
-                None
-            }
-        },
-        Err(e) => {
-            debug!("Failed to parse event JSON: {}", e);
-            None
-        }
-    }
-}
-
-/// Channel sender for workflow events
-pub type EventSender = mpsc::UnboundedSender<WorkflowEvent>;
+// Re-export types for use by other modules
+pub use crate::event_pipe::{EventSender, WorkflowEvent};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum JsRuntime {
@@ -609,27 +421,135 @@ impl TypeScriptWorkflow {
         // Use tokio::process for async stderr streaming with tracing integration
         let runtime = detect_js_runtime();
 
+        // Set up Windows named pipe for event streaming if event_sender is provided
+        #[cfg(windows)]
+        let pipe_server_handle = if event_sender.is_some() {
+            let exec_id = execution_id.unwrap_or("default");
+            let (pipe_tx, mut pipe_rx) = create_event_channel();
+            let pipe_server = EventPipeServer::new(exec_id, pipe_tx);
+            let pipe_name = pipe_server.pipe_name().to_string();
+
+            // Start the pipe server
+            let handle = pipe_server.start().await.map_err(|e| {
+                McpError::internal_error(
+                    format!("Failed to start event pipe server: {e}"),
+                    Some(json!({"error": e.to_string()})),
+                )
+            })?;
+
+            // Spawn a task to forward pipe events to the event_sender
+            let event_sender_clone = event_sender.clone();
+            tokio::spawn(async move {
+                while let Some(event) = pipe_rx.recv().await {
+                    debug!(target: "workflow.event", "Received event from pipe: {:?}", event);
+
+                    // Log events as structured data for OTEL
+                    match &event {
+                        WorkflowEvent::Progress {
+                            current,
+                            total,
+                            message,
+                            ..
+                        } => {
+                            info!(
+                                target: "workflow.event",
+                                event_type = "progress",
+                                current = %current,
+                                total = ?total,
+                                "Progress: {}", message.as_deref().unwrap_or("...")
+                            );
+                        }
+                        WorkflowEvent::StepStarted {
+                            step_id,
+                            step_name,
+                            step_index,
+                            total_steps,
+                            ..
+                        } => {
+                            info!(
+                                target: "workflow.event",
+                                event_type = "step_started",
+                                step_id = %step_id,
+                                step_name = %step_name,
+                                step_index = ?step_index,
+                                total_steps = ?total_steps,
+                                "Step started: {}", step_name
+                            );
+                        }
+                        WorkflowEvent::StepCompleted {
+                            step_id,
+                            step_name,
+                            duration,
+                            ..
+                        } => {
+                            info!(
+                                target: "workflow.event",
+                                event_type = "step_completed",
+                                step_id = %step_id,
+                                step_name = %step_name,
+                                duration_ms = ?duration,
+                                "Step completed: {}", step_name
+                            );
+                        }
+                        WorkflowEvent::StepFailed {
+                            step_id,
+                            step_name,
+                            error,
+                            ..
+                        } => {
+                            error!(
+                                target: "workflow.event",
+                                event_type = "step_failed",
+                                step_id = %step_id,
+                                step_name = %step_name,
+                                error = ?error,
+                                "Step failed: {}", step_name
+                            );
+                        }
+                        WorkflowEvent::Log { level, message, .. } => match level.as_str() {
+                            "error" => error!(target: "workflow.event", "{}", message),
+                            "warn" => warn!(target: "workflow.event", "{}", message),
+                            "debug" => debug!(target: "workflow.event", "{}", message),
+                            _ => info!(target: "workflow.event", "{}", message),
+                        },
+                        _ => {
+                            debug!(target: "workflow.event", "Event: {:?}", event);
+                        }
+                    }
+
+                    // Forward to event_sender
+                    if let Some(ref sender) = event_sender_clone {
+                        if let Err(e) = sender.send(event) {
+                            debug!("Failed to forward workflow event: {}", e);
+                            break;
+                        }
+                    }
+                }
+            });
+
+            Some((handle, pipe_name))
+        } else {
+            None
+        };
+
+        #[cfg(not(windows))]
+        let pipe_server_handle: Option<((), String)> = None;
+
         use std::process::Stdio;
-        let mut child = match runtime {
+        let mut cmd = match runtime {
             JsRuntime::Bun(ref bun_path) => {
                 info!(
                     "Executing workflow with bun: {}/{}",
                     execution_dir.display(),
                     self.entry_file
                 );
-                tokio::process::Command::new(bun_path)
-                    .current_dir(&execution_dir)
+                let mut cmd = tokio::process::Command::new(bun_path);
+                cmd.current_dir(&execution_dir)
                     .arg("--eval")
                     .arg(&exec_script)
-                    .stdout(Stdio::piped()) // Capture stdout for JSON result
-                    .stderr(Stdio::piped()) // Capture stderr for tracing integration
-                    .spawn()
-                    .map_err(|e| {
-                        McpError::internal_error(
-                            format!("Failed to execute workflow with bun: {e}"),
-                            Some(json!({"error": e.to_string()})),
-                        )
-                    })?
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                cmd
             }
             JsRuntime::Node => {
                 info!(
@@ -637,23 +557,31 @@ impl TypeScriptWorkflow {
                     execution_dir.display(),
                     self.entry_file
                 );
-                tokio::process::Command::new("node")
-                    .current_dir(&execution_dir)
+                let mut cmd = tokio::process::Command::new("node");
+                cmd.current_dir(&execution_dir)
                     .arg("--import")
                     .arg("tsx/esm")
                     .arg("--eval")
                     .arg(&exec_script)
-                    .stdout(Stdio::piped()) // Capture stdout for JSON result
-                    .stderr(Stdio::piped()) // Capture stderr for tracing integration
-                    .spawn()
-                    .map_err(|e| {
-                        McpError::internal_error(
-                            format!("Failed to execute workflow with node: {e}"),
-                            Some(json!({"error": e.to_string()})),
-                        )
-                    })?
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                cmd
             }
         };
+
+        // Set the pipe path environment variable if we have a pipe server
+        #[cfg(windows)]
+        if let Some((_, ref pipe_name)) = pipe_server_handle {
+            cmd.env("MCP_EVENT_PIPE", pipe_name);
+            info!("Set MCP_EVENT_PIPE={}", pipe_name);
+        }
+
+        let mut child = cmd.spawn().map_err(|e| {
+            McpError::internal_error(
+                format!("Failed to execute workflow: {e}"),
+                Some(json!({"error": e.to_string()})),
+            )
+        })?;
 
         // Take stderr and spawn a task to stream logs through tracing AND capture them
         // execution_id is passed as a structured field for OpenTelemetry/ClickHouse filtering
@@ -664,83 +592,97 @@ impl TypeScriptWorkflow {
         let captured_logs: Arc<Mutex<Vec<CapturedLogEntry>>> = Arc::new(Mutex::new(Vec::new()));
         let logs_clone = captured_logs.clone();
 
+        // Determine if events are going through pipe (Windows only when event_sender is set)
+        #[cfg(windows)]
+        let events_via_pipe = pipe_server_handle.is_some();
+        #[cfg(not(windows))]
+        let events_via_pipe = false;
+
         let stderr_handle = if let Some(stderr) = stderr {
             Some(tokio::spawn(
                 async move {
                     let reader = BufReader::new(stderr);
                     let mut lines = reader.lines();
                     while let Ok(Some(line)) = lines.next_line().await {
-                        // First, check if this is a workflow event (emit.* from TypeScript)
-                        if let Some(event) = try_parse_event(&line) {
-                            debug!(target: "workflow.event", "Received workflow event: {:?}", event);
+                        // On non-Windows or when pipe is not available, parse events from stderr
+                        // This is kept as a fallback for backwards compatibility
+                        if !events_via_pipe {
+                            if let Some(event) = try_parse_event(&line) {
+                                debug!(target: "workflow.event", "Received workflow event from stderr: {:?}", event);
 
-                            // Send event through channel if sender is available
-                            if let Some(ref sender) = event_sender {
-                                if let Err(e) = sender.send(event.clone()) {
-                                    debug!("Failed to send workflow event: {}", e);
-                                }
-                            }
-
-                            // Also log events as structured data for OTEL
-                            match &event {
-                                WorkflowEvent::Progress { current, total, message, .. } => {
-                                    info!(
-                                        target: "workflow.event",
-                                        event_type = "progress",
-                                        current = %current,
-                                        total = ?total,
-                                        "Progress: {}", message.as_deref().unwrap_or("...")
-                                    );
-                                }
-                                WorkflowEvent::StepStarted { step_id, step_name, step_index, total_steps, .. } => {
-                                    info!(
-                                        target: "workflow.event",
-                                        event_type = "step_started",
-                                        step_id = %step_id,
-                                        step_name = %step_name,
-                                        step_index = ?step_index,
-                                        total_steps = ?total_steps,
-                                        "Step started: {}", step_name
-                                    );
-                                }
-                                WorkflowEvent::StepCompleted { step_id, step_name, duration, .. } => {
-                                    info!(
-                                        target: "workflow.event",
-                                        event_type = "step_completed",
-                                        step_id = %step_id,
-                                        step_name = %step_name,
-                                        duration_ms = ?duration,
-                                        "Step completed: {}", step_name
-                                    );
-                                }
-                                WorkflowEvent::StepFailed { step_id, step_name, error, .. } => {
-                                    error!(
-                                        target: "workflow.event",
-                                        event_type = "step_failed",
-                                        step_id = %step_id,
-                                        step_name = %step_name,
-                                        error = ?error,
-                                        "Step failed: {}", step_name
-                                    );
-                                }
-                                WorkflowEvent::Log { level, message, .. } => {
-                                    match level.as_str() {
-                                        "error" => error!(target: "workflow.event", "{}", message),
-                                        "warn" => warn!(target: "workflow.event", "{}", message),
-                                        "debug" => debug!(target: "workflow.event", "{}", message),
-                                        _ => info!(target: "workflow.event", "{}", message),
+                                // Send event through channel if sender is available
+                                if let Some(ref sender) = event_sender {
+                                    if let Err(e) = sender.send(event.clone()) {
+                                        debug!("Failed to send workflow event: {}", e);
                                     }
                                 }
-                                _ => {
-                                    debug!(target: "workflow.event", "Event: {:?}", event);
-                                }
-                            }
 
-                            // Don't process as a regular log line
+                                // Log events as structured data for OTEL
+                                match &event {
+                                    WorkflowEvent::Progress { current, total, message, .. } => {
+                                        info!(
+                                            target: "workflow.event",
+                                            event_type = "progress",
+                                            current = %current,
+                                            total = ?total,
+                                            "Progress: {}", message.as_deref().unwrap_or("...")
+                                        );
+                                    }
+                                    WorkflowEvent::StepStarted { step_id, step_name, step_index, total_steps, .. } => {
+                                        info!(
+                                            target: "workflow.event",
+                                            event_type = "step_started",
+                                            step_id = %step_id,
+                                            step_name = %step_name,
+                                            step_index = ?step_index,
+                                            total_steps = ?total_steps,
+                                            "Step started: {}", step_name
+                                        );
+                                    }
+                                    WorkflowEvent::StepCompleted { step_id, step_name, duration, .. } => {
+                                        info!(
+                                            target: "workflow.event",
+                                            event_type = "step_completed",
+                                            step_id = %step_id,
+                                            step_name = %step_name,
+                                            duration_ms = ?duration,
+                                            "Step completed: {}", step_name
+                                        );
+                                    }
+                                    WorkflowEvent::StepFailed { step_id, step_name, error, .. } => {
+                                        error!(
+                                            target: "workflow.event",
+                                            event_type = "step_failed",
+                                            step_id = %step_id,
+                                            step_name = %step_name,
+                                            error = ?error,
+                                            "Step failed: {}", step_name
+                                        );
+                                    }
+                                    WorkflowEvent::Log { level, message, .. } => {
+                                        match level.as_str() {
+                                            "error" => error!(target: "workflow.event", "{}", message),
+                                            "warn" => warn!(target: "workflow.event", "{}", message),
+                                            "debug" => debug!(target: "workflow.event", "{}", message),
+                                            _ => info!(target: "workflow.event", "{}", message),
+                                        }
+                                    }
+                                    _ => {
+                                        debug!(target: "workflow.event", "Event: {:?}", event);
+                                    }
+                                }
+
+                                // Don't process as a regular log line
+                                continue;
+                            }
+                        }
+
+                        // Regular log line processing (skip MCP event lines when using pipe)
+                        if events_via_pipe && line.trim_start().starts_with("{\"__mcp_event__\":true") {
+                            // Event went through pipe, skip stderr processing
                             continue;
                         }
 
-                        // Regular log line processing
                         let parsed = parse_log_line(&line);
                         let msg = parsed.message.clone();
 
@@ -881,6 +823,12 @@ impl TypeScriptWorkflow {
                     .collect::<Vec<_>>());
             }
 
+            // Shutdown the pipe server on error (Windows only)
+            #[cfg(windows)]
+            if let Some((handle, _)) = pipe_server_handle {
+                handle.shutdown().await;
+            }
+
             return Err(McpError::internal_error(error_message, Some(error_data)));
         }
 
@@ -929,6 +877,12 @@ impl TypeScriptWorkflow {
         // Clean up temporary directory if used
         if let Some(temp_dir) = temp_dir_guard {
             cleanup_temp_dir(&temp_dir);
+        }
+
+        // Shutdown the pipe server (Windows only)
+        #[cfg(windows)]
+        if let Some((handle, _)) = pipe_server_handle {
+            handle.shutdown().await;
         }
 
         // Wait for stderr handler to finish (with short timeout)

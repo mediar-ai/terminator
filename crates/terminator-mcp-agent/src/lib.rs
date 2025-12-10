@@ -1,5 +1,6 @@
 pub mod cancellation;
 pub mod duration_parser;
+pub mod event_pipe;
 pub mod execution_logger;
 pub mod expression_eval;
 pub mod helpers;

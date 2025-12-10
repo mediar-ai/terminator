@@ -2,7 +2,7 @@
  * Workflow Events System
  *
  * Enables TypeScript workflows to emit real-time events that are:
- * 1. Captured by the MCP agent's stderr parser
+ * 1. Sent via Windows named pipe to the MCP agent
  * 2. Forwarded as MCP notifications to connected clients
  * 3. Included in the final workflow result for post-execution analysis
  *
@@ -27,8 +27,8 @@
  * ```
  */
 
-// Event type discriminator for Rust-side parsing
-const EVENT_PREFIX = '__mcp_event__';
+import * as fs from 'fs';
+import * as net from 'net';
 
 /**
  * Base event structure - all events extend this
@@ -111,17 +111,104 @@ type EventPayload = {
 };
 
 /**
- * Internal: Emit an event to stderr for MCP agent to capture
+ * Event transport - handles sending events to the MCP agent
  */
-function emitEvent(event: EventPayload): void {
-    const fullEvent = {
-        __mcp_event__: true as const,
-        timestamp: new Date().toISOString(),
-        ...event,
-    };
-    // Write to stderr as JSON - the Rust side parses lines starting with {"__mcp_event__":true
-    console.error(JSON.stringify(fullEvent));
+class EventTransport {
+    private pipeStream: fs.WriteStream | null = null;
+    private pipePath: string | null = null;
+    private connectionAttempted = false;
+    private useStderr = false;
+
+    constructor() {
+        // Get pipe path from environment
+        this.pipePath = process.env.MCP_EVENT_PIPE || null;
+
+        // If no pipe path, fall back to stderr (for backward compatibility)
+        if (!this.pipePath) {
+            this.useStderr = true;
+        }
+    }
+
+    /**
+     * Connect to the named pipe (lazy connection on first write)
+     */
+    private connect(): boolean {
+        if (this.useStderr) {
+            return true;
+        }
+
+        if (this.pipeStream) {
+            return true;
+        }
+
+        if (this.connectionAttempted) {
+            return false;
+        }
+
+        this.connectionAttempted = true;
+
+        try {
+            // Open the named pipe for writing
+            this.pipeStream = fs.createWriteStream(this.pipePath!, { flags: 'w' });
+
+            this.pipeStream.on('error', (err) => {
+                console.error(`[workflow-events] Pipe error: ${err.message}`);
+                this.pipeStream = null;
+                this.useStderr = true;
+            });
+
+            return true;
+        } catch (err: any) {
+            console.error(`[workflow-events] Failed to connect to pipe: ${err.message}`);
+            this.useStderr = true;
+            return false;
+        }
+    }
+
+    /**
+     * Send an event
+     */
+    send(event: EventPayload): void {
+        const fullEvent = {
+            __mcp_event__: true as const,
+            timestamp: new Date().toISOString(),
+            ...event,
+        };
+
+        const json = JSON.stringify(fullEvent) + '\n';
+
+        if (this.useStderr || !this.connect()) {
+            // Fall back to stderr
+            process.stderr.write(json);
+            return;
+        }
+
+        try {
+            this.pipeStream!.write(json);
+        } catch (err: any) {
+            // Fall back to stderr on write error
+            process.stderr.write(json);
+        }
+    }
+
+    /**
+     * Close the transport
+     */
+    close(): void {
+        if (this.pipeStream) {
+            this.pipeStream.end();
+            this.pipeStream = null;
+        }
+    }
 }
+
+// Global transport instance
+const transport = new EventTransport();
+
+// Cleanup on process exit
+process.on('exit', () => transport.close());
+process.on('SIGINT', () => { transport.close(); process.exit(0); });
+process.on('SIGTERM', () => { transport.close(); process.exit(0); });
 
 /**
  * Event emitter with typed methods for great DX
@@ -154,28 +241,28 @@ export const emit = {
      * @param message - Human-readable progress message
      */
     progress(current: number, total?: number, message?: string): void {
-        emitEvent({ type: 'progress', current, total, message });
+        transport.send({ type: 'progress', current, total, message });
     },
 
     /**
      * Emit a step started event (usually called automatically by the runner)
      */
     stepStarted(stepId: string, stepName: string, stepIndex?: number, totalSteps?: number): void {
-        emitEvent({ type: 'step_started', stepId, stepName, stepIndex, totalSteps });
+        transport.send({ type: 'step_started', stepId, stepName, stepIndex, totalSteps });
     },
 
     /**
      * Emit a step completed event (usually called automatically by the runner)
      */
     stepCompleted(stepId: string, stepName: string, duration: number, stepIndex?: number, totalSteps?: number): void {
-        emitEvent({ type: 'step_completed', stepId, stepName, duration, stepIndex, totalSteps });
+        transport.send({ type: 'step_completed', stepId, stepName, duration, stepIndex, totalSteps });
     },
 
     /**
      * Emit a step failed event (usually called automatically by the runner)
      */
     stepFailed(stepId: string, stepName: string, error: string, duration: number): void {
-        emitEvent({ type: 'step_failed', stepId, stepName, error, duration });
+        transport.send({ type: 'step_failed', stepId, stepName, error, duration });
     },
 
     /**
@@ -186,7 +273,7 @@ export const emit = {
      */
     screenshot(pathOrBase64: string, annotation?: string, element?: string): void {
         const isBase64 = pathOrBase64.startsWith('data:') || pathOrBase64.length > 500;
-        emitEvent({
+        transport.send({
             type: 'screenshot',
             ...(isBase64 ? { base64: pathOrBase64 } : { path: pathOrBase64 }),
             annotation,
@@ -200,7 +287,7 @@ export const emit = {
      * @param value - Any JSON-serializable value
      */
     data(key: string, value: any): void {
-        emitEvent({ type: 'data', key, value });
+        transport.send({ type: 'data', key, value });
     },
 
     /**
@@ -210,14 +297,14 @@ export const emit = {
      * @param data - Optional additional data
      */
     log(level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: any): void {
-        emitEvent({ type: 'log', level, message, data });
+        transport.send({ type: 'log', level, message, data });
     },
 
     /**
      * Emit a raw event (for advanced use cases)
      */
     raw(event: Omit<WorkflowEvent, '__mcp_event__' | 'timestamp'>): void {
-        emitEvent(event);
+        transport.send(event);
     },
 };
 
@@ -269,3 +356,11 @@ export function createStepEmitter(stepId: string, stepName: string, stepIndex?: 
 }
 
 export type StepEmitter = ReturnType<typeof createStepEmitter>;
+
+/**
+ * For testing: get the current transport mode
+ * @internal
+ */
+export function _getTransportMode(): 'pipe' | 'stderr' {
+    return process.env.MCP_EVENT_PIPE ? 'pipe' : 'stderr';
+}
