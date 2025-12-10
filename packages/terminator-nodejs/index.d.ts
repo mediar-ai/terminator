@@ -30,6 +30,8 @@ export interface ActionOptions {
   clickPosition?: ClickPosition
   /** Type of click: 'Left', 'Double', or 'Right'. Defaults to 'Left'. */
   clickType?: ClickType
+  /** Whether to restore cursor to original position after click. Defaults to false. */
+  restoreCursor?: boolean
 }
 /** Options for typeText method */
 export interface TypeTextOptions {
