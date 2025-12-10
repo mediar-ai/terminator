@@ -10,6 +10,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "@mediar-ai/terminator": "^0.23.36"
+    "@mediar-ai/terminator": "^0.23.36",
+    "sharp": "^0.34.5"
   }
 }
