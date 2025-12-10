@@ -344,7 +344,7 @@ impl DesktopWrapper {
                 // always-on-top windows that would otherwise cover it
                 // First UI tool in sequence has no previous_process
                 let should_minimize_always_on_top =
-                    window_mgmt_opts.minimize_always_on_top.unwrap_or(true);
+                    window_mgmt_opts.minimize_always_on_top.unwrap_or(false);
                 if should_minimize_always_on_top
                     && (ctx.previous_process.is_none() || !ctx.in_sequence)
                 {
@@ -507,7 +507,7 @@ impl DesktopWrapper {
                 // 3. Minimize Win32 always-on-top windows (if any)
                 // Note: UWP always-on-top windows are not visible via Win32 enumeration
                 let should_minimize_always_on_top =
-                    window_mgmt_opts.minimize_always_on_top.unwrap_or(true);
+                    window_mgmt_opts.minimize_always_on_top.unwrap_or(false);
                 if should_minimize_always_on_top {
                     let always_on_top_windows =
                         self.window_manager.get_always_on_top_windows().await;
@@ -557,12 +557,12 @@ impl DesktopWrapper {
                 if let Some(window) = window {
                     // Minimize always-on-top Win32 windows
                     let should_minimize_always_on_top =
-                        window_mgmt_opts.minimize_always_on_top.unwrap_or(true);
+                        window_mgmt_opts.minimize_always_on_top.unwrap_or(false);
                     if should_minimize_always_on_top {
                         let always_on_top_windows =
                             self.window_manager.get_always_on_top_windows().await;
                         if !always_on_top_windows.is_empty() {
-                            tracing::info!(
+                            tracing::debug!(
                                 "Found {} always-on-top Win32 windows",
                                 always_on_top_windows.len()
                             );
@@ -2716,6 +2716,7 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
 
                 let highlight_before = args.highlight.highlight_before_action;
                 let click_type = args.click_type;
+                let restore_cursor = args.restore_cursor;
                 let action = {
                     let click_position = click_position.clone();
                     move |element: UIElement| {
@@ -2730,24 +2731,15 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                                         + (bounds.2 * click_position.x_percentage as f64 / 100.0);
                                     let y = bounds.1
                                         + (bounds.3 * click_position.y_percentage as f64 / 100.0);
-                                    tracing::debug!("[click_element] Clicking at ({}, {})", x, y);
+                                    tracing::debug!("[click_element] Clicking at ({}, {}), restore_cursor={}", x, y, restore_cursor);
 
-                                    match click_type {
-                                        crate::utils::ClickType::Left => {
-                                            element.mouse_click_and_hold(x, y)?;
-                                            element.mouse_release()?;
-                                        }
-                                        crate::utils::ClickType::Double => {
-                                            element.mouse_click_and_hold(x, y)?;
-                                            element.mouse_release()?;
-                                            element.mouse_click_and_hold(x, y)?;
-                                            element.mouse_release()?;
-                                        }
-                                        crate::utils::ClickType::Right => {
-                                            element.mouse_move(x, y)?;
-                                            element.right_click()?;
-                                        }
-                                    }
+                                    // Use shared click function with restore_cursor support
+                                    let terminator_click_type = match click_type {
+                                        crate::utils::ClickType::Left => terminator::ClickType::Left,
+                                        crate::utils::ClickType::Double => terminator::ClickType::Double,
+                                        crate::utils::ClickType::Right => terminator::ClickType::Right,
+                                    };
+                                    terminator::platforms::windows::send_mouse_click(x, y, terminator_click_type, restore_cursor)?;
 
                                     use terminator::ClickResult;
                                     Ok(ClickResult {
