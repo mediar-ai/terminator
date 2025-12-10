@@ -528,6 +528,9 @@ pub trait UIElementImpl: Send + Sync + Debug {
     }
     fn get_text(&self, max_depth: usize) -> Result<String, AutomationError>;
     fn set_value(&self, value: &str) -> Result<(), AutomationError>;
+    /// Get the current value of this element using the platform's Value pattern.
+    /// Returns None if the element doesn't support the Value pattern.
+    fn get_value(&self) -> Result<Option<String>, AutomationError>;
     fn is_enabled(&self) -> Result<bool, AutomationError>;
     fn is_visible(&self) -> Result<bool, AutomationError>;
     fn is_focused(&self) -> Result<bool, AutomationError>;
@@ -1002,8 +1005,9 @@ impl UIElement {
     }
 
     /// Get the value attribute of this element (text inputs, combo boxes, etc.)
+    /// This fetches the actual value using the platform's Value pattern, not the cached attributes.
     pub fn get_value(&self) -> Result<Option<String>, AutomationError> {
-        Ok(self.inner.attributes().value)
+        self.inner.get_value()
     }
 
     /// Set value of this element
