@@ -8195,14 +8195,7 @@ console.info = function(...args) {
 
         // Try working_directory first (injected by mediar-app or specified by AI)
         if let Some(wd) = working_directory {
-            // Expand known shortcuts to full paths
-            let expanded_wd = match wd {
-                "executions" => execution_logger::get_executions_dir(),
-                "logs" => execution_logger::get_logs_dir(),
-                "workflows" => get_workflows_dir(),
-                "terminator-source" => get_terminator_source_dir(),
-                _ => PathBuf::from(wd),
-            };
+            let expanded_wd = expand_working_directory_shortcut(wd);
             let resolved = expanded_wd.join(path);
             return Ok(resolved);
         }
@@ -8423,7 +8416,7 @@ console.info = function(...args) {
         Parameters(args): Parameters<GlobFilesArgs>,
     ) -> Result<CallToolResult, McpError> {
         let base_dir = match args.working_directory.as_deref() {
-            Some(wd) => PathBuf::from(wd),
+            Some(wd) => expand_working_directory_shortcut(wd),
             None => {
                 let workflow_dir_guard = self.current_workflow_dir.lock().await;
                 match &*workflow_dir_guard {
@@ -8486,7 +8479,7 @@ console.info = function(...args) {
         use std::io::{BufRead, BufReader};
 
         let base_dir = match args.working_directory.as_deref() {
-            Some(wd) => PathBuf::from(wd),
+            Some(wd) => expand_working_directory_shortcut(wd),
             None => {
                 let workflow_dir_guard = self.current_workflow_dir.lock().await;
                 match &*workflow_dir_guard {
@@ -8696,6 +8689,19 @@ fn get_workflows_dir() -> PathBuf {
             .join("workflows")
     }
 }
+
+/// Expand working_directory shortcuts to full paths
+/// Supports: "executions", "logs", "workflows", "terminator-source"
+fn expand_working_directory_shortcut(wd: &str) -> PathBuf {
+    match wd {
+        "executions" => execution_logger::get_executions_dir(),
+        "logs" => execution_logger::get_logs_dir(),
+        "workflows" => get_workflows_dir(),
+        "terminator-source" => get_terminator_source_dir(),
+        _ => PathBuf::from(wd),
+    }
+}
+
 /// Check if terminator source needs to be downloaded/updated
 pub fn check_terminator_source() {
     let source_dir = get_terminator_source_dir();
@@ -9516,6 +9522,12 @@ impl ServerHandler for DesktopWrapper {
             .as_ref()
             .map(|a| serde_json::Value::Object(a.clone()))
             .unwrap_or(serde_json::Value::Null);
+
+        // Reset cancellation state before starting a new tool call (except for stop_execution itself)
+        // This clears any previous stop_execution() so new operations can run
+        if tool_name != "stop_execution" {
+            self.desktop.reset_cancellation();
+        }
 
         // Log request before execution (direct MCP calls have no workflow context)
         let log_ctx = execution_logger::log_request(&tool_name, &arguments, None, None, None);
