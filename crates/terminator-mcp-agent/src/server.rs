@@ -2451,7 +2451,7 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
 
                 match self
                     .desktop
-                    .click_at_coordinates_with_type(x, y, terminator_click_type, false)
+                    .click_at_coordinates_with_type(x, y, terminator_click_type, args.restore_cursor)
                 {
                     Ok(()) => {
                         let ct_str = match args.click_type {
@@ -2635,7 +2635,7 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
                     click_x,
                     click_y,
                     terminator_click_type,
-                    false,
+                    args.restore_cursor,
                 ) {
                     Ok(()) => {
                         let vt_str = format!("{:?}", vision_type).to_lowercase();
