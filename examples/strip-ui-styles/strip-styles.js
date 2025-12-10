@@ -58,7 +58,11 @@
     * {
       font-family: 'Consolas', 'Monaco', 'Courier New', monospace !important;
       font-size: 14px !important;
+      font-weight: normal !important;
+      font-style: normal !important;
       line-height: 1.6 !important;
+      text-transform: none !important;
+      letter-spacing: normal !important;
     }
 
     body {
@@ -78,14 +82,18 @@
     }
 
     h1, h2, h3, h4, h5, h6 {
-      font-weight: bold !important;
-      margin: 1em 0 0.5em 0 !important;
+      font-size: 14px !important;
+      font-weight: normal !important;
+      margin: 0.5em 0 !important;
+      display: inline !important;
     }
 
-    h1 { font-size: 24px !important; }
-    h2 { font-size: 20px !important; }
-    h3 { font-size: 18px !important; }
-    h4, h5, h6 { font-size: 16px !important; }
+    h1::before { content: '# '; }
+    h2::before { content: '## '; }
+    h3::before { content: '### '; }
+    h4::before { content: '#### '; }
+    h5::before { content: '##### '; }
+    h6::before { content: '###### '; }
 
     p, div, span, li {
       margin: 0.5em 0 !important;
@@ -109,9 +117,13 @@
     }
 
     img {
-      max-width: 100% !important;
+      max-width: 1em !important;
+      max-height: 1em !important;
+      width: auto !important;
       height: auto !important;
-      border: 1px solid #ccc !important;
+      display: inline !important;
+      vertical-align: middle !important;
+      border: none !important;
     }
 
     table {
@@ -125,8 +137,18 @@
     }
 
     /* Hide purely decorative elements */
-    svg:not([role]), [aria-hidden="true"]:not(input):not(button):not(a) {
-      opacity: 0.3 !important;
+    svg, [aria-hidden="true"]:not(input):not(button):not(a) {
+      display: none !important;
+    }
+
+    /* Remove background images */
+    * {
+      background-image: none !important;
+      background: transparent !important;
+    }
+
+    body {
+      background: #fafafa !important;
     }
   `;
   document.head.appendChild(baseStyles);
