@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use tracing::{debug, error, info, instrument};
 
 pub mod browser_script;
@@ -347,8 +347,8 @@ type DomBoundsCache = HashMap<u32, (String, String, (f64, f64, f64, f64))>;
 /// The main entry point for UI automation
 pub struct Desktop {
     engine: Arc<dyn platforms::AccessibilityEngine>,
-    /// Cancellation token for stopping execution
-    cancellation_token: CancellationToken,
+    /// Cancellation token for stopping execution (wrapped in RwLock to allow reset)
+    cancellation_token: Arc<RwLock<CancellationToken>>,
     /// Cache for UI Automation tree element bounds (index → bounds info)
     uia_cache: Arc<Mutex<UiaBoundsCache>>,
     /// Cache for OCR element bounds
@@ -367,7 +367,7 @@ impl Desktop {
         let engine = platforms::create_engine(use_background_apps, activate_app)?;
         Ok(Self {
             engine,
-            cancellation_token: CancellationToken::new(),
+            cancellation_token: Arc::new(RwLock::new(CancellationToken::new())),
             uia_cache: Arc::new(Mutex::new(HashMap::new())),
             ocr_cache: Arc::new(Mutex::new(HashMap::new())),
             omniparser_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -1080,9 +1080,10 @@ impl Desktop {
     #[instrument(skip(self, script))]
     pub async fn execute_browser_script(&self, script: &str) -> Result<String, AutomationError> {
         let browser_window = self.engine.get_current_browser_window().await?;
+        let cancel_token = self.cancellation_token();
         tokio::select! {
             result = browser_window.execute_browser_script(script) => result,
-            _ = self.cancellation_token.cancelled() => {
+            _ = cancel_token.cancelled() => {
                 Err(AutomationError::OperationCancelled("Browser script execution cancelled by stop_execution".into()))
             }
         }
@@ -1323,6 +1324,7 @@ impl Desktop {
         });
 
         // Use select to allow cancellation while waiting for all futures
+        let cancel_token = self.cancellation_token();
         tokio::select! {
             results = futures::future::join_all(futures) => {
                 let trees: Vec<UINode> = results
@@ -1339,7 +1341,7 @@ impl Desktop {
 
                 Ok(trees)
             }
-            _ = self.cancellation_token.cancelled() => {
+            _ = cancel_token.cancelled() => {
                 Err(AutomationError::OperationCancelled("get_all_applications_tree cancelled by stop_execution".into()))
             }
         }
@@ -1411,9 +1413,10 @@ impl Desktop {
     /// This method respects cancellation - if `stop_execution()` is called,
     /// the delay will be interrupted and return an error.
     pub async fn delay(&self, delay_ms: u64) -> Result<(), AutomationError> {
+        let cancel_token = self.cancellation_token();
         tokio::select! {
             _ = tokio::time::sleep(std::time::Duration::from_millis(delay_ms)) => Ok(()),
-            _ = self.cancellation_token.cancelled() => {
+            _ = cancel_token.cancelled() => {
                 Err(AutomationError::OperationCancelled("Delay cancelled by stop_execution".into()))
             }
         }
@@ -1458,7 +1461,9 @@ impl Desktop {
     /// ```
     pub fn stop_execution(&self) {
         info!("🛑 Stop execution requested - cancelling all operations");
-        self.cancellation_token.cancel();
+        if let Ok(token) = self.cancellation_token.read() {
+            token.cancel();
+        }
     }
 
     /// Check if execution has been cancelled.
@@ -1476,14 +1481,43 @@ impl Desktop {
     /// }
     /// ```
     pub fn is_cancelled(&self) -> bool {
-        self.cancellation_token.is_cancelled()
+        self.cancellation_token
+            .read()
+            .map(|t| t.is_cancelled())
+            .unwrap_or(false)
     }
 
     /// Get a clone of the cancellation token for use in async operations.
     ///
     /// This allows external code to wait on cancellation or create child tokens.
     pub fn cancellation_token(&self) -> CancellationToken {
-        self.cancellation_token.clone()
+        self.cancellation_token
+            .read()
+            .map(|t| t.clone())
+            .unwrap_or_else(|_| CancellationToken::new())
+    }
+
+    /// Reset the cancellation state, allowing new operations to run.
+    ///
+    /// This should be called at the start of new operations to clear any
+    /// previous cancellation state from `stop_execution()`.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use terminator::Desktop;
+    ///
+    /// let desktop = Desktop::new_default().unwrap();
+    /// desktop.stop_execution(); // Cancel previous operations
+    /// // ... later ...
+    /// desktop.reset_cancellation(); // Allow new operations
+    /// ```
+    pub fn reset_cancellation(&self) {
+        if let Ok(mut token) = self.cancellation_token.write() {
+            if token.is_cancelled() {
+                info!("🔄 Resetting cancellation state for new operations");
+                *token = CancellationToken::new();
+            }
+        }
     }
 
     /// Execute an action on an element with UI diff capture.
