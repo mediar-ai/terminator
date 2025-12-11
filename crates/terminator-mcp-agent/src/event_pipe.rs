@@ -83,6 +83,14 @@ pub enum WorkflowEvent {
         value: Value,
         timestamp: String,
     },
+    /// Status text to display on overlay
+    Status {
+        text: String,
+        #[serde(rename = "durationMs")]
+        duration_ms: Option<u64>,
+        position: Option<String>,
+        timestamp: String,
+    },
     /// Structured log message
     Log {
         level: String,
@@ -175,6 +183,12 @@ impl TryFrom<RawEvent> for WorkflowEvent {
             "data" => Ok(WorkflowEvent::Data {
                 key: raw.key.unwrap_or_default(),
                 value: raw.value.unwrap_or(Value::Null),
+                timestamp: raw.timestamp,
+            }),
+            "status" => Ok(WorkflowEvent::Status {
+                text: raw.message.unwrap_or_default(),
+                duration_ms: raw.duration,
+                position: raw.element,
                 timestamp: raw.timestamp,
             }),
             "log" => Ok(WorkflowEvent::Log {

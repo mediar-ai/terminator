@@ -2844,6 +2844,25 @@ impl DesktopWrapper {
                                 })
                                 .await;
                         }
+                        WorkflowEvent::Status {
+                            text,
+                            duration_ms,
+                            position,
+                            timestamp,
+                        } => {
+                            let _ = peer_clone
+                                .notify_logging_message(LoggingMessageNotificationParam {
+                                    level: LoggingLevel::Info,
+                                    logger: Some("workflow.status".to_string()),
+                                    data: json!({
+                                        "text": text,
+                                        "durationMs": duration_ms,
+                                        "position": position,
+                                        "timestamp": timestamp
+                                    }),
+                                })
+                                .await;
+                        }
                     }
                 }
             });

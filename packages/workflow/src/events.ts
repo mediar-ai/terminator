@@ -315,6 +315,15 @@ export const emit = {
      * @param message - Log message
      * @param data - Optional additional data
      */
+    /**
+     * Show status text on the workflow overlay
+     * @param text - Status message to display
+     * @param durationMs - How long to show (default 3000ms)
+     */
+    status(text: string, durationMs?: number): void {
+        transport.send({ type: 'status', message: text, duration: durationMs });
+    },
+
     log(level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: any): void {
         transport.send({ type: 'log', level, message, data });
     },
@@ -353,6 +362,7 @@ export function createStepEmitter(stepId: string, stepName: string, stepIndex?: 
         progress(current: number, total?: number, message?: string): void {
             emit.progress(current, total, message ? `[${stepName}] ${message}` : `[${stepName}] Step ${current}/${total || '?'}`);
         },
+
         log(level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: any): void {
             emit.log(level, `[${stepName}] ${message}`, data);
         },
@@ -367,6 +377,9 @@ export function createStepEmitter(stepId: string, stepName: string, stepIndex?: 
         },
         completed(duration: number): void {
             emit.stepCompleted(stepId, stepName, duration, stepIndex, totalSteps);
+        },
+        status(text: string, durationMs?: number): void {
+            emit.status(`[${stepName}] ${text}`, durationMs);
         },
         failed(error: string, duration: number): void {
             emit.stepFailed(stepId, stepName, error, duration);
