@@ -1151,6 +1151,11 @@ fn transform_yaml_js_to_sdk(code: &str) -> String {
             .to_string();
     }
 
+    // 6. Transform ::set-env patterns to proper state returns
+    // YAML runtime used: console.log('::set-env name=X::' + value)
+    // SDK needs: return { state: { X: value } }
+    transformed = transform_set_env_to_state_return(transformed);
+
     // Debug log to confirm transformations applied
     if transformed.contains("context.state.") {
         tracing::debug!(
@@ -1159,6 +1164,123 @@ fn transform_yaml_js_to_sdk(code: &str) -> String {
     }
 
     transformed
+}
+
+/// Transform console.log('::set-env name=X::' + value) patterns to state returns
+/// Collects all set-env variables and merges them into a single return { state: {...} }
+fn transform_set_env_to_state_return(code: String) -> String {
+    let mut cleaned = code.clone();
+    let mut state_vars: Vec<(String, String)> = Vec::new();
+
+    // Pattern 1: console.log('::set-env name=X::' + VALUE) or with JSON.stringify
+    if let Ok(pattern1) = regex::Regex::new(
+        r#"console\.log\s*\(\s*['"]::set-env name=(\w+)::['"]\s*\+\s*(?:JSON\.stringify\s*\(\s*)?([^);\n]+?)(?:\s*\))?\s*\)\s*;?"#
+    ) {
+        for cap in pattern1.captures_iter(&code) {
+            let var_name = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let var_value = cap.get(2).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
+            if !var_name.is_empty() && !var_value.is_empty() {
+                state_vars.push((var_name, var_value));
+            }
+        }
+        cleaned = pattern1.replace_all(&cleaned, "").to_string();
+    }
+
+    // Pattern 2: console.log('::set-env name=X::LITERAL') - literal value in same string
+    // e.g., console.log('::set-env name=current_record::{}')
+    if let Ok(pattern2) = regex::Regex::new(
+        r#"console\.log\s*\(\s*['"]::set-env name=(\w+)::([^'"]*)['"]\s*\)\s*;?"#
+    ) {
+        for cap in pattern2.captures_iter(&cleaned) {
+            let var_name = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let var_value = cap.get(2).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
+            if !var_name.is_empty() {
+                // Literal values like {} need to be valid JS
+                let js_value = if var_value.is_empty() || var_value == "{}" {
+                    "{}".to_string()
+                } else {
+                    format!("\"{}\"", var_value) // wrap as string literal
+                };
+                // Only add if not already captured by pattern 1
+                if !state_vars.iter().any(|(n, _)| n == &var_name) {
+                    state_vars.push((var_name, js_value));
+                }
+            }
+        }
+        cleaned = pattern2.replace_all(&cleaned, "").to_string();
+    }
+
+    if state_vars.is_empty() {
+        return code;
+    }
+
+    // Clean up empty lines left behind
+    let empty_lines = regex::Regex::new(r"\n\s*\n\s*\n").unwrap();
+    cleaned = empty_lines.replace_all(&cleaned, "\n\n").to_string();
+
+    // Check if there's already a return { state: ... } statement
+    let has_state_return = cleaned.contains("return { state:")
+        || cleaned.contains("return {state:")
+        || cleaned.contains("return {\n") && cleaned.contains("state:");
+
+    if has_state_return {
+        // Merge set-env vars into existing return statement
+        // Find: return { state: { ... } } and add our vars
+        if let Ok(return_pattern) = regex::Regex::new(r"return\s*\{\s*state:\s*\{([^}]*)\}\s*\}") {
+            if let Some(cap) = return_pattern.captures(&cleaned) {
+                let existing_state = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+                let mut all_vars: Vec<String> = Vec::new();
+
+                // Add set-env vars first
+                for (name, value) in &state_vars {
+                    all_vars.push(format!("{}: {}", name, value));
+                }
+
+                // Add existing vars (if any)
+                let existing_trimmed = existing_state.trim();
+                if !existing_trimmed.is_empty() {
+                    // Check if existing vars conflict with set-env vars
+                    let set_env_names: std::collections::HashSet<_> = state_vars.iter().map(|(n, _)| n.as_str()).collect();
+                    for part in existing_trimmed.split(',') {
+                        let part = part.trim();
+                        if part.is_empty() { continue; }
+                        // Extract var name (before : or just the name if shorthand)
+                        let var_name = part.split(':').next().unwrap_or("").trim();
+                        if !set_env_names.contains(var_name) {
+                            all_vars.push(part.to_string());
+                        }
+                    }
+                }
+
+                let new_state = all_vars.join(", ");
+                let replacement = format!("return {{ state: {{ {} }} }}", new_state);
+                cleaned = return_pattern.replace(&cleaned, replacement.as_str()).to_string();
+            }
+        }
+    } else {
+        // No existing state return - check if there's any return statement
+        let has_return = cleaned.contains("return ");
+
+        if !has_return {
+            // Add return statement at end (before closing brace if in try block)
+            let state_obj = state_vars
+                .iter()
+                .map(|(n, v)| format!("{}: {}", n, v))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            // Find the right place to insert - before the last } or at the end
+            if let Some(last_brace) = cleaned.rfind('}') {
+                let before = &cleaned[..last_brace];
+                let after = &cleaned[last_brace..];
+                cleaned = format!("{}\n    return {{ state: {{ {} }} }};\n{}", before.trim_end(), state_obj, after);
+            } else {
+                cleaned = format!("{}\nreturn {{ state: {{ {} }} }};", cleaned, state_obj);
+            }
+        }
+    }
+
+    cleaned
 }
 
 /// Detect if code looks like shell/PowerShell rather than JavaScript
@@ -1270,17 +1392,8 @@ fn generate_run_command_snippet(args: &Value) -> String {
     // JavaScript/TypeScript - apply API transformations
     let transformed = transform_yaml_js_to_sdk(run);
 
-    // If code needs Node runtime, wrap in runCommand() with the transformed code
-    if needs_node_runtime {
-        let escaped = transformed
-            .replace('\\', "\\\\")
-            .replace('`', "\\`")
-            .replace("${", "\\${"); // Escape template literals but keep ${ for JS
-        return format!(
-            "const result = await desktop.runCommand(`{}`);\nreturn result;",
-            escaped
-        );
-    }
+    // Node.js code runs inline - the SDK execute() function already runs in Node.js
+    // No need for runCommand() which spawns PowerShell on Windows
 
     // Inline JavaScript code with transformations applied
 
@@ -1603,7 +1716,17 @@ const result = await browser.executeBrowserScript({{ file: "{}" }});"#,
     // (function() { ... })()
     // (async function() { ... })()
     // (() => { ... })()
-    let function_body = extract_iife_body(script);
+    let mut function_body = extract_iife_body(script);
+
+    // Transform JSON.parse(env.xxx) -> env.xxx
+    // YAML runtime passed env values as strings, but SDK passes objects directly
+    // So JSON.parse() is no longer needed and would fail with "[object Object]" error
+    if let Ok(json_parse_env) = regex::Regex::new(r"JSON\.parse\s*\(\s*env\.(\w+)\s*\)") {
+        function_body = json_parse_env
+            .replace_all(&function_body, "env.$1")
+            .to_string();
+        tracing::debug!("[browser_script] Transformed JSON.parse(env.xxx) -> env.xxx");
+    }
 
     // Detect if script body references env-related variables
     // These patterns indicate the script expects env to be available
