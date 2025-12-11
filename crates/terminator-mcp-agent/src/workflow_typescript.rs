@@ -1039,9 +1039,47 @@ impl TypeScriptWorkflow {
         // This automatically skips onError when step control options are present
         Ok(format!(
             r#"
-// Redirect console methods to stderr with level prefixes for Rust tracing integration
+// Set up logging transport - uses named pipe if MCP_LOG_PIPE is set, otherwise stderr
+const fs = require('fs');
 const originalLog = console.log;
 const originalError = console.error;
+
+// Log pipe transport
+let logPipe = null;
+let logPipeReady = false;
+const logPipePath = process.env.MCP_LOG_PIPE;
+
+if (logPipePath) {{
+    try {{
+        logPipe = fs.createWriteStream(logPipePath, {{ flags: 'w' }});
+        logPipe.on('error', () => {{ logPipe = null; }});
+        logPipeReady = true;
+    }} catch (e) {{
+        logPipe = null;
+    }}
+}}
+
+// Send structured log entry
+const sendLog = (level, message, data) => {{
+    const entry = {{
+        level,
+        message,
+        timestamp: new Date().toISOString(),
+        ...(data !== undefined && {{ data }})
+    }};
+
+    if (logPipe && logPipeReady) {{
+        try {{
+            logPipe.write(JSON.stringify(entry) + '\n');
+            return;
+        }} catch (e) {{
+            // Fall through to stderr
+        }}
+    }}
+
+    // Fallback to stderr with level prefix
+    originalError(`[${{level.toUpperCase()}}] ${{message}}${{data !== undefined ? ' ' + JSON.stringify(data) : ''}}`);
+}};
 
 // Format args to string for logging
 const formatArgs = (...args) => args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
@@ -1051,13 +1089,16 @@ console.log = (...args) => {{
     if (args.length === 1 && typeof args[0] === 'string' && args[0].startsWith('{{')) {{
         originalLog(...args);
     }} else {{
-        originalError('[INFO]', formatArgs(...args));
+        sendLog('info', formatArgs(...args));
     }}
 }};
-console.info = (...args) => originalError('[INFO]', formatArgs(...args));
-console.warn = (...args) => originalError('[WARN]', formatArgs(...args));
-console.error = (...args) => originalError('[ERROR]', formatArgs(...args));
-console.debug = (...args) => originalError('[DEBUG]', formatArgs(...args));
+console.info = (...args) => sendLog('info', formatArgs(...args));
+console.warn = (...args) => sendLog('warn', formatArgs(...args));
+console.error = (...args) => sendLog('error', formatArgs(...args));
+console.debug = (...args) => sendLog('debug', formatArgs(...args));
+
+// Cleanup on exit
+process.on('exit', () => {{ if (logPipe) logPipe.end(); }});
 
 // Set environment to suppress workflow output if supported
 process.env.WORKFLOW_SILENT = 'true';
