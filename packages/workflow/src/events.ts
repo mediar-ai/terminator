@@ -267,15 +267,34 @@ export const emit = {
 
     /**
      * Emit a screenshot event for visual debugging
-     * @param pathOrBase64 - File path or base64-encoded image data
+     * @param data - File path, base64 string, or ScreenshotResult from capture()
      * @param annotation - Description of what the screenshot shows
      * @param element - Optional element selector that was captured
      */
-    screenshot(pathOrBase64: string, annotation?: string, element?: string): void {
-        const isBase64 = pathOrBase64.startsWith('data:') || pathOrBase64.length > 500;
+    screenshot(data: string | { imageData: number[]; width: number; height: number }, annotation?: string, element?: string): void {
+        let base64Data: string | undefined;
+        let pathData: string | undefined;
+        
+        if (typeof data === 'object' && 'imageData' in data) {
+            // ScreenshotResult object - convert imageData to base64
+            const bytes = new Uint8Array(data.imageData);
+            let binary = '';
+            for (let i = 0; i < bytes.length; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            base64Data = btoa(binary);
+        } else if (typeof data === 'string') {
+            const isBase64 = data.startsWith('data:') || data.length > 500;
+            if (isBase64) {
+                base64Data = data;
+            } else {
+                pathData = data;
+            }
+        }
+        
         transport.send({
             type: 'screenshot',
-            ...(isBase64 ? { base64: pathOrBase64 } : { path: pathOrBase64 }),
+            ...(base64Data ? { base64: base64Data } : { path: pathData }),
             annotation,
             element,
         });
@@ -337,8 +356,8 @@ export function createStepEmitter(stepId: string, stepName: string, stepIndex?: 
         log(level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: any): void {
             emit.log(level, `[${stepName}] ${message}`, data);
         },
-        screenshot(pathOrBase64: string, annotation?: string, element?: string): void {
-            emit.screenshot(pathOrBase64, annotation ? `[${stepName}] ${annotation}` : `[${stepName}] Screenshot`, element);
+        screenshot(data: string | { imageData: number[]; width: number; height: number }, annotation?: string, element?: string): void {
+            emit.screenshot(data, annotation ? `[${stepName}] ${annotation}` : `[${stepName}] Screenshot`, element);
         },
         data(key: string, value: any): void {
             emit.data(`${stepId}.${key}`, value);
