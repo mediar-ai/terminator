@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.39] - 2025-12-10
+
+### Added
+- Workflow: Add screenshot emit test
+- MCP: Add screenshot collection from workflow events with metadata
+- Examples: Add strip-ui-styles example for CSS removal
+- Core: Focus restore tests and strip-styles improvements
+
+### Changed
+- Build: Static VC runtime linking for terminator-nodejs
+- Core: Refactor and debug improvements
+
+### Fixed
+- Clippy warnings and errors
+- Missing trait implementations
+
 ## [0.23.38] - 2025-12-10
 
 ### Added
