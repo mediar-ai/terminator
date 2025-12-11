@@ -2683,6 +2683,7 @@ impl DesktopWrapper {
 
             // Shared storage for collecting screenshots from events with metadata
             // (index, timestamp, annotation, element, base64)
+            #[allow(clippy::type_complexity)]
             let collected_screenshots: Arc<
                 std::sync::Mutex<Vec<(usize, String, Option<String>, Option<String>, String)>>,
             > = Arc::new(std::sync::Mutex::new(Vec::new()));
