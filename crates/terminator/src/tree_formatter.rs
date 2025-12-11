@@ -3,6 +3,8 @@
 //! Provides compact YAML-like formatting for UI trees with indexed elements
 //! for click targeting.
 
+#![allow(clippy::type_complexity)]
+
 use crate::element::{SerializableUIElement, UIElementAttributes};
 use crate::types::{OmniparserItem, VisionElement};
 use crate::OcrElement;
