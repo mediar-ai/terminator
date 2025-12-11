@@ -1622,7 +1622,7 @@ pub struct ReadFileArgs {
     #[schemars(description = "Line number to start reading from (1-indexed). Defaults to 1.")]
     pub offset: Option<usize>,
 
-    #[schemars(description = "Maximum number of lines to read. Defaults to 2000.")]
+    #[schemars(description = "Maximum number of lines to read. Defaults to 100, max 200.")]
     pub limit: Option<usize>,
 }
 
@@ -1652,7 +1652,7 @@ pub struct EditFileArgs {
     pub path: String,
 
     #[schemars(
-        description = "Exact string to find and replace. Must be unique in the file unless replace_all is true."
+        description = "String to find and replace. Can be multi-line - prefer replacing entire functions or code blocks rather than making many small edits. Line endings are normalized for matching. Must be unique in the file unless replace_all is true."
     )]
     pub old_string: String,
 
@@ -1705,6 +1705,66 @@ pub struct GrepFilesArgs {
 
     #[schemars(description = "Maximum number of results to return. Defaults to 50.")]
     pub max_results: Option<usize>,
+
+    #[schemars(
+        description = "Working directory for resolving relative paths. Injected automatically by mediar-app based on focused workflow."
+    )]
+    pub working_directory: Option<String>,
+}
+
+/// Arguments for copying content between files
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CopyContentArgs {
+    #[schemars(description = "Path to the source file to copy content from.")]
+    pub source_path: String,
+
+    #[schemars(description = "Path to the target file to insert/replace content into.")]
+    pub target_path: String,
+
+    #[schemars(
+        description = "How to select content from source. Options: 'lines' (use source_start_line/source_end_line), 'pattern' (use source_start_pattern/source_end_pattern), or 'all' (entire file content)."
+    )]
+    pub source_mode: String,
+
+    #[schemars(
+        description = "Start line number (1-indexed, inclusive). Required when source_mode is 'lines'."
+    )]
+    pub source_start_line: Option<usize>,
+
+    #[schemars(
+        description = "End line number (1-indexed, inclusive). Required when source_mode is 'lines'."
+    )]
+    pub source_end_line: Option<usize>,
+
+    #[schemars(
+        description = "Substring to match start of content (line containing this is included). Required when source_mode is 'pattern'."
+    )]
+    pub source_start_pattern: Option<String>,
+
+    #[schemars(
+        description = "Substring to match end of content (first line containing this after start is included). Required when source_mode is 'pattern'."
+    )]
+    pub source_end_pattern: Option<String>,
+
+    #[schemars(
+        description = "Where to insert in target. Options: 'replace' (replace target_pattern match), 'after' (insert after target_pattern), 'before' (insert before target_pattern), 'at_line' (insert before target_line, pushing existing content down), 'append' (end of file), 'prepend' (start of file)."
+    )]
+    pub target_mode: String,
+
+    #[schemars(
+        description = "Substring to find in target file. Must be unique unless replace_all is true. Required for replace/after/before modes."
+    )]
+    pub target_pattern: Option<String>,
+
+    #[schemars(
+        description = "Replace all occurrences of target_pattern. Defaults to false (requires unique match)."
+    )]
+    pub replace_all: Option<bool>,
+
+    #[schemars(
+        description = "Line number to insert at (1-indexed). Content is inserted before this line. Required when target_mode is 'at_line'."
+    )]
+    pub target_line: Option<usize>,
 
     #[schemars(
         description = "Working directory for resolving relative paths. Injected automatically by mediar-app based on focused workflow."
