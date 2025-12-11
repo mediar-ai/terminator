@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.41] - 2025-12-10
+
+### Added
+- MCP: Scripting engine enhancements
+- Workflow: Add event tests
+
 ## [0.23.40] - 2025-12-10
 
 ### Added
