@@ -327,6 +327,7 @@ fn default_true() -> bool {
 
 // Removed IncludeTreeOption and TreeOptions - now using separate fields
 
+#[allow(clippy::type_complexity)]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct DesktopWrapper {
     #[serde(skip, default = "default_desktop")]
