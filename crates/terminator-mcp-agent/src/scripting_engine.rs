@@ -1048,6 +1048,7 @@ try {{
         log: () => {{}},
         data: () => {{}},
         screenshot: () => {{}},
+        status: () => {{}},
         raw: () => {{}}
     }};
     global.emit = noopEmit;
@@ -2760,6 +2761,9 @@ pub async fn execute_javascript_with_local_bindings(
     // Require the bindings index.js explicitly for maximum compatibility (Node/Bun)
     let bindings_entry_path = local_bindings_path.join("index.js");
     let bindings_abs_path = bindings_entry_path.to_string_lossy().replace('\\', "\\\\");
+    // Also resolve workflow package path (sibling to terminator-nodejs)
+    let workflow_path = local_bindings_path.parent().map(|p| p.join("workflow")).unwrap_or_default();
+    let workflow_abs_path = workflow_path.to_string_lossy().replace('\\', "\\\\");
     let wrapper_script = format!(
         r#"
  const {{ Desktop }} = require("{bindings_abs_path}");
@@ -2768,6 +2772,28 @@ pub async fn execute_javascript_with_local_bindings(
  global.desktop = new Desktop();
  global.log = console.log;
  global.sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+ // Initialize workflow event emitter
+ try {{
+     const {{ emit, createStepEmitter }} = require("{workflow_abs_path}");
+     global.emit = emit;
+     global.createStepEmitter = createStepEmitter;
+ }} catch (e) {{
+     // Workflow package not available - provide no-op fallbacks
+     const noopEmit = {{
+         progress: () => {{}},
+         stepStarted: () => {{}},
+         stepCompleted: () => {{}},
+         stepFailed: () => {{}},
+         log: () => {{}},
+         data: () => {{}},
+         screenshot: () => {{}},
+         status: () => {{}},
+         raw: () => {{}}
+     }};
+     global.emit = noopEmit;
+     global.createStepEmitter = () => ({{ ...noopEmit }});
+ }}
 
  // Execute user script
  (async () => {{

@@ -340,6 +340,17 @@ describe('Events Module', () => {
             const event = JSON.parse(stderrOutput[0]);
             expect(event.annotation).toBe('[Verify] State check');
         });
+
+        it('should prefix status messages with step name', () => {
+            const stepEmit = createStepEmitter('upload', 'Upload');
+
+            stepEmit.status('Uploading files...', 5000);
+
+            const event = JSON.parse(stderrOutput[0]);
+            expect(event.type).toBe('status');
+            expect(event.message).toBe('[Upload] Uploading files...');
+            expect(event.duration).toBe(5000);
+        });
     });
 
     describe('event format', () => {
@@ -379,6 +390,39 @@ describe('Events Module', () => {
             });
 
             expect(() => JSON.parse(stderrOutput[0])).not.toThrow();
+        });
+    });
+
+
+    describe('emit.status', () => {
+        it('should emit status with text only', () => {
+            emit.status('Loading...');
+
+            expect(stderrOutput.length).toBe(1);
+            const event = JSON.parse(stderrOutput[0]);
+
+            expect(event.__mcp_event__).toBe(true);
+            expect(event.type).toBe('status');
+            expect(event.message).toBe('Loading...');
+            expect(event.duration).toBeUndefined();
+            expect(event.timestamp).toBeDefined();
+        });
+
+        it('should emit status with text and duration', () => {
+            emit.status('Processing complete!', 3000);
+
+            const event = JSON.parse(stderrOutput[0]);
+
+            expect(event.type).toBe('status');
+            expect(event.message).toBe('Processing complete!');
+            expect(event.duration).toBe(3000);
+        });
+
+        it('should handle empty status text', () => {
+            emit.status('');
+
+            const event = JSON.parse(stderrOutput[0]);
+            expect(event.message).toBe('');
         });
     });
 
