@@ -2241,9 +2241,16 @@ impl UIElementImpl for WindowsUIElement {
                                option_name, file!(), line!(), e)
                     ))?,
             )
-            .map_err(|e| {
+            .map_err(|_| {
+                // Collect available options to help user find the correct name
+                let available_options = self.collect_dropdown_options(&automation);
+                let options_hint = if available_options.is_empty() {
+                    "No options found - dropdown may not be expanded or has no selectable items.".to_string()
+                } else {
+                    format!("Available options: {}", available_options.join(", "))
+                };
                 AutomationError::ElementNotFound(format!(
-                    "Option '{option_name}' not found in dropdown. Make sure the dropdown is expanded and the option name is exact. Error: {e}"
+                    "Option '{option_name}' not found in dropdown. {options_hint}"
                 ))
             })?;
 
@@ -2765,5 +2772,36 @@ impl UIElementImpl for WindowsUIElement {
 }
 
 impl WindowsUIElement {
-    // No more CDP stuff - using direct browser automation now
+    /// Collect available option names from dropdown descendants (ListItem, MenuItem roles)
+    fn collect_dropdown_options(&self, automation: &UIAutomation) -> Vec<String> {
+        let mut options = Vec::new();
+
+        // Try to find ListItem or MenuItem children which are typical dropdown options
+        if let Ok(true_condition) = automation.create_true_condition() {
+            if let Ok(descendants) = self.element.0.find_all(TreeScope::Descendants, &true_condition) {
+                for item in descendants {
+                    // Check if it's a selectable item (ListItem, MenuItem, etc.)
+                    if let Ok(control_type) = item.get_control_type() {
+                        let is_option = matches!(
+                            control_type,
+                            uiautomation::types::ControlType::ListItem |
+                            uiautomation::types::ControlType::MenuItem |
+                            uiautomation::types::ControlType::TreeItem
+                        );
+                        if is_option {
+                            if let Ok(name) = item.get_name() {
+                                if !name.is_empty() {
+                                    options.push(format!("'{}'", name));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Limit to first 10 to avoid huge error messages
+        options.truncate(10);
+        options
+    }
 }
