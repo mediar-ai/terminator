@@ -1,19 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-
-// Mock the transport
-const mockSend = vi.fn();
-vi.mock('../events', async (importOriginal) => {
-    const actual = await importOriginal() as any;
-    // Override the transport
-    return {
-        ...actual,
-    };
-});
+// Tests for screenshot data handling logic
 
 describe('emit.screenshot', () => {
-    beforeEach(() => {
-        mockSend.mockClear();
-    });
 
     it('should handle string path', () => {
         // Test the logic directly
@@ -98,10 +85,10 @@ describe('emit.screenshot', () => {
             width: 100,
             height: 100,
         };
-        
+
         let base64Data: string | undefined;
-        let pathData: string | undefined;
-        
+
+        // Test object with imageData handling
         if (typeof data === 'object' && 'imageData' in data) {
             const bytes = new Uint8Array(data.imageData);
             let binary = '';
@@ -109,17 +96,9 @@ describe('emit.screenshot', () => {
                 binary += String.fromCharCode(bytes[i]);
             }
             base64Data = btoa(binary);
-        } else if (typeof data === 'string') {
-            const isBase64 = data.startsWith('data:') || data.length > 500;
-            if (isBase64) {
-                base64Data = data;
-            } else {
-                pathData = data;
-            }
         }
 
         expect(base64Data).toBeDefined();
-        expect(pathData).toBeUndefined();
         // Verify it's valid base64
         expect(() => atob(base64Data!)).not.toThrow();
         // Verify the decoded content matches
