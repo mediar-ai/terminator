@@ -4,6 +4,8 @@
 //! are properly collected with metadata (index, timestamp, annotation, element)
 //! and can be returned as MCP image content.
 
+#![allow(clippy::type_complexity)]
+
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 use terminator_mcp_agent::event_pipe::{create_event_channel, WorkflowEvent};
