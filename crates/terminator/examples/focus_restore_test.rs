@@ -9,6 +9,14 @@
 //! 4. Restores focus and caret to original Notepad
 //! 5. Verifies cursor is back where it was
 
+#![allow(
+    dead_code,
+    unused_imports,
+    unused_must_use,
+    clippy::zombie_processes,
+    clippy::to_string_in_format_args
+)]
+
 use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -31,6 +39,7 @@ fn main() {
 #[cfg(target_os = "windows")]
 unsafe fn test_simple_save_restore() {
     use windows::core::BOOL;
+    use windows::Win32::Foundation::POINT;
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
     };
@@ -38,7 +47,6 @@ unsafe fn test_simple_save_restore() {
         CUIAutomation, IUIAutomation, IUIAutomationTextPattern2, IUIAutomationTextRange,
         UIA_TextPattern2Id,
     };
-    use windows::Win32::Foundation::POINT;
     use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, SetCursorPos};
 
     // Initialize COM
@@ -55,11 +63,18 @@ unsafe fn test_simple_save_restore() {
     let t0 = Instant::now();
     let mut saved_mouse = POINT { x: 0, y: 0 };
     let _ = GetCursorPos(&mut saved_mouse);
-    println!("  - GetCursorPos: {:?} -> ({}, {})", t0.elapsed(), saved_mouse.x, saved_mouse.y);
+    println!(
+        "  - GetCursorPos: {:?} -> ({}, {})",
+        t0.elapsed(),
+        saved_mouse.x,
+        saved_mouse.y
+    );
 
     // Save focused element + caret
     let t1 = Instant::now();
-    let focused = automation.GetFocusedElement().expect("GetFocusedElement failed");
+    let focused = automation
+        .GetFocusedElement()
+        .expect("GetFocusedElement failed");
     println!("  - GetFocusedElement: {:?}", t1.elapsed());
 
     if let Ok(name) = focused.CurrentName() {
@@ -70,28 +85,33 @@ unsafe fn test_simple_save_restore() {
     }
 
     let t2 = Instant::now();
-    let saved_caret: Option<IUIAutomationTextRange> =
-        if let Ok(pattern) = focused.GetCurrentPatternAs::<IUIAutomationTextPattern2>(UIA_TextPattern2Id) {
-            let pattern_time = t2.elapsed();
-            let t3 = Instant::now();
-            let mut is_active = BOOL::default();
-            if let Ok(range) = pattern.GetCaretRange(&mut is_active) {
-                let caret_time = t3.elapsed();
-                let t4 = Instant::now();
-                let cloned = range.Clone().ok();
-                println!("  - GetCurrentPatternAs<TextPattern2>: {:?}", pattern_time);
-                println!("  - GetCaretRange: {:?} (active: {})", caret_time, is_active.as_bool());
-                println!("  - Clone: {:?}", t4.elapsed());
-                cloned
-            } else {
-                println!("  - GetCurrentPatternAs<TextPattern2>: {:?}", pattern_time);
-                println!("  - GetCaretRange: FAILED");
-                None
-            }
+    let saved_caret: Option<IUIAutomationTextRange> = if let Ok(pattern) =
+        focused.GetCurrentPatternAs::<IUIAutomationTextPattern2>(UIA_TextPattern2Id)
+    {
+        let pattern_time = t2.elapsed();
+        let t3 = Instant::now();
+        let mut is_active = BOOL::default();
+        if let Ok(range) = pattern.GetCaretRange(&mut is_active) {
+            let caret_time = t3.elapsed();
+            let t4 = Instant::now();
+            let cloned = range.Clone().ok();
+            println!("  - GetCurrentPatternAs<TextPattern2>: {:?}", pattern_time);
+            println!(
+                "  - GetCaretRange: {:?} (active: {})",
+                caret_time,
+                is_active.as_bool()
+            );
+            println!("  - Clone: {:?}", t4.elapsed());
+            cloned
         } else {
-            println!("  TextPattern2: NOT supported (focus-only fallback)");
+            println!("  - GetCurrentPatternAs<TextPattern2>: {:?}", pattern_time);
+            println!("  - GetCaretRange: FAILED");
             None
-        };
+        }
+    } else {
+        println!("  TextPattern2: NOT supported (focus-only fallback)");
+        None
+    };
 
     println!("  Save time: {:?}", save_start.elapsed());
 
@@ -104,9 +124,9 @@ unsafe fn test_simple_save_restore() {
     thread::sleep(Duration::from_millis(1000)); // Wait for Notepad to open
 
     // Find the Notepad window and bring to front
+    use windows::core::w;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, SetForegroundWindow};
-    use windows::core::w;
 
     // Win11 Notepad class name
     let notepad_hwnd = FindWindowW(w!("Notepad"), None)
@@ -158,15 +178,25 @@ unsafe fn test_simple_save_restore() {
     // Restore mouse
     let t7 = Instant::now();
     let _ = SetCursorPos(saved_mouse.x, saved_mouse.y);
-    println!("  - SetCursorPos: {:?} -> ({}, {})", t7.elapsed(), saved_mouse.x, saved_mouse.y);
+    println!(
+        "  - SetCursorPos: {:?} -> ({}, {})",
+        t7.elapsed(),
+        saved_mouse.x,
+        saved_mouse.y
+    );
 
-    println!("  Total restore: {:?} (includes 50ms settle delay)", restore_start.elapsed());
+    println!(
+        "  Total restore: {:?} (includes 50ms settle delay)",
+        restore_start.elapsed()
+    );
     println!("\n=== DONE ===");
 }
 
 #[cfg(target_os = "windows")]
 unsafe fn test_textpattern2_with_mouse_restore() {
+    use windows::core::w;
     use windows::core::BOOL;
+    use windows::Win32::Foundation::{HWND, POINT};
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
     };
@@ -174,12 +204,10 @@ unsafe fn test_textpattern2_with_mouse_restore() {
         CUIAutomation, IUIAutomation, IUIAutomationTextPattern2, IUIAutomationTextRange,
         UIA_TextPattern2Id,
     };
-    use windows::Win32::Foundation::{HWND, POINT};
+    use windows::Win32::UI::Input::KeyboardAndMouse::{VK_HOME, VK_RIGHT};
     use windows::Win32::UI::WindowsAndMessaging::{
         FindWindowW, GetCursorPos, SetCursorPos, SetForegroundWindow, ShowWindow, SW_RESTORE,
     };
-    use windows::Win32::UI::Input::KeyboardAndMouse::{VK_HOME, VK_RIGHT};
-    use windows::core::w;
 
     // Initialize COM
     let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
@@ -189,7 +217,9 @@ unsafe fn test_textpattern2_with_mouse_restore() {
 
     // Step 1: Open Notepad #1 and set up text with caret in middle
     println!("Step 1: Opening Notepad #1, typing text, positioning caret...");
-    Command::new("notepad.exe").spawn().expect("Failed to open notepad");
+    Command::new("notepad.exe")
+        .spawn()
+        .expect("Failed to open notepad");
     thread::sleep(Duration::from_secs(1));
 
     // Activate it
@@ -230,11 +260,16 @@ unsafe fn test_textpattern2_with_mouse_restore() {
     let mut saved_mouse = POINT { x: 0, y: 0 };
     let _ = GetCursorPos(&mut saved_mouse);
     println!("  [TIMING] GetCursorPos: {:?}", t_mouse.elapsed());
-    println!("  [LOG] Mouse saved at: ({}, {})", saved_mouse.x, saved_mouse.y);
+    println!(
+        "  [LOG] Mouse saved at: ({}, {})",
+        saved_mouse.x, saved_mouse.y
+    );
 
     // Save focused element + caret via TextPattern2
     let t_focus = Instant::now();
-    let focused: windows::Win32::UI::Accessibility::IUIAutomationElement = automation.GetFocusedElement().expect("GetFocusedElement failed");
+    let focused: windows::Win32::UI::Accessibility::IUIAutomationElement = automation
+        .GetFocusedElement()
+        .expect("GetFocusedElement failed");
     println!("  [TIMING] GetFocusedElement: {:?}", t_focus.elapsed());
 
     // Debug: print element info
@@ -248,7 +283,10 @@ unsafe fn test_textpattern2_with_mouse_restore() {
     let t_pattern = Instant::now();
     let pattern_result: Result<IUIAutomationTextPattern2, _> =
         focused.GetCurrentPatternAs(UIA_TextPattern2Id);
-    println!("  [TIMING] GetCurrentPatternAs<TextPattern2>: {:?}", t_pattern.elapsed());
+    println!(
+        "  [TIMING] GetCurrentPatternAs<TextPattern2>: {:?}",
+        t_pattern.elapsed()
+    );
 
     let saved_caret_range: Option<IUIAutomationTextRange> = match pattern_result {
         Ok(pattern) => {
@@ -281,7 +319,9 @@ unsafe fn test_textpattern2_with_mouse_restore() {
 
     // === STEP 3: STEAL FOCUS ===
     println!("\nStep 3: Opening Notepad #2 (stealing focus)...");
-    Command::new("notepad.exe").spawn().expect("Failed to open notepad #2");
+    Command::new("notepad.exe")
+        .spawn()
+        .expect("Failed to open notepad #2");
     thread::sleep(Duration::from_millis(800));
     type_text("NOTEPAD #2 - Automation typed here!");
     println!("  [LOG] Typed into Notepad #2");
@@ -305,7 +345,10 @@ unsafe fn test_textpattern2_with_mouse_restore() {
         thread::sleep(Duration::from_millis(50));
         let t_select = Instant::now();
         let _ = range.Select();
-        println!("  [TIMING] Select (restore caret): {:?}", t_select.elapsed());
+        println!(
+            "  [TIMING] Select (restore caret): {:?}",
+            t_select.elapsed()
+        );
     } else {
         println!("  [LOG] No caret range to restore (focus-only fallback)");
     }
@@ -322,22 +365,27 @@ unsafe fn test_textpattern2_with_mouse_restore() {
     println!("Save overhead: {:?}", save_time);
     println!("Restore overhead: {:?}", restore_time);
     println!("\nNotepad #1 should have focus with caret after 'Hello World - '");
-    println!("Mouse cursor should be back at ({}, {})", saved_mouse.x, saved_mouse.y);
+    println!(
+        "Mouse cursor should be back at ({}, {})",
+        saved_mouse.x, saved_mouse.y
+    );
 }
 
 #[cfg(target_os = "windows")]
 unsafe fn test_universal_caret_restore_self_contained() {
     use windows::Win32::Foundation::{HWND, POINT};
+    use windows::Win32::Graphics::Gdi::ClientToScreen;
+    use windows::Win32::UI::Input::KeyboardAndMouse::{VK_HOME, VK_RIGHT};
     use windows::Win32::UI::WindowsAndMessaging::{
         GetCursorPos, GetForegroundWindow, GetGUIThreadInfo, GetWindowThreadProcessId,
         SetCursorPos, SetForegroundWindow, GUITHREADINFO, GUI_CARETBLINKING,
     };
-    use windows::Win32::Graphics::Gdi::ClientToScreen;
-    use windows::Win32::UI::Input::KeyboardAndMouse::{VK_HOME, VK_RIGHT};
 
     // === STEP 1: SETUP Notepad #1 ===
     println!("Step 1: Opening Notepad #1, typing text, positioning caret...");
-    Command::new("notepad.exe").spawn().expect("Failed to open notepad #1");
+    Command::new("notepad.exe")
+        .spawn()
+        .expect("Failed to open notepad #1");
     thread::sleep(Duration::from_millis(800));
 
     // Type test text
@@ -358,7 +406,10 @@ unsafe fn test_universal_caret_restore_self_contained() {
     let original_mouse = POINT { x: 500, y: 500 };
     let _ = SetCursorPos(original_mouse.x, original_mouse.y);
     thread::sleep(Duration::from_millis(100));
-    println!("  [LOG] Mouse positioned at ({}, {})", original_mouse.x, original_mouse.y);
+    println!(
+        "  [LOG] Mouse positioned at ({}, {})",
+        original_mouse.x, original_mouse.y
+    );
 
     // === STEP 2: SAVE ===
     println!("\nStep 2: Saving mouse cursor + caret position...");
@@ -369,7 +420,10 @@ unsafe fn test_universal_caret_restore_self_contained() {
     let mut mouse_pos = POINT { x: 0, y: 0 };
     let _ = GetCursorPos(&mut mouse_pos);
     println!("  [TIMING] GetCursorPos: {:?}", t_mouse.elapsed());
-    println!("  [LOG] Mouse cursor at: ({}, {})", mouse_pos.x, mouse_pos.y);
+    println!(
+        "  [LOG] Mouse cursor at: ({}, {})",
+        mouse_pos.x, mouse_pos.y
+    );
 
     // Get foreground window
     let t_fg = Instant::now();
@@ -395,9 +449,13 @@ unsafe fn test_universal_caret_restore_self_contained() {
     let has_caret = (gui_info.flags.0 & GUI_CARETBLINKING.0) != 0;
     println!("  [LOG] Caret blinking: {}", has_caret);
     println!("  [LOG] Caret window: {:?}", gui_info.hwndCaret);
-    println!("  [LOG] Caret rect (client): left={}, top={}, right={}, bottom={}",
-        gui_info.rcCaret.left, gui_info.rcCaret.top,
-        gui_info.rcCaret.right, gui_info.rcCaret.bottom);
+    println!(
+        "  [LOG] Caret rect (client): left={}, top={}, right={}, bottom={}",
+        gui_info.rcCaret.left,
+        gui_info.rcCaret.top,
+        gui_info.rcCaret.right,
+        gui_info.rcCaret.bottom
+    );
 
     if gui_info.hwndCaret == HWND(std::ptr::null_mut()) {
         println!("  [WARNING] No caret found via GetGUIThreadInfo!");
@@ -412,14 +470,19 @@ unsafe fn test_universal_caret_restore_self_contained() {
         y: gui_info.rcCaret.top,
     };
     let _ = ClientToScreen(gui_info.hwndCaret, &mut caret_screen);
-    println!("  [LOG] Caret position (screen): ({}, {})", caret_screen.x, caret_screen.y);
+    println!(
+        "  [LOG] Caret position (screen): ({}, {})",
+        caret_screen.x, caret_screen.y
+    );
 
     let save_time = total_start.elapsed();
     println!("  [TIMING] Total save: {:?}", save_time);
 
     // === STEP 3: STEAL FOCUS ===
     println!("\nStep 3: Opening Notepad #2 (stealing focus)...");
-    Command::new("notepad.exe").spawn().expect("Failed to open notepad #2");
+    Command::new("notepad.exe")
+        .spawn()
+        .expect("Failed to open notepad #2");
     thread::sleep(Duration::from_millis(800));
     type_text("THIS IS NOTEPAD #2 - Automation typed here!");
     println!("  [LOG] Typed into Notepad #2");
@@ -436,7 +499,10 @@ unsafe fn test_universal_caret_restore_self_contained() {
     // 1. Restore foreground window
     let t_restore_fg = Instant::now();
     let _ = SetForegroundWindow(fg_window);
-    println!("  [TIMING] SetForegroundWindow: {:?}", t_restore_fg.elapsed());
+    println!(
+        "  [TIMING] SetForegroundWindow: {:?}",
+        t_restore_fg.elapsed()
+    );
     thread::sleep(Duration::from_millis(100));
 
     // 2. Click at caret position to restore text cursor
@@ -456,7 +522,10 @@ unsafe fn test_universal_caret_restore_self_contained() {
     println!("Save overhead: {:?}", save_time);
     println!("Restore overhead: {:?}", restore_time);
     println!("\nNotepad #1 should have focus with caret after 'Hello World - '");
-    println!("Mouse cursor should be back at ({}, {})", mouse_pos.x, mouse_pos.y);
+    println!(
+        "Mouse cursor should be back at ({}, {})",
+        mouse_pos.x, mouse_pos.y
+    );
 }
 
 #[cfg(target_os = "windows")]
@@ -521,11 +590,11 @@ fn click_at(x: i32, y: i32) {
 
 #[cfg(target_os = "windows")]
 fn activate_notepad_window() {
+    use windows::core::w;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
         FindWindowW, SetForegroundWindow, ShowWindow, SW_RESTORE,
     };
-    use windows::core::w;
 
     unsafe {
         match FindWindowW(w!("Notepad"), None) {
@@ -543,18 +612,20 @@ fn activate_notepad_window() {
 
 #[cfg(target_os = "windows")]
 unsafe fn test_self_contained() {
+    use windows::core::w;
     use windows::core::BOOL;
+    use windows::Win32::Foundation::HWND;
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
     };
     use windows::Win32::UI::Accessibility::{
         CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern2,
-        IUIAutomationTextRange, UIA_CONTROLTYPE_ID, UIA_TextPattern2Id,
+        IUIAutomationTextRange, UIA_TextPattern2Id, UIA_CONTROLTYPE_ID,
     };
-    use windows::Win32::Foundation::HWND;
-    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, SetForegroundWindow, ShowWindow, SW_RESTORE};
     use windows::Win32::UI::Input::KeyboardAndMouse::{VK_HOME, VK_RIGHT};
-    use windows::core::w;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        FindWindowW, SetForegroundWindow, ShowWindow, SW_RESTORE,
+    };
 
     // Initialize COM
     let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
@@ -564,7 +635,9 @@ unsafe fn test_self_contained() {
 
     // Step 1: Open Notepad #1 and set up text with caret in middle
     println!("Step 1: Opening Notepad #1, typing text, positioning caret...");
-    Command::new("notepad.exe").spawn().expect("Failed to open notepad");
+    Command::new("notepad.exe")
+        .spawn()
+        .expect("Failed to open notepad");
     thread::sleep(Duration::from_secs(1));
 
     // Activate it
@@ -599,7 +672,10 @@ unsafe fn test_self_contained() {
     let notepad1_element: IUIAutomationElement = automation
         .GetFocusedElement()
         .expect("Failed to get focused element");
-    println!("  [TIMING] GetFocusedElement: {:?}", t_get_focused.elapsed());
+    println!(
+        "  [TIMING] GetFocusedElement: {:?}",
+        t_get_focused.elapsed()
+    );
 
     let name = notepad1_element.CurrentName().unwrap_or_default();
     println!("  [LOG] Focused element: '{}'", name.to_string());
@@ -609,7 +685,10 @@ unsafe fn test_self_contained() {
     let t_get_pattern = Instant::now();
     match notepad1_element.GetCurrentPatternAs::<IUIAutomationTextPattern2>(UIA_TextPattern2Id) {
         Ok(text_pattern) => {
-            println!("  [TIMING] GetCurrentPatternAs<TextPattern2>: {:?}", t_get_pattern.elapsed());
+            println!(
+                "  [TIMING] GetCurrentPatternAs<TextPattern2>: {:?}",
+                t_get_pattern.elapsed()
+            );
             println!("  [LOG] Element supports TextPattern2!");
 
             let mut active = BOOL::default();
@@ -636,7 +715,9 @@ unsafe fn test_self_contained() {
 
     // Step 3: Open Notepad #2 and type (simulate automation stealing focus)
     println!("\nStep 3: Opening Notepad #2 and typing (stealing focus)...");
-    Command::new("notepad.exe").spawn().expect("Failed to open notepad");
+    Command::new("notepad.exe")
+        .spawn()
+        .expect("Failed to open notepad");
     thread::sleep(Duration::from_secs(1));
 
     // Get the new notepad (it should have focus)
@@ -666,7 +747,10 @@ unsafe fn test_self_contained() {
         let t_select = Instant::now();
         match range.Select() {
             Ok(_) => {
-                println!("  [TIMING] Select (restore caret): {:?}", t_select.elapsed());
+                println!(
+                    "  [TIMING] Select (restore caret): {:?}",
+                    t_select.elapsed()
+                );
                 println!("  [LOG] Caret restored!");
             }
             Err(e) => println!("  [ERROR] Failed to restore caret: {:?}", e),
@@ -675,7 +759,10 @@ unsafe fn test_self_contained() {
         println!("  [LOG] No caret position saved");
     }
 
-    println!("\n  [TIMING] Save+Restore overhead: {:?}", total_start.elapsed());
+    println!(
+        "\n  [TIMING] Save+Restore overhead: {:?}",
+        total_start.elapsed()
+    );
 
     println!("\n=== Test Complete ===");
     println!("Check Notepad #1 - caret should be after 'Hello World - '");

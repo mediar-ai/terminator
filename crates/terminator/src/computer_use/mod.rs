@@ -646,16 +646,17 @@ impl Desktop {
             }
 
             // 9. Capture new screenshot after action for next iteration
-            let (post_action_screenshot, post_action_url) =
-                match capture_window_for_computer_use(self, process) {
-                    Ok(data) => (data.base64_image, data.browser_url),
-                    Err(e) => {
-                        warn!("[computer_use] Failed to capture post-action screenshot: {}. Skipping previous_actions update.", e);
-                        // Don't fallback to pre-action screenshot - that would confuse Gemini
-                        // Just continue to next iteration without adding to previous_actions
-                        continue;
-                    }
-                };
+            let (post_action_screenshot, post_action_url) = match capture_window_for_computer_use(
+                self, process,
+            ) {
+                Ok(data) => (data.base64_image, data.browser_url),
+                Err(e) => {
+                    warn!("[computer_use] Failed to capture post-action screenshot: {}. Skipping previous_actions update.", e);
+                    // Don't fallback to pre-action screenshot - that would confuse Gemini
+                    // Just continue to next iteration without adding to previous_actions
+                    continue;
+                }
+            };
 
             // 9b. Save post-action screenshot (result of this step's action) - async, non-blocking
             if let Some(ref dir) = executions_dir {

@@ -42,7 +42,6 @@ export class WorkflowRunner {
     } else {
       this.state = {
         context: {
-          data: {},
           state: {},
           variables: this.inputs,
         },
@@ -116,7 +115,7 @@ export class WorkflowRunner {
         // Check for early success return
         if (isWorkflowSuccess(result)) {
           this.logger.success(`✅ Workflow completed early`);
-          this.state.context.data = result.result;
+          this.state.context.state.__result = result.result;
           this.state.lastStepId = step.config.id;
           this.state.lastStepIndex = i;
           return {
@@ -143,6 +142,27 @@ export class WorkflowRunner {
           this.state.lastStepIndex = i;
           i = nextIndex;
           continue;
+        }
+
+        // Process state updates from step result
+        // Steps can return { state: {...}, set_env: {...} } to update context.state
+        if (result && typeof result === 'object') {
+          // Merge result.state into context.state
+          if (result.state && typeof result.state === 'object') {
+            console.log(`[runner] merging result.state keys: ${Object.keys(result.state).join(', ')}`);
+            this.state.context.state = {
+              ...this.state.context.state,
+              ...result.state,
+            };
+          }
+          // Also support set_env (YAML workflow compat) - merge into context.state
+          if (result.set_env && typeof result.set_env === 'object') {
+            console.log(`[runner] merging result.set_env keys: ${Object.keys(result.set_env).join(', ')}`);
+            this.state.context.state = {
+              ...this.state.context.state,
+              ...result.set_env,
+            };
+          }
         }
 
         // Save step result

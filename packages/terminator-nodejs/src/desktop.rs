@@ -203,6 +203,7 @@ impl Desktop {
     /// @param {boolean} [restoreCursor=true] - If true, restore cursor to original position after clicking.
     /// @returns {ClickResult} Result with clicked coordinates and method details.
     #[napi]
+    #[allow(clippy::too_many_arguments)]
     pub fn click_at_bounds(
         &self,
         x: f64,
@@ -693,27 +694,30 @@ impl Desktop {
         }
 
         // Populate DOM cache for click_by_index
-        let cache_items: std::collections::HashMap<u32, (String, String, (f64, f64, f64, f64))> =
-            index_to_bounds
-                .iter()
-                .filter_map(|(key, entry)| {
-                    key.parse::<u32>().ok().map(|idx| {
+        #[allow(clippy::type_complexity)]
+        let cache_items: std::collections::HashMap<
+            u32,
+            (String, String, (f64, f64, f64, f64)),
+        > = index_to_bounds
+            .iter()
+            .filter_map(|(key, entry)| {
+                key.parse::<u32>().ok().map(|idx| {
+                    (
+                        idx,
                         (
-                            idx,
+                            entry.name.clone(),
+                            entry.tag.clone(),
                             (
-                                entry.name.clone(),
-                                entry.tag.clone(),
-                                (
-                                    entry.bounds.x,
-                                    entry.bounds.y,
-                                    entry.bounds.width,
-                                    entry.bounds.height,
-                                ),
+                                entry.bounds.x,
+                                entry.bounds.y,
+                                entry.bounds.width,
+                                entry.bounds.height,
                             ),
-                        )
-                    })
+                        ),
+                    )
                 })
-                .collect();
+            })
+            .collect();
         self.inner.populate_dom_cache(cache_items);
 
         Ok(crate::types::BrowserDomResult {
@@ -768,8 +772,11 @@ impl Desktop {
             .map_err(map_error)?;
 
         // Build UIA bounds cache: HashMap<u32, (role, name, bounds, selector)>
-        let mut uia_bounds: HashMap<u32, (String, String, (f64, f64, f64, f64), Option<String>)> =
-            HashMap::new();
+        #[allow(clippy::type_complexity)]
+        let mut uia_bounds: HashMap<
+            u32,
+            (String, String, (f64, f64, f64, f64), Option<String>),
+        > = HashMap::new();
 
         // Use the formatted result to extract bounds
         let formatted_result = terminator::format_ui_node_as_compact_yaml(&uia_result.tree, 0);
@@ -781,6 +788,7 @@ impl Desktop {
         let is_browser = terminator::is_browser_process(pid);
 
         // Build DOM bounds cache: HashMap<u32, (tag, identifier, bounds)>
+        #[allow(clippy::type_complexity)]
         let mut dom_bounds: HashMap<u32, (String, String, (f64, f64, f64, f64))> = HashMap::new();
 
         if is_browser {
@@ -877,6 +885,7 @@ impl Desktop {
         }
 
         // Empty cache for OCR (not implemented yet)
+        #[allow(clippy::type_complexity)]
         let ocr_bounds: HashMap<u32, (String, (f64, f64, f64, f64))> = HashMap::new();
 
         // Call the core clustering function
@@ -1176,12 +1185,12 @@ impl Desktop {
         let cache_items: HashMap<u32, terminator::VisionElement> = elements
             .iter()
             .enumerate()
-            .filter_map(|(i, elem)| {
+            .map(|(i, elem)| {
                 let box_2d = elem
                     .bounds
                     .as_ref()
                     .map(|b| [b.x, b.y, b.x + b.width, b.y + b.height]);
-                Some((
+                (
                     (i + 1) as u32,
                     terminator::VisionElement {
                         element_type: elem.element_type.clone(),
@@ -1190,7 +1199,7 @@ impl Desktop {
                         box_2d,
                         interactivity: elem.interactivity,
                     },
-                ))
+                )
             })
             .collect();
         self.inner.populate_vision_cache(cache_items);
@@ -1448,19 +1457,19 @@ impl Desktop {
         let cache_items: HashMap<u32, terminator::OmniparserItem> = items
             .iter()
             .enumerate()
-            .filter_map(|(i, item)| {
+            .map(|(i, item)| {
                 let box_2d = item
                     .bounds
                     .as_ref()
                     .map(|b| [b.x, b.y, b.x + b.width, b.y + b.height]);
-                Some((
+                (
                     (i + 1) as u32,
                     terminator::OmniparserItem {
                         label: item.label.clone(),
                         content: item.content.clone(),
                         box_2d,
                     },
-                ))
+                )
             })
             .collect();
         self.inner.populate_omniparser_cache(cache_items);
@@ -1832,8 +1841,11 @@ impl Desktop {
         }
 
         // Build UIA bounds cache from formatted result
-        let mut uia_bounds: HashMap<u32, (String, String, (f64, f64, f64, f64), Option<String>)> =
-            HashMap::new();
+        #[allow(clippy::type_complexity)]
+        let mut uia_bounds: HashMap<
+            u32,
+            (String, String, (f64, f64, f64, f64), Option<String>),
+        > = HashMap::new();
         let uia_tree_result = self
             .inner
             .get_window_tree_result(pid, None, None)
@@ -1844,6 +1856,7 @@ impl Desktop {
         }
 
         // Build DOM bounds cache if requested
+        #[allow(clippy::type_complexity)]
         let mut dom_bounds: HashMap<u32, (String, String, (f64, f64, f64, f64))> = HashMap::new();
         if include_browser_dom && terminator::is_browser_process(pid) {
             if let Ok(dom_result) = self.capture_browser_dom(Some(100), Some(true)).await {
@@ -1918,6 +1931,7 @@ impl Desktop {
         }
 
         // Build OCR cache if requested
+        #[allow(clippy::type_complexity)]
         let mut ocr_bounds: HashMap<u32, (String, (f64, f64, f64, f64))> = HashMap::new();
         if include_ocr {
             if let Ok(ocr_result) = self
@@ -2414,14 +2428,16 @@ impl Desktop {
         on_step: Option<ThreadsafeFunction<ComputerUseStep>>,
     ) -> napi::Result<ComputerUseResult> {
         // Create progress callback if onStep is provided
-        let progress_callback: Option<Box<dyn Fn(&terminator::ComputerUseStep) + Send + Sync>> =
-            on_step.map(|tsfn| {
-                let tsfn = Arc::new(tsfn);
-                Box::new(move |step: &terminator::ComputerUseStep| {
-                    let js_step = ComputerUseStep::from(step.clone());
-                    tsfn.call(Ok(js_step), ThreadsafeFunctionCallMode::NonBlocking);
-                }) as Box<dyn Fn(&terminator::ComputerUseStep) + Send + Sync>
-            });
+        #[allow(clippy::type_complexity)]
+        let progress_callback: Option<
+            Box<dyn Fn(&terminator::ComputerUseStep) + Send + Sync>,
+        > = on_step.map(|tsfn| {
+            let tsfn = Arc::new(tsfn);
+            Box::new(move |step: &terminator::ComputerUseStep| {
+                let js_step = ComputerUseStep::from(step.clone());
+                tsfn.call(Ok(js_step), ThreadsafeFunctionCallMode::NonBlocking);
+            }) as Box<dyn Fn(&terminator::ComputerUseStep) + Send + Sync>
+        });
 
         self.inner
             .gemini_computer_use(&process, &goal, max_steps, progress_callback)

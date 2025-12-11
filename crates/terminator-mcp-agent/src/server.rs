@@ -6,8 +6,8 @@ use crate::telemetry::StepSpan;
 use crate::utils::find_and_execute_with_retry_with_fallback;
 pub use crate::utils::DesktopWrapper;
 use crate::utils::{
-    get_timeout, ActivateElementArgs, CaptureScreenshotArgs, ClickElementArgs, DelayArgs,
-    EditFileArgs, ExecuteBrowserScriptArgs, ExecuteSequenceArgs, GeminiComputerUseArgs,
+    get_timeout, ActivateElementArgs, CaptureScreenshotArgs, ClickElementArgs, CopyContentArgs,
+    DelayArgs, EditFileArgs, ExecuteBrowserScriptArgs, ExecuteSequenceArgs, GeminiComputerUseArgs,
     GetApplicationsArgs, GetWindowTreeArgs, GlobFilesArgs, GlobalKeyArgs, GrepFilesArgs,
     HighlightElementArgs, InvokeElementArgs, MouseDragArgs, NavigateBrowserArgs,
     OpenApplicationArgs, PressKeyArgs, ReadFileArgs, RunCommandArgs, ScrollElementArgs,
@@ -3841,6 +3841,7 @@ DATA PASSING:
                 // Create event channel to collect workflow events (including screenshots)
                 let (event_tx, mut event_rx) = create_event_channel();
                 // Store screenshots with metadata: (index, timestamp, annotation, element, base64)
+                #[allow(clippy::type_complexity)]
                 let collected_screenshots: Arc<
                     std::sync::Mutex<Vec<(usize, String, Option<String>, Option<String>, String)>>,
                 > = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -4043,6 +4044,7 @@ DATA PASSING:
                 // Create event channel to collect workflow events (including screenshots)
                 let (event_tx, mut event_rx) = create_event_channel();
                 // Store screenshots with metadata: (index, timestamp, annotation, element, base64)
+                #[allow(clippy::type_complexity)]
                 let collected_screenshots: Arc<
                     std::sync::Mutex<Vec<(usize, String, Option<String>, Option<String>, String)>>,
                 > = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -8210,7 +8212,7 @@ console.info = function(...args) {
     }
 
     #[tool(
-        description = "Read the contents of a file. Supports reading with line offset and limit for large files. Returns file contents with line numbers."
+        description = "Read file contents with line numbers. Default 100 lines, max 200. Use grep_files first to find code, then read_file with offset/limit for context."
     )]
     pub async fn read_file(
         &self,
@@ -8256,7 +8258,7 @@ console.info = function(...args) {
 
         let reader = BufReader::new(file);
         let offset = args.offset.unwrap_or(1).saturating_sub(1); // Convert to 0-indexed
-        let limit = args.limit.unwrap_or(2000);
+        let limit = args.limit.unwrap_or(100).min(200); // Default 100, max 200
 
         let lines: Vec<String> = reader
             .lines()
@@ -8326,7 +8328,7 @@ console.info = function(...args) {
     }
 
     #[tool(
-        description = "Edit a file by replacing an exact string match. The old_string must be unique in the file unless replace_all is true."
+        description = "Edit a file by replacing a string match. PREFER replacing entire functions, blocks, or logical sections in ONE edit rather than making multiple small surgical edits. Multi-line old_string and new_string are fully supported. The old_string must be unique unless replace_all is true. Line endings are normalized automatically."
     )]
     pub async fn edit_file(
         &self,
@@ -8362,8 +8364,13 @@ console.info = function(...args) {
             }
         };
 
+        // Normalize line endings for matching (CRLF -> LF)
+        let content_normalized = content.replace("\r\n", "\n");
+        let old_string_normalized = args.old_string.replace("\r\n", "\n");
+        let new_string_normalized = args.new_string.replace("\r\n", "\n");
+
         // Count occurrences
-        let occurrences = content.matches(&args.old_string).count();
+        let occurrences = content_normalized.matches(&old_string_normalized).count();
 
         if occurrences == 0 {
             let preview = if args.old_string.len() > 50 {
@@ -8384,11 +8391,11 @@ console.info = function(...args) {
             ))]));
         }
 
-        // Perform replacement
+        // Perform replacement on normalized content
         let new_content = if args.replace_all.unwrap_or(false) {
-            content.replace(&args.old_string, &args.new_string)
+            content_normalized.replace(&old_string_normalized, &new_string_normalized)
         } else {
-            content.replacen(&args.old_string, &args.new_string, 1)
+            content_normalized.replacen(&old_string_normalized, &new_string_normalized, 1)
         };
 
         let replacements = if args.replace_all.unwrap_or(false) {
@@ -8404,6 +8411,300 @@ console.info = function(...args) {
             ))])),
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
                 "Failed to write file: {e}"
+            ))])),
+        }
+    }
+
+    #[tool(
+        description = "Copy content from a source file and insert/replace it in a target file. Supports extracting by line numbers, patterns, or entire file. Target insertion supports replace, before/after pattern, at line number, append, or prepend."
+    )]
+    pub async fn copy_content(
+        &self,
+        Parameters(args): Parameters<CopyContentArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        use std::fs;
+
+        // Resolve source path
+        let source_path = match self
+            .resolve_file_path(&args.source_path, args.working_directory.as_deref())
+            .await
+        {
+            Ok(p) => p,
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Error resolving source path: {e}"
+                ))]));
+            }
+        };
+
+        // Resolve target path
+        let target_path = match self
+            .resolve_file_path(&args.target_path, args.working_directory.as_deref())
+            .await
+        {
+            Ok(p) => p,
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Error resolving target path: {e}"
+                ))]));
+            }
+        };
+
+        // Read source file
+        if !source_path.exists() {
+            return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Source file not found: {}",
+                source_path.display()
+            ))]));
+        }
+
+        let source_content = match fs::read_to_string(&source_path) {
+            Ok(c) => c,
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to read source file: {e}"
+                ))]));
+            }
+        };
+
+        let source_lines: Vec<&str> = source_content.lines().collect();
+
+        // Extract content from source based on source_mode
+        let extracted_content: String = match args.source_mode.as_str() {
+            "all" => source_content.clone(),
+            "lines" => {
+                let start = match args.source_start_line {
+                    Some(l) if l >= 1 => l - 1, // Convert to 0-indexed
+                    Some(_) => {
+                        return Ok(CallToolResult::error(vec![Content::text(
+                            "source_start_line must be >= 1".to_string(),
+                        )]));
+                    }
+                    None => {
+                        return Ok(CallToolResult::error(vec![Content::text(
+                            "source_start_line is required when source_mode is 'lines'".to_string(),
+                        )]));
+                    }
+                };
+                let end = match args.source_end_line {
+                    Some(l) if l >= 1 => l, // Keep 1-indexed for inclusive end
+                    Some(_) => {
+                        return Ok(CallToolResult::error(vec![Content::text(
+                            "source_end_line must be >= 1".to_string(),
+                        )]));
+                    }
+                    None => {
+                        return Ok(CallToolResult::error(vec![Content::text(
+                            "source_end_line is required when source_mode is 'lines'".to_string(),
+                        )]));
+                    }
+                };
+
+                if start >= source_lines.len() {
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                        "source_start_line {} exceeds file length {}",
+                        start + 1,
+                        source_lines.len()
+                    ))]));
+                }
+
+                let end_clamped = end.min(source_lines.len());
+                source_lines[start..end_clamped].join("\n")
+            }
+            "pattern" => {
+                let start_pattern = match &args.source_start_pattern {
+                    Some(p) => p,
+                    None => {
+                        return Ok(CallToolResult::error(vec![Content::text(
+                            "source_start_pattern is required when source_mode is 'pattern'"
+                                .to_string(),
+                        )]));
+                    }
+                };
+                let end_pattern = match &args.source_end_pattern {
+                    Some(p) => p,
+                    None => {
+                        return Ok(CallToolResult::error(vec![Content::text(
+                            "source_end_pattern is required when source_mode is 'pattern'"
+                                .to_string(),
+                        )]));
+                    }
+                };
+
+                // Find start line
+                let start_idx = source_lines
+                    .iter()
+                    .position(|line| line.contains(start_pattern));
+                let start_idx = match start_idx {
+                    Some(i) => i,
+                    None => {
+                        return Ok(CallToolResult::error(vec![Content::text(format!(
+                            "source_start_pattern '{}' not found in source file",
+                            start_pattern
+                        ))]));
+                    }
+                };
+
+                // Find end line (searching after start)
+                let end_idx = source_lines[start_idx..]
+                    .iter()
+                    .position(|line| line.contains(end_pattern))
+                    .map(|i| i + start_idx);
+                let end_idx = match end_idx {
+                    Some(i) => i + 1, // Include the end line
+                    None => {
+                        return Ok(CallToolResult::error(vec![Content::text(format!(
+                            "source_end_pattern '{}' not found after start pattern in source file",
+                            end_pattern
+                        ))]));
+                    }
+                };
+
+                source_lines[start_idx..end_idx].join("\n")
+            }
+            _ => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Invalid source_mode '{}'. Must be 'all', 'lines', or 'pattern'",
+                    args.source_mode
+                ))]));
+            }
+        };
+
+        // Read target file
+        if !target_path.exists() {
+            return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Target file not found: {}. Use write_file to create new files.",
+                target_path.display()
+            ))]));
+        }
+
+        let target_content = match fs::read_to_string(&target_path) {
+            Ok(c) => c,
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to read target file: {e}"
+                ))]));
+            }
+        };
+
+        // Apply to target based on target_mode
+        let new_target_content: String = match args.target_mode.as_str() {
+            "append" => {
+                if target_content.ends_with('\n') {
+                    format!("{}{}", target_content, extracted_content)
+                } else {
+                    format!("{}\n{}", target_content, extracted_content)
+                }
+            }
+            "prepend" => {
+                format!("{}\n{}", extracted_content, target_content)
+            }
+            "at_line" => {
+                let line_num = match args.target_line {
+                    Some(l) if l >= 1 => l,
+                    Some(_) => {
+                        return Ok(CallToolResult::error(vec![Content::text(
+                            "target_line must be >= 1".to_string(),
+                        )]));
+                    }
+                    None => {
+                        return Ok(CallToolResult::error(vec![Content::text(
+                            "target_line is required when target_mode is 'at_line'".to_string(),
+                        )]));
+                    }
+                };
+
+                let target_lines: Vec<&str> = target_content.lines().collect();
+                let insert_idx = (line_num - 1).min(target_lines.len());
+
+                let mut result_lines: Vec<&str> = Vec::new();
+                result_lines.extend_from_slice(&target_lines[..insert_idx]);
+
+                // Add extracted content lines
+                for line in extracted_content.lines() {
+                    result_lines.push(line);
+                }
+
+                result_lines.extend_from_slice(&target_lines[insert_idx..]);
+                result_lines.join("\n")
+            }
+            "replace" | "after" | "before" => {
+                let pattern = match &args.target_pattern {
+                    Some(p) => p,
+                    None => {
+                        return Ok(CallToolResult::error(vec![Content::text(format!(
+                            "target_pattern is required when target_mode is '{}'",
+                            args.target_mode
+                        ))]));
+                    }
+                };
+
+                let occurrences = target_content.matches(pattern).count();
+
+                if occurrences == 0 {
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                        "target_pattern '{}' not found in target file",
+                        pattern
+                    ))]));
+                }
+
+                if !args.replace_all.unwrap_or(false) && occurrences > 1 {
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                        "target_pattern found {} times. Use replace_all: true or provide more context to make it unique.",
+                        occurrences
+                    ))]));
+                }
+
+                match args.target_mode.as_str() {
+                    "replace" => {
+                        if args.replace_all.unwrap_or(false) {
+                            target_content.replace(pattern, &extracted_content)
+                        } else {
+                            target_content.replacen(pattern, &extracted_content, 1)
+                        }
+                    }
+                    "after" => {
+                        let replacement = format!("{}\n{}", pattern, extracted_content);
+                        if args.replace_all.unwrap_or(false) {
+                            target_content.replace(pattern, &replacement)
+                        } else {
+                            target_content.replacen(pattern, &replacement, 1)
+                        }
+                    }
+                    "before" => {
+                        let replacement = format!("{}\n{}", extracted_content, pattern);
+                        if args.replace_all.unwrap_or(false) {
+                            target_content.replace(pattern, &replacement)
+                        } else {
+                            target_content.replacen(pattern, &replacement, 1)
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            _ => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Invalid target_mode '{}'. Must be 'replace', 'after', 'before', 'at_line', 'append', or 'prepend'",
+                    args.target_mode
+                ))]));
+            }
+        };
+
+        // Write the result
+        match fs::write(&target_path, &new_target_content) {
+            Ok(_) => {
+                let lines_copied = extracted_content.lines().count();
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Successfully copied {} lines from {} to {} (mode: {} -> {})",
+                    lines_copied,
+                    args.source_path,
+                    args.target_path,
+                    args.source_mode,
+                    args.target_mode
+                ))]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to write target file: {e}"
             ))])),
         }
     }
@@ -9322,6 +9623,13 @@ impl DesktopWrapper {
                 Ok(args) => self.edit_file(Parameters(args)).await,
                 Err(e) => Err(McpError::invalid_params(
                     "Invalid arguments for edit_file",
+                    Some(json!({"error": e.to_string()})),
+                )),
+            },
+            "copy_content" => match serde_json::from_value::<CopyContentArgs>(arguments.clone()) {
+                Ok(args) => self.copy_content(Parameters(args)).await,
+                Err(e) => Err(McpError::invalid_params(
+                    "Invalid arguments for copy_content",
                     Some(json!({"error": e.to_string()})),
                 )),
             },

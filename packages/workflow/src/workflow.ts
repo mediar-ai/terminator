@@ -95,8 +95,8 @@ export class WorkflowBuilder<
     }
 
     /**
-     * Set success handler that returns workflow result data
-     * The returned value will be automatically set as context.data
+     * Set success handler that returns workflow result
+     * The returned value will be stored in context.state.__result
      *
      * @example
      * ```typescript
@@ -253,7 +253,6 @@ function createWorkflowInstance<TInput = any>(
                 const response = {
                     status: runnerResult.status as ExecutionStatus,
                     message: runnerResult.error || "Workflow completed",
-                    data: runner.getState().context.data,
                     lastStepId: runnerResult.lastStepId,
                     lastStepIndex: runnerResult.lastStepIndex,
                     state: runner.getState(),
@@ -267,7 +266,6 @@ function createWorkflowInstance<TInput = any>(
 
             // Initialize context for non-runner execution
             const context: WorkflowContext<TInput> = {
-                data: {},
                 state: {},
                 variables: validatedInput,
             };
@@ -411,9 +409,9 @@ function createWorkflowInstance<TInput = any>(
                         lastStepId,
                         lastStepIndex,
                     });
-                    // Automatically set context.data with returned value
+                    // Automatically set context.state.__result with returned value
                     if (result !== undefined) {
-                        context.data = result;
+                        context.state.__result = result;
                     }
                 }
 
@@ -421,7 +419,6 @@ function createWorkflowInstance<TInput = any>(
                 return {
                     status: "success",
                     message: `Workflow completed successfully in ${duration}ms`,
-                    data: context.data,
                     lastStepId,
                     lastStepIndex,
                     state: { context, lastStepId, lastStepIndex },
@@ -519,7 +516,6 @@ function createWorkflowInstance<TInput = any>(
                             timestamp: new Date().toISOString(),
                         },
                     },
-                    data: context.data,
                     lastStepId,
                     lastStepIndex,
                     state: { context, lastStepId, lastStepIndex },

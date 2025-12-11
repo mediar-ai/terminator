@@ -598,6 +598,7 @@ impl TypeScriptWorkflow {
         #[cfg(not(windows))]
         let events_via_pipe = false;
 
+        #[allow(clippy::manual_map)]
         let stderr_handle = if let Some(stderr) = stderr {
             Some(tokio::spawn(
                 async move {
@@ -776,11 +777,7 @@ impl TypeScriptWorkflow {
             } else if stdout.trim().starts_with('{') {
                 Some(stdout.trim())
             } else if let Some(start) = stdout.find('{') {
-                if let Some(end) = stdout.rfind('}') {
-                    Some(&stdout[start..=end])
-                } else {
-                    None
-                }
+                stdout.rfind('}').map(|end| &stdout[start..=end])
             } else {
                 None
             };

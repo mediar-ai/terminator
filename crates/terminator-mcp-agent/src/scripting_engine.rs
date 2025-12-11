@@ -2762,7 +2762,10 @@ pub async fn execute_javascript_with_local_bindings(
     let bindings_entry_path = local_bindings_path.join("index.js");
     let bindings_abs_path = bindings_entry_path.to_string_lossy().replace('\\', "\\\\");
     // Also resolve workflow package path (sibling to terminator-nodejs)
-    let workflow_path = local_bindings_path.parent().map(|p| p.join("workflow")).unwrap_or_default();
+    let workflow_path = local_bindings_path
+        .parent()
+        .map(|p| p.join("workflow"))
+        .unwrap_or_default();
     let workflow_abs_path = workflow_path.to_string_lossy().replace('\\', "\\\\");
     let wrapper_script = format!(
         r#"

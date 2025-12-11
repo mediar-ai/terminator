@@ -4,11 +4,11 @@ fn main() {
     #[cfg(target_os = "windows")]
     unsafe {
         use windows::Win32::Foundation::{HWND, POINT};
+        use windows::Win32::Graphics::Gdi::ClientToScreen;
         use windows::Win32::UI::WindowsAndMessaging::{
             GetForegroundWindow, GetGUIThreadInfo, GetWindowThreadProcessId, GUITHREADINFO,
             GUI_CARETBLINKING,
         };
-        use windows::Win32::Graphics::Gdi::ClientToScreen;
 
         let fg = GetForegroundWindow();
         println!("Foreground window: {:?}", fg);
@@ -25,12 +25,16 @@ fn main() {
             let blinking = (gui.flags.0 & GUI_CARETBLINKING.0) != 0;
             println!("Caret blinking: {}", blinking);
             println!("Caret window: {:?}", gui.hwndCaret);
-            println!("Caret rect (client): ({}, {}) to ({}, {})",
-                gui.rcCaret.left, gui.rcCaret.top,
-                gui.rcCaret.right, gui.rcCaret.bottom);
+            println!(
+                "Caret rect (client): ({}, {}) to ({}, {})",
+                gui.rcCaret.left, gui.rcCaret.top, gui.rcCaret.right, gui.rcCaret.bottom
+            );
 
             if gui.hwndCaret != HWND(std::ptr::null_mut()) {
-                let mut pt = POINT { x: gui.rcCaret.left, y: gui.rcCaret.top };
+                let mut pt = POINT {
+                    x: gui.rcCaret.left,
+                    y: gui.rcCaret.top,
+                };
                 let _ = ClientToScreen(gui.hwndCaret, &mut pt);
                 println!("Caret screen position: ({}, {})", pt.x, pt.y);
             } else {

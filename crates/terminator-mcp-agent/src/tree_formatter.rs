@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity)]
+
 use crate::omniparser::OmniparserItem;
 use crate::vision::VisionElement;
 use std::collections::HashMap;

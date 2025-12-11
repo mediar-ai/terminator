@@ -2,17 +2,16 @@
  * Unit tests for the workflow events system
  */
 
-import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { emit, createStepEmitter, _getTransportMode } from '../events';
 
 describe('Events Module', () => {
-    let stderrSpy: ReturnType<typeof spyOn>;
+    let stderrSpy: jest.SpyInstance;
     let stderrOutput: string[];
 
     beforeEach(() => {
         stderrOutput = [];
         // Spy on process.stderr.write to capture output
-        stderrSpy = spyOn(process.stderr, 'write').mockImplementation((chunk: any) => {
+        stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation((chunk: any) => {
             stderrOutput.push(chunk.toString());
             return true;
         });
@@ -250,7 +249,7 @@ describe('Events Module', () => {
 
     describe('emit.raw', () => {
         it('should emit raw event', () => {
-            emit.raw({ type: 'progress', current: 1, total: 5 });
+            emit.raw({ type: 'progress', current: 1, total: 5 } as Omit<import('../events').ProgressEvent, '__mcp_event__' | 'timestamp'>);
 
             const event = JSON.parse(stderrOutput[0]);
 
@@ -443,7 +442,7 @@ describe('Events Module', () => {
 describe('Events Integration', () => {
     it('should handle rapid event emission', () => {
         const stderrOutput: string[] = [];
-        const spy = spyOn(process.stderr, 'write').mockImplementation((chunk: any) => {
+        const spy = jest.spyOn(process.stderr, 'write').mockImplementation((chunk: any) => {
             stderrOutput.push(chunk.toString());
             return true;
         });
@@ -466,7 +465,7 @@ describe('Events Integration', () => {
 
     it('should handle unicode in messages', () => {
         const stderrOutput: string[] = [];
-        const spy = spyOn(process.stderr, 'write').mockImplementation((chunk: any) => {
+        const spy = jest.spyOn(process.stderr, 'write').mockImplementation((chunk: any) => {
             stderrOutput.push(chunk.toString());
             return true;
         });
