@@ -6165,7 +6165,7 @@ DATA PASSING:
         Ok(CallToolResult::success(contents))
     }
 
-    #[tool(description = "Selects an option in a dropdown or combobox by its visible text.")]
+    #[tool(description = "Selects an option in a dropdown or combobox by its visible text. IMPORTANT: The option_name must exactly match the option's accessible name. If unsure of available options, first click the dropdown with ui_diff_before_after: true to see the list of options in the diff output.")]
     async fn select_option(
         &self,
         Parameters(args): Parameters<SelectOptionArgs>,
@@ -8710,12 +8710,14 @@ console.info = function(...args) {
     }
 
     #[tool(
-        description = "Find files matching a glob pattern in the working directory. Returns a list of matching file paths."
+        description = "Find files matching a glob pattern in the working directory. Returns a list of matching file paths. Automatically respects .gitignore and skips node_modules, .git, dist, etc."
     )]
     pub async fn glob_files(
         &self,
         Parameters(args): Parameters<GlobFilesArgs>,
     ) -> Result<CallToolResult, McpError> {
+        use ignore::WalkBuilder;
+
         let base_dir = match args.working_directory.as_deref() {
             Some(wd) => expand_working_directory_shortcut(wd),
             None => {
@@ -8731,17 +8733,42 @@ console.info = function(...args) {
             }
         };
 
-        let glob_pattern = base_dir.join(&args.pattern);
-        let glob_str = glob_pattern.to_string_lossy();
-
-        let paths: Vec<_> = match glob::glob(&glob_str) {
-            Ok(paths) => paths.flatten().collect(),
+        // Build glob matcher for the pattern
+        let glob_matcher = match glob::Pattern::new(&args.pattern) {
+            Ok(p) => p,
             Err(e) => {
                 return Ok(CallToolResult::error(vec![Content::text(format!(
                     "Invalid glob pattern: {e}"
                 ))]));
             }
         };
+
+        // Use ignore::WalkBuilder which respects .gitignore and has smart defaults
+        // - Skips hidden files/dirs (.git, etc.)
+        // - Respects .gitignore files
+        // - Has built-in ignores for common dirs like node_modules
+        let walker = WalkBuilder::new(&base_dir)
+            .hidden(true) // Skip hidden files/dirs
+            .git_ignore(true) // Respect .gitignore
+            .git_global(true) // Respect global gitignore
+            .git_exclude(true) // Respect .git/info/exclude
+            .require_git(false) // Don't require being in a git repo
+            .build();
+
+        let mut paths: Vec<PathBuf> = Vec::new();
+        for entry in walker.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            // Get relative path for matching
+            let relative = path.strip_prefix(&base_dir).unwrap_or(path);
+            let relative_str = relative.to_string_lossy();
+            // Match against the glob pattern
+            if glob_matcher.matches(&relative_str) || glob_matcher.matches_path(relative) {
+                paths.push(path.to_path_buf());
+            }
+        }
 
         if paths.is_empty() {
             return Ok(CallToolResult::success(vec![Content::text(
@@ -8770,12 +8797,13 @@ console.info = function(...args) {
     }
 
     #[tool(
-        description = "Search for a regex pattern in files within the working directory. Returns matching lines with context."
+        description = "Search for a regex pattern in files within the working directory. Returns matching lines with context. Automatically respects .gitignore and skips node_modules, .git, dist, etc."
     )]
     pub async fn grep_files(
         &self,
         Parameters(args): Parameters<GrepFilesArgs>,
     ) -> Result<CallToolResult, McpError> {
+        use ignore::WalkBuilder;
         use std::fs;
         use std::io::{BufRead, BufReader};
 
@@ -8813,14 +8841,8 @@ console.info = function(...args) {
 
         // Build glob pattern for file filtering
         let file_pattern = args.glob.as_deref().unwrap_or("**/*");
-        let glob_pattern = base_dir.join(file_pattern);
-        let glob_str = glob_pattern.to_string_lossy();
-
-        let mut results: Vec<String> = Vec::new();
-        let mut match_count = 0;
-
-        let paths = match glob::glob(&glob_str) {
-            Ok(paths) => paths,
+        let glob_matcher = match glob::Pattern::new(file_pattern) {
+            Ok(p) => p,
             Err(e) => {
                 return Ok(CallToolResult::error(vec![Content::text(format!(
                     "Invalid glob pattern: {e}"
@@ -8828,13 +8850,33 @@ console.info = function(...args) {
             }
         };
 
-        'file_loop: for entry in paths.flatten() {
-            if !entry.is_file() {
+        let mut results: Vec<String> = Vec::new();
+        let mut match_count = 0;
+
+        // Use ignore::WalkBuilder which respects .gitignore and has smart defaults
+        let walker = WalkBuilder::new(&base_dir)
+            .hidden(true) // Skip hidden files/dirs
+            .git_ignore(true) // Respect .gitignore
+            .git_global(true) // Respect global gitignore
+            .git_exclude(true) // Respect .git/info/exclude
+            .require_git(false) // Don't require being in a git repo
+            .build();
+
+        'file_loop: for entry in walker.flatten() {
+            let entry_path = entry.path();
+            if !entry_path.is_file() {
+                continue;
+            }
+
+            // Match against glob pattern
+            let relative = entry_path.strip_prefix(&base_dir).unwrap_or(entry_path);
+            let relative_str = relative.to_string_lossy();
+            if !glob_matcher.matches(&relative_str) && !glob_matcher.matches_path(relative) {
                 continue;
             }
 
             // Skip binary files
-            if let Some(ext) = entry.extension() {
+            if let Some(ext) = entry_path.extension() {
                 let ext = ext.to_string_lossy().to_lowercase();
                 if matches!(
                     ext.as_str(),
@@ -8860,7 +8902,7 @@ console.info = function(...args) {
                 }
             }
 
-            let file = match fs::File::open(&entry) {
+            let file = match fs::File::open(entry_path) {
                 Ok(f) => f,
                 Err(_) => continue,
             };
@@ -8879,7 +8921,10 @@ console.info = function(...args) {
                         break 'file_loop;
                     }
 
-                    let rel_path = entry.strip_prefix(&base_dir).unwrap_or(&entry).display();
+                    let rel_path = entry_path
+                        .strip_prefix(&base_dir)
+                        .unwrap_or(entry_path)
+                        .display();
 
                     // Add context
                     let start = line_num.saturating_sub(context_lines);

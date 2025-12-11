@@ -59,6 +59,7 @@ serde_yaml = "0.9"
 # File search support for search_terminator_api tools
 glob = "0.3"
 walkdir = "2"
+ignore = "0.4"  # Same crate ripgrep uses - respects .gitignore, skips node_modules etc.
 
 # OpenTelemetry dependencies (optional, behind 'telemetry' feature)
 opentelemetry = { version = "0.27", optional = true }
