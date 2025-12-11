@@ -28,3 +28,4 @@ futures = "0.3"
 
 [build-dependencies]
 napi-build = "2.0.1"
+static_vcruntime = "2.0"
