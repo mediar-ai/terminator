@@ -6165,7 +6165,7 @@ DATA PASSING:
         Ok(CallToolResult::success(contents))
     }
 
-    #[tool(description = "Selects an option in a dropdown or combobox by its visible text.")]
+    #[tool(description = "Selects an option in a dropdown or combobox by its visible text. IMPORTANT: The option_name must exactly match the option's accessible name. If unsure of available options, first click the dropdown with ui_diff_before_after: true to see the list of options in the diff output.")]
     async fn select_option(
         &self,
         Parameters(args): Parameters<SelectOptionArgs>,
