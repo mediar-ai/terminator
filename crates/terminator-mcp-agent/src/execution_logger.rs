@@ -1091,6 +1091,52 @@ fn transform_yaml_js_to_sdk(code: &str) -> String {
         }
     }
 
+    // 5. YAML runtime -> TypeScript SDK variable access transformations
+    // YAML runtime injects `env` and stores step results in `outputs.{step_id}_result`
+    // TypeScript SDK uses `context.state` and `context.data.{step_id}`
+
+    // 5a. typeof env/outputs checks -> true (context always exists in SDK)
+    // Must do this BEFORE replacing env/outputs to avoid partial replacements
+    // Handle: typeof env !== 'undefined', typeof env != 'undefined'
+    if let Ok(typeof_env) = regex::Regex::new(r#"typeof\s+env\s*!==?\s*['"]undefined['"]"#) {
+        transformed = typeof_env.replace_all(&transformed, "true").to_string();
+    }
+    if let Ok(typeof_outputs) = regex::Regex::new(r#"typeof\s+outputs\s*!==?\s*['"]undefined['"]"#) {
+        transformed = typeof_outputs.replace_all(&transformed, "true").to_string();
+    }
+    // Handle nested checks: typeof env.xxx !== 'undefined'
+    if let Ok(typeof_env_prop) = regex::Regex::new(r#"typeof\s+env\.(\w+)\s*!==?\s*['"]undefined['"]"#) {
+        transformed = typeof_env_prop.replace_all(&transformed, "context.state.$1 !== undefined").to_string();
+    }
+    if let Ok(typeof_outputs_prop) = regex::Regex::new(r#"typeof\s+outputs\.(\w+)_result\s*!==?\s*['"]undefined['"]"#) {
+        transformed = typeof_outputs_prop.replace_all(&transformed, "context.data.$1 !== undefined").to_string();
+    }
+    if let Ok(typeof_outputs_prop2) = regex::Regex::new(r#"typeof\s+outputs\.(\w+)\s*!==?\s*['"]undefined['"]"#) {
+        transformed = typeof_outputs_prop2.replace_all(&transformed, "context.data.$1 !== undefined").to_string();
+    }
+
+    // 5b. outputs.step_id_result -> context.data.step_id (strip _result suffix)
+    // Must do this BEFORE the generic outputs.xxx pattern
+    if let Ok(outputs_result) = regex::Regex::new(r"\boutputs\.(\w+)_result\b") {
+        transformed = outputs_result.replace_all(&transformed, "context.data.$1").to_string();
+    }
+
+    // 5c. outputs.step_id -> context.data.step_id (without _result suffix)
+    if let Ok(outputs) = regex::Regex::new(r"\boutputs\.(\w+)") {
+        transformed = outputs.replace_all(&transformed, "context.data.$1").to_string();
+    }
+
+    // 5d. env.xxx -> context.state.xxx
+    // Handle: env.loop_index, env.current_record, etc.
+    if let Ok(env) = regex::Regex::new(r"\benv\.(\w+)") {
+        transformed = env.replace_all(&transformed, "context.state.$1").to_string();
+    }
+
+    // Debug log to confirm transformations applied
+    if transformed.contains("context.state.") || transformed.contains("context.data.") {
+        tracing::debug!("[transform_yaml_js_to_sdk] Applied env/outputs -> context transformations");
+    }
+
     transformed
 }
 
@@ -1437,6 +1483,14 @@ fn generate_activate_snippet(args: &Value) -> String {
 }
 
 /// Generate execute_browser_script snippet
+///
+/// Uses Element-based pattern for cleaner, more concise code:
+/// - First locate the browser element via process selector
+/// - Then call executeBrowserScript on the element
+/// - Element.executeBrowserScript(fn, env?) properly passes env to the function
+///
+/// This is more concise than Desktop.executeBrowserScript which requires
+/// hacky string injection for env variables.
 fn generate_execute_browser_script_snippet(args: &Value) -> String {
     let script = args.get("script").and_then(|v| v.as_str()).unwrap_or("");
     let script_file = args.get("script_file").and_then(|v| v.as_str());
@@ -1445,12 +1499,32 @@ fn generate_execute_browser_script_snippet(args: &Value) -> String {
         .and_then(|v| v.as_str())
         .unwrap_or("chrome");
 
-    // If script_file provided, use file-based syntax
+    // Check if env is provided and has values
+    let env_obj = args.get("env").and_then(|v| v.as_object());
+    let has_env = env_obj.is_some_and(|o| !o.is_empty());
+
+    // If script_file provided, use file-based syntax with Element pattern
     if let Some(file) = script_file {
+        if has_env {
+            let env_entries: Vec<String> = env_obj
+                .unwrap()
+                .keys()
+                .map(|key| format!("{}: context.state.{}", key, key))
+                .collect();
+            let env_object = env_entries.join(", ");
+            return format!(
+                r#"const browser = await desktop.locator("process:{}").first(5000);
+const result = await browser.executeBrowserScript({{ file: "{}" }}, {{ {} }});"#,
+                process,
+                file.replace('\\', "\\\\"),
+                env_object
+            );
+        }
         return format!(
-            r#"const result = await desktop.executeBrowserScript({{ file: "{}" }}, "{}");"#,
-            file.replace('\\', "\\\\"),
-            process
+            r#"const browser = await desktop.locator("process:{}").first(5000);
+const result = await browser.executeBrowserScript({{ file: "{}" }});"#,
+            process,
+            file.replace('\\', "\\\\")
         );
     }
 
@@ -1460,13 +1534,50 @@ fn generate_execute_browser_script_snippet(args: &Value) -> String {
     // (() => { ... })()
     let function_body = extract_iife_body(script);
 
-    // Output as async function (SDK will serialize it)
-    // Desktop.executeBrowserScript requires process as second argument
-    format!(
-        r#"const result = await desktop.executeBrowserScript(async function() {{
+    // Detect if script body references env-related variables
+    // These patterns indicate the script expects env to be available
+    let needs_env = has_env
+        || function_body.contains("env.")
+        || function_body.contains("env[")
+        || function_body.contains("typeof env")
+        || function_body.contains("current_record")
+        || function_body.contains("loop_index");
+
+    if needs_env {
+        // Build env object entries that reference context.state.X at runtime
+        let env_entries: Vec<String> = if let Some(env_obj) = env_obj {
+            env_obj
+                .keys()
+                .map(|key| format!("{}: context.state.{}", key, key))
+                .collect()
+        } else {
+            // No explicit env, but script uses env vars - provide common ones
+            vec![
+                "current_record: context.state.current_record".to_string(),
+                "loop_index: context.state.loop_index".to_string(),
+            ]
+        };
+
+        let env_object = env_entries.join(", ");
+
+        // Element-based pattern: element.executeBrowserScript(fn, env)
+        // The SDK properly passes env to the function parameter
+        return format!(
+            r#"const browser = await desktop.locator("process:{}").first(5000);
+const result = await browser.executeBrowserScript(async function(env) {{
 {}
-}}, "{}");"#,
-        function_body, process
+}}, {{ {} }});"#,
+            process, function_body, env_object
+        );
+    }
+
+    // No env needed - simple function without env parameter
+    format!(
+        r#"const browser = await desktop.locator("process:{}").first(5000);
+const result = await browser.executeBrowserScript(async function() {{
+{}
+}});"#,
+        process, function_body
     )
 }
 
