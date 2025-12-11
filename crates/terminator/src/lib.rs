@@ -152,6 +152,7 @@ pub struct CommandOutput {
 /// - Index-to-bounds mapping for click targeting
 /// - Metadata about the window/process
 #[derive(Debug, Clone)]
+#[allow(clippy::type_complexity)]
 pub struct WindowTreeResult {
     /// The raw UI tree structure
     pub tree: UINode,
@@ -991,6 +992,7 @@ impl Desktop {
     ///
     /// # Arguments
     /// * `bounds_map` - Map of index to (text, bounds) from OCR formatting result
+    #[allow(clippy::type_complexity)]
     pub fn populate_ocr_cache(&self, bounds_map: HashMap<u32, (String, (f64, f64, f64, f64))>) {
         if let Ok(mut cache) = self.ocr_cache.lock() {
             cache.clear();
@@ -1030,6 +1032,7 @@ impl Desktop {
     ///
     /// # Arguments
     /// * `bounds_map` - Map of index to (tag, id, bounds) from DOM capture
+    #[allow(clippy::type_complexity)]
     pub fn populate_dom_cache(
         &self,
         bounds_map: HashMap<u32, (String, String, (f64, f64, f64, f64))>,
