@@ -3841,6 +3841,7 @@ DATA PASSING:
                 // Create event channel to collect workflow events (including screenshots)
                 let (event_tx, mut event_rx) = create_event_channel();
                 // Store screenshots with metadata: (index, timestamp, annotation, element, base64)
+                #[allow(clippy::type_complexity)]
                 let collected_screenshots: Arc<
                     std::sync::Mutex<Vec<(usize, String, Option<String>, Option<String>, String)>>,
                 > = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -4043,6 +4044,7 @@ DATA PASSING:
                 // Create event channel to collect workflow events (including screenshots)
                 let (event_tx, mut event_rx) = create_event_channel();
                 // Store screenshots with metadata: (index, timestamp, annotation, element, base64)
+                #[allow(clippy::type_complexity)]
                 let collected_screenshots: Arc<
                     std::sync::Mutex<Vec<(usize, String, Option<String>, Option<String>, String)>>,
                 > = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -8694,7 +8696,11 @@ console.info = function(...args) {
                 let lines_copied = extracted_content.lines().count();
                 Ok(CallToolResult::success(vec![Content::text(format!(
                     "Successfully copied {} lines from {} to {} (mode: {} -> {})",
-                    lines_copied, args.source_path, args.target_path, args.source_mode, args.target_mode
+                    lines_copied,
+                    args.source_path,
+                    args.target_path,
+                    args.source_mode,
+                    args.target_mode
                 ))]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
