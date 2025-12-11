@@ -1008,9 +1008,9 @@ impl AccessibilityEngine for WindowsEngine {
             return Err(AutomationError::InvalidSelector(format!(
                 "Desktop-wide search not allowed. Selector must include 'process:' prefix to scope search to a specific application.\n\
                  Examples:\n\
-                 - process:chrome|role:Button|name:Submit\n\
-                 - process:notepad|role:Document\n\
-                 - process:explorer|role:Icon|name:Recycle Bin (for desktop icons/taskbar)\n\
+                 - process:chrome >> role:Button && name:Submit\n\
+                 - process:notepad >> role:Document\n\
+                 - process:explorer >> role:Icon && name:Recycle Bin (for desktop icons/taskbar)\n\
                  Or use element.locator() to search within a specific element's tree.\n\
                  Current selector: {selector:?}"
             )));

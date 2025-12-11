@@ -287,8 +287,7 @@ mod windows_integration_tests {
                 .open(&pipe_name)
                 .expect("Failed to connect to log pipe");
 
-            let log_json =
-                r#"{"level":"info","message":"Test log message","timestamp":"2025-01-01T00:00:00Z"}"#;
+            let log_json = r#"{"level":"info","message":"Test log message","timestamp":"2025-01-01T00:00:00Z"}"#;
             client.write_all(log_json.as_bytes()).await.unwrap();
             client.write_all(b"\n").await.unwrap();
             client.flush().await.unwrap();

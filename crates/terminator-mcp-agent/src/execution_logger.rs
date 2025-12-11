@@ -1174,11 +1174,17 @@ fn transform_set_env_to_state_return(code: String) -> String {
 
     // Pattern 1: console.log('::set-env name=X::' + VALUE) or with JSON.stringify
     if let Ok(pattern1) = regex::Regex::new(
-        r#"console\.log\s*\(\s*['"]::set-env name=(\w+)::['"]\s*\+\s*(?:JSON\.stringify\s*\(\s*)?([^);\n]+?)(?:\s*\))?\s*\)\s*;?"#
+        r#"console\.log\s*\(\s*['"]::set-env name=(\w+)::['"]\s*\+\s*(?:JSON\.stringify\s*\(\s*)?([^);\n]+?)(?:\s*\))?\s*\)\s*;?"#,
     ) {
         for cap in pattern1.captures_iter(&code) {
-            let var_name = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-            let var_value = cap.get(2).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
+            let var_name = cap
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
+            let var_value = cap
+                .get(2)
+                .map(|m| m.as_str().trim().to_string())
+                .unwrap_or_default();
             if !var_name.is_empty() && !var_value.is_empty() {
                 state_vars.push((var_name, var_value));
             }
@@ -1188,12 +1194,18 @@ fn transform_set_env_to_state_return(code: String) -> String {
 
     // Pattern 2: console.log('::set-env name=X::LITERAL') - literal value in same string
     // e.g., console.log('::set-env name=current_record::{}')
-    if let Ok(pattern2) = regex::Regex::new(
-        r#"console\.log\s*\(\s*['"]::set-env name=(\w+)::([^'"]*)['"]\s*\)\s*;?"#
-    ) {
+    if let Ok(pattern2) =
+        regex::Regex::new(r#"console\.log\s*\(\s*['"]::set-env name=(\w+)::([^'"]*)['"]\s*\)\s*;?"#)
+    {
         for cap in pattern2.captures_iter(&cleaned) {
-            let var_name = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-            let var_value = cap.get(2).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
+            let var_name = cap
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
+            let var_value = cap
+                .get(2)
+                .map(|m| m.as_str().trim().to_string())
+                .unwrap_or_default();
             if !var_name.is_empty() {
                 // Literal values like {} need to be valid JS
                 let js_value = if var_value.is_empty() || var_value == "{}" {
@@ -1240,10 +1252,13 @@ fn transform_set_env_to_state_return(code: String) -> String {
                 let existing_trimmed = existing_state.trim();
                 if !existing_trimmed.is_empty() {
                     // Check if existing vars conflict with set-env vars
-                    let set_env_names: std::collections::HashSet<_> = state_vars.iter().map(|(n, _)| n.as_str()).collect();
+                    let set_env_names: std::collections::HashSet<_> =
+                        state_vars.iter().map(|(n, _)| n.as_str()).collect();
                     for part in existing_trimmed.split(',') {
                         let part = part.trim();
-                        if part.is_empty() { continue; }
+                        if part.is_empty() {
+                            continue;
+                        }
                         // Extract var name (before : or just the name if shorthand)
                         let var_name = part.split(':').next().unwrap_or("").trim();
                         if !set_env_names.contains(var_name) {
@@ -1254,7 +1269,9 @@ fn transform_set_env_to_state_return(code: String) -> String {
 
                 let new_state = all_vars.join(", ");
                 let replacement = format!("return {{ state: {{ {} }} }}", new_state);
-                cleaned = return_pattern.replace(&cleaned, replacement.as_str()).to_string();
+                cleaned = return_pattern
+                    .replace(&cleaned, replacement.as_str())
+                    .to_string();
             }
         }
     } else {
@@ -1273,7 +1290,12 @@ fn transform_set_env_to_state_return(code: String) -> String {
             if let Some(last_brace) = cleaned.rfind('}') {
                 let before = &cleaned[..last_brace];
                 let after = &cleaned[last_brace..];
-                cleaned = format!("{}\n    return {{ state: {{ {} }} }};\n{}", before.trim_end(), state_obj, after);
+                cleaned = format!(
+                    "{}\n    return {{ state: {{ {} }} }};\n{}",
+                    before.trim_end(),
+                    state_obj,
+                    after
+                );
             } else {
                 cleaned = format!("{}\nreturn {{ state: {{ {} }} }};", cleaned, state_obj);
             }

@@ -271,7 +271,7 @@ async function enhancedExecuteBrowserScript(
           }
           return String(result);
         }
-        return null;
+        return "undefined";
       })()
     `;
   } else if (
