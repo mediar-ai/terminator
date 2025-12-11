@@ -12,11 +12,11 @@
   ],
   "name": "@mediar-ai/cli",
   "optionalDependencies": {
-    "@mediar-ai/cli-darwin-arm64": "0.23.41",
-    "@mediar-ai/cli-darwin-x64": "0.23.41",
-    "@mediar-ai/cli-linux-x64-gnu": "0.23.41",
-    "@mediar-ai/cli-win32-arm64-msvc": "0.23.41",
-    "@mediar-ai/cli-win32-x64-msvc": "0.23.41"
+    "@mediar-ai/cli-darwin-arm64": "0.23.42",
+    "@mediar-ai/cli-darwin-x64": "0.23.42",
+    "@mediar-ai/cli-linux-x64-gnu": "0.23.42",
+    "@mediar-ai/cli-win32-arm64-msvc": "0.23.42",
+    "@mediar-ai/cli-win32-x64-msvc": "0.23.42"
   },
   "repository": {
     "type": "git",
@@ -27,5 +27,5 @@
     "build:debug": "node ./utils/build-cli.js --debug",
     "sync-version": "node ./utils/sync-version.js"
   },
-  "version": "0.23.41"
+  "version": "0.23.42"
 }
