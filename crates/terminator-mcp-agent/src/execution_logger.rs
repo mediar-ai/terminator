@@ -1093,7 +1093,7 @@ fn transform_yaml_js_to_sdk(code: &str) -> String {
 
     // 5. YAML runtime -> TypeScript SDK variable access transformations
     // YAML runtime injects `env` and stores step results in `outputs.{step_id}_result`
-    // TypeScript SDK uses `context.state` and `context.data.{step_id}`
+    // TypeScript SDK uses `context.state` for all shared state between steps
 
     // 5a. typeof env/outputs checks -> true (context always exists in SDK)
     // Must do this BEFORE replacing env/outputs to avoid partial replacements
@@ -1101,40 +1101,61 @@ fn transform_yaml_js_to_sdk(code: &str) -> String {
     if let Ok(typeof_env) = regex::Regex::new(r#"typeof\s+env\s*!==?\s*['"]undefined['"]"#) {
         transformed = typeof_env.replace_all(&transformed, "true").to_string();
     }
-    if let Ok(typeof_outputs) = regex::Regex::new(r#"typeof\s+outputs\s*!==?\s*['"]undefined['"]"#) {
+    if let Ok(typeof_outputs) = regex::Regex::new(r#"typeof\s+outputs\s*!==?\s*['"]undefined['"]"#)
+    {
         transformed = typeof_outputs.replace_all(&transformed, "true").to_string();
     }
     // Handle nested checks: typeof env.xxx !== 'undefined'
-    if let Ok(typeof_env_prop) = regex::Regex::new(r#"typeof\s+env\.(\w+)\s*!==?\s*['"]undefined['"]"#) {
-        transformed = typeof_env_prop.replace_all(&transformed, "context.state.$1 !== undefined").to_string();
+    if let Ok(typeof_env_prop) =
+        regex::Regex::new(r#"typeof\s+env\.(\w+)\s*!==?\s*['"]undefined['"]"#)
+    {
+        transformed = typeof_env_prop
+            .replace_all(&transformed, "context.state.$1 !== undefined")
+            .to_string();
     }
-    if let Ok(typeof_outputs_prop) = regex::Regex::new(r#"typeof\s+outputs\.(\w+)_result\s*!==?\s*['"]undefined['"]"#) {
-        transformed = typeof_outputs_prop.replace_all(&transformed, "context.data.$1 !== undefined").to_string();
+    if let Ok(typeof_outputs_prop) =
+        regex::Regex::new(r#"typeof\s+outputs\.(\w+)_result\s*!==?\s*['"]undefined['"]"#)
+    {
+        transformed = typeof_outputs_prop
+            .replace_all(&transformed, "context.state.$1 !== undefined")
+            .to_string();
     }
-    if let Ok(typeof_outputs_prop2) = regex::Regex::new(r#"typeof\s+outputs\.(\w+)\s*!==?\s*['"]undefined['"]"#) {
-        transformed = typeof_outputs_prop2.replace_all(&transformed, "context.data.$1 !== undefined").to_string();
+    if let Ok(typeof_outputs_prop2) =
+        regex::Regex::new(r#"typeof\s+outputs\.(\w+)\s*!==?\s*['"]undefined['"]"#)
+    {
+        transformed = typeof_outputs_prop2
+            .replace_all(&transformed, "context.state.$1 !== undefined")
+            .to_string();
     }
 
-    // 5b. outputs.step_id_result -> context.data.step_id (strip _result suffix)
+    // 5b. outputs.step_id_result -> context.state.step_id (strip _result suffix)
     // Must do this BEFORE the generic outputs.xxx pattern
     if let Ok(outputs_result) = regex::Regex::new(r"\boutputs\.(\w+)_result\b") {
-        transformed = outputs_result.replace_all(&transformed, "context.data.$1").to_string();
+        transformed = outputs_result
+            .replace_all(&transformed, "context.state.$1")
+            .to_string();
     }
 
-    // 5c. outputs.step_id -> context.data.step_id (without _result suffix)
+    // 5c. outputs.step_id -> context.state.step_id (without _result suffix)
     if let Ok(outputs) = regex::Regex::new(r"\boutputs\.(\w+)") {
-        transformed = outputs.replace_all(&transformed, "context.data.$1").to_string();
+        transformed = outputs
+            .replace_all(&transformed, "context.state.$1")
+            .to_string();
     }
 
     // 5d. env.xxx -> context.state.xxx
     // Handle: env.loop_index, env.current_record, etc.
     if let Ok(env) = regex::Regex::new(r"\benv\.(\w+)") {
-        transformed = env.replace_all(&transformed, "context.state.$1").to_string();
+        transformed = env
+            .replace_all(&transformed, "context.state.$1")
+            .to_string();
     }
 
     // Debug log to confirm transformations applied
-    if transformed.contains("context.state.") || transformed.contains("context.data.") {
-        tracing::debug!("[transform_yaml_js_to_sdk] Applied env/outputs -> context transformations");
+    if transformed.contains("context.state.") {
+        tracing::debug!(
+            "[transform_yaml_js_to_sdk] Applied env/outputs -> context.state transformations"
+        );
     }
 
     transformed
@@ -1241,7 +1262,7 @@ fn generate_run_command_snippet(args: &Value) -> String {
             .replace('`', "\\`")
             .replace('$', "\\$");
         return format!(
-            "const result = await desktop.runCommand(`{}`);",
+            "const result = await desktop.runCommand(`{}`);\nreturn result;",
             escaped_run
         );
     }
@@ -1256,7 +1277,7 @@ fn generate_run_command_snippet(args: &Value) -> String {
             .replace('`', "\\`")
             .replace("${", "\\${"); // Escape template literals but keep ${ for JS
         return format!(
-            "const result = await desktop.runCommand(`{}`);",
+            "const result = await desktop.runCommand(`{}`);\nreturn result;",
             escaped
         );
     }
@@ -2068,10 +2089,7 @@ mod tests {
         );
 
         // 20. get_applications
-        println!(
-            "\n=== 20. get_applications ===\n{}",
-            "const apps = await desktop.getApplications();",
-        );
+        println!("\n=== 20. get_applications ===\nconst apps = await desktop.getApplications();");
 
         // 21. Full TypeScript file generation
         let full_args = json!({
