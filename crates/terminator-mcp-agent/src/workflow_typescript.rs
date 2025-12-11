@@ -9,6 +9,7 @@ use tracing::{debug, error, info, warn, Instrument};
 
 use crate::event_pipe::{create_event_channel, try_parse_event, EventPipeServer};
 use crate::execution_logger::CapturedLogEntry;
+use crate::log_pipe::{create_log_channel, forward_log_to_tracing, LogPipeServer};
 use chrono::Utc;
 use rmcp::ErrorData as McpError;
 use std::sync::{Arc, Mutex};
@@ -535,6 +536,51 @@ impl TypeScriptWorkflow {
         #[cfg(not(windows))]
         let pipe_server_handle: Option<((), String)> = None;
 
+        // Set up Windows named pipe for log streaming
+        #[cfg(windows)]
+        let log_pipe_handle = {
+            let exec_id = execution_id.unwrap_or("default");
+            let (log_tx, mut log_rx) = create_log_channel();
+            let log_server = LogPipeServer::new(exec_id, log_tx);
+            let log_pipe_name = log_server.pipe_name().to_string();
+
+            // Start the log pipe server
+            let handle = log_server.start().await.map_err(|e| {
+                McpError::internal_error(
+                    format!("Failed to start log pipe server: {e}"),
+                    Some(json!({"error": e.to_string()})),
+                )
+            })?;
+
+            // Clone for the spawned task
+            let captured_logs_for_pipe: Arc<Mutex<Vec<CapturedLogEntry>>> =
+                Arc::new(Mutex::new(Vec::new()));
+            let logs_pipe_clone = captured_logs_for_pipe.clone();
+            let exec_id_for_pipe = execution_id.map(|s| s.to_string());
+
+            // Spawn a task to forward log entries to tracing
+            tokio::spawn(async move {
+                while let Some(entry) = log_rx.recv().await {
+                    // Forward to tracing
+                    forward_log_to_tracing(&entry, exec_id_for_pipe.as_deref());
+
+                    // Capture for return value
+                    if let Ok(mut logs) = logs_pipe_clone.lock() {
+                        logs.push(CapturedLogEntry {
+                            timestamp: Utc::now(),
+                            level: entry.level.to_uppercase(),
+                            message: entry.message.clone(),
+                        });
+                    }
+                }
+            });
+
+            Some((handle, log_pipe_name, captured_logs_for_pipe))
+        };
+
+        #[cfg(not(windows))]
+        let log_pipe_handle: Option<((), String, Arc<Mutex<Vec<CapturedLogEntry>>>)> = None;
+
         use std::process::Stdio;
         let mut cmd = match runtime {
             JsRuntime::Bun(ref bun_path) => {
@@ -569,11 +615,17 @@ impl TypeScriptWorkflow {
             }
         };
 
-        // Set the pipe path environment variable if we have a pipe server
+        // Set the pipe path environment variables if we have pipe servers
         #[cfg(windows)]
         if let Some((_, ref pipe_name)) = pipe_server_handle {
             cmd.env("MCP_EVENT_PIPE", pipe_name);
             info!("Set MCP_EVENT_PIPE={}", pipe_name);
+        }
+
+        #[cfg(windows)]
+        if let Some((_, ref log_pipe_name, _)) = log_pipe_handle {
+            cmd.env("MCP_LOG_PIPE", log_pipe_name);
+            info!("Set MCP_LOG_PIPE={}", log_pipe_name);
         }
 
         let mut child = cmd.spawn().map_err(|e| {
@@ -592,11 +644,16 @@ impl TypeScriptWorkflow {
         let captured_logs: Arc<Mutex<Vec<CapturedLogEntry>>> = Arc::new(Mutex::new(Vec::new()));
         let logs_clone = captured_logs.clone();
 
-        // Determine if events are going through pipe (Windows only when event_sender is set)
+        // Determine if events/logs are going through pipe (Windows only)
         #[cfg(windows)]
         let events_via_pipe = pipe_server_handle.is_some();
         #[cfg(not(windows))]
         let events_via_pipe = false;
+
+        #[cfg(windows)]
+        let logs_via_pipe = log_pipe_handle.is_some();
+        #[cfg(not(windows))]
+        let logs_via_pipe = false;
 
         #[allow(clippy::manual_map)]
         let stderr_handle = if let Some(stderr) = stderr {
@@ -678,12 +735,29 @@ impl TypeScriptWorkflow {
                             }
                         }
 
-                        // Regular log line processing (skip MCP event lines when using pipe)
+                        // Skip MCP event lines when using event pipe
                         if events_via_pipe && line.trim_start().starts_with("{\"__mcp_event__\":true") {
-                            // Event went through pipe, skip stderr processing
                             continue;
                         }
 
+                        // Skip log lines when using log pipe (they're handled there)
+                        // Log pipe entries are JSON objects with "level" field
+                        if logs_via_pipe {
+                            let trimmed = line.trim_start();
+                            if trimmed.starts_with("{\"level\":") {
+                                continue;
+                            }
+                            // Also skip the prefixed format if it somehow appears
+                            if trimmed.starts_with("[ERROR]")
+                                || trimmed.starts_with("[WARN]")
+                                || trimmed.starts_with("[INFO]")
+                                || trimmed.starts_with("[DEBUG]")
+                            {
+                                continue;
+                            }
+                        }
+
+                        // Regular log line processing (fallback when logs not via pipe)
                         let parsed = parse_log_line(&line);
                         let msg = parsed.message.clone();
 
@@ -820,9 +894,14 @@ impl TypeScriptWorkflow {
                     .collect::<Vec<_>>());
             }
 
-            // Shutdown the pipe server on error (Windows only)
+            // Shutdown the pipe servers on error (Windows only)
             #[cfg(windows)]
             if let Some((handle, _)) = pipe_server_handle {
+                handle.shutdown().await;
+            }
+
+            #[cfg(windows)]
+            if let Some((handle, _, _)) = log_pipe_handle {
                 handle.shutdown().await;
             }
 
@@ -876,23 +955,40 @@ impl TypeScriptWorkflow {
             cleanup_temp_dir(&temp_dir);
         }
 
-        // Shutdown the pipe server (Windows only)
+        // Shutdown the pipe servers (Windows only)
         #[cfg(windows)]
         if let Some((handle, _)) = pipe_server_handle {
             handle.shutdown().await;
         }
+
+        // Note: log_pipe_handle shutdown is handled below after extracting logs
 
         // Wait for stderr handler to finish (with short timeout)
         if let Some(handle) = stderr_handle {
             let _ = tokio::time::timeout(std::time::Duration::from_millis(100), handle).await;
         }
 
-        // Extract captured logs
-        let logs = captured_logs
+        // Extract captured logs - merge from stderr and log pipe
+        let mut logs: Vec<CapturedLogEntry> = captured_logs
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .drain(..)
             .collect();
+
+        // Merge logs from log pipe (Windows only)
+        #[cfg(windows)]
+        if let Some((handle, _, pipe_logs)) = log_pipe_handle {
+            // Give the pipe handler a moment to process remaining logs
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            handle.shutdown().await;
+
+            if let Ok(mut pipe_captured) = pipe_logs.lock() {
+                logs.extend(pipe_captured.drain(..));
+            }
+        }
+
+        // Sort logs by timestamp
+        logs.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
 
         Ok(TypeScriptWorkflowExecutionResult { result, logs })
     }
@@ -943,9 +1039,47 @@ impl TypeScriptWorkflow {
         // This automatically skips onError when step control options are present
         Ok(format!(
             r#"
-// Redirect console methods to stderr with level prefixes for Rust tracing integration
+// Set up logging transport - uses named pipe if MCP_LOG_PIPE is set, otherwise stderr
+const fs = require('fs');
 const originalLog = console.log;
 const originalError = console.error;
+
+// Log pipe transport
+let logPipe = null;
+let logPipeReady = false;
+const logPipePath = process.env.MCP_LOG_PIPE;
+
+if (logPipePath) {{
+    try {{
+        logPipe = fs.createWriteStream(logPipePath, {{ flags: 'w' }});
+        logPipe.on('error', () => {{ logPipe = null; }});
+        logPipeReady = true;
+    }} catch (e) {{
+        logPipe = null;
+    }}
+}}
+
+// Send structured log entry
+const sendLog = (level, message, data) => {{
+    const entry = {{
+        level,
+        message,
+        timestamp: new Date().toISOString(),
+        ...(data !== undefined && {{ data }})
+    }};
+
+    if (logPipe && logPipeReady) {{
+        try {{
+            logPipe.write(JSON.stringify(entry) + '\n');
+            return;
+        }} catch (e) {{
+            // Fall through to stderr
+        }}
+    }}
+
+    // Fallback to stderr with level prefix
+    originalError(`[${{level.toUpperCase()}}] ${{message}}${{data !== undefined ? ' ' + JSON.stringify(data) : ''}}`);
+}};
 
 // Format args to string for logging
 const formatArgs = (...args) => args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
@@ -955,13 +1089,16 @@ console.log = (...args) => {{
     if (args.length === 1 && typeof args[0] === 'string' && args[0].startsWith('{{')) {{
         originalLog(...args);
     }} else {{
-        originalError('[INFO]', formatArgs(...args));
+        sendLog('info', formatArgs(...args));
     }}
 }};
-console.info = (...args) => originalError('[INFO]', formatArgs(...args));
-console.warn = (...args) => originalError('[WARN]', formatArgs(...args));
-console.error = (...args) => originalError('[ERROR]', formatArgs(...args));
-console.debug = (...args) => originalError('[DEBUG]', formatArgs(...args));
+console.info = (...args) => sendLog('info', formatArgs(...args));
+console.warn = (...args) => sendLog('warn', formatArgs(...args));
+console.error = (...args) => sendLog('error', formatArgs(...args));
+console.debug = (...args) => sendLog('debug', formatArgs(...args));
+
+// Cleanup on exit
+process.on('exit', () => {{ if (logPipe) logPipe.end(); }});
 
 // Set environment to suppress workflow output if supported
 process.env.WORKFLOW_SILENT = 'true';

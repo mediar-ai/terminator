@@ -5,6 +5,8 @@ export type { Desktop, Locator, Element } from "@mediar-ai/terminator";
 
 /**
  * Logger interface
+ * @deprecated Use console.log/info/warn/error/debug instead - they are automatically
+ * redirected to the MCP agent's log pipe with structured JSON and OpenTelemetry integration.
  */
 export interface Logger {
     info(message: string): void;
@@ -38,7 +40,10 @@ export interface StepContext<TInput = any, TState = Record<string, any>> {
     input: TInput;
     /** Shared workflow context with typed state and variables */
     context: WorkflowContext<TInput, TState>;
-    /** Logger instance */
+    /**
+     * Logger instance
+     * @deprecated Use console.log/info/warn/error/debug instead
+     */
     logger: Logger;
 }
 
@@ -554,6 +559,7 @@ export interface Workflow<TInput = any> {
 
 /**
  * Console logger implementation
+ * @deprecated Use console.log/info/warn/error/debug directly instead
  */
 export class ConsoleLogger implements Logger {
     info(message: string): void {

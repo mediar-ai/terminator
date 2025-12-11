@@ -2,6 +2,7 @@ pub mod cancellation;
 pub mod duration_parser;
 pub mod event_pipe;
 pub mod execution_logger;
+pub mod log_pipe;
 pub mod expression_eval;
 pub mod helpers;
 pub mod mcp_types;
