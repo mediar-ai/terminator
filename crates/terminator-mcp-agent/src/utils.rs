@@ -198,12 +198,12 @@ pub struct ActionOptions {
     pub retries: Option<u32>,
 
     #[schemars(
-        description = "REQUIRED: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. Use empty string \"\" to skip this check."
+        description = "Selector that should exist after action. EXACT match from UI tree only - never guess. Use \"\" to skip."
     )]
     pub verify_element_exists: String,
 
     #[schemars(
-        description = "REQUIRED: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). Use empty string \"\" to skip this check."
+        description = "Selector that should NOT exist after action. EXACT match from UI tree only - never guess. Use \"\" to skip."
     )]
     pub verify_element_not_exists: String,
 
@@ -889,12 +889,12 @@ pub struct GlobalKeyArgs {
     pub key: String,
 
     #[schemars(
-        description = "REQUIRED: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Use empty string \"\" to skip this check."
+        description = "Selector that should exist after action. EXACT match from UI tree only - never guess. Use \"\" to skip."
     )]
     pub verify_element_exists: String,
 
     #[schemars(
-        description = "REQUIRED: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). Use empty string \"\" to skip this check."
+        description = "Selector that should NOT exist after action. EXACT match from UI tree only - never guess. Use \"\" to skip."
     )]
     pub verify_element_not_exists: String,
 
@@ -1135,12 +1135,12 @@ pub struct NavigateBrowserArgs {
     pub process: String,
 
     #[schemars(
-        description = "REQUIRED: Selector that should exist after navigation completes. Used to verify the page loaded successfully. Use empty string \"\" to skip this check."
+        description = "Selector that should exist after navigation. EXACT match from UI tree only - never guess. Use \"\" to skip."
     )]
     pub verify_element_exists: String,
 
     #[schemars(
-        description = "REQUIRED: Selector that should NOT exist after navigation completes. Use empty string \"\" to skip this check."
+        description = "Selector that should NOT exist after navigation. EXACT match from UI tree only - never guess. Use \"\" to skip."
     )]
     pub verify_element_not_exists: String,
 
@@ -1193,12 +1193,12 @@ pub struct OpenApplicationArgs {
     pub app_name: String,
 
     #[schemars(
-        description = "REQUIRED: Selector that should exist after the application opens. Used to verify the app loaded successfully (e.g., 'process:notepad|role:Document'). Use empty string \"\" to skip this check."
+        description = "Selector that should exist after app opens. EXACT match from UI tree only - never guess. Use \"\" to skip."
     )]
     pub verify_element_exists: String,
 
     #[schemars(
-        description = "REQUIRED: Selector that should NOT exist after the application opens. Use empty string \"\" to skip this check."
+        description = "Selector that should NOT exist after app opens. EXACT match from UI tree only - never guess. Use \"\" to skip."
     )]
     pub verify_element_not_exists: String,
 
