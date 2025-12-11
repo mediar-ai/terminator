@@ -31,6 +31,9 @@ export type {
     StepEmitter,
 } from "./events";
 
+// Logging API (named pipe transport)
+export { log, setupConsoleRedirect, _getLogTransportMode } from "./logging";
+
 export type {
     Desktop,
     Locator,

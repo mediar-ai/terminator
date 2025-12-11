@@ -1,0 +1,358 @@
+//! Windows Named Pipe server for receiving workflow logs from TypeScript
+//!
+//! This module provides a clean IPC mechanism for TypeScript workflows to send
+//! structured logs to the Rust MCP agent without polluting stderr.
+//!
+//! # Architecture
+//! ```text
+//! TypeScript Workflow          Rust MCP Agent
+//! ┌─────────────────┐         ┌─────────────────┐
+//! │  console.log()  │         │  LogPipeServer  │
+//! │        │        │         │        │        │
+//! │        ▼        │         │        ▼        │
+//! │  Write to pipe  │ ──────► │  Read logs      │
+//! │                 │  Named  │        │        │
+//! │                 │  Pipe   │        ▼        │
+//! └─────────────────┘         │  Forward to     │
+//!                             │  tracing        │
+//!                             └─────────────────┘
+//! ```
+
+use serde::Deserialize;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::sync::mpsc;
+use tracing::{debug, error, info, warn};
+
+/// Log entry received from TypeScript workflow
+#[derive(Debug, Clone, Deserialize)]
+pub struct LogEntry {
+    /// Log level: "debug", "info", "warn", "error"
+    pub level: String,
+    /// Log message
+    pub message: String,
+    /// Optional structured data
+    #[serde(default)]
+    pub data: Option<serde_json::Value>,
+    /// Timestamp from TypeScript
+    pub timestamp: String,
+}
+
+/// Channel sender for log entries
+pub type LogSender = mpsc::UnboundedSender<LogEntry>;
+pub type LogReceiver = mpsc::UnboundedReceiver<LogEntry>;
+
+/// Create a new log channel
+pub fn create_log_channel() -> (LogSender, LogReceiver) {
+    mpsc::unbounded_channel()
+}
+
+/// Generate a unique pipe name for workflow logs
+pub fn generate_log_pipe_name(execution_id: &str) -> String {
+    format!(r"\\.\pipe\mcp-workflow-logs-{}", execution_id)
+}
+
+/// Try to parse a line as a log entry
+/// Returns Some(entry) if valid JSON log, None otherwise
+pub fn try_parse_log(line: &str) -> Option<LogEntry> {
+    let trimmed = line.trim();
+    if !trimmed.starts_with('{') {
+        return None;
+    }
+
+    serde_json::from_str::<LogEntry>(trimmed).ok()
+}
+
+/// Windows Named Pipe server for receiving workflow logs
+#[cfg(windows)]
+pub struct LogPipeServer {
+    pipe_name: String,
+    log_sender: LogSender,
+}
+
+#[cfg(windows)]
+impl LogPipeServer {
+    /// Create a new log pipe server
+    pub fn new(execution_id: &str, log_sender: LogSender) -> Self {
+        Self {
+            pipe_name: generate_log_pipe_name(execution_id),
+            log_sender,
+        }
+    }
+
+    /// Get the pipe name for passing to TypeScript
+    pub fn pipe_name(&self) -> &str {
+        &self.pipe_name
+    }
+
+    /// Start the pipe server and return a handle to stop it
+    pub async fn start(self) -> Result<LogPipeServerHandle, std::io::Error> {
+        use tokio::net::windows::named_pipe::{PipeMode, ServerOptions};
+
+        let pipe_name = self.pipe_name.clone();
+        let log_sender = self.log_sender;
+
+        // Create the named pipe server
+        let server = ServerOptions::new()
+            .first_pipe_instance(true)
+            .pipe_mode(PipeMode::Byte)
+            .create(&pipe_name)?;
+
+        info!("Created log pipe: {}", pipe_name);
+
+        let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
+
+        let handle = tokio::spawn(async move {
+            // Wait for client connection
+            debug!("Waiting for TypeScript to connect to log pipe...");
+
+            tokio::select! {
+                result = server.connect() => {
+                    match result {
+                        Ok(()) => {
+                            info!("TypeScript connected to log pipe");
+
+                            let reader = BufReader::new(server);
+                            let mut lines = reader.lines();
+
+                            loop {
+                                tokio::select! {
+                                    line_result = lines.next_line() => {
+                                        match line_result {
+                                            Ok(Some(line)) => {
+                                                if let Some(entry) = try_parse_log(&line) {
+                                                    debug!("Received log from pipe: {:?}", entry);
+                                                    if log_sender.send(entry).is_err() {
+                                                        debug!("Log receiver dropped, stopping log pipe server");
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                            Ok(None) => {
+                                                debug!("Log pipe closed by client");
+                                                break;
+                                            }
+                                            Err(e) => {
+                                                error!("Error reading from log pipe: {}", e);
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    _ = shutdown_rx.recv() => {
+                                        debug!("Log pipe server shutdown requested");
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!("Failed to accept log pipe connection: {}", e);
+                        }
+                    }
+                }
+                _ = shutdown_rx.recv() => {
+                    debug!("Log pipe server shutdown before connection");
+                }
+            }
+        });
+
+        Ok(LogPipeServerHandle {
+            _handle: handle,
+            shutdown_tx,
+        })
+    }
+}
+
+/// Handle to control the log pipe server
+pub struct LogPipeServerHandle {
+    _handle: tokio::task::JoinHandle<()>,
+    shutdown_tx: mpsc::Sender<()>,
+}
+
+impl LogPipeServerHandle {
+    /// Signal the log pipe server to shutdown
+    pub async fn shutdown(self) {
+        let _ = self.shutdown_tx.send(()).await;
+    }
+}
+
+/// Forward log entries to tracing with optional execution_id for OTEL filtering
+pub fn forward_log_to_tracing(entry: &LogEntry, execution_id: Option<&str>) {
+    let msg = &entry.message;
+
+    match (execution_id, entry.level.as_str()) {
+        (Some(exec_id), "error") => {
+            error!(target: "workflow.typescript", execution_id = %exec_id, "{}", msg)
+        }
+        (Some(exec_id), "warn") => {
+            warn!(target: "workflow.typescript", execution_id = %exec_id, "{}", msg)
+        }
+        (Some(exec_id), "debug") => {
+            debug!(target: "workflow.typescript", execution_id = %exec_id, "{}", msg)
+        }
+        (Some(exec_id), _) => {
+            info!(target: "workflow.typescript", execution_id = %exec_id, "{}", msg)
+        }
+        (None, "error") => {
+            error!(target: "workflow.typescript", "{}", msg)
+        }
+        (None, "warn") => {
+            warn!(target: "workflow.typescript", "{}", msg)
+        }
+        (None, "debug") => {
+            debug!(target: "workflow.typescript", "{}", msg)
+        }
+        (None, _) => {
+            info!(target: "workflow.typescript", "{}", msg)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_log_entry() {
+        let json = r#"{"level":"info","message":"Hello world","timestamp":"2025-01-01T00:00:00Z"}"#;
+        let entry = try_parse_log(json).unwrap();
+        assert_eq!(entry.level, "info");
+        assert_eq!(entry.message, "Hello world");
+        assert!(entry.data.is_none());
+    }
+
+    #[test]
+    fn test_parse_log_entry_with_data() {
+        let json = r#"{"level":"debug","message":"Item processed","data":{"count":42},"timestamp":"2025-01-01T00:00:00Z"}"#;
+        let entry = try_parse_log(json).unwrap();
+        assert_eq!(entry.level, "debug");
+        assert_eq!(entry.message, "Item processed");
+        assert!(entry.data.is_some());
+    }
+
+    #[test]
+    fn test_parse_invalid_json() {
+        assert!(try_parse_log("not json").is_none());
+        assert!(try_parse_log("").is_none());
+        assert!(try_parse_log("[1,2,3]").is_none());
+    }
+
+    #[test]
+    fn test_generate_pipe_name() {
+        let name = generate_log_pipe_name("exec-123");
+        assert_eq!(name, r"\\.\pipe\mcp-workflow-logs-exec-123");
+    }
+
+    #[test]
+    fn test_log_channel() {
+        let (tx, mut rx) = create_log_channel();
+
+        let entry = LogEntry {
+            level: "info".to_string(),
+            message: "Test".to_string(),
+            data: None,
+            timestamp: "2025-01-01T00:00:00Z".to_string(),
+        };
+
+        tx.send(entry.clone()).unwrap();
+        let received = rx.try_recv().unwrap();
+        assert_eq!(received.level, entry.level);
+        assert_eq!(received.message, entry.message);
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_integration_tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::io::AsyncWriteExt;
+    use tokio::time::timeout;
+
+    #[tokio::test]
+    async fn test_log_pipe_server_basic() {
+        let (tx, mut rx) = create_log_channel();
+        let server = LogPipeServer::new("test-log-basic", tx);
+        let pipe_name = server.pipe_name().to_string();
+
+        let handle = server
+            .start()
+            .await
+            .expect("Failed to start log pipe server");
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let client_task = tokio::spawn(async move {
+            use tokio::net::windows::named_pipe::ClientOptions;
+
+            let mut client = ClientOptions::new()
+                .open(&pipe_name)
+                .expect("Failed to connect to log pipe");
+
+            let log_json =
+                r#"{"level":"info","message":"Test log message","timestamp":"2025-01-01T00:00:00Z"}"#;
+            client.write_all(log_json.as_bytes()).await.unwrap();
+            client.write_all(b"\n").await.unwrap();
+            client.flush().await.unwrap();
+        });
+
+        let entry = timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("Timeout waiting for log")
+            .expect("Channel closed");
+
+        assert_eq!(entry.level, "info");
+        assert_eq!(entry.message, "Test log message");
+
+        client_task.await.unwrap();
+        handle.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn test_log_pipe_server_multiple_logs() {
+        let (tx, mut rx) = create_log_channel();
+        let server = LogPipeServer::new("test-log-multi", tx);
+        let pipe_name = server.pipe_name().to_string();
+
+        let handle = server
+            .start()
+            .await
+            .expect("Failed to start log pipe server");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let client_task = tokio::spawn(async move {
+            use tokio::net::windows::named_pipe::ClientOptions;
+
+            let mut client = ClientOptions::new()
+                .open(&pipe_name)
+                .expect("Failed to connect to log pipe");
+
+            let logs = vec![
+                r#"{"level":"debug","message":"Debug msg","timestamp":"T"}"#,
+                r#"{"level":"info","message":"Info msg","timestamp":"T"}"#,
+                r#"{"level":"warn","message":"Warn msg","timestamp":"T"}"#,
+                r#"{"level":"error","message":"Error msg","timestamp":"T"}"#,
+            ];
+
+            for log_json in logs {
+                client.write_all(log_json.as_bytes()).await.unwrap();
+                client.write_all(b"\n").await.unwrap();
+            }
+            client.flush().await.unwrap();
+        });
+
+        let mut received = Vec::new();
+        for _ in 0..4 {
+            if let Ok(Some(entry)) = timeout(Duration::from_secs(5), rx.recv()).await {
+                received.push(entry);
+            }
+        }
+
+        assert_eq!(received.len(), 4);
+        assert_eq!(received[0].level, "debug");
+        assert_eq!(received[1].level, "info");
+        assert_eq!(received[2].level, "warn");
+        assert_eq!(received[3].level, "error");
+
+        client_task.await.unwrap();
+        handle.shutdown().await;
+    }
+}
