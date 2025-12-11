@@ -87,18 +87,18 @@ const step = createStep({
 
 ### ✅ Context Sharing
 
-Share data between steps:
+Share state between steps using `return { state: {...} }`:
 
 ```typescript
 const step1 = createStep({
   execute: async ({ context }) => {
-    context.data = { userId: 123 };
+    return { state: { userId: 123 } };
   },
 });
 
 const step2 = createStep({
   execute: async ({ context }) => {
-    console.log(context.data.userId); // 123
+    console.log(context.state.userId); // 123
   },
 });
 ```
