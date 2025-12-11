@@ -593,7 +593,7 @@ export declare class Desktop {
    * @param {number} [xPercentage=50] - X position within bounds as percentage (0-100). Defaults to 50 (center).
    * @param {number} [yPercentage=50] - Y position within bounds as percentage (0-100). Defaults to 50 (center).
    * @param {ClickType} [clickType='left'] - Type of click: 'left', 'double', or 'right'.
-   * @param {boolean} [restoreCursor=false] - If true, restore cursor to original position after clicking.
+   * @param {boolean} [restoreCursor=true] - If true, restore cursor to original position after clicking.
    * @returns {ClickResult} Result with clicked coordinates and method details.
    */
   clickAtBounds(x: number, y: number, width: number, height: number, xPercentage?: number | undefined | null, yPercentage?: number | undefined | null, clickType?: ClickType | undefined | null, restoreCursor?: boolean | undefined | null): ClickResult
@@ -608,7 +608,7 @@ export declare class Desktop {
    * @param {number} [xPercentage=50] - X position within bounds as percentage (0-100).
    * @param {number} [yPercentage=50] - Y position within bounds as percentage (0-100).
    * @param {ClickType} [clickType='Left'] - Type of click: 'Left', 'Double', or 'Right'.
-   * @param {boolean} [restoreCursor=false] - If true, restore cursor to original position after clicking.
+   * @param {boolean} [restoreCursor=true] - If true, restore cursor to original position after clicking.
    * @returns {ClickResult} Result with clicked coordinates, element info, and method details.
    */
   clickByIndex(index: number, visionType?: VisionType | undefined | null, xPercentage?: number | undefined | null, yPercentage?: number | undefined | null, clickType?: ClickType | undefined | null, restoreCursor?: boolean | undefined | null): ClickResult
