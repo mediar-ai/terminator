@@ -1185,6 +1185,33 @@ fn looks_like_shell_code(code: &str) -> bool {
     false
 }
 
+/// Detect if code looks like JavaScript/TypeScript (to avoid misclassifying as shell)
+fn looks_like_javascript_code(code: &str) -> bool {
+    let trimmed = code.trim();
+
+    // Strong JavaScript indicators
+    trimmed.contains("const ")
+        || trimmed.contains("let ")
+        || trimmed.contains("var ")
+        || trimmed.contains("function ")
+        || trimmed.contains("async ")
+        || trimmed.contains("await ")
+        || trimmed.contains("require(")
+        || trimmed.contains("import ")
+        || trimmed.contains("export ")
+        || trimmed.contains("=>")
+        || trimmed.contains(".forEach")
+        || trimmed.contains(".map(")
+        || trimmed.contains(".filter(")
+        || trimmed.contains(".reduce(")
+        || trimmed.contains("try {")
+        || trimmed.contains("catch (")
+        || trimmed.contains("JSON.")
+        || trimmed.contains("console.")
+        || trimmed.contains("document.")
+        || trimmed.contains("window.")
+}
+
 /// Generate run_command snippet
 fn generate_run_command_snippet(args: &Value) -> String {
     let run = args.get("run").and_then(|v| v.as_str()).unwrap_or("");
@@ -1192,14 +1219,23 @@ fn generate_run_command_snippet(args: &Value) -> String {
 
     // Determine if this is shell code:
     // 1. Explicit engine set to shell/bash/cmd/powershell
-    // 2. Engine not set but code looks like shell/PowerShell
+    // 2. Engine not set but code looks like shell/PowerShell (and NOT like JavaScript)
     let is_shell = match engine {
         Some(e) => matches!(e, "shell" | "bash" | "cmd" | "powershell"),
-        None => looks_like_shell_code(run),
+        // Only use heuristics if no explicit engine - and be careful not to
+        // misclassify JS code that contains && or || operators
+        None => looks_like_shell_code(run) && !looks_like_javascript_code(run),
     };
 
-    // Shell command mode - wrap in desktop.runCommand()
-    if is_shell {
+    // Determine if code needs Node.js runtime (require, fs operations, etc.)
+    let needs_node_runtime = run.contains("require(")
+        || run.contains("import ")
+        || run.contains("fs.readFileSync")
+        || run.contains("fs.writeFileSync");
+
+    // Shell command mode - wrap in desktop.runCommand() but NO var transformations
+    // (shell scripts don't use env.xxx or outputs.xxx - they use $ENV_VAR)
+    if is_shell && !needs_node_runtime {
         let escaped_run = run
             .replace('\\', "\\\\")
             .replace('`', "\\`")
@@ -1210,8 +1246,22 @@ fn generate_run_command_snippet(args: &Value) -> String {
         );
     }
 
-    // Default: JavaScript/TypeScript - inline code with API transformations
+    // JavaScript/TypeScript - apply API transformations
     let transformed = transform_yaml_js_to_sdk(run);
+
+    // If code needs Node runtime, wrap in runCommand() with the transformed code
+    if needs_node_runtime {
+        let escaped = transformed
+            .replace('\\', "\\\\")
+            .replace('`', "\\`")
+            .replace("${", "\\${"); // Escape template literals but keep ${ for JS
+        return format!(
+            "const result = await desktop.runCommand(`{}`);",
+            escaped
+        );
+    }
+
+    // Inline JavaScript code with transformations applied
 
     // If the code contains a return statement with state/set_env (for inter-step communication),
     // we need to capture the IIFE result and return it from the step's execute function
