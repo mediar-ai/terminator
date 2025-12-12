@@ -143,6 +143,13 @@ pub fn send_left_click(x: f64, y: f64, restore_cursor: bool) -> Result<(), Autom
 ///
 /// Contains the previously focused element, optional caret position (for text fields),
 /// and mouse cursor position. Used to restore user's context after typing/pressing keys.
+///
+/// # Safety
+/// This struct is marked as Send + Sync because:
+/// 1. We use COINIT_MULTITHREADED (MTA) for COM initialization
+/// 2. UI Automation COM objects support cross-thread access in MTA mode
+/// 3. The FocusState is saved on one thread and restored on the same/different thread
+///    within the same MTA apartment, which is valid COM usage
 pub struct FocusState {
     #[allow(dead_code)]
     automation: IUIAutomation,
@@ -150,6 +157,11 @@ pub struct FocusState {
     caret_range: Option<IUIAutomationTextRange>,
     mouse_pos: POINT,
 }
+
+// SAFETY: COM objects in MTA mode can be accessed from any thread in the apartment.
+// We initialize with COINIT_MULTITHREADED and these interfaces support MTA.
+unsafe impl Send for FocusState {}
+unsafe impl Sync for FocusState {}
 
 /// Save the current focus state including focused element, caret position, and mouse cursor.
 ///
