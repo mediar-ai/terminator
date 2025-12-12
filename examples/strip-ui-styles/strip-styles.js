@@ -40,16 +40,8 @@
     }
   });
 
-  // 4. Remove class attributes (they reference now-removed CSS)
-  allElements.forEach(el => {
-    if (el.classList && el.classList.length > 0) {
-      // Keep some functional classes that JS might depend on
-      const functionalClasses = [...el.classList].filter(c =>
-        c.startsWith('js-') || c.startsWith('data-') || c.includes('active') || c.includes('open') || c.includes('visible')
-      );
-      el.className = functionalClasses.join(' ');
-    }
-  });
+  // 4. KEEP class attributes - JS event handlers depend on them
+  // We only strip CSS, not the class names themselves
 
   // 4.5. REMOVE media embeds from DOM entirely (CSS can't reach shadow DOM)
   const mediaSelectors = [
