@@ -2182,6 +2182,28 @@ impl DesktopWrapper {
             should_restore_value
         };
 
+        let text_to_type = args.text_to_type.clone();
+        let should_clear = args.clear_before_typing;
+        let try_focus_before = args.try_focus_before;
+        let try_click_before = args.try_click_before;
+        let restore_focus = args.restore_focus;
+        let highlight_before = args.highlight.highlight_before_action;
+
+        // CRITICAL: Save focus state HERE at MCP level BEFORE any window activation
+        // Both prepare_window_management() and activate_window() steal focus,
+        // so we must save BEFORE either of them runs
+        //
+        // FocusState is Send + Sync (COM objects in MTA mode support cross-thread access)
+        use terminator::platforms::windows::{restore_focus_state, save_focus_state};
+        let saved_focus_state = if restore_focus {
+            tracing::info!(
+                "[type_into_element] Saving focus state BEFORE window management (MCP level)"
+            );
+            save_focus_state()
+        } else {
+            None
+        };
+
         if should_restore {
             tracing::info!(
                 "[type_into_element] Direct MCP call detected - performing window management"
@@ -2199,13 +2221,6 @@ impl DesktopWrapper {
             tracing::debug!("[type_into_element] In sequence - skipping window management (dispatch_tool handles it)");
         }
 
-        let text_to_type = args.text_to_type.clone();
-        let should_clear = args.clear_before_typing;
-        let try_focus_before = args.try_focus_before;
-        let try_click_before = args.try_click_before;
-        let restore_focus = args.restore_focus;
-        let highlight_before = args.highlight.highlight_before_action;
-
         let action = {
             move |element: UIElement| {
                 let text_to_type = text_to_type.clone();
@@ -2221,6 +2236,7 @@ impl DesktopWrapper {
                     }
 
                     // Execute the typing action with state tracking
+                    // NOTE: restore_focus=false - MCP handles restoration after find_and_execute
                     if should_clear {
                         if let Err(clear_error) = element.set_value("") {
                             warn!(
@@ -2234,7 +2250,7 @@ impl DesktopWrapper {
                         true,
                         try_focus_before,
                         try_click_before,
-                        restore_focus,
+                        false, // Don't restore at core level - MCP handles it
                     )
                 }
             }
@@ -2298,6 +2314,13 @@ impl DesktopWrapper {
                     ))
                 }
             }?;
+
+        // CRITICAL: Restore focus state AFTER typing is complete
+        // This must happen after find_and_execute but before returning results
+        if let Some(state) = saved_focus_state {
+            tracing::info!("[type_into_element] Restoring focus state (MCP level)");
+            restore_focus_state(state);
+        }
 
         let mut result_json = json!({
             "action": "type_into_element",
