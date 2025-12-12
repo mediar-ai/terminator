@@ -68,6 +68,9 @@ pub struct TypeTextOptions {
     pub try_focus_before: Option<bool>,
     /// Whether to try clicking the element if focus fails. Defaults to true.
     pub try_click_before: Option<bool>,
+    /// Whether to restore the original focus and caret position after typing. Defaults to false.
+    /// When true, saves the currently focused element and caret position before typing, then restores them after.
+    pub restore_focus: Option<bool>,
     /// Whether to capture UI tree before/after action and compute diff. Defaults to false.
     pub ui_diff_before_after: Option<bool>,
     /// Max depth for tree capture when doing UI diff.
@@ -469,12 +472,14 @@ impl Element {
 
         let try_focus_before = opts.try_focus_before.unwrap_or(true);
         let try_click_before = opts.try_click_before.unwrap_or(true);
+        let restore_focus = opts.restore_focus.unwrap_or(false);
         self.inner
-            .type_text_with_state_and_focus(
+            .type_text_with_state_and_focus_restore(
                 &text,
                 opts.use_clipboard.unwrap_or(false),
                 try_focus_before,
                 try_click_before,
+                restore_focus,
             )
             .map_err(map_error)?;
 

@@ -6,7 +6,7 @@
 use crate::{AutomationError, ClickType};
 use std::thread;
 use std::time::Duration;
-use tracing::debug;
+use tracing::info;
 use windows::core::BOOL;
 use windows::Win32::Foundation::POINT;
 use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
@@ -157,16 +157,42 @@ pub struct FocusState {
 /// Caret position is only saved if the focused element supports TextPattern2.
 pub fn save_focus_state() -> Option<FocusState> {
     unsafe {
+        info!("[FOCUS_RESTORE] save_focus_state() called");
+
         // Create UI Automation instance
         let automation: IUIAutomation =
-            CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).ok()?;
+            match CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) {
+                Ok(a) => a,
+                Err(e) => {
+                    info!("[FOCUS_RESTORE] Failed to create UIA: {:?}", e);
+                    return None;
+                }
+            };
 
         // Save mouse position
         let mut mouse_pos = POINT { x: 0, y: 0 };
         let _ = GetCursorPos(&mut mouse_pos);
 
         // Get focused element
-        let focused_element = automation.GetFocusedElement().ok()?;
+        let focused_element = match automation.GetFocusedElement() {
+            Ok(el) => el,
+            Err(e) => {
+                info!("[FOCUS_RESTORE] GetFocusedElement failed: {:?}", e);
+                return None;
+            }
+        };
+
+        // Get element name for logging
+        let element_name = focused_element
+            .CurrentName()
+            .ok()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "<no name>".to_string());
+        let element_class = focused_element
+            .CurrentClassName()
+            .ok()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "<no class>".to_string());
 
         // Try to get caret position if element supports TextPattern2
         let caret_range = if let Ok(pattern) =
@@ -174,16 +200,21 @@ pub fn save_focus_state() -> Option<FocusState> {
         {
             let mut is_active = BOOL::default();
             if let Ok(range) = pattern.GetCaretRange(&mut is_active) {
+                info!("[FOCUS_RESTORE] Got caret range, is_active={:?}", is_active);
                 range.Clone().ok()
             } else {
+                info!("[FOCUS_RESTORE] GetCaretRange failed");
                 None
             }
         } else {
+            info!("[FOCUS_RESTORE] Element does not support TextPattern2");
             None
         };
 
-        debug!(
-            "Saved focus state: mouse=({}, {}), has_caret={}",
+        info!(
+            "[FOCUS_RESTORE] Saved: element='{}' class='{}' mouse=({}, {}), has_caret={}",
+            element_name,
+            element_class,
             mouse_pos.x,
             mouse_pos.y,
             caret_range.is_some()
@@ -204,21 +235,47 @@ pub fn save_focus_state() -> Option<FocusState> {
 /// Silently fails if restoration is not possible (element no longer valid, etc.).
 pub fn restore_focus_state(state: FocusState) {
     unsafe {
+        info!("[FOCUS_RESTORE] restore_focus_state() called");
+
+        // Get element info for logging
+        let element_name = state
+            .focused_element
+            .CurrentName()
+            .ok()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "<no name>".to_string());
+
         // Restore focus to the element
-        let _ = state.focused_element.SetFocus();
+        match state.focused_element.SetFocus() {
+            Ok(_) => info!("[FOCUS_RESTORE] SetFocus succeeded for '{}'", element_name),
+            Err(e) => info!(
+                "[FOCUS_RESTORE] SetFocus failed for '{}': {:?}",
+                element_name, e
+            ),
+        }
 
         // Restore caret position if we have it
         if let Some(ref range) = state.caret_range {
             // Small delay to let focus settle before selecting
             thread::sleep(Duration::from_millis(50));
-            let _ = range.Select();
+            match range.Select() {
+                Ok(_) => info!("[FOCUS_RESTORE] Caret Select() succeeded"),
+                Err(e) => info!("[FOCUS_RESTORE] Caret Select() failed: {:?}", e),
+            }
         }
 
         // Restore mouse cursor position
-        let _ = SetCursorPos(state.mouse_pos.x, state.mouse_pos.y);
+        match SetCursorPos(state.mouse_pos.x, state.mouse_pos.y) {
+            Ok(_) => info!(
+                "[FOCUS_RESTORE] SetCursorPos({}, {}) succeeded",
+                state.mouse_pos.x, state.mouse_pos.y
+            ),
+            Err(e) => info!("[FOCUS_RESTORE] SetCursorPos failed: {:?}", e),
+        }
 
-        debug!(
-            "Restored focus state: mouse=({}, {}), had_caret={}",
+        info!(
+            "[FOCUS_RESTORE] Restoration complete: element='{}' mouse=({}, {}), had_caret={}",
+            element_name,
             state.mouse_pos.x,
             state.mouse_pos.y,
             state.caret_range.is_some()

@@ -127,7 +127,7 @@ Contextual information:
   ├── packages/
   │   ├── terminator-nodejs/src/               # Node.js/TypeScript SDK (for run_command)
   │   ├── terminator-python/src/               # Python SDK
-  │   ├── workflow/src/                        # Workflow engine
+  │   ├── workflow/src/                        # Workflow SDK: next('stepId') jumps, success(result) completes early, retry() re-executes in onError
   │   └── kv/src/                              # KV store
   ├── examples/                                # Example workflows
   ├── docs/                                    # General documentation

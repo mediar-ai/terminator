@@ -1015,8 +1015,69 @@ impl UIElement {
         try_focus_before: bool,
         try_click_before: bool,
     ) -> Result<crate::ActionResult, AutomationError> {
-        self.inner
-            .type_text_with_state(text, use_clipboard, try_focus_before, try_click_before)
+        self.type_text_with_state_and_focus_restore(
+            text,
+            use_clipboard,
+            try_focus_before,
+            try_click_before,
+            false,
+        )
+    }
+
+    /// Type text with state tracking, custom focus/click behavior, and optional focus restoration
+    #[instrument(level = "debug", skip(self))]
+    pub fn type_text_with_state_and_focus_restore(
+        &self,
+        text: &str,
+        use_clipboard: bool,
+        try_focus_before: bool,
+        try_click_before: bool,
+        restore_focus: bool,
+    ) -> Result<crate::ActionResult, AutomationError> {
+        // Call the underlying type_text with restore_focus
+        self.inner.type_text(
+            text,
+            use_clipboard,
+            try_focus_before,
+            try_click_before,
+            restore_focus,
+        )?;
+
+        // Auto-verify by reading the value back
+        let verification = match self.inner.get_value() {
+            Ok(Some(actual)) => {
+                let passed = actual.contains(text);
+                Some(crate::TypeVerification {
+                    passed,
+                    expected: text.to_string(),
+                    actual: Some(actual),
+                    error: if passed {
+                        None
+                    } else {
+                        Some("Value does not contain expected text".to_string())
+                    },
+                })
+            }
+            Ok(None) => None,
+            Err(_) => None,
+        };
+
+        Ok(crate::ActionResult {
+            action: "type_text".to_string(),
+            details: format!(
+                "Typed {} chars with restore_focus={}",
+                text.len(),
+                restore_focus
+            ),
+            data: Some(serde_json::json!({
+                "text": text,
+                "use_clipboard": use_clipboard,
+                "try_focus_before": try_focus_before,
+                "try_click_before": try_click_before,
+                "restore_focus": restore_focus,
+            })),
+            verification,
+        })
     }
 
     /// Press a key while this element is focused
