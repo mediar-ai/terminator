@@ -473,12 +473,14 @@ pub trait UIElementImpl: Send + Sync + Debug {
         use_clipboard: bool,
         try_focus_before: bool,
         try_click_before: bool,
+        restore_focus: bool,
     ) -> Result<(), AutomationError>;
     fn press_key(
         &self,
         key: &str,
         try_focus_before: bool,
         try_click_before: bool,
+        restore_focus: bool,
     ) -> Result<(), AutomationError>;
 
     fn type_text_with_state(
@@ -489,7 +491,13 @@ pub trait UIElementImpl: Send + Sync + Debug {
         try_click_before: bool,
     ) -> Result<crate::ActionResult, AutomationError> {
         // Default implementation - platforms can override for state tracking
-        self.type_text(text, use_clipboard, try_focus_before, try_click_before)?;
+        self.type_text(
+            text,
+            use_clipboard,
+            try_focus_before,
+            try_click_before,
+            false,
+        )?;
 
         // Auto-verify by reading the value back
         let verification = match self.get_value() {
@@ -549,7 +557,7 @@ pub trait UIElementImpl: Send + Sync + Debug {
         try_click_before: bool,
     ) -> Result<crate::ActionResult, AutomationError> {
         // Default implementation - platforms can override for state tracking
-        self.press_key(key, try_focus_before, try_click_before)?;
+        self.press_key(key, try_focus_before, try_click_before, false)?;
         Ok(crate::ActionResult {
             action: "press_key".to_string(),
             details: "No state tracking available".to_string(),
@@ -982,8 +990,8 @@ impl UIElement {
 
     /// Type text into this element
     pub fn type_text(&self, text: &str, use_clipboard: bool) -> Result<(), AutomationError> {
-        // Default: try both focus and click
-        self.inner.type_text(text, use_clipboard, true, true)
+        // Default: try both focus and click, no focus restore
+        self.inner.type_text(text, use_clipboard, true, true, false)
     }
 
     /// Type text with state tracking
@@ -1013,8 +1021,8 @@ impl UIElement {
 
     /// Press a key while this element is focused
     pub fn press_key(&self, key: &str) -> Result<(), AutomationError> {
-        // Default: try both focus and click
-        self.inner.press_key(key, true, true)
+        // Default: try both focus and click, no focus restore
+        self.inner.press_key(key, true, true, false)
     }
 
     /// Press a key with state tracking
