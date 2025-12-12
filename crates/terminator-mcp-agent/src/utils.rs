@@ -816,6 +816,11 @@ pub struct TypeIntoElementArgs {
     )]
     #[serde(default = "default_true")]
     pub try_click_before: bool,
+    #[schemars(
+        description = "Whether to restore the original focus and caret position after typing (default: false). When true, saves the currently focused element and caret position before typing, then restores them after. Useful when automation should not disrupt user's current work."
+    )]
+    #[serde(default)]
+    pub restore_focus: bool,
     #[serde(flatten)]
     pub selector: SelectorOptions,
 
