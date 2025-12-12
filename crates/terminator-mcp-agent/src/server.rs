@@ -2203,6 +2203,7 @@ impl DesktopWrapper {
         let should_clear = args.clear_before_typing;
         let try_focus_before = args.try_focus_before;
         let try_click_before = args.try_click_before;
+        let restore_focus = args.restore_focus;
         let highlight_before = args.highlight.highlight_before_action;
 
         let action = {
@@ -2228,11 +2229,12 @@ impl DesktopWrapper {
                             );
                         }
                     }
-                    element.type_text_with_state_and_focus(
+                    element.type_text_with_state_and_focus_restore(
                         &text_to_type,
                         true,
                         try_focus_before,
                         try_click_before,
+                        restore_focus,
                     )
                 }
             }
@@ -3181,9 +3183,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
     }
 
     #[tool(
-        description = "Activates the window for the specified process and sends a key press to the focused element. Use curly brace format: '{Ctrl}c', '{Alt}{F4}', '{Enter}', '{PageDown}', '{Tab}', etc.
-
-Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g., 'Tab')."
+        description = "Activates the window for the specified process and sends a key press to the focused element. Use curly brace format: '{Ctrl}c', '{Alt}{F4}', '{Enter}', '{PageDown}', '{Tab}', etc. Use ui_diff_before_after:true to see changes (no need to call get_window_tree after)."
     )]
     async fn press_key_global(
         &self,
@@ -4809,7 +4809,7 @@ DATA PASSING:
     }
 
     #[tool(
-        description = "Performs a mouse drag operation from start to end coordinates. This action requires the application to be focused and may change the UI."
+        description = "Performs a mouse drag operation from start to end coordinates. Use ui_diff_before_after:true to see changes (no need to call get_window_tree after)."
     )]
     async fn mouse_drag(
         &self,
@@ -5940,7 +5940,9 @@ DATA PASSING:
         Ok(CallToolResult::success(contents))
     }
 
-    #[tool(description = "Scrolls a UI element in the specified direction by the given amount.")]
+    #[tool(
+        description = "Scrolls a UI element in the specified direction by the given amount. Use ui_diff_before_after:true to see changes (no need to call get_window_tree after)."
+    )]
     async fn scroll_element(
         &self,
         Parameters(args): Parameters<ScrollElementArgs>,
@@ -6166,7 +6168,7 @@ DATA PASSING:
     }
 
     #[tool(
-        description = "Selects an option in a dropdown or combobox by its visible text. IMPORTANT: The option_name must exactly match the option's accessible name. If unsure of available options, first click the dropdown with ui_diff_before_after: true to see the list of options in the diff output."
+        description = "Selects an option in a dropdown or combobox by its visible text. IMPORTANT: The option_name must exactly match the option's accessible name. If unsure of available options, first click the dropdown with ui_diff_before_after:true to see the list of options. Use ui_diff_before_after:true to verify selection (no need to call get_window_tree after)."
     )]
     async fn select_option(
         &self,
@@ -6308,7 +6310,7 @@ DATA PASSING:
     }
 
     #[tool(
-        description = "Sets the selection state of a selectable item (e.g., in a list or calendar). This action requires the application to be focused and may change the UI."
+        description = "Sets the selection state of a selectable item (e.g., in a list or calendar). Use ui_diff_before_after:true to see changes (no need to call get_window_tree after)."
     )]
     async fn set_selected(
         &self,
@@ -6786,7 +6788,7 @@ DATA PASSING:
     }
 
     #[tool(
-        description = "Invokes a UI element. This is often more reliable than clicking for controls like radio buttons or menu items. This action requires the application to be focused and may change the UI."
+        description = "Invokes a UI element. This is often more reliable than clicking for controls like radio buttons or menu items. Use ui_diff_before_after:true to see changes (no need to call get_window_tree after)."
     )]
     async fn invoke_element(
         &self,
