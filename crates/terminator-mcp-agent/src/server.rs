@@ -1318,7 +1318,7 @@ impl DesktopWrapper {
     }
 
     #[tool(
-        description = "Inspection tool to understand the UI layout of an application by process name (e.g., 'chrome', 'msedge', 'notepad'). There is no single tree type that is most reliable for all scenarios - request one type at a time based on your needs. Returns tree for the first matching process found. Returns detailed element information (role, name, id, enabled state, bounds, children). This is your primary tool for understanding the application's current state. Supports tree optimization: tree_max_depth (e.g., 30) to limit tree depth when you only need shallow inspection, tree_from_selector to get subtrees starting from a specific element, include_detailed_attributes to control verbosity (defaults to true). For browser windows (chrome, msedge, firefox), use `include_browser_dom: true` to capture HTML DOM elements via Chrome extension (returned in `browser_dom` field). Use `browser_dom_max_elements` to control how many DOM elements to capture (default: 200). The DOM format follows `tree_output_format` (compact YAML by default). Use `include_gemini_vision: true` for Gemini vision model UI element detection - returns a structured 'vision_tree' field with all elements, their roles, and bounds indexed for click targeting with vision_type='gemini'. Use `include_omniparser: true` to detect icons and UI fields that lack accessibility labels - returns indexed items for click targeting with vision_type='omniparser'. Use `include_ocr: true` to perform OCR and get indexed words (e.g., [OcrWord] #1 \"Submit\") for click targeting with `click_ocr_index`. This is a read-only operation."
+        description = "Get UI tree for a process. Use ONLY at task start or for special modes (OCR, DOM, Omniparser, Gemini vision). Do NOT call after action tools - use their ui_diff_before_after/include_tree_after_action params instead. Options: include_browser_dom for DOM, include_ocr for text, include_omniparser for icons, include_gemini_vision for AI detection. tree_max_depth limits depth, tree_from_selector focuses on subtree. Read-only."
     )]
     pub async fn get_window_tree(
         &self,
@@ -2140,7 +2140,7 @@ impl DesktopWrapper {
     // NOTE: ensure_element_in_view logic moved to terminator backend UIElement::ensure_in_view()
 
     #[tool(
-        description = "Types text into a UI element with smart clipboard optimization and verification. Much faster than press key. REQUIRED: clear_before_typing parameter - set to true to clear existing text, false to append. This action requires the application to be focused and may change the UI."
+        description = "Types text into a UI element with smart clipboard optimization and verification. Much faster than press key. REQUIRED: clear_before_typing parameter - set to true to clear existing text, false to append. Use ui_diff_before_after:true to see changes (no need to call get_window_tree after)."
     )]
     async fn type_into_element(
         &self,
@@ -2403,13 +2403,13 @@ impl DesktopWrapper {
 **Mode 1 - Selector** (process + selector): Find element by selector and click.
   Example: {\"process\": \"notepad\", \"selector\": \"role:Button|name:Save\", \"click_type\": \"left\"}
 
-**Mode 2 - Index** (index + vision_type): Click indexed item from get_window_tree.
+**Mode 2 - Index** (index + vision_type): Click indexed item from previous tool response (any action with include_tree_after_action:true, or initial get_window_tree).
   Example: {\"index\": 5, \"vision_type\": \"ui_tree\", \"click_type\": \"double\"}
 
 **Mode 3 - Coordinates** (x + y): Click at absolute screen coordinates.
   Example: {\"x\": 500, \"y\": 300, \"click_type\": \"right\"}
 
-Click types: 'left' (default), 'double', 'right'. Selector mode uses actionability validation. Index mode requires get_window_tree first."
+Click types: 'left' (default), 'double', 'right'. Use ui_diff_before_after:true to get UI changes in response (no need to call get_window_tree after)."
     )]
     pub async fn click_element(
         &self,
@@ -2926,7 +2926,7 @@ Click types: 'left' (default), 'double', 'right'. Selector mode uses actionabili
     #[tool(
         description = "Sends a key press to a UI element. Use curly brace format: '{Ctrl}c', '{Alt}{F4}', '{Enter}', '{PageDown}', '{Tab}', etc. This action requires the application to be focused and may change the UI.
 
-Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g., 'Tab')."
+Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g., 'Tab'). Use ui_diff_before_after:true to see changes (no need to call get_window_tree after)."
     )]
     async fn press_key(
         &self,
