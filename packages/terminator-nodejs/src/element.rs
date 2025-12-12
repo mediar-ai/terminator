@@ -47,6 +47,9 @@ pub struct ActionOptions {
     pub click_type: Option<ClickType>,
     /// Whether to restore cursor to original position after click. Defaults to false.
     pub restore_cursor: Option<bool>,
+    /// Whether to restore the original focus and caret position after the action. Defaults to false.
+    /// When true, saves the currently focused element and caret position before the action, then restores them after.
+    pub restore_focus: Option<bool>,
 }
 
 /// Options for typeText method
@@ -256,6 +259,17 @@ impl Element {
     #[napi]
     pub async fn click(&self, options: Option<ActionOptions>) -> napi::Result<ClickResult> {
         let opts = options.unwrap_or_default();
+        let restore_focus = opts.restore_focus.unwrap_or(false);
+
+        // FOCUS RESTORATION: Save focus state BEFORE any window operations
+        #[cfg(target_os = "windows")]
+        let saved_focus = if restore_focus {
+            tracing::debug!("[TS SDK] click: saving focus state BEFORE activate_window");
+            terminator::platforms::windows::save_focus_state()
+        } else {
+            None
+        };
+
         if opts.highlight_before_action.unwrap_or(false) {
             let _ = self.inner.highlight_before_action("click");
         }
@@ -356,6 +370,13 @@ impl Element {
         result.window_screenshot_path = screenshots.window_path;
         result.monitor_screenshot_paths = screenshots.monitor_paths;
 
+        // FOCUS RESTORATION: Restore focus state after action if we saved it
+        #[cfg(target_os = "windows")]
+        if let Some(state) = saved_focus {
+            tracing::debug!("[TS SDK] click: restoring focus state after action");
+            terminator::platforms::windows::restore_focus_state(state);
+        }
+
         Ok(result)
     }
 
@@ -366,6 +387,17 @@ impl Element {
     #[napi]
     pub fn double_click(&self, options: Option<ActionOptions>) -> napi::Result<ClickResult> {
         let opts = options.unwrap_or_default();
+        let restore_focus = opts.restore_focus.unwrap_or(false);
+
+        // FOCUS RESTORATION: Save focus state BEFORE any window operations
+        #[cfg(target_os = "windows")]
+        let saved_focus = if restore_focus {
+            tracing::debug!("[TS SDK] double_click: saving focus state BEFORE activate_window");
+            terminator::platforms::windows::save_focus_state()
+        } else {
+            None
+        };
+
         if opts.highlight_before_action.unwrap_or(false) {
             let _ = self.inner.highlight_before_action("double_click");
         }
@@ -386,6 +418,13 @@ impl Element {
         result.window_screenshot_path = screenshots.window_path;
         result.monitor_screenshot_paths = screenshots.monitor_paths;
 
+        // FOCUS RESTORATION: Restore focus state after action if we saved it
+        #[cfg(target_os = "windows")]
+        if let Some(state) = saved_focus {
+            tracing::debug!("[TS SDK] double_click: restoring focus state after action");
+            terminator::platforms::windows::restore_focus_state(state);
+        }
+
         Ok(result)
     }
 
@@ -395,11 +434,31 @@ impl Element {
     #[napi]
     pub fn right_click(&self, options: Option<ActionOptions>) -> napi::Result<()> {
         let opts = options.unwrap_or_default();
+        let restore_focus = opts.restore_focus.unwrap_or(false);
+
+        // FOCUS RESTORATION: Save focus state BEFORE any window operations
+        #[cfg(target_os = "windows")]
+        let saved_focus = if restore_focus {
+            tracing::debug!("[TS SDK] right_click: saving focus state BEFORE activate_window");
+            terminator::platforms::windows::save_focus_state()
+        } else {
+            None
+        };
+
         if opts.highlight_before_action.unwrap_or(false) {
             let _ = self.inner.highlight_before_action("right_click");
         }
         let _ = self.inner.activate_window();
-        self.inner.right_click().map_err(map_error)
+        let result = self.inner.right_click().map_err(map_error);
+
+        // FOCUS RESTORATION: Restore focus state after action if we saved it
+        #[cfg(target_os = "windows")]
+        if let Some(state) = saved_focus {
+            tracing::debug!("[TS SDK] right_click: restoring focus state after action");
+            terminator::platforms::windows::restore_focus_state(state);
+        }
+
+        result
     }
 
     /// Hover over this element.
@@ -408,11 +467,31 @@ impl Element {
     #[napi]
     pub fn hover(&self, options: Option<ActionOptions>) -> napi::Result<()> {
         let opts = options.unwrap_or_default();
+        let restore_focus = opts.restore_focus.unwrap_or(false);
+
+        // FOCUS RESTORATION: Save focus state BEFORE any window operations
+        #[cfg(target_os = "windows")]
+        let saved_focus = if restore_focus {
+            tracing::debug!("[TS SDK] hover: saving focus state BEFORE activate_window");
+            terminator::platforms::windows::save_focus_state()
+        } else {
+            None
+        };
+
         if opts.highlight_before_action.unwrap_or(false) {
             let _ = self.inner.highlight_before_action("hover");
         }
         let _ = self.inner.activate_window();
-        self.inner.hover().map_err(map_error)
+        let result = self.inner.hover().map_err(map_error);
+
+        // FOCUS RESTORATION: Restore focus state after action if we saved it
+        #[cfg(target_os = "windows")]
+        if let Some(state) = saved_focus {
+            tracing::debug!("[TS SDK] hover: restoring focus state after action");
+            terminator::platforms::windows::restore_focus_state(state);
+        }
+
+        result
     }
 
     /// Check if element is visible.
@@ -460,6 +539,18 @@ impl Element {
         options: Option<TypeTextOptions>,
     ) -> napi::Result<ActionResult> {
         let opts = options.unwrap_or_default();
+        let restore_focus = opts.restore_focus.unwrap_or(false);
+
+        // CRITICAL: Save focus state BEFORE activate_window() if restore is requested
+        // activate_window() steals focus, so we must save first
+        #[cfg(target_os = "windows")]
+        let saved_focus = if restore_focus {
+            tracing::debug!("[TS SDK] type_text: saving focus state BEFORE activate_window");
+            terminator::platforms::windows::save_focus_state()
+        } else {
+            None
+        };
+
         if opts.highlight_before_action.unwrap_or(false) {
             let _ = self.inner.highlight_before_action("type");
         }
@@ -472,16 +563,23 @@ impl Element {
 
         let try_focus_before = opts.try_focus_before.unwrap_or(true);
         let try_click_before = opts.try_click_before.unwrap_or(true);
-        let restore_focus = opts.restore_focus.unwrap_or(false);
+        // Pass restore_focus=false to platform layer since we handle it ourselves
         self.inner
             .type_text_with_state_and_focus_restore(
                 &text,
                 opts.use_clipboard.unwrap_or(false),
                 try_focus_before,
                 try_click_before,
-                restore_focus,
+                false, // We handle focus restore ourselves since we saved BEFORE activate_window
             )
             .map_err(map_error)?;
+
+        // Restore focus state if we saved it
+        #[cfg(target_os = "windows")]
+        if let Some(state) = saved_focus {
+            tracing::debug!("[TS SDK] type_text: restoring focus state after typing");
+            terminator::platforms::windows::restore_focus_state(state);
+        }
 
         // Capture screenshots if requested
         let screenshots = capture_element_screenshots(
@@ -511,6 +609,17 @@ impl Element {
         options: Option<ActionOptions>,
     ) -> napi::Result<ActionResult> {
         let opts = options.unwrap_or_default();
+        let restore_focus = opts.restore_focus.unwrap_or(false);
+
+        // FOCUS RESTORATION: Save focus state BEFORE any window operations
+        #[cfg(target_os = "windows")]
+        let saved_focus = if restore_focus {
+            tracing::debug!("[TS SDK] press_key: saving focus state BEFORE activate_window");
+            terminator::platforms::windows::save_focus_state()
+        } else {
+            None
+        };
+
         if opts.highlight_before_action.unwrap_or(false) {
             let _ = self.inner.highlight_before_action("key");
         }
@@ -528,6 +637,13 @@ impl Element {
             opts.include_monitor_screenshots.unwrap_or(false),
             "pressKey",
         );
+
+        // FOCUS RESTORATION: Restore focus state after action if we saved it
+        #[cfg(target_os = "windows")]
+        if let Some(state) = saved_focus {
+            tracing::debug!("[TS SDK] press_key: restoring focus state after action");
+            terminator::platforms::windows::restore_focus_state(state);
+        }
 
         Ok(ActionResult {
             success: true,
