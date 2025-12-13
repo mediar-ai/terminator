@@ -9307,6 +9307,20 @@ impl DesktopWrapper {
         let window_mgmt_opts: crate::utils::WindowManagementOptions =
             serde_json::from_value(arguments.clone()).unwrap_or_default();
 
+        // FOCUS RESTORATION: Save focus state BEFORE any window operations if restore_focus is requested
+        // Window management (bring_to_front, SetForegroundWindow) steals focus, so we must save first
+        #[cfg(target_os = "windows")]
+        let saved_focus = if window_mgmt_opts.restore_focus.unwrap_or(true) {
+            tracing::debug!(
+                "[FOCUS_RESTORE] dispatch_tool: saving focus state BEFORE window management"
+            );
+            terminator::platforms::windows::save_focus_state()
+        } else {
+            None
+        };
+        #[cfg(not(target_os = "windows"))]
+        let saved_focus: Option<()> = None;
+
         // Perform window management if needed
         if let Some(ref process) = process_name {
             let _ = self
@@ -9873,6 +9887,15 @@ impl DesktopWrapper {
             }
         }
 
+        // FOCUS RESTORATION: Restore focus state after tool execution if we saved it
+        #[cfg(target_os = "windows")]
+        if let Some(state) = saved_focus {
+            tracing::debug!(
+                "[FOCUS_RESTORE] dispatch_tool: restoring focus state after tool execution"
+            );
+            terminator::platforms::windows::restore_focus_state(state);
+        }
+
         result
     }
 }
@@ -9913,9 +9936,33 @@ impl ServerHandler for DesktopWrapper {
         let log_ctx = execution_logger::log_request(&tool_name, &arguments, None, None, None);
         let start_time = std::time::Instant::now();
 
+        // FOCUS RESTORATION: Extract restore_focus from arguments and save focus state BEFORE tool execution
+        // Each tool's window management (bring_to_front, activate_window) steals focus
+        let window_mgmt_opts: crate::utils::WindowManagementOptions =
+            serde_json::from_value(arguments.clone()).unwrap_or_default();
+
+        #[cfg(target_os = "windows")]
+        let saved_focus = if window_mgmt_opts.restore_focus.unwrap_or(true) {
+            tracing::debug!("[FOCUS_RESTORE] call_tool: saving focus state BEFORE tool execution");
+            terminator::platforms::windows::save_focus_state()
+        } else {
+            None
+        };
+        #[cfg(not(target_os = "windows"))]
+        let saved_focus: Option<()> = None;
+
         // Execute the tool via router
         let tcc = ToolCallContext::new(self, request, context);
         let result = self.tool_router.call(tcc).await;
+
+        // FOCUS RESTORATION: Restore focus state after tool execution if we saved it
+        #[cfg(target_os = "windows")]
+        if let Some(state) = saved_focus {
+            tracing::debug!(
+                "[FOCUS_RESTORE] call_tool: restoring focus state after tool execution"
+            );
+            terminator::platforms::windows::restore_focus_state(state);
+        }
 
         // Get stderr logs from TypeScript workflow execution (if any)
         let stderr_logs: Vec<execution_logger::CapturedLogEntry> =

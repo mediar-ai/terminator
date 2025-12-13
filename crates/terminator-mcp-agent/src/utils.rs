@@ -57,6 +57,11 @@ pub struct WindowManagementOptions {
         description = "Whether to bring the target window to front (BringWindowToTop + SetForegroundWindow). Only used if enable_window_management is true. Defaults to true."
     )]
     pub bring_to_front: Option<bool>,
+
+    #[schemars(
+        description = "Whether to restore focus and caret position after tool execution. When true, saves the currently focused element and caret position before window management, then restores them after the tool completes. Defaults to false."
+    )]
+    pub restore_focus: Option<bool>,
 }
 
 /// Tree options for action tools that modify UI - captures diff before/after

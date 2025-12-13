@@ -1097,8 +1097,20 @@ console.warn = (...args) => sendLog('warn', formatArgs(...args));
 console.error = (...args) => sendLog('error', formatArgs(...args));
 console.debug = (...args) => sendLog('debug', formatArgs(...args));
 
-// Cleanup on exit
-process.on('exit', () => {{ if (logPipe) logPipe.end(); }});
+// Drain log pipe - waits for all buffered writes to complete
+const drainLogPipe = () => new Promise((resolve) => {{
+    if (logPipe && logPipeReady) {{
+        logPipe.end(() => {{
+            console.debug('[DRAIN] Log pipe flushed successfully');
+            resolve();
+        }});
+    }} else {{
+        resolve();
+    }}
+}});
+
+// Cleanup on exit (fallback, but drain should be called explicitly)
+process.on('exit', () => {{ if (logPipe) try {{ logPipe.end(); }} catch(e) {{}} }});
 
 // Set environment to suppress workflow output if supported
 process.env.WORKFLOW_SILENT = 'true';
@@ -1118,6 +1130,7 @@ try {{
             steps: workflow.steps || []
         }};
         originalLog(JSON.stringify({{ metadata }}, null, 2));
+        await drainLogPipe();
         process.exit(0);
     }}
 
@@ -1157,6 +1170,8 @@ try {{
         state: result.state || {{ context: {{ data: result.data }} }}
     }}, null, 2));
 
+    // Drain log pipe before exit to ensure all logs are captured
+    await drainLogPipe();
     process.exit(result.status === 'success' ? 0 : 1);
 }} catch (error) {{
     console.error('Workflow execution error:', error);
@@ -1168,6 +1183,8 @@ try {{
         }},
         state: {{}}
     }}, null, 2));
+    // Drain log pipe before exit to ensure all logs are captured
+    await drainLogPipe();
     process.exit(1);
 }}
 "#

@@ -32,6 +32,11 @@ export interface ActionOptions {
   clickType?: ClickType
   /** Whether to restore cursor to original position after click. Defaults to false. */
   restoreCursor?: boolean
+  /**
+   * Whether to restore the original focus and caret position after the action. Defaults to false.
+   * When true, saves the currently focused element and caret position before the action, then restores them after.
+   */
+  restoreFocus?: boolean
 }
 /** Options for typeText method */
 export interface TypeTextOptions {
@@ -52,6 +57,11 @@ export interface TypeTextOptions {
   tryFocusBefore?: boolean
   /** Whether to try clicking the element if focus fails. Defaults to true. */
   tryClickBefore?: boolean
+  /**
+   * Whether to restore the original focus and caret position after typing. Defaults to false.
+   * When true, saves the currently focused element and caret position before typing, then restores them after.
+   */
+  restoreFocus?: boolean
   /** Whether to capture UI tree before/after action and compute diff. Defaults to false. */
   uiDiffBeforeAfter?: boolean
   /** Max depth for tree capture when doing UI diff. */

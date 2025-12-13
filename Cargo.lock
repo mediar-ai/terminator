@@ -5352,6 +5352,7 @@ dependencies = [
  "serde_json",
  "static_vcruntime",
  "terminator-rs",
+ "tracing",
  "tracing-subscriber",
 ]
 
