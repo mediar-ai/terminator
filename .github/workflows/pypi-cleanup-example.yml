@@ -1,0 +1,82 @@
+name: PyPI Cleanup Example
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "**"
+  pull_request:
+  release:
+    types:
+      - published
+
+jobs:
+  cleanup:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Google Chrome
+        shell: pwsh
+        run: |
+          choco install googlechrome -y --ignore-checksums
+          Start-Sleep -Seconds 5
+          $chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+          if (-not (Test-Path $chromePath)) {
+            Write-Error "Chrome is not installed"
+          }
+
+      - name: Disable Chrome sign-in prompt
+        shell: pwsh
+        run: |
+          New-Item -Path "HKLM:\SOFTWARE\Policies\Google\Chrome" -Force | Out-Null
+          New-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Google\Chrome" -Name "BrowserSignin" -PropertyType DWord -Value 0 -Force | Out-Null
+          New-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Google\Chrome" -Name "SyncDisabled" -PropertyType DWord -Value 1 -Force | Out-Null
+
+      - name: Prime Chrome profile (skip first-run UI)
+        shell: pwsh
+        run: |
+          $chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+          if (-not (Test-Path $chrome)) { $chrome = "chrome.exe" }
+          Start-Process $chrome "--no-first-run --no-default-browser-check --disable-search-engine-choice-screen --disable-fre" 
+          Start-Sleep -Seconds 10
+          Get-Process chrome -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+      - run: npm ci
+        working-directory: examples/pypi_cleanup_workflow
+
+      - run: npm run build
+        working-directory: examples/pypi_cleanup_workflow
+
+      - run: npm run run
+        working-directory: examples/pypi_cleanup_workflow
+        env:
+          PYPI_UI_USERNAME: ${{ secrets.PYPI_UI_USERNAME }}
+          PYPI_UI_PASSWORD: ${{ secrets.PYPI_UI_PASSWORD }}
+          PYPI_UI_TOTP_SECRET: ${{ secrets.PYPI_UI_TOTP_SECRET }}
+          PACKAGE_NAME: ${{ secrets.PACKAGE_NAME }}
+
+      - name: Capture final desktop screenshot
+        if: always()
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type -AssemblyName System.Drawing
+          $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+          $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+          $gfx = [System.Drawing.Graphics]::FromImage($bmp)
+          $gfx.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+          $path = "$env:RUNNER_TEMP\desktop.png"
+          $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
+          Write-Host "Saved screenshot to $path"
+          
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-screenshot
+          path: ${{ runner.temp }}\desktop.png
