@@ -9310,7 +9310,7 @@ impl DesktopWrapper {
         // FOCUS RESTORATION: Save focus state BEFORE any window operations if restore_focus is requested
         // Window management (bring_to_front, SetForegroundWindow) steals focus, so we must save first
         #[cfg(target_os = "windows")]
-        let saved_focus = if window_mgmt_opts.restore_focus.unwrap_or(false) {
+        let saved_focus = if window_mgmt_opts.restore_focus.unwrap_or(true) {
             tracing::debug!(
                 "[FOCUS_RESTORE] dispatch_tool: saving focus state BEFORE window management"
             );
@@ -9942,7 +9942,7 @@ impl ServerHandler for DesktopWrapper {
             serde_json::from_value(arguments.clone()).unwrap_or_default();
 
         #[cfg(target_os = "windows")]
-        let saved_focus = if window_mgmt_opts.restore_focus.unwrap_or(false) {
+        let saved_focus = if window_mgmt_opts.restore_focus.unwrap_or(true) {
             tracing::debug!("[FOCUS_RESTORE] call_tool: saving focus state BEFORE tool execution");
             terminator::platforms::windows::save_focus_state()
         } else {
