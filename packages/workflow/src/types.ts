@@ -420,6 +420,59 @@ export interface Step<
 }
 
 /**
+ * Cron trigger configuration
+ *
+ * @example
+ * ```typescript
+ * trigger: {
+ *   type: 'cron',
+ *   schedule: '0 9 * * 1-5', // Every weekday at 9am
+ *   timezone: 'America/New_York'
+ * }
+ * ```
+ */
+export interface CronTrigger {
+    type: 'cron';
+    /** Cron expression (5-field or 6-field format) */
+    schedule: string;
+    /** Optional timezone (IANA format, e.g., 'America/New_York') */
+    timezone?: string;
+}
+
+/**
+ * Manual trigger - workflow must be triggered explicitly
+ */
+export interface ManualTrigger {
+    type: 'manual';
+}
+
+/**
+ * Webhook trigger - workflow triggered via HTTP endpoint
+ */
+export interface WebhookTrigger {
+    type: 'webhook';
+    /** Optional webhook path suffix */
+    path?: string;
+}
+
+/**
+ * Trigger configuration for workflows
+ *
+ * @example
+ * ```typescript
+ * // Cron trigger - runs on schedule
+ * trigger: { type: 'cron', schedule: '0 0,6,12,18 * * *' }
+ *
+ * // Manual trigger (default)
+ * trigger: { type: 'manual' }
+ *
+ * // Webhook trigger
+ * trigger: { type: 'webhook', path: '/my-workflow' }
+ * ```
+ */
+export type TriggerConfig = CronTrigger | ManualTrigger | WebhookTrigger;
+
+/**
  * Workflow configuration (user-facing)
  *
  * Note: name, version, and description are automatically read from package.json.
@@ -430,6 +483,25 @@ export interface WorkflowConfig<TInput = any> {
     input: z.ZodSchema<TInput>;
     /** Optional tags */
     tags?: string[];
+    /**
+     * Trigger configuration for the workflow.
+     * Defines when/how the workflow should be executed.
+     *
+     * @default { type: 'manual' }
+     *
+     * @example
+     * ```typescript
+     * // Run every day at 9am
+     * trigger: { type: 'cron', schedule: '0 9 * * *' }
+     *
+     * // Run every 6 hours
+     * trigger: { type: 'cron', schedule: '0 0,6,12,18 * * *' }
+     *
+     * // Run on weekdays at 8:30am EST
+     * trigger: { type: 'cron', schedule: '30 8 * * 1-5', timezone: 'America/New_York' }
+     * ```
+     */
+    trigger?: TriggerConfig;
     /** Steps to execute in sequence */
     steps?: Step[];
     /**
@@ -454,6 +526,7 @@ export interface WorkflowConfig<TInput = any> {
         context: WorkflowErrorContext<TInput>,
     ) => Promise<ExecutionResponse | void>;
 }
+
 
 /**
  * Internal resolved workflow configuration with metadata from package.json
@@ -554,6 +627,7 @@ export interface Workflow<TInput = any> {
             name: string;
             description?: string;
         }>;
+        trigger?: TriggerConfig;
     };
 }
 

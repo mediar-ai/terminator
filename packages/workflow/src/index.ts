@@ -54,6 +54,11 @@ export type {
     WorkflowExecutionContext,
     WorkflowSuccessContext,
     WorkflowErrorContext,
+    // Trigger types
+    TriggerConfig,
+    CronTrigger,
+    ManualTrigger,
+    WebhookTrigger,
 } from "./types";
 
 export type { WorkflowRunnerOptions, WorkflowState } from "./runner";
