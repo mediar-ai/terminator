@@ -1,0 +1,3389 @@
+$schema: http://json-schema.org/draft-07/schema#
+title: Terminator Workflow Schema
+description: YAML workflow schema for Terminator Automation Engine.
+type: object
+anyOf:
+- $ref: '#/definitions/DirectWorkflow'
+- $ref: '#/definitions/ExecuteSequenceWrapper'
+definitions:
+  DirectWorkflow:
+    type: object
+    properties:
+      variables:
+        $ref: '#/definitions/Variables'
+      inputs:
+        type: object
+        description: A key-value map of the actual input values for the variables.
+      selectors:
+        type: object
+        description: A key-value map of static UI element selectors.
+        additionalProperties:
+          type: string
+      steps:
+        type: array
+        description: The steps of the workflow to execute in order.
+        minItems: 1
+        items:
+          $ref: '#/definitions/Step'
+    required:
+    - steps
+  ExecuteSequenceWrapper:
+    type: object
+    required:
+    - tool_name
+    - arguments
+    properties:
+      tool_name:
+        const: execute_sequence
+      arguments:
+        $ref: '#/definitions/DirectWorkflow'
+  Step:
+    type: object
+    properties:
+      id:
+        type: string
+        description: Optional unique identifier for this step.
+      name:
+        type: string
+        description: A human-readable name for this step (for logging).
+      delay_ms:
+        type: integer
+        description: Delay in milliseconds after this step.
+      continue_on_error:
+        type: boolean
+        description: Continue sequence even if this step fails.
+      tool_name:
+        type: string
+        description: The tool to execute.
+        enum:
+        - activate_element
+        - capture_element_screenshot
+        - click_element
+        - close_element
+        - delay
+        - execute_browser_script
+        - execute_sequence
+        - get_applications_and_windows_list
+        - get_range_value
+        - get_window_tree
+        - highlight_element
+        - invoke_element
+        - is_selected
+        - is_toggled
+        - list_options
+        - maximize_window
+        - minimize_window
+        - mouse_drag
+        - navigate_browser
+        - open_application
+        - press_key
+        - press_key_global
+        - run_command
+        - scroll_element
+        - select_option
+        - set_range_value
+        - set_selected
+        - set_toggled
+        - set_value
+        - set_zoom
+        - stop_highlighting
+        - type_into_element
+        - validate_element
+        - wait_for_element
+      group_name:
+        type: string
+        description: Name for a group of steps.
+      arguments:
+        type: object
+        description: Arguments for the tool.
+    oneOf:
+    - required:
+      - tool_name
+      not:
+        required:
+        - group_name
+    - required:
+      - group_name
+      not:
+        required:
+        - tool_name
+    allOf:
+    - if:
+        properties:
+          tool_name:
+            const: activate_element
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/activate_elementArgs'
+    - if:
+        properties:
+          tool_name:
+            const: capture_element_screenshot
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/capture_element_screenshotArgs'
+    - if:
+        properties:
+          tool_name:
+            const: click_element
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/click_elementArgs'
+    - if:
+        properties:
+          tool_name:
+            const: close_element
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/close_elementArgs'
+    - if:
+        properties:
+          tool_name:
+            const: delay
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/delayArgs'
+    - if:
+        properties:
+          tool_name:
+            const: execute_browser_script
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/execute_browser_scriptArgs'
+    - if:
+        properties:
+          tool_name:
+            const: execute_sequence
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/execute_sequenceArgs'
+    - if:
+        properties:
+          tool_name:
+            const: get_applications_and_windows_list
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/get_applications_and_windows_listArgs'
+    - if:
+        properties:
+          tool_name:
+            const: get_range_value
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/get_range_valueArgs'
+    - if:
+        properties:
+          tool_name:
+            const: get_window_tree
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/get_window_treeArgs'
+    - if:
+        properties:
+          tool_name:
+            const: highlight_element
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/highlight_elementArgs'
+    - if:
+        properties:
+          tool_name:
+            const: invoke_element
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/invoke_elementArgs'
+    - if:
+        properties:
+          tool_name:
+            const: is_selected
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/is_selectedArgs'
+    - if:
+        properties:
+          tool_name:
+            const: is_toggled
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/is_toggledArgs'
+    - if:
+        properties:
+          tool_name:
+            const: list_options
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/list_optionsArgs'
+    - if:
+        properties:
+          tool_name:
+            const: maximize_window
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/maximize_windowArgs'
+    - if:
+        properties:
+          tool_name:
+            const: minimize_window
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/minimize_windowArgs'
+    - if:
+        properties:
+          tool_name:
+            const: mouse_drag
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/mouse_dragArgs'
+    - if:
+        properties:
+          tool_name:
+            const: navigate_browser
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/navigate_browserArgs'
+    - if:
+        properties:
+          tool_name:
+            const: open_application
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/open_applicationArgs'
+    - if:
+        properties:
+          tool_name:
+            const: press_key
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/press_keyArgs'
+    - if:
+        properties:
+          tool_name:
+            const: press_key_global
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/press_key_globalArgs'
+    - if:
+        properties:
+          tool_name:
+            const: run_command
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/run_commandArgs'
+    - if:
+        properties:
+          tool_name:
+            const: scroll_element
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/scroll_elementArgs'
+    - if:
+        properties:
+          tool_name:
+            const: select_option
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/select_optionArgs'
+    - if:
+        properties:
+          tool_name:
+            const: set_range_value
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/set_range_valueArgs'
+    - if:
+        properties:
+          tool_name:
+            const: set_selected
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/set_selectedArgs'
+    - if:
+        properties:
+          tool_name:
+            const: set_toggled
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/set_toggledArgs'
+    - if:
+        properties:
+          tool_name:
+            const: set_value
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/set_valueArgs'
+    - if:
+        properties:
+          tool_name:
+            const: set_zoom
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/set_zoomArgs'
+    - if:
+        properties:
+          tool_name:
+            const: stop_highlighting
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/stop_highlightingArgs'
+    - if:
+        properties:
+          tool_name:
+            const: type_into_element
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/type_into_elementArgs'
+    - if:
+        properties:
+          tool_name:
+            const: validate_element
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/validate_elementArgs'
+    - if:
+        properties:
+          tool_name:
+            const: wait_for_element
+      then:
+        properties:
+          arguments:
+            $ref: '#/definitions/wait_for_elementArgs'
+  Variables:
+    type: object
+    patternProperties:
+      ^[^\s]+$:
+        type: object
+        required:
+        - label
+        properties:
+          label:
+            type: string
+            minLength: 1
+          type:
+            type: string
+          required:
+            type: boolean
+            default: true
+          default: {}
+        allOf:
+        - if:
+            properties:
+              required:
+                const: true
+          then:
+            anyOf:
+            - required:
+              - default
+            - description: If required and no default, must be provided via inputs
+  TreeOutputFormat:
+    description: Output format for UI tree
+    oneOf:
+    - description: Full JSON format with all fields (current behavior)
+      type: string
+      const: verbose_json
+    - description: 'Compact YAML format: [ROLE] name #id (default)'
+      type: string
+      const: compact_yaml
+  activate_elementArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: ActivateElementArgs
+    description: Common fields for element selection with alternatives and fallbacks
+    type: object
+    properties:
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `.
+        type: string
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel. The first selector that finds an element will be used.
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated.
+        type:
+        - string
+        - 'null'
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - selector
+  capture_element_screenshotArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: CaptureElementScreenshotArgs
+    description: Common fields for action timing and retries
+    type: object
+    properties:
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `. Required if pid is not provided.
+        type:
+        - string
+        - 'null'
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors
+        type:
+        - string
+        - 'null'
+      pid:
+        description: Process ID of the window to capture. Required if selector is not provided. This is faster and more reliable than selector-based search.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      max_dimension:
+        description: 'Maximum dimension (width or height) for the screenshot. Screenshots larger than this will be resized while maintaining aspect ratio. Default: 1920px'
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+  ClickPosition:
+    type: object
+    properties:
+      x_percentage:
+        description: X position as percentage (0-100) within the element
+        type: integer
+        format: uint32
+        minimum: 0
+      y_percentage:
+        description: Y position as percentage (0-100) within the element
+        type: integer
+        format: uint32
+        minimum: 0
+    required:
+    - x_percentage
+    - y_percentage
+  ActionHighlightConfig:
+    type: object
+    properties:
+      enabled:
+        description: Enable visual highlighting before action execution
+        type: boolean
+        default: true
+      duration_ms:
+        description: 'Duration in milliseconds for the highlight (default: 500ms)'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      color:
+        description: 'Border color in BGR format (default: 0x00FF00 - green)'
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      text:
+        description: Optional text to display as overlay
+        type:
+        - string
+        - 'null'
+      text_position:
+        description: Position of text overlay relative to highlighted element
+        anyOf:
+        - $ref: '#/definitions/TextPosition'
+        - type: 'null'
+      font_style:
+        description: Font style for text overlay
+        anyOf:
+        - $ref: '#/definitions/FontStyle'
+        - type: 'null'
+  TextPosition:
+    description: Position of text overlay relative to the highlighted element
+    oneOf:
+    - description: Above the element
+      type: string
+      const: Top
+    - description: Top-right corner
+      type: string
+      const: TopRight
+    - description: Right side of the element
+      type: string
+      const: Right
+    - description: Bottom-right corner
+      type: string
+      const: BottomRight
+    - description: Below the element
+      type: string
+      const: Bottom
+    - description: Bottom-left corner
+      type: string
+      const: BottomLeft
+    - description: Left side of the element
+      type: string
+      const: Left
+    - description: Top-left corner
+      type: string
+      const: TopLeft
+    - description: Inside the element
+      type: string
+      const: Inside
+  FontStyle:
+    description: Font styling options for text overlay
+    type: object
+    properties:
+      size:
+        description: Font size in pixels
+        type: integer
+        format: uint32
+        minimum: 0
+        default: 12
+      bold:
+        description: Whether the font should be bold
+        type: boolean
+        default: false
+      color:
+        description: Text color in BGR format
+        type: integer
+        format: uint32
+        minimum: 0
+        default: 0
+  click_elementArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: ClickElementArgs
+    description: Common fields for element selection with alternatives and fallbacks
+    type: object
+    properties:
+      click_position:
+        anyOf:
+        - $ref: '#/definitions/ClickPosition'
+        - type: 'null'
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `.
+        type: string
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel. The first selector that finds an element will be used.
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated.
+        type:
+        - string
+        - 'null'
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      highlight_before_action:
+        description: Optional highlighting configuration to visually indicate the target element before the action
+        anyOf:
+        - $ref: '#/definitions/ActionHighlightConfig'
+        - type: 'null'
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - selector
+  close_elementArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: CloseElementArgs
+    description: Common fields for element selection with alternatives and fallbacks
+    type: object
+    properties:
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `.
+        type: string
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel. The first selector that finds an element will be used.
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated.
+        type:
+        - string
+        - 'null'
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - selector
+  delayArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: DelayArgs
+    description: Common fields for operations that include monitor screenshots
+    type: object
+    properties:
+      delay_ms:
+        description: Number of milliseconds to delay
+        type: integer
+        format: uint64
+        minimum: 0
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - delay_ms
+  execute_browser_scriptArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: ExecuteBrowserScriptArgs
+    description: Common fields for element selection with alternatives and fallbacks
+    type: object
+    properties:
+      script:
+        type:
+        - string
+        - 'null'
+      script_file:
+        type:
+        - string
+        - 'null'
+      env: true
+      include_logs:
+        description: Include browser console output (console.log, console.error, console.warn, console.info) in response. Defaults to false. When enabled, automatically intercepts console methods and returns captured logs alongside the script result. Original console methods still output to DevTools.
+        type:
+        - boolean
+        - 'null'
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `.
+        type: string
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel. The first selector that finds an element will be used.
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated.
+        type:
+        - string
+        - 'null'
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - selector
+  SequenceStep:
+    type: object
+    properties:
+      tool_name:
+        description: The name of the tool to execute (for single tool steps)
+        type:
+        - string
+        - 'null'
+      arguments:
+        description: The arguments for the tool (for single tool steps)
+      continue_on_error:
+        description: Continue on error flag (for single tool steps)
+        type:
+        - boolean
+        - 'null'
+      delay_ms:
+        description: Delay after execution (for single tool steps)
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      group_name:
+        description: Group name (for grouped steps)
+        type:
+        - string
+        - 'null'
+      steps:
+        description: Steps in the group (for grouped steps)
+        type:
+        - array
+        - 'null'
+        items:
+          $ref: '#/definitions/ToolCall'
+      skippable:
+        description: Whether the group is skippable on error (for grouped steps)
+        type:
+        - boolean
+        - 'null'
+      if:
+        description: An optional expression to determine if this step should run. e.g., "policy.use_max_budget == true" or "contains(policy.product_types, 'FEX')"
+        type:
+        - string
+        - 'null'
+      retries:
+        description: Number of times to retry this step or group on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      id:
+        description: Optional unique identifier for this step (string). If provided, it can be a target for other steps' fallback_id. Additionally, the tool's result will be stored as {step_id}_result and its status as {step_id}_status in the environment, making it accessible to subsequent steps.
+        type:
+        - string
+        - 'null'
+      fallback_id:
+        description: Optional id of the step to jump to if this step ultimately fails after all retries. This enables robust fallback flows without relying on numeric indices.
+        type:
+        - string
+        - 'null'
+      jumps:
+        description: Conditional jumps evaluated in order after successful step execution. First matching condition triggers jump to target step.
+        type:
+        - array
+        - 'null'
+        items:
+          $ref: '#/definitions/JumpCondition'
+      delay:
+        description: Simplified alias for 'delay_ms'. Supports human-readable durations like '1s', '500ms', '2m'. Defaults to milliseconds if no unit specified.
+        type:
+        - string
+        - 'null'
+      expected_ui_changes:
+        description: Expected UI changes after this action (diff between before/after UI trees). Used for validation during workflow playback to ensure actions had the expected effect.
+        type:
+        - string
+        - 'null'
+  ToolCall:
+    type: object
+    properties:
+      tool_name:
+        description: The name of the tool to be executed.
+        type: string
+      arguments:
+        description: The arguments for the tool, as a JSON object.
+      continue_on_error:
+        description: If true, the sequence will continue even if this tool call fails. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      delay_ms:
+        description: An optional delay in milliseconds to wait after this tool call completes.
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      id:
+        description: Optional unique identifier for this step. If provided, the tool's result will be stored as {step_id}_result and its status as {step_id}_status in the environment for use in subsequent steps.
+        type:
+        - string
+        - 'null'
+    required:
+    - tool_name
+    - arguments
+  JumpCondition:
+    type: object
+    properties:
+      if:
+        description: Expression to evaluate for this jump condition
+        type: string
+      to_id:
+        description: Target step ID to jump to when condition is true
+        type: string
+      reason:
+        description: Optional human-readable explanation logged when this jump is taken
+        type:
+        - string
+        - 'null'
+    required:
+    - if
+    - to_id
+  VariableDefinition:
+    type: object
+    properties:
+      type:
+        description: The data type of the variable.
+        $ref: '#/definitions/VariableType'
+      label:
+        description: A user-friendly label for the variable, for UI generation. Optional for nested schemas (value_schema, properties, item_schema).
+        type:
+        - string
+        - 'null'
+        default: null
+      description:
+        description: A detailed description of what the variable is for.
+        type:
+        - string
+        - 'null'
+      default:
+        description: The default value for the variable if not provided in the inputs.
+      regex:
+        description: For string types, a regex pattern for validation.
+        type:
+        - string
+        - 'null'
+      options:
+        description: For enum types, a list of allowed string values.
+        type:
+        - array
+        - 'null'
+        items:
+          type: string
+      required:
+        description: Whether this variable is required. Defaults to true.
+        type:
+        - boolean
+        - 'null'
+      value_schema:
+        description: For object types with flat key-value structure, defines the schema for all values (e.g., all values must be enum with specific options).
+        anyOf:
+        - $ref: '#/definitions/VariableDefinition'
+        - type: 'null'
+      properties:
+        description: For object types with known properties, defines the schema for each named property.
+        type:
+        - object
+        - 'null'
+        additionalProperties:
+          $ref: '#/definitions/VariableDefinition'
+      item_schema:
+        description: For array types, defines the schema for array items.
+        anyOf:
+        - $ref: '#/definitions/VariableDefinition'
+        - type: 'null'
+    required:
+    - type
+  VariableType:
+    type: string
+    enum:
+    - string
+    - number
+    - boolean
+    - enum
+    - array
+    - object
+  execute_sequenceArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: ExecuteSequenceArgs
+    type: object
+    properties:
+      url:
+        description: Optional URL to fetch workflow definition from (HTTP/HTTPS or file:// supported).
+        type:
+        - string
+        - 'null'
+      steps:
+        description: The steps of the workflow to execute in order. Optional when url is provided.
+        type:
+        - array
+        - 'null'
+        items:
+          $ref: '#/definitions/SequenceStep'
+        default: null
+      troubleshooting:
+        description: Optional troubleshooting steps that can be jumped to via fallback_id. These steps are not executed in normal flow.
+        type:
+        - array
+        - 'null'
+        items:
+          $ref: '#/definitions/SequenceStep'
+        default: null
+      variables:
+        description: A key-value map defining the schema for dynamic variables (e.g., for UI generation).
+        type:
+        - object
+        - 'null'
+        additionalProperties:
+          $ref: '#/definitions/VariableDefinition'
+      inputs:
+        description: A key-value map of the actual input values for the variables defined in the schema. **Must be an object**, not a string.
+      selectors:
+        description: 'A key-value map of static UI element selectors for the workflow. **Must be an object with string values**, not a string. Example: {"button": "role:Button|name:Submit", "field": "role:Edit|name:Email"}'
+      stop_on_error:
+        description: 'Whether to stop the entire sequence on first error (default: true)'
+        type:
+        - boolean
+        - 'null'
+      include_detailed_results:
+        description: 'Whether to include detailed results from each tool execution (default: true)'
+        type:
+        - boolean
+        - 'null'
+      output_parser:
+        description: An optional, structured parser to process the final tool output and extract structured data.
+      output:
+        description: Simplified alias for 'output_parser'. Processes the final tool output and extracts structured data. Supports JavaScript code or file path.
+      continue:
+        description: 'Continue execution on errors. Opposite of stop_on_error. When true, workflow continues even if steps fail (default: false).'
+        type:
+        - boolean
+        - 'null'
+      verbosity:
+        description: 'Output verbosity level. Options: ''quiet'' (minimal), ''normal'' (default), ''verbose'' (detailed).'
+        type:
+        - string
+        - 'null'
+      start_from_step:
+        description: Start execution from a specific step ID (will load saved state)
+        type:
+        - string
+        - 'null'
+      end_at_step:
+        description: Stop execution after a specific step ID (inclusive)
+        type:
+        - string
+        - 'null'
+      follow_fallback:
+        description: Whether to follow fallback_id when end_at_step is specified. When false (default), execution stops at end_at_step regardless of failures. When true, allows following fallback_id even beyond end_at_step boundary.
+        type:
+        - boolean
+        - 'null'
+      execute_jumps_at_end:
+        description: Whether to execute jumps when reaching the end_at_step boundary. When false (default), jumps are skipped at the end step. When true, jumps are evaluated and executed even at the boundary.
+        type:
+        - boolean
+        - 'null'
+      scripts_base_path:
+        description: Optional base path for resolving script files. When script_file is used in run_command or execute_browser_script, relative paths will first be searched in this directory, then fallback to workflow directory or current directory. Useful for mounting external file sources like S3 via rclone.
+        type:
+        - string
+        - 'null'
+  get_applications_and_windows_listArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: GetApplicationsArgs
+    type: object
+  get_range_valueArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: LocatorArgs
+    description: Common fields for element selection with alternatives and fallbacks
+    type: object
+    properties:
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `.
+        type: string
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel. The first selector that finds an element will be used.
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated.
+        type:
+        - string
+        - 'null'
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - selector
+  get_window_treeArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: GetWindowTreeArgs
+    description: Common fields for UI tree inclusion in responses
+    type: object
+    properties:
+      pid:
+        description: Process ID of the target application
+        type: integer
+        format: uint32
+        minimum: 0
+      title:
+        description: Optional window title filter
+        type:
+        - string
+        - 'null'
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - pid
+  highlight_elementArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: HighlightElementArgs
+    description: Common fields for element selection with alternatives and fallbacks
+    type: object
+    properties:
+      color:
+        description: BGR color code (optional, default red)
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      duration_ms:
+        description: Duration in milliseconds (optional, default 1000ms)
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      text:
+        type:
+        - string
+        - 'null'
+      text_position:
+        description: Position of text overlay relative to the highlighted element
+        anyOf:
+        - $ref: '#/definitions/TextPosition'
+        - type: 'null'
+      font_style:
+        description: Font styling options for text overlay
+        anyOf:
+        - $ref: '#/definitions/FontStyle'
+        - type: 'null'
+      include_element_info:
+        type:
+        - boolean
+        - 'null'
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `.
+        type: string
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel. The first selector that finds an element will be used.
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated.
+        type:
+        - string
+        - 'null'
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - selector
+  invoke_elementArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: LocatorArgs
+    description: Common fields for element selection with alternatives and fallbacks
+    type: object
+    properties:
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `.
+        type: string
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel. The first selector that finds an element will be used.
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated.
+        type:
+        - string
+        - 'null'
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - selector
+  is_selectedArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: LocatorArgs
+    description: Common fields for element selection with alternatives and fallbacks
+    type: object
+    properties:
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `.
+        type: string
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel. The first selector that finds an element will be used.
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated.
+        type:
+        - string
+        - 'null'
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - selector
+  is_toggledArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: LocatorArgs
+    description: Common fields for element selection with alternatives and fallbacks
+    type: object
+    properties:
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `.
+        type: string
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel. The first selector that finds an element will be used.
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated.
+        type:
+        - string
+        - 'null'
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - selector
+  list_optionsArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: LocatorArgs
+    description: Common fields for element selection with alternatives and fallbacks
+    type: object
+    properties:
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `.
+        type: string
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel. The first selector that finds an element will be used.
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated.
+        type:
+        - string
+        - 'null'
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - selector
+  maximize_windowArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: MaximizeWindowArgs
+    description: Common fields for element selection with alternatives and fallbacks
+    type: object
+    properties:
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `.
+        type: string
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel. The first selector that finds an element will be used.
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated.
+        type:
+        - string
+        - 'null'
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - selector
+  minimize_windowArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: MinimizeWindowArgs
+    description: Common fields for element selection with alternatives and fallbacks
+    type: object
+    properties:
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `.
+        type: string
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel. The first selector that finds an element will be used.
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated.
+        type:
+        - string
+        - 'null'
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - selector
+  mouse_dragArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: MouseDragArgs
+    description: Common fields for element selection with alternatives and fallbacks
+    type: object
+    properties:
+      start_x:
+        description: Start X coordinate
+        type: number
+        format: double
+      start_y:
+        description: Start Y coordinate
+        type: number
+        format: double
+      end_x:
+        description: End X coordinate
+        type: number
+        format: double
+      end_y:
+        description: End Y coordinate
+        type: number
+        format: double
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `.
+        type: string
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel. The first selector that finds an element will be used.
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated.
+        type:
+        - string
+        - 'null'
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - start_x
+    - start_y
+    - end_x
+    - end_y
+    - selector
+  navigate_browserArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: NavigateBrowserArgs
+    description: Common fields for UI tree inclusion in responses
+    type: object
+    properties:
+      url:
+        description: URL to navigate to
+        type: string
+      browser:
+        description: Optional browser name
+        type:
+        - string
+        - 'null'
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - url
+  open_applicationArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: OpenApplicationArgs
+    description: Common fields for operations that include monitor screenshots
+    type: object
+    properties:
+      app_name:
+        description: Name of the application to open
+        type: string
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - app_name
+  press_keyArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: PressKeyArgs
+    description: Common fields for element selection with alternatives and fallbacks
+    type: object
+    properties:
+      key:
+        description: The key or key combination to press (e.g., 'Enter', 'Ctrl+A')
+        type: string
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `.
+        type: string
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel. The first selector that finds an element will be used.
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated.
+        type:
+        - string
+        - 'null'
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      highlight_before_action:
+        description: Optional highlighting configuration to visually indicate the target element before the action
+        anyOf:
+        - $ref: '#/definitions/ActionHighlightConfig'
+        - type: 'null'
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - key
+    - selector
+  press_key_globalArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: GlobalKeyArgs
+    description: Common fields for UI tree inclusion in responses
+    type: object
+    properties:
+      key:
+        description: The key or key combination to press (e.g., '{PageDown}', '{Ctrl}{V}')
+        type: string
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - key
+  run_commandArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: RunCommandArgs
+    type: object
+    properties:
+      run:
+        description: The shell command to run (GitHub Actions-style). When using 'engine', this field contains the inline code to execute. Either this or script_file must be provided.
+        type:
+        - string
+        - 'null'
+      script_file:
+        description: Optional path to script file to load and execute. Either this or 'run' must be provided. When using 'engine', the file should contain JavaScript or Python code.
+        type:
+        - string
+        - 'null'
+      env:
+        description: Optional environment variables to inject into the script (only works with 'engine' mode). Variables are automatically available as proper JavaScript/Python types - JSON strings are parsed into objects/arrays. Variables can be accessed directly without 'env.' prefix.
+      engine:
+        description: 'Optional high-level engine to execute inline code with SDK bindings. One of: ''node'', ''bun'', ''javascript'', ''js'', ''typescript'', ''ts'', ''python''. When set, ''run'' or ''script_file'' must contain the code to execute.'
+        type:
+        - string
+        - 'null'
+      shell:
+        description: 'The shell to use for ''run'' (ignored when ''engine'' is used). If not specified, defaults to PowerShell on Windows, bash on Unix. Common values: ''bash'', ''sh'', ''cmd'', ''powershell'', ''pwsh'''
+        type:
+        - string
+        - 'null'
+      working_directory:
+        description: Working directory where the command should be executed. Defaults to current directory.
+        type:
+        - string
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_logs:
+        description: Include execution logs (stdout/stderr) in response. Defaults to false. On errors, logs are always included regardless of this setting.
+        type:
+        - boolean
+        - 'null'
+  scroll_elementArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: ScrollElementArgs
+    description: Arguments for scrolling an element
+    type: object
+    properties:
+      direction:
+        description: 'Direction to scroll: ''up'', ''down'', ''left'', ''right'''
+        type: string
+        default: ''
+      amount:
+        description: 'Amount to scroll (number of lines or pages, default: 3)'
+        type: number
+        format: double
+        default: 3.0
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `.
+        type: string
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel. The first selector that finds an element will be used.
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated.
+        type:
+        - string
+        - 'null'
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      highlight_before_action:
+        description: Optional highlighting configuration to visually indicate the target element before the action
+        anyOf:
+        - $ref: '#/definitions/ActionHighlightConfig'
+        - type: 'null'
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - selector
+  select_optionArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: SelectOptionArgs
+    description: Common fields for element selection with alternatives and fallbacks
+    type: object
+    properties:
+      option_name:
+        description: The visible text of the option to select.
+        type: string
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `.
+        type: string
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel. The first selector that finds an element will be used.
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated.
+        type:
+        - string
+        - 'null'
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - option_name
+    - selector
+  set_range_valueArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: SetRangeValueArgs
+    description: Common fields for element selection with alternatives and fallbacks
+    type: object
+    properties:
+      value:
+        description: The numerical value to set.
+        type: number
+        format: double
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `.
+        type: string
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel. The first selector that finds an element will be used.
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated.
+        type:
+        - string
+        - 'null'
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - value
+    - selector
+  set_selectedArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: SetSelectedArgs
+    description: Common fields for element selection with alternatives and fallbacks
+    type: object
+    properties:
+      state:
+        description: 'The desired state: true for selected, false for deselected.'
+        type: boolean
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `.
+        type: string
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel. The first selector that finds an element will be used.
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated.
+        type:
+        - string
+        - 'null'
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - state
+    - selector
+  set_toggledArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: SetToggledArgs
+    description: Common fields for element selection with alternatives and fallbacks
+    type: object
+    properties:
+      state:
+        description: 'The desired state: true for on, false for off.'
+        type: boolean
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `.
+        type: string
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel. The first selector that finds an element will be used.
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated.
+        type:
+        - string
+        - 'null'
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - state
+    - selector
+  set_valueArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: SetValueArgs
+    description: Common fields for element selection with alternatives and fallbacks
+    type: object
+    properties:
+      value:
+        description: The text value to set.
+        type: string
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `.
+        type: string
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel. The first selector that finds an element will be used.
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated.
+        type:
+        - string
+        - 'null'
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - value
+    - selector
+  set_zoomArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: SetZoomArgs
+    description: Common fields for UI tree inclusion in responses
+    type: object
+    properties:
+      percentage:
+        description: The zoom percentage to set (e.g., 100 for 100%, 150 for 150%, 50 for 50%)
+        type: integer
+        format: uint32
+        minimum: 0
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - percentage
+  stop_highlightingArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: StopHighlightingArgs
+    description: Common fields for operations that include monitor screenshots
+    type: object
+    properties:
+      highlight_id:
+        description: Optional specific highlight ID to stop. If omitted, stops all active highlights.
+        type:
+        - string
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+  type_into_elementArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: TypeIntoElementArgs
+    description: Common fields for element selection with alternatives and fallbacks
+    type: object
+    properties:
+      text_to_type:
+        description: The text to type into the element
+        type: string
+      clear_before_typing:
+        description: 'Whether to clear the element before typing (default: true)'
+        type:
+        - boolean
+        - 'null'
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `.
+        type: string
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel. The first selector that finds an element will be used.
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated.
+        type:
+        - string
+        - 'null'
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      highlight_before_action:
+        description: Optional highlighting configuration to visually indicate the target element before the action
+        anyOf:
+        - $ref: '#/definitions/ActionHighlightConfig'
+        - type: 'null'
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - text_to_type
+    - selector
+  validate_elementArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: ValidateElementArgs
+    description: Common fields for element selection with alternatives and fallbacks
+    type: object
+    properties:
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `.
+        type: string
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel. The first selector that finds an element will be used.
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated.
+        type:
+        - string
+        - 'null'
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      max_dimension:
+        description: 'Maximum dimension (width or height) for the screenshot. Screenshots larger than this will be resized while maintaining aspect ratio. Default: 1920px'
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+    required:
+    - selector
+  wait_for_elementArgs:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    title: WaitForElementArgs
+    description: Common fields for element selection with alternatives and fallbacks
+    type: object
+    properties:
+      condition:
+        description: 'Condition to wait for: ''visible'', ''enabled'', ''focused'', ''exists'''
+        type: string
+      selector:
+        description: A string selector to locate the element. Can be chained with ` >> `.
+        type: string
+      alternative_selectors:
+        description: Optional alternative selectors to try in parallel. The first selector that finds an element will be used.
+        type:
+        - string
+        - 'null'
+      fallback_selectors:
+        description: Optional fallback selectors to try sequentially if the primary selector fails. These selectors are **only** attempted after the primary selector (and any parallel alternatives) time out. List can be comma-separated.
+        type:
+        - string
+        - 'null'
+      timeout_ms:
+        description: Optional timeout in milliseconds for the action
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      retries:
+        description: Number of times to retry this step on failure.
+        type:
+        - integer
+        - 'null'
+        format: uint32
+        minimum: 0
+      verify_element_exists:
+        description: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_element_not_exists:
+        description: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). If verification fails, the tool execution fails.
+        type:
+        - string
+        - 'null'
+      verify_timeout_ms:
+        description: 'Timeout in milliseconds for post-action verification (default: 2000ms). The system will poll until verification passes or timeout is reached.'
+        type:
+        - integer
+        - 'null'
+        format: uint64
+        minimum: 0
+      include_tree:
+        description: Whether to include the UI tree in the response (captured after action execution). Defaults to true to verify action results.
+        type:
+        - boolean
+        - 'null'
+      tree_max_depth:
+        description: Maximum depth to traverse when building tree (only used if include_tree is true)
+        type:
+        - integer
+        - 'null'
+        format: uint
+        minimum: 0
+      tree_from_selector:
+        description: Selector to start tree from instead of window root (only used if include_tree is true)
+        type:
+        - string
+        - 'null'
+      include_detailed_attributes:
+        description: Whether to include detailed element attributes (enabled, focused, selected, etc.) when include_tree is true. Defaults to true for comprehensive LLM context.
+        type:
+        - boolean
+        - 'null'
+      tree_output_format:
+        description: 'Output format for UI tree. Options: ''verbose_json'' (full JSON with all fields), ''compact_yaml'' (minimal YAML: [ROLE] name #id). Defaults to ''compact_yaml''.'
+        anyOf:
+        - $ref: '#/definitions/TreeOutputFormat'
+        - type: 'null'
+      ui_diff_before_after:
+        description: Capture UI tree before and after action execution, then compute and return the diff. Returns tree_before, tree_after, and ui_diff fields in response. When enabled, overrides include_tree behavior. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+      include_monitor_screenshots:
+        description: Whether to include screenshots of all monitors in the response. Defaults to false.
+        type:
+        - boolean
+        - 'null'
+    required:
+    - condition
+    - selector
