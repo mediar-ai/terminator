@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.46] - 2025-12-15
+
+### Added
+- Workflow: Add context.data field for workflow output data (#431)
+
+### Fixed
+- Fix: add missing APIs to run_command description (openUrl, navigateBrowser, delay, etc.)
+- Fix: re-enable result.data assertions in onSuccess tests
+- Fix: replace deprecated logger with console in init templates
+- Fix: resolve log pipe race condition causing lost logs
+
 ## [0.23.45] - 2025-12-15
 
 ### Added
