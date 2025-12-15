@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.45] - 2025-12-15
+
+### Added
+- Workflow: Add trigger/cron scheduling support for TypeScript workflows (#427)
+- MCP: Add named pipe logging for TypeScript workflows (#416)
+- MCP: Add gitignore-aware file search and improved dropdown error messages (#420)
+
+### Changed
+- MCP: Prompt improvements and execution logging (#419)
+- Docs: Improve verify_element and select_option documentation (#422)
+
+### Fixed
+- Fix tests
+- Fix: expose globals as local variables in JS wrapper script
+- Fix log pipe drain before process exit (#426)
+- Fix: save focus state before window activation in type_into_element (#425)
+- Element and input improvements (#424)
+- Focus restoration and prompt improvements (#423)
+- Clippy and fmt fixes
+
 ## [0.23.43] - 2025-12-10
 
 ### Changed
