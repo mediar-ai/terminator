@@ -1309,6 +1309,26 @@ pub struct TypeScriptWorkflowExecutionResult {
     pub logs: Vec<CapturedLogEntry>,
 }
 
+/// Trigger configuration for workflows
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum TriggerConfig {
+    /// Cron-based scheduling
+    Cron {
+        /// Cron expression (5-field or 6-field format)
+        schedule: String,
+        /// Optional timezone (IANA format)
+        timezone: Option<String>,
+    },
+    /// Manual trigger (default)
+    Manual,
+    /// Webhook trigger
+    Webhook {
+        /// Optional webhook path suffix
+        path: Option<String>,
+    },
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct WorkflowMetadata {
     pub name: String,
@@ -1316,6 +1336,9 @@ pub struct WorkflowMetadata {
     pub version: Option<String>,
     pub input: Value,
     pub steps: Vec<StepMetadata>,
+    /// Trigger configuration for the workflow
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trigger: Option<TriggerConfig>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

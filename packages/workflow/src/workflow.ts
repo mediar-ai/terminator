@@ -232,6 +232,7 @@ function createWorkflowInstance<TInput = any>(
                                 name: s.config.name,
                                 description: s.config.description,
                             })),
+                            trigger: config.trigger,
                         };
                     },
                 };
@@ -530,6 +531,7 @@ function createWorkflowInstance<TInput = any>(
                 version: config.version,
                 input: config.input,
                 steps: steps.map((s) => s.getMetadata()),
+                trigger: config.trigger,
             };
         },
     };
