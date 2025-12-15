@@ -17,22 +17,22 @@
   ],
   "name": "terminator-mcp-agent",
   "optionalDependencies": {
-    "terminator-mcp-darwin-arm64": "0.23.44",
-    "terminator-mcp-darwin-x64": "0.23.44",
-    "terminator-mcp-linux-x64-gnu": "0.23.44",
-    "terminator-mcp-win32-arm64-msvc": "0.23.44",
-    "terminator-mcp-win32-x64-msvc": "0.23.44"
+    "terminator-mcp-darwin-arm64": "0.23.45",
+    "terminator-mcp-darwin-x64": "0.23.45",
+    "terminator-mcp-linux-x64-gnu": "0.23.45",
+    "terminator-mcp-win32-arm64-msvc": "0.23.45",
+    "terminator-mcp-win32-x64-msvc": "0.23.45"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/mediar-ai/terminator"
   },
   "scripts": {
-    "postinstall": "node ./scripts/download-source.js",
     "build": "node ./utils/build-server.js --release",
     "build:debug": "node ./utils/build-server.js --debug",
+    "postinstall": "node ./scripts/download-source.js",
     "sync-version": "node ./utils/sync-version.js",
     "update-badges": "node ./utils/update-badges.js"
   },
-  "version": "0.23.44"
+  "version": "0.23.45"
 }
