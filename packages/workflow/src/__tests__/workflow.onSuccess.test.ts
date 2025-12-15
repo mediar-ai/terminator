@@ -157,15 +157,15 @@ describe("Workflow onSuccess Handler", () => {
             const result = await workflow.run({}, desktop);
 
             expect(result.status).toBe("success");
-            // expect(result.data).toEqual({
-            //     summary: "# Report Generated\n- File: report.xlsx\n- Outlet: ABC123\n- Date: 2024-01-15",
-            //     success: true,
-            //     data: {
-            //         file_name: "report.xlsx",
-            //         outlet_code: "ABC123",
-            //         date: "2024-01-15",
-            //     },
-            // });
+            expect(result.data).toEqual({
+                summary: "# Report Generated\n- File: report.xlsx\n- Outlet: ABC123\n- Date: 2024-01-15",
+                success: true,
+                data: {
+                    file_name: "report.xlsx",
+                    outlet_code: "ABC123",
+                    date: "2024-01-15",
+                },
+            });
         });
 
         test("onSuccess receives logger", async () => {
@@ -271,7 +271,7 @@ describe("Workflow onSuccess Handler", () => {
             const result = await workflow.run({}, desktop);
 
             expect(result.status).toBe("success");
-            // expect(result.data).toEqual({ computed: 2 });
+            expect(result.data).toEqual({ computed: 2 });
         });
 
         test("onSuccess with sync handler (returns plain value)", async () => {
@@ -293,7 +293,7 @@ describe("Workflow onSuccess Handler", () => {
             const result = await workflow.run({}, desktop);
 
             expect(result.status).toBe("success");
-            // expect(result.data).toEqual({ result: 10 });
+            expect(result.data).toEqual({ result: 10 });
         });
 
         test("onSuccess with undefined return preserves step data", async () => {
@@ -320,7 +320,7 @@ describe("Workflow onSuccess Handler", () => {
             expect(result.status).toBe("success");
             expect(onSuccessCalled).toHaveBeenCalled();
             // context.data should still have step data
-            // expect(result.data).toEqual({ step1: { fromStep: true } });
+            expect(result.data).toEqual({ step1: { fromStep: true } });
         });
     });
 
@@ -348,7 +348,7 @@ describe("Workflow onSuccess Handler", () => {
 
             expect(result.status).toBe("success");
             expect(capturedState).toEqual({ accumulated: "data" });
-            // expect(result.data).toEqual({ summary: "Done!", success: true });
+            expect(result.data).toEqual({ summary: "Done!", success: true });
         });
     });
 
@@ -392,9 +392,9 @@ describe("Workflow onSuccess Handler", () => {
             expect(result.status).toBe("success");
             expect(lastExecutedStep).toBe("final_step");
             // step2 was skipped, so skipNext should be true but ran should be undefined
-            // expect(result.data.state.skipNext).toBe(true);
-            // expect(result.data.state.ran).toBeUndefined();
-            // expect(result.data.state.finalized).toBe(true);
+            expect(result.data.state.skipNext).toBe(true);
+            expect(result.data.state.ran).toBeUndefined();
+            expect(result.data.state.finalized).toBe(true);
         });
 
         test("onSuccess handles early exit (all remaining steps skipped)", async () => {
@@ -440,7 +440,7 @@ describe("Workflow onSuccess Handler", () => {
             // Last actually executed step was step1 (index 0)
             expect(capturedLastStepId).toBe("step1");
             expect(capturedLastStepIndex).toBe(0);
-            // expect(result.data.earlyExit).toBe(true);
+            expect(result.data.earlyExit).toBe(true);
         });
     });
 
@@ -522,13 +522,13 @@ Source: \`${input.file_path}\``,
             );
 
             expect(result.status).toBe("success");
-            // expect(result.data.summary).toContain(
-            //     "# SAP Journal Entry - Success",
-            // );
-            // expect(result.data.summary).toContain("SG-001");
-            // expect(result.data.summary).toContain("SAP-2024-00123");
-            // expect(result.data.success).toBe(true);
-            // expect(result.data.data.document_number).toBe("SAP-2024-00123");
+            expect(result.data.summary).toContain(
+                "# SAP Journal Entry - Success",
+            );
+            expect(result.data.summary).toContain("SG-001");
+            expect(result.data.summary).toContain("SAP-2024-00123");
+            expect(result.data.success).toBe(true);
+            expect(result.data.data.document_number).toBe("SAP-2024-00123");
         });
     });
 });
