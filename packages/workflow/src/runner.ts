@@ -42,6 +42,7 @@ export class WorkflowRunner {
     } else {
       this.state = {
         context: {
+          data: {},
           state: {},
           variables: this.inputs,
         },
@@ -115,7 +116,7 @@ export class WorkflowRunner {
         // Check for early success return
         if (isWorkflowSuccess(result)) {
           this.logger.success(`✅ Workflow completed early`);
-          this.state.context.state.__result = result.result;
+          this.state.context.data = result.result;
           this.state.lastStepId = step.config.id;
           this.state.lastStepIndex = i;
           return {
