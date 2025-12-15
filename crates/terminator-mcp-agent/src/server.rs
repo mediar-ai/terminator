@@ -3406,9 +3406,9 @@ INJECTED GLOBALS (engine mode):
 desktop, log, sleep(ms), setEnv({k:v}), kv (auto-initialized when ORG_TOKEN set), variables
 
 AVAILABLE APIs (search terminator-source for full signatures):
-- Desktop: locator(), openApplication(), pressKey(), executeBrowserScript(), ocrScreenshot()
+- Desktop: locator(), openUrl(url, browser?), navigateBrowser(url, browser?), openApplication(), pressKey(), delay(ms), executeBrowserScript(), getWindowTree(), captureScreenshot()
 - Locator: .first(timeoutMs), .all(timeoutMs), .validate(timeoutMs), .waitFor(condition, timeoutMs), .within(element)
-- Element: .click(), .typeText(text, {clearBeforeTyping}), .pressKey(), .text(), .getValue(), .isSelected(), .setSelected(), .scrollIntoView(), .bounds(), .locator()
+- Element: .click(), .doubleClick(), .hover(), .typeText(text, {clearBeforeTyping}), .pressKey(), .invoke(), .text(), .getValue(), .isSelected(), .setSelected(), .scrollIntoView(), .bounds(), .capture(), .locator()
 - WindowManager: bringWindowToFront(), minimizeIfNeeded(), captureInitialState()
 
 CRITICAL RULES:
