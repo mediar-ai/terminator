@@ -22,6 +22,8 @@ export interface Logger {
  * @template TState - Type of accumulated state from previous steps
  */
 export interface WorkflowContext<TInput = any, TState = Record<string, any>> {
+    /** Workflow output data - set this to return data to MCP/CLI */
+    data: Record<string, any>;
     /** Shared state between steps - use `return { state: {...} }` to update */
     state: TState;
     /** Workflow input variables - typed from Zod schema */
