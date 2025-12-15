@@ -96,7 +96,7 @@ export class WorkflowBuilder<
 
     /**
      * Set success handler that returns workflow result
-     * The returned value will be stored in context.state.__result
+     * The returned value will be available as `result.data` from workflow.run()
      *
      * @example
      * ```typescript
@@ -275,6 +275,9 @@ function createWorkflowInstance<TInput = any>(
             let lastStepId: string | undefined;
             let lastStepIndex: number | undefined;
 
+            // Accumulate step data returns
+            const accumulatedData: Record<string, any> = {};
+
             // Max iterations to prevent infinite loops
             const MAX_ITERATIONS = 1000;
             let iterations = 0;
@@ -354,6 +357,11 @@ function createWorkflowInstance<TInput = any>(
                     lastStepId = step.config.id;
                     lastStepIndex = currentIndex;
 
+                    // Accumulate step data if returned
+                    if (stepResult !== undefined && stepResult !== null) {
+                        accumulatedData[step.config.id] = stepResult;
+                    }
+
                     log.info("");
 
                     // Handle 'next' pointer for branching (config-time)
@@ -401,8 +409,9 @@ function createWorkflowInstance<TInput = any>(
                 log.info("=".repeat(60));
 
                 // Call success handler if provided
+                let successHandlerResult: any = undefined;
                 if (successHandler) {
-                    const result = await successHandler({
+                    successHandlerResult = await successHandler({
                         input: validatedInput,
                         context,
                         logger: log,
@@ -410,16 +419,20 @@ function createWorkflowInstance<TInput = any>(
                         lastStepId,
                         lastStepIndex,
                     });
-                    // Automatically set context.state.__result with returned value
-                    if (result !== undefined) {
-                        context.state.__result = result;
-                    }
                 }
+
+                // Determine output data: onSuccess return value takes precedence, otherwise accumulated step data
+                const outputData = successHandlerResult !== undefined
+                    ? successHandlerResult
+                    : Object.keys(accumulatedData).length > 0
+                        ? accumulatedData
+                        : undefined;
 
                 // Return success response with state tracking
                 return {
                     status: "success",
                     message: `Workflow completed successfully in ${duration}ms`,
+                    data: outputData,
                     lastStepId,
                     lastStepIndex,
                     state: { context, lastStepId, lastStepIndex },
