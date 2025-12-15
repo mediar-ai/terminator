@@ -158,6 +158,11 @@ export function createStep<
                     );
                 }
 
+                // Store data in context.data keyed by step id
+                if (normalizedResult && normalizedResult.data !== undefined) {
+                    context.context.data[config.id] = normalizedResult.data;
+                }
+
                 // Run expectation validation if provided
                 if (config.expect) {
                     logger.info(
