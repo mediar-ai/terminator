@@ -559,7 +559,8 @@ impl TypeScriptWorkflow {
             let exec_id_for_pipe = execution_id.map(|s| s.to_string());
 
             // Spawn a task to forward log entries to tracing
-            tokio::spawn(async move {
+            // IMPORTANT: Keep the JoinHandle so we can wait for it to complete before extracting logs
+            let receiver_task = tokio::spawn(async move {
                 while let Some(entry) = log_rx.recv().await {
                     // Forward to tracing
                     forward_log_to_tracing(&entry, exec_id_for_pipe.as_deref());
@@ -575,11 +576,16 @@ impl TypeScriptWorkflow {
                 }
             });
 
-            Some((handle, log_pipe_name, captured_logs_for_pipe))
+            Some((handle, log_pipe_name, captured_logs_for_pipe, receiver_task))
         };
 
         #[cfg(not(windows))]
-        let log_pipe_handle: Option<((), String, Arc<Mutex<Vec<CapturedLogEntry>>>)> = None;
+        let log_pipe_handle: Option<(
+            (),
+            String,
+            Arc<Mutex<Vec<CapturedLogEntry>>>,
+            tokio::task::JoinHandle<()>,
+        )> = None;
 
         use std::process::Stdio;
         let mut cmd = match runtime {
@@ -623,7 +629,7 @@ impl TypeScriptWorkflow {
         }
 
         #[cfg(windows)]
-        if let Some((_, ref log_pipe_name, _)) = log_pipe_handle {
+        if let Some((_, ref log_pipe_name, _, _)) = log_pipe_handle {
             cmd.env("MCP_LOG_PIPE", log_pipe_name);
             info!("Set MCP_LOG_PIPE={}", log_pipe_name);
         }
@@ -901,8 +907,9 @@ impl TypeScriptWorkflow {
             }
 
             #[cfg(windows)]
-            if let Some((handle, _, _)) = log_pipe_handle {
-                handle.shutdown().await;
+            if let Some((handle, _, _, _receiver_task)) = log_pipe_handle {
+                handle.shutdown_and_wait().await;
+                // Note: We don't wait for receiver_task on error path - just clean up
             }
 
             return Err(McpError::internal_error(error_message, Some(error_data)));
@@ -977,10 +984,15 @@ impl TypeScriptWorkflow {
 
         // Merge logs from log pipe (Windows only)
         #[cfg(windows)]
-        if let Some((handle, _, pipe_logs)) = log_pipe_handle {
-            // Give the pipe handler a moment to process remaining logs
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            handle.shutdown().await;
+        if let Some((handle, _, pipe_logs, receiver_task)) = log_pipe_handle {
+            // Wait for the pipe server to finish reading all data from the pipe
+            // This is important: shutdown_and_wait() ensures the pipe server has read
+            // everything and sent it through the channel before we proceed
+            handle.shutdown_and_wait().await;
+
+            // Now wait for the receiver task to finish processing all channel messages
+            // This ensures all logs have been captured in pipe_logs before we extract them
+            let _ = receiver_task.await;
 
             if let Ok(mut pipe_captured) = pipe_logs.lock() {
                 logs.extend(pipe_captured.drain(..));
@@ -1100,8 +1112,10 @@ console.debug = (...args) => sendLog('debug', formatArgs(...args));
 // Drain log pipe - waits for all buffered writes to complete
 const drainLogPipe = () => new Promise((resolve) => {{
     if (logPipe && logPipeReady) {{
+        // Mark pipe as not ready BEFORE calling end() to prevent any further writes
+        logPipeReady = false;
         logPipe.end(() => {{
-            console.debug('[DRAIN] Log pipe flushed successfully');
+            // Don't use console.debug here - the pipe is already ended!
             resolve();
         }});
     }} else {{

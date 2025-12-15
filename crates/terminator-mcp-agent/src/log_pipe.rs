@@ -115,7 +115,11 @@ impl LogPipeServer {
                             let mut lines = reader.lines();
 
                             loop {
+                                // Use biased select to prefer reading data over shutdown signal.
+                                // This ensures we drain all buffered data before responding to shutdown.
                                 tokio::select! {
+                                    biased;
+
                                     line_result = lines.next_line() => {
                                         match line_result {
                                             Ok(Some(line)) => {
@@ -156,7 +160,7 @@ impl LogPipeServer {
         });
 
         Ok(LogPipeServerHandle {
-            _handle: handle,
+            handle,
             shutdown_tx,
         })
     }
@@ -164,14 +168,25 @@ impl LogPipeServer {
 
 /// Handle to control the log pipe server
 pub struct LogPipeServerHandle {
-    _handle: tokio::task::JoinHandle<()>,
+    handle: tokio::task::JoinHandle<()>,
     shutdown_tx: mpsc::Sender<()>,
 }
 
 impl LogPipeServerHandle {
-    /// Signal the log pipe server to shutdown
+    /// Signal the log pipe server to shutdown (does not wait for completion)
+    #[allow(dead_code)]
     pub async fn shutdown(self) {
         let _ = self.shutdown_tx.send(()).await;
+    }
+
+    /// Signal shutdown AND wait for the pipe server task to complete.
+    /// This ensures all buffered data has been read from the pipe and sent
+    /// through the channel before returning.
+    pub async fn shutdown_and_wait(self) {
+        // Signal shutdown
+        let _ = self.shutdown_tx.send(()).await;
+        // Wait for the task to complete - this ensures all data has been processed
+        let _ = self.handle.await;
     }
 }
 
@@ -353,5 +368,86 @@ mod windows_integration_tests {
 
         client_task.await.unwrap();
         handle.shutdown().await;
+    }
+
+    /// Test that reproduces the race condition where logs are lost
+    /// when shutdown is called immediately after client disconnects.
+    ///
+    /// This simulates the real workflow pattern:
+    /// 1. A separate task processes logs from the receiver and captures them
+    /// 2. Client writes many logs and disconnects quickly
+    /// 3. shutdown() is called and logs are extracted immediately
+    ///
+    /// Without proper synchronization, some logs may be lost.
+    #[tokio::test]
+    async fn test_log_pipe_race_condition() {
+        use std::sync::{Arc, Mutex};
+
+        let (tx, mut rx) = create_log_channel();
+        let server = LogPipeServer::new("test-race-condition", tx);
+        let pipe_name = server.pipe_name().to_string();
+
+        let handle = server
+            .start()
+            .await
+            .expect("Failed to start log pipe server");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Simulate the workflow pattern: a separate task captures logs
+        let captured_logs: Arc<Mutex<Vec<LogEntry>>> = Arc::new(Mutex::new(Vec::new()));
+        let logs_clone = captured_logs.clone();
+
+        // This is the receiver task (like line 562-576 in workflow_typescript.rs)
+        let receiver_task = tokio::spawn(async move {
+            while let Some(entry) = rx.recv().await {
+                if let Ok(mut logs) = logs_clone.lock() {
+                    logs.push(entry);
+                }
+            }
+        });
+
+        // Client writes many logs quickly and disconnects
+        let num_logs = 100;
+        let client_task = tokio::spawn(async move {
+            use tokio::net::windows::named_pipe::ClientOptions;
+
+            let mut client = ClientOptions::new()
+                .open(&pipe_name)
+                .expect("Failed to connect to log pipe");
+
+            for i in 0..num_logs {
+                let log_json = format!(
+                    r#"{{"level":"info","message":"Log message {}","timestamp":"T"}}"#,
+                    i
+                );
+                client.write_all(log_json.as_bytes()).await.unwrap();
+                client.write_all(b"\n").await.unwrap();
+            }
+            client.flush().await.unwrap();
+            // Client disconnects immediately after flush
+        });
+
+        // Wait for client to finish
+        client_task.await.unwrap();
+
+        // This is what the old code did: shutdown and extract immediately
+        // The 50ms sleep was not enough to guarantee all logs were processed
+        handle.shutdown_and_wait().await;
+
+        // Now wait for the receiver task to complete
+        // (This is what the fix adds - waiting for the receiver task)
+        receiver_task.await.unwrap();
+
+        // Extract captured logs
+        let logs = captured_logs.lock().unwrap();
+
+        // With the fix, we should have all logs
+        assert_eq!(
+            logs.len(),
+            num_logs,
+            "Expected {} logs but got {}. Race condition caused log loss!",
+            num_logs,
+            logs.len()
+        );
     }
 }

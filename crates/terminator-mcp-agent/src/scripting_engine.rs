@@ -2997,7 +2997,7 @@ mod tests {
     #[test]
     fn test_wrapper_script_exposes_globals_as_local_variables() {
         let script = "console.log('test')";
-        
+
         let wrapper_template = r#"
             const result = await (async () => {
                 // Expose globals as local variables for user script
@@ -3005,21 +3005,27 @@ mod tests {
                 SCRIPT_PLACEHOLDER
             })();
         "#;
-        
+
         let formatted = wrapper_template.replace("SCRIPT_PLACEHOLDER", script);
-        
-        assert!(formatted.contains("const { desktop, emit, createStepEmitter, log, sleep, createKVClient } = global;"),
-            "Wrapper script must expose globals as local variables");
-        
-        assert!(formatted.contains("console.log('test')"),
-            "User script must be injected into wrapper");
+
+        assert!(
+            formatted.contains(
+                "const { desktop, emit, createStepEmitter, log, sleep, createKVClient } = global;"
+            ),
+            "Wrapper script must expose globals as local variables"
+        );
+
+        assert!(
+            formatted.contains("console.log('test')"),
+            "User script must be injected into wrapper"
+        );
     }
 
     /// Test that emit.progress calls work when emit is exposed as local variable
     #[test]
     fn test_emit_accessible_in_user_script() {
         let user_script = "emit.progress(1, 5, \"Starting...\");\nemit.status(\"Running\");\nawait desktop.delay(100);";
-        
+
         let wrapper_template = r#"
             const result = await (async () => {
                 // Expose globals as local variables for user script
@@ -3027,15 +3033,21 @@ mod tests {
                 SCRIPT_PLACEHOLDER
             })();
         "#;
-        
+
         let formatted = wrapper_template.replace("SCRIPT_PLACEHOLDER", user_script);
-        
-        assert!(formatted.contains("emit.progress(1, 5,"),
-            "emit.progress should be callable");
-        assert!(formatted.contains("emit.status("),
-            "emit.status should be callable");
-        assert!(formatted.contains("await desktop.delay("),
-            "desktop should be accessible");
+
+        assert!(
+            formatted.contains("emit.progress(1, 5,"),
+            "emit.progress should be callable"
+        );
+        assert!(
+            formatted.contains("emit.status("),
+            "emit.status should be callable"
+        );
+        assert!(
+            formatted.contains("await desktop.delay("),
+            "desktop should be accessible"
+        );
     }
 
     /// Test that all expected globals are exposed
@@ -3043,26 +3055,31 @@ mod tests {
     fn test_all_globals_exposed() {
         let expected_globals = vec![
             "desktop",
-            "emit", 
+            "emit",
             "createStepEmitter",
             "log",
             "sleep",
             "createKVClient",
         ];
-        
-        let destructuring_line = "const { desktop, emit, createStepEmitter, log, sleep, createKVClient } = global;";
-        
+
+        let destructuring_line =
+            "const { desktop, emit, createStepEmitter, log, sleep, createKVClient } = global;";
+
         for global in expected_globals {
-            assert!(destructuring_line.contains(global),
-                "Global '{}' must be exposed as local variable", global);
+            assert!(
+                destructuring_line.contains(global),
+                "Global '{}' must be exposed as local variable",
+                global
+            );
         }
     }
 
     /// Test backward compatibility - scripts using global.emit should still work
     #[test]
     fn test_global_prefix_still_works() {
-        let user_script = "global.emit.progress(1, 5, \"Using global prefix\");\nglobal.desktop.delay(100);";
-        
+        let user_script =
+            "global.emit.progress(1, 5, \"Using global prefix\");\nglobal.desktop.delay(100);";
+
         let wrapper_template = r#"
             const result = await (async () => {
                 // Expose globals as local variables for user script
@@ -3070,10 +3087,12 @@ mod tests {
                 SCRIPT_PLACEHOLDER
             })();
         "#;
-        
+
         let formatted = wrapper_template.replace("SCRIPT_PLACEHOLDER", user_script);
-        
-        assert!(formatted.contains("global.emit.progress"),
-            "global.emit syntax should still be valid");
+
+        assert!(
+            formatted.contains("global.emit.progress"),
+            "global.emit syntax should still be valid"
+        );
     }
 }
