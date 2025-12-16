@@ -118,21 +118,41 @@ impl InitCommand {
     }
 
     fn create_main_workflow(&self, project_path: &Path) -> Result<()> {
-        let workflow = r#"import { createWorkflow, z } from "@mediar-ai/workflow";
-import { exampleStep } from "./steps/01-example-step";
+        let workflow = format!(
+            r#"import {{ createWorkflow, z }} from "@mediar-ai/workflow";
+import {{ exampleStep }} from "./steps/01-example-step";
 
-export default createWorkflow({
-  input: z.object({}).optional(),
+export default createWorkflow({{
+  name: "{}",
+  description: "Describe what this workflow does",
+  version: "1.0.0",
+  input: z.object({{
+    // Add your input variables here
+    // message: z.string().default("Hello"),
+  }}).optional(),
+  trigger: {{
+    type: 'cron',
+    schedule: '*/5 * * * *', // Every 5 minutes
+    enabled: false, // Set to true to enable scheduling
+  }},
   steps: [
     exampleStep,
     // Add more steps here
   ],
-  onError: async ({ error }) => {
-    console.error("Workflow failed");
-    console.error(`Error: ${error.message}`);
-  },
-});
-"#;
+  onSuccess: async ({{ context }}) => {{
+    // Set context.data to return results to MCP/CLI
+    context.data = {{
+      success: true,
+      ...context.state,
+    }};
+  }},
+  onError: async ({{ error }}) => {{
+    console.error("Workflow failed:", error.message);
+  }},
+}});
+"#,
+            self.name
+        );
 
         fs::write(project_path.join("src/terminator.ts"), workflow)
             .context("Failed to create src/terminator.ts")?;
@@ -145,16 +165,19 @@ export default createWorkflow({
 export const exampleStep = createStep({
   id: "example_step",
   name: "Example Step",
-  execute: async ({ desktop }) => {
+  execute: async ({ desktop, input, context }) => {
     console.log("Starting example step...");
 
+    // Access input variables: input.message
+    // Access previous state: context.state.someValue
+
     // Example: Open an application
-    // const app = desktop.openApplication("notepad");
+    // desktop.openApplication("notepad");
     // await desktop.delay(1500);
 
     // Example: Find and click a button
-    // const button = await desktop.locator("role:Button && name:OK").first(2000);
-    // await button.click();
+    // const btn = await desktop.locator("role:Button && name:OK").first(2000);
+    // await btn.click();
 
     // Example: Type text
     // await desktop.type("Hello World!");
