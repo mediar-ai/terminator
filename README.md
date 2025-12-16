@@ -27,32 +27,6 @@
   </a>
 </p>
 
-## 🚀 What's new
-
-- 10/30 Public alpha is live - [n8n for legacy software](https://www.mediar.ai)
-- 09/26 Terminator was on [Cohere Labs podcast](https://www.youtube.com/watch?v=cfQxlk8KNmY), also [check the slides](https://092025-cohere.mediar.ai/)
-- 08/25 Big release — NodeJS SDK in YAML workflows, run JS in browser, OS event recording → YAML generation in MCP, and more
-- 08/25 [we raised $2.8m to give AI hands to every desktop](https://x.com/louis030195/status/1948745185178914929) ⚠
-
-## 🧠 Why Terminator
-
-### For Developers
-
-- Create automations that work across any desktop app or browser
-- Runs 100x faster than ChatGPT Agents, Claude, Perplexity Comet, BrowserBase, BrowserUse (deterministic, CPU speed, with AI recovery)
-- \>95% success rate unlike most computer use overhyped products
-- MIT-licensed — fork it, ship it, no lock-in
-
-We achieve this by pre-training workflows as deterministic code, and calling AI only when recovery is needed.
-
-### For Teams
-
-[Our public beta workflow builder](https://www.mediar.ai) + managed hosting:
-
-- Record, map your processes, and implement the workflow without technical skills
-- Deploy AI to execute them at >95% success rate without managing hundreds of Windows VMs
-- Kill repetitive work without legacy RPA complexity, implementation and maintenance cost
-
 ### Platform Support
 
 | Platform | CLI | MCP Agent | Automation | Installation Method |
@@ -102,19 +76,31 @@ See the [MCP Agent README](https://github.com/mediar-ai/terminator/tree/main/ter
 - Check logs on Vercel to find most common errors
 - Test my app new features based on recent commits
 
-## 📥 Installation for technical users
+## 🚀 What's new
 
-### Terminator CLI
+- 10/30 Public alpha is live - [n8n for legacy software](https://www.mediar.ai)
+- 09/26 Terminator was on [Cohere Labs podcast](https://www.youtube.com/watch?v=cfQxlk8KNmY), also [check the slides](https://092025-cohere.mediar.ai/)
+- 08/25 Big release — NodeJS SDK in YAML workflows, run JS in browser, OS event recording → YAML generation in MCP, and more
+- 08/25 [we raised $2.8m to give AI hands to every desktop](https://x.com/louis030195/status/1948745185178914929)
 
-**Windows (Recommended):**
-```bash
-# Run directly without installation
-npx @mediar-ai/cli --help
-bunx @mediar-ai/cli --help
+## 🧠 Why Terminator
 
-# Or install globally
-npm install -g @mediar-ai/cli
-```
+### For Developers
+
+- Create automations that work across any desktop app or browser
+- Runs 100x faster than ChatGPT Agents, Claude, Perplexity Comet, BrowserBase, BrowserUse (deterministic, CPU speed, with AI recovery)
+- >95% success rate unlike most computer use overhyped products
+- MIT-licensed — fork it, ship it, no lock-in
+
+We achieve this by pre-training workflows as deterministic code, and calling AI only when recovery is needed.
+
+### For Teams
+
+[Our public beta workflow builder](https://www.mediar.ai) + managed hosting:
+
+- Record, map your processes, and implement the workflow without technical skills
+- Deploy AI to execute them at >95% success rate without managing hundreds of Windows VMs
+- Kill repetitive work without legacy RPA complexity, implementation and maintenance cost
 
 ## Feature Support
 
@@ -158,28 +144,6 @@ To create reliable selectors (e.g. `name:Seven`, `role:Button`, `window:Calculat
 - **Usage:** Open the app you want to inspect → launch Accessibility Insights → hover or use keyboard navigation to explore the UI tree (Name, Role, ControlType, AutomationId).
 
 > These tools show you the `Name`, `Role`, `ControlType`, and other metadata used in Terminator selectors.
-
----
-
-### 🍎 macOS
-
-- **Tool:** [Accessibility Inspector](https://developer.apple.com/documentation/xcode/accessibility_inspector)
-- **Usage:** Comes with Xcode → Open `Xcode > Open Developer Tool > Accessibility Inspector` → Use the target icon to explore UI elements on screen.
-
----
-
-### 🐧 Linux
-
-- **Tool:** [Accerciser](https://wiki.gnome.org/Apps/Accerciser)
-- **Install:**
-
-  ```bash
-  sudo apt install accerciser
-  ```
-
-- **Usage:** Launch Accerciser → Select the window/app → Browse the accessible widget tree.
-
----
 
 ## Troubleshooting
 
