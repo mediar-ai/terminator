@@ -118,41 +118,35 @@ impl InitCommand {
     }
 
     fn create_main_workflow(&self, project_path: &Path) -> Result<()> {
-        let workflow = format!(
-            r#"import {{ createWorkflow, z }} from "@mediar-ai/workflow";
-import {{ exampleStep }} from "./steps/01-example-step";
+        let workflow = r#"import { createWorkflow, z } from "@mediar-ai/workflow";
+import { exampleStep } from "./steps/01-example-step";
 
-export default createWorkflow({{
-  name: "{}",
-  description: "Describe what this workflow does",
-  version: "1.0.0",
-  input: z.object({{
+export default createWorkflow({
+  // use package.json to set name, description, and version
+  input: z.object({
     // Add your input variables here
     // message: z.string().default("Hello"),
-  }}).optional(),
-  trigger: {{
+  }).optional(),
+  trigger: {
     type: 'cron',
     schedule: '*/5 * * * *', // Every 5 minutes
     enabled: false, // Set to true to enable scheduling
-  }},
+  },
   steps: [
     exampleStep,
     // Add more steps here
   ],
-  onSuccess: async ({{ context }}) => {{
+  onSuccess: async ({ context }) => {
     // Set context.data to return results to MCP/CLI
-    context.data = {{
-      success: true,
-      ...context.state,
-    }};
-  }},
-  onError: async ({{ error }}) => {{
+    context.data = {
+      hello: "World"
+    };
+  },
+  onError: async ({ error }) => {
     console.error("Workflow failed:", error.message);
-  }},
-}});
-"#,
-            self.name
-        );
+  },
+});
+"#;
 
         fs::write(project_path.join("src/terminator.ts"), workflow)
             .context("Failed to create src/terminator.ts")?;
