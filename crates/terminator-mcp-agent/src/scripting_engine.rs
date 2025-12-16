@@ -2808,7 +2808,7 @@ pub async fn execute_javascript_with_local_bindings(
              const {{ desktop, emit, createStepEmitter, log, sleep }} = global;
              {script}
          }})();
-         
+
          // Send result back (normalize undefined to null)
          const resultToSend = result === undefined ? null : result;
          process.stdout.write('__RESULT__' + JSON.stringify(resultToSend) + '__END__\n');

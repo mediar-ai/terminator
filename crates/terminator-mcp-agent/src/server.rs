@@ -7386,26 +7386,25 @@ DATA PASSING:
     #[tool(
         description = "IMPORTANT: Always use grep_files/read_file with working_directory set to terminator-source to search patterns and examples before writing scripts. Verify syntax from source.
 
-Examples: examples/browser_dom_extraction.yml | Full patterns: examples/comprehensive_ui_test.yml
+Execute JavaScript/TypeScript in browser via Chrome extension. Full DOM access for extraction and manipulation.
 
-Execute JavaScript in browser via Chrome extension. Full DOM access for extraction and manipulation.
+TYPESCRIPT SUPPORT:
+- Use modern TS syntax: (() => { ... })() or (async () => { ... })()
+- Type annotations auto-detected and transpiled to JS before execution
+- Type errors caught BEFORE execution with precise line/column info
 
-Parameters: script | script_file | env | outputs
-
-Alternative: In run_command with engine: javascript, use desktop.executeBrowserScript(script)
+SDK: desktop.executeBrowserScript() requires plain JS (no TS transpilation)
 
 CRITICAL RULES:
-- MUST JSON.stringify() return values for objects/arrays
-- Use typeof checks for injected vars: const x = (typeof my_var !== 'undefined') ? my_var : {}
-- Return descriptive data: return JSON.stringify({ login_required: true, form_count: 3 })
+- Return descriptive data: return { loginRequired: true, formCount: 3 }
 - DON'T return null/undefined - causes step failure
 - Returning { success: false } intentionally fails the step
 - Max 30KB response - truncate large data
 
 NAVIGATION WARNING:
 Scripts triggering navigation (click links, form submit) can be killed before return executes.
-X button.click(); return JSON.stringify({done:true})  // Never executes
-OK return JSON.stringify({ready_to_navigate:true})     // Let next step navigate
+X button.click(); return {done:true}  // Never executes
+OK return {ready_to_navigate:true}     // Let next step navigate
 
 Requires Chrome extension installed."
     )]
@@ -7614,6 +7613,31 @@ Requires Chrome extension installed."
                 "Either 'script' or 'script_file' must be provided",
                 None,
             ));
+        };
+
+        // Transpile TypeScript to JavaScript if needed (before env injection)
+        // This provides immediate feedback on type errors before execution
+        let script_content = match crate::transpiler::transpile(
+            &script_content,
+            crate::transpiler::TranspileTarget::Browser,
+        )
+        .await
+        {
+            Ok(result) => {
+                if result.was_typescript {
+                    tracing::info!(
+                        "[execute_browser_script] Transpiled TypeScript to JavaScript ({} -> {} bytes)",
+                        script_content.len(),
+                        result.code.len()
+                    );
+                }
+                result.code
+            }
+            Err(e) => {
+                // Restore windows before returning transpilation error with fallback suggestion
+                self.restore_window_management(should_restore).await;
+                return Err(e.into_mcp_error());
+            }
         };
 
         // Build the final script with env prepended if provided
@@ -8443,7 +8467,7 @@ console.info = function(...args) {
     }
 
     #[tool(
-        description = "Copy content from a source file and insert/replace it in a target file. Supports extracting by line numbers, patterns, or entire file. Target insertion supports replace, before/after pattern, at line number, append, or prepend."
+        description = "Copy content from a source file and insert/replace it in a target file. Supports extracting by line numbers, patterns, or entire file. Target insertion supports replace, before/after pattern, at line number, append, or prepend. Never use with same source and target path (corrupts file)"
     )]
     pub async fn copy_content(
         &self,
