@@ -297,12 +297,10 @@ pub trait AccessibilityEngine: Send + Sync {
     fn as_any(&self) -> &dyn std::any::Any;
 }
 
-#[cfg(target_os = "linux")]
-pub mod linux;
-#[cfg(target_os = "macos")]
-pub mod macos;
-#[cfg(target_os = "macos")]
-pub mod tree_search;
+// Terminator only supports Windows. Attempting to compile on other platforms will fail.
+#[cfg(not(target_os = "windows"))]
+compile_error!("Terminator only supports Windows. Linux and macOS are not supported.");
+
 #[cfg(target_os = "windows")]
 pub mod windows;
 #[cfg(all(target_os = "windows", test))]
@@ -317,13 +315,6 @@ pub fn create_engine(
     use_background_apps: bool,
     activate_app: bool,
 ) -> Result<Arc<dyn AccessibilityEngine>, AutomationError> {
-    #[cfg(target_os = "macos")]
-    {
-        Ok(Arc::new(macos::MacOSEngine::new(
-            use_background_apps,
-            activate_app,
-        )?))
-    }
     #[cfg(target_os = "windows")]
     {
         Ok(Arc::new(windows::WindowsEngine::new(
@@ -331,17 +322,10 @@ pub fn create_engine(
             activate_app,
         )?))
     }
-    #[cfg(target_os = "linux")]
-    {
-        Ok(Arc::new(linux::LinuxEngine::new(
-            use_background_apps,
-            activate_app,
-        )?))
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    #[cfg(not(target_os = "windows"))]
     {
         Err(AutomationError::UnsupportedPlatform(
-            "Current platform is not supported".to_string(),
+            "Terminator only supports Windows".to_string(),
         ))
     }
 }
