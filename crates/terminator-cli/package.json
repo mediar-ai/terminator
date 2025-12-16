@@ -3,7 +3,7 @@
     "terminator": "index.js",
     "terminator-cli": "index.js"
   },
-  "description": "Cross-platform CLI tool for managing the Terminator project",
+  "description": "Windows CLI tool for managing the Terminator project",
   "engines": {
     "node": ">= 10"
   },
@@ -12,9 +12,6 @@
   ],
   "name": "@mediar-ai/cli",
   "optionalDependencies": {
-    "@mediar-ai/cli-darwin-arm64": "0.23.49",
-    "@mediar-ai/cli-darwin-x64": "0.23.49",
-    "@mediar-ai/cli-linux-x64-gnu": "0.23.49",
     "@mediar-ai/cli-win32-arm64-msvc": "0.23.49",
     "@mediar-ai/cli-win32-x64-msvc": "0.23.49"
   },
