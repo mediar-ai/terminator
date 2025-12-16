@@ -25,9 +25,7 @@
     "gui",
     "ui",
     "testing",
-    "windows",
-    "macos",
-    "linux"
+    "windows"
   ],
   "main": "wrapper.js",
   "name": "@mediar-ai/terminator",
@@ -35,15 +33,11 @@
     "name": "terminator",
     "triples": {
       "additional": [
-        "aarch64-apple-darwin",
         "aarch64-pc-windows-msvc"
       ]
     }
   },
   "optionalDependencies": {
-    "@mediar-ai/terminator-darwin-arm64": "0.23.49",
-    "@mediar-ai/terminator-darwin-x64": "0.23.49",
-    "@mediar-ai/terminator-linux-x64-gnu": "0.23.49",
     "@mediar-ai/terminator-win32-arm64-msvc": "0.23.49",
     "@mediar-ai/terminator-win32-x64-msvc": "0.23.49"
   },
