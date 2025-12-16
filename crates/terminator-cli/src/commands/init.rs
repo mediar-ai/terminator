@@ -127,9 +127,9 @@ export default createWorkflow({
     exampleStep,
     // Add more steps here
   ],
-  onError: async ({ error, logger }: { error: Error; logger: any }) => {
-    logger.error("Workflow failed");
-    logger.error(`Error: ${error.message}`);
+  onError: async ({ error }) => {
+    console.error("Workflow failed");
+    console.error(`Error: ${error.message}`);
   },
 });
 "#;
@@ -145,8 +145,8 @@ export default createWorkflow({
 export const exampleStep = createStep({
   id: "example_step",
   name: "Example Step",
-  execute: async ({ logger }) => {
-    logger.info("Starting example step...");
+  execute: async ({ desktop }) => {
+    console.log("Starting example step...");
 
     // Example: Open an application
     // const app = desktop.openApplication("notepad");
@@ -159,7 +159,7 @@ export const exampleStep = createStep({
     // Example: Type text
     // await desktop.type("Hello World!");
 
-    logger.info("Example step completed!");
+    console.log("Example step completed!");
 
     return {
       state: {

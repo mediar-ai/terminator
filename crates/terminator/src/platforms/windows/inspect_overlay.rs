@@ -16,25 +16,8 @@ use windows::Win32::Graphics::Gdi::{
     PS_SOLID, TRANSPARENT,
 };
 
-/// Display mode for overlay labels
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum OverlayDisplayMode {
-    /// Just rectangles, no labels
-    Rectangles,
-    /// [index] only
-    #[default]
-    Index,
-    /// [role] only
-    Role,
-    /// [index:role]
-    IndexRole,
-    /// [name] only
-    Name,
-    /// [index:name]
-    IndexName,
-    /// [index:role:name]
-    Full,
-}
+// Re-export OverlayDisplayMode from platforms module
+pub use crate::platforms::OverlayDisplayMode;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, LoadCursorW, RegisterClassExW,
@@ -76,8 +59,9 @@ impl InspectOverlayHandle {
 
 impl Drop for InspectOverlayHandle {
     fn drop(&mut self) {
-        // Signal close but don't wait
-        self.should_close.store(true, Ordering::Relaxed);
+        // Don't auto-close on drop - use hide_inspect_overlay() or .close() explicitly
+        // This allows the overlay to persist even when the handle is discarded
+        // (e.g., in language bindings that don't hold the handle)
     }
 }
 
@@ -93,6 +77,15 @@ static WINDOW_OFFSET: std::sync::OnceLock<std::sync::Mutex<(i32, i32)>> =
     std::sync::OnceLock::new();
 static DISPLAY_MODE: std::sync::OnceLock<std::sync::Mutex<OverlayDisplayMode>> =
     std::sync::OnceLock::new();
+
+// Global storage for the active overlay's should_close flag (allows hiding from any thread)
+static INSPECT_OVERLAY_SHOULD_CLOSE: std::sync::OnceLock<
+    std::sync::Mutex<Option<Arc<AtomicBool>>>,
+> = std::sync::OnceLock::new();
+
+fn get_should_close_storage() -> &'static std::sync::Mutex<Option<Arc<AtomicBool>>> {
+    INSPECT_OVERLAY_SHOULD_CLOSE.get_or_init(|| std::sync::Mutex::new(None))
+}
 
 fn get_elements_storage() -> &'static std::sync::Mutex<Vec<InspectElement>> {
     INSPECT_ELEMENTS.get_or_init(|| std::sync::Mutex::new(Vec::new()))
@@ -144,8 +137,16 @@ pub fn show_inspect_overlay(
         *offset = (win_x, win_y);
     }
 
+    // Hide any existing overlay first
+    hide_inspect_overlay();
+
     let should_close = Arc::new(AtomicBool::new(false));
     let should_close_clone = should_close.clone();
+
+    // Store the should_close flag globally so hide_inspect_overlay can signal it from any thread
+    if let Ok(mut global_close) = get_should_close_storage().lock() {
+        *global_close = Some(should_close.clone());
+    }
 
     let handle = thread::spawn(move || {
         if let Err(e) =
@@ -161,9 +162,15 @@ pub fn show_inspect_overlay(
     })
 }
 
-/// Hide any active inspect overlay (called from same thread)
+/// Hide any active inspect overlay (can be called from any thread)
 pub fn hide_inspect_overlay() {
-    cleanup_overlay_window();
+    // Signal the overlay thread to close via the global should_close flag
+    if let Ok(mut global_close) = get_should_close_storage().lock() {
+        if let Some(should_close) = global_close.take() {
+            should_close.store(true, Ordering::Relaxed);
+            debug!("Signaled inspect overlay to close");
+        }
+    }
 }
 
 /// Cleans up the overlay window stored in thread-local storage

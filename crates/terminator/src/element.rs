@@ -450,6 +450,20 @@ pub trait UIElementImpl: Send + Sync + Debug {
     fn click(&self) -> Result<ClickResult, AutomationError>;
     fn double_click(&self) -> Result<ClickResult, AutomationError>;
     fn right_click(&self) -> Result<(), AutomationError>;
+    /// Click at a specific position within the element bounds
+    /// x_pct and y_pct are percentages (0-100) from top-left corner
+    fn click_at_position(
+        &self,
+        x_pct: u8,
+        y_pct: u8,
+        click_type: crate::ClickType,
+    ) -> Result<ClickResult, AutomationError> {
+        // Default: not supported, platforms should override
+        let _ = (x_pct, y_pct, click_type);
+        Err(AutomationError::UnsupportedOperation(
+            "click_at_position not implemented for this platform".into(),
+        ))
+    }
     fn hover(&self) -> Result<(), AutomationError>;
     fn focus(&self) -> Result<(), AutomationError>;
     fn invoke(&self) -> Result<(), AutomationError>;
@@ -459,12 +473,14 @@ pub trait UIElementImpl: Send + Sync + Debug {
         use_clipboard: bool,
         try_focus_before: bool,
         try_click_before: bool,
+        restore_focus: bool,
     ) -> Result<(), AutomationError>;
     fn press_key(
         &self,
         key: &str,
         try_focus_before: bool,
         try_click_before: bool,
+        restore_focus: bool,
     ) -> Result<(), AutomationError>;
 
     fn type_text_with_state(
@@ -475,13 +491,50 @@ pub trait UIElementImpl: Send + Sync + Debug {
         try_click_before: bool,
     ) -> Result<crate::ActionResult, AutomationError> {
         // Default implementation - platforms can override for state tracking
-        self.type_text(text, use_clipboard, try_focus_before, try_click_before)?;
+        self.type_text(
+            text,
+            use_clipboard,
+            try_focus_before,
+            try_click_before,
+            false,
+        )?;
+
+        // Auto-verify by reading the value back
+        let verification = match self.get_value() {
+            Ok(Some(actual)) => {
+                let passed = actual.contains(text);
+                Some(crate::TypeVerification {
+                    passed,
+                    expected: text.to_string(),
+                    actual: Some(actual),
+                    error: if passed {
+                        None
+                    } else {
+                        Some("Value does not contain expected text".to_string())
+                    },
+                })
+            }
+            Ok(None) => Some(crate::TypeVerification {
+                passed: true, // Can't verify, assume success
+                expected: text.to_string(),
+                actual: None,
+                error: None,
+            }),
+            Err(e) => Some(crate::TypeVerification {
+                passed: true, // Can't verify, assume success
+                expected: text.to_string(),
+                actual: None,
+                error: Some(format!("Could not read value: {}", e)),
+            }),
+        };
+
         Ok(crate::ActionResult {
             action: "type_text".to_string(),
             details: "No state tracking available".to_string(),
             data: Some(
                 serde_json::json!({"text": text, "use_clipboard": use_clipboard, "try_focus_before": try_focus_before, "try_click_before": try_click_before}),
             ),
+            verification,
         })
     }
 
@@ -493,6 +546,7 @@ pub trait UIElementImpl: Send + Sync + Debug {
             action: "invoke".to_string(),
             details: "No state tracking available".to_string(),
             data: None,
+            verification: None,
         })
     }
 
@@ -503,17 +557,21 @@ pub trait UIElementImpl: Send + Sync + Debug {
         try_click_before: bool,
     ) -> Result<crate::ActionResult, AutomationError> {
         // Default implementation - platforms can override for state tracking
-        self.press_key(key, try_focus_before, try_click_before)?;
+        self.press_key(key, try_focus_before, try_click_before, false)?;
         Ok(crate::ActionResult {
             action: "press_key".to_string(),
             details: "No state tracking available".to_string(),
             data: Some(
                 serde_json::json!({"key": key, "try_focus_before": try_focus_before, "try_click_before": try_click_before}),
             ),
+            verification: None,
         })
     }
     fn get_text(&self, max_depth: usize) -> Result<String, AutomationError>;
     fn set_value(&self, value: &str) -> Result<(), AutomationError>;
+    /// Get the current value of this element using the platform's Value pattern.
+    /// Returns None if the element doesn't support the Value pattern.
+    fn get_value(&self) -> Result<Option<String>, AutomationError>;
     fn is_enabled(&self) -> Result<bool, AutomationError>;
     fn is_visible(&self) -> Result<bool, AutomationError>;
     fn is_focused(&self) -> Result<bool, AutomationError>;
@@ -533,6 +591,7 @@ pub trait UIElementImpl: Send + Sync + Debug {
             action: "scroll".to_string(),
             details: "No state tracking available".to_string(),
             data: Some(serde_json::json!({"direction": direction, "amount": amount})),
+            verification: None,
         })
     }
 
@@ -619,6 +678,7 @@ pub trait UIElementImpl: Send + Sync + Debug {
             action: "select_option".to_string(),
             details: "No state tracking available".to_string(),
             data: Some(serde_json::json!({"option_selected": option_name})),
+            verification: None,
         })
     }
     fn is_toggled(&self) -> Result<bool, AutomationError>;
@@ -631,6 +691,7 @@ pub trait UIElementImpl: Send + Sync + Debug {
             action: "set_toggled".to_string(),
             details: "No state tracking available".to_string(),
             data: Some(serde_json::json!({"state": state})),
+            verification: None,
         })
     }
     fn get_range_value(&self) -> Result<f64, AutomationError>;
@@ -645,6 +706,7 @@ pub trait UIElementImpl: Send + Sync + Debug {
             action: "set_selected".to_string(),
             details: "No state tracking available".to_string(),
             data: Some(serde_json::json!({"state": state})),
+            verification: None,
         })
     }
 
@@ -892,6 +954,18 @@ impl UIElement {
         self.inner.right_click()
     }
 
+    /// Click at a specific position within the element bounds
+    /// x_pct and y_pct are percentages (0-100) from top-left corner
+    #[instrument(level = "debug", skip(self))]
+    pub fn click_at_position(
+        &self,
+        x_pct: u8,
+        y_pct: u8,
+        click_type: crate::ClickType,
+    ) -> Result<ClickResult, AutomationError> {
+        self.inner.click_at_position(x_pct, y_pct, click_type)
+    }
+
     /// Hover over this element
     pub fn hover(&self) -> Result<(), AutomationError> {
         self.inner.hover()
@@ -916,8 +990,8 @@ impl UIElement {
 
     /// Type text into this element
     pub fn type_text(&self, text: &str, use_clipboard: bool) -> Result<(), AutomationError> {
-        // Default: try both focus and click
-        self.inner.type_text(text, use_clipboard, true, true)
+        // Default: try both focus and click, no focus restore
+        self.inner.type_text(text, use_clipboard, true, true, false)
     }
 
     /// Type text with state tracking
@@ -941,14 +1015,75 @@ impl UIElement {
         try_focus_before: bool,
         try_click_before: bool,
     ) -> Result<crate::ActionResult, AutomationError> {
-        self.inner
-            .type_text_with_state(text, use_clipboard, try_focus_before, try_click_before)
+        self.type_text_with_state_and_focus_restore(
+            text,
+            use_clipboard,
+            try_focus_before,
+            try_click_before,
+            false,
+        )
+    }
+
+    /// Type text with state tracking, custom focus/click behavior, and optional focus restoration
+    #[instrument(level = "debug", skip(self))]
+    pub fn type_text_with_state_and_focus_restore(
+        &self,
+        text: &str,
+        use_clipboard: bool,
+        try_focus_before: bool,
+        try_click_before: bool,
+        restore_focus: bool,
+    ) -> Result<crate::ActionResult, AutomationError> {
+        // Call the underlying type_text with restore_focus
+        self.inner.type_text(
+            text,
+            use_clipboard,
+            try_focus_before,
+            try_click_before,
+            restore_focus,
+        )?;
+
+        // Auto-verify by reading the value back
+        let verification = match self.inner.get_value() {
+            Ok(Some(actual)) => {
+                let passed = actual.contains(text);
+                Some(crate::TypeVerification {
+                    passed,
+                    expected: text.to_string(),
+                    actual: Some(actual),
+                    error: if passed {
+                        None
+                    } else {
+                        Some("Value does not contain expected text".to_string())
+                    },
+                })
+            }
+            Ok(None) => None,
+            Err(_) => None,
+        };
+
+        Ok(crate::ActionResult {
+            action: "type_text".to_string(),
+            details: format!(
+                "Typed {} chars with restore_focus={}",
+                text.len(),
+                restore_focus
+            ),
+            data: Some(serde_json::json!({
+                "text": text,
+                "use_clipboard": use_clipboard,
+                "try_focus_before": try_focus_before,
+                "try_click_before": try_click_before,
+                "restore_focus": restore_focus,
+            })),
+            verification,
+        })
     }
 
     /// Press a key while this element is focused
     pub fn press_key(&self, key: &str) -> Result<(), AutomationError> {
-        // Default: try both focus and click
-        self.inner.press_key(key, true, true)
+        // Default: try both focus and click, no focus restore
+        self.inner.press_key(key, true, true, false)
     }
 
     /// Press a key with state tracking
@@ -976,8 +1111,9 @@ impl UIElement {
     }
 
     /// Get the value attribute of this element (text inputs, combo boxes, etc.)
+    /// This fetches the actual value using the platform's Value pattern, not the cached attributes.
     pub fn get_value(&self) -> Result<Option<String>, AutomationError> {
-        Ok(self.inner.attributes().value)
+        self.inner.get_value()
     }
 
     /// Set value of this element
@@ -1146,6 +1282,164 @@ impl UIElement {
     ) -> Result<crate::HighlightHandle, AutomationError> {
         // For non-Windows platforms, ignore text parameters and create dummy handle
         self.inner.highlight(color, duration, None, None, None)
+    }
+
+    /// Ensures element is visible and highlights it before performing an action.
+    ///
+    /// This is a convenience method that combines scrolling the element into view
+    /// and applying a visual highlight. Useful for debugging and visual feedback
+    /// during automation.
+    ///
+    /// # Arguments
+    /// * `action_name` - Name of the action about to be performed (e.g., "click", "type").
+    ///   Used for logging and as fallback text if role is unavailable.
+    ///
+    /// # Behavior
+    /// 1. Attempts to focus the element (many apps auto-scroll focused elements into view)
+    /// 2. Calls `scroll_into_view()` if element is still not visible
+    /// 3. Applies a green highlight (500ms) with the element's role as text overlay
+    ///
+    /// # Returns
+    /// * `Ok(Option<HighlightHandle>)` - Handle to control the highlight, or None if highlight failed
+    /// * Scrolling failures are logged but don't cause errors (best-effort)
+    #[cfg(target_os = "windows")]
+    pub fn highlight_before_action(
+        &self,
+        action_name: &str,
+    ) -> Result<Option<crate::HighlightHandle>, AutomationError> {
+        use tracing::{info, warn};
+
+        let start = std::time::Instant::now();
+
+        // Step 1: Ensure element is visible (focus + scroll)
+        let _ = self.ensure_in_view();
+
+        // Step 2: Apply highlight with hardcoded settings
+        let duration = Some(std::time::Duration::from_millis(500));
+        let color = Some(0x00FF00); // Green in BGR
+        let role_text = self.role();
+        let text = Some(role_text.as_str());
+        let text_position = Some(crate::TextPosition::Top);
+        let font_style = Some(crate::FontStyle {
+            size: 12,
+            bold: true,
+            color: 0xFFFFFF, // White text
+        });
+
+        info!(
+            "HIGHLIGHT_BEFORE_{} duration={:?} role={}",
+            action_name.to_uppercase(),
+            duration,
+            role_text
+        );
+
+        let handle = match self.highlight(color, duration, text, text_position, font_style) {
+            Ok(h) => Some(h),
+            Err(e) => {
+                warn!(
+                    "Failed to apply highlighting before {} action: {}",
+                    action_name, e
+                );
+                None
+            }
+        };
+
+        info!(
+            "[PERF] highlight_before_action: {}ms",
+            start.elapsed().as_millis()
+        );
+
+        Ok(handle)
+    }
+
+    /// Ensures element is visible and highlights it before performing an action (non-Windows).
+    ///
+    /// Simplified version for non-Windows platforms without text overlay support.
+    #[cfg(not(target_os = "windows"))]
+    pub fn highlight_before_action(
+        &self,
+        action_name: &str,
+    ) -> Result<Option<crate::HighlightHandle>, AutomationError> {
+        use tracing::{info, warn};
+
+        let start = std::time::Instant::now();
+
+        // Step 1: Ensure element is visible (focus + scroll)
+        let _ = self.ensure_in_view();
+
+        // Step 2: Apply highlight (simplified for non-Windows)
+        let duration = Some(std::time::Duration::from_millis(500));
+        let color = Some(0x00FF00); // Green
+
+        info!(
+            "HIGHLIGHT_BEFORE_{} duration={:?}",
+            action_name.to_uppercase(),
+            duration
+        );
+
+        let handle = match self.highlight(color, duration, None, None, None) {
+            Ok(h) => Some(h),
+            Err(e) => {
+                warn!(
+                    "Failed to apply highlighting before {} action: {}",
+                    action_name, e
+                );
+                None
+            }
+        };
+
+        info!(
+            "[PERF] highlight_before_action: {}ms",
+            start.elapsed().as_millis()
+        );
+
+        Ok(handle)
+    }
+
+    /// Ensures element is visible by focusing and scrolling it into view.
+    ///
+    /// This is useful before performing actions on elements that may be off-screen.
+    /// Unlike `scroll_into_view()`, this method tries `focus()` first which often
+    /// triggers the application to auto-scroll the element into view.
+    ///
+    /// # Strategy
+    /// 1. Attempts to focus the element (many apps auto-scroll focused elements)
+    /// 2. Calls `scroll_into_view()` to ensure visibility
+    ///
+    /// # Returns
+    /// * `Ok(())` - Element should now be visible
+    /// * Errors from scrolling are logged but don't cause failure (best-effort)
+    pub fn ensure_in_view(&self) -> Result<(), AutomationError> {
+        use tracing::{debug, info, warn};
+
+        let start = std::time::Instant::now();
+
+        // Step 1: Try focus first - many apps auto-scroll on focus
+        match self.focus() {
+            Ok(()) => {
+                debug!("Focus succeeded, app may have auto-scrolled element into view");
+                // Give the app a moment to process the focus
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(e) => {
+                debug!("Focus failed (non-fatal): {}", e);
+            }
+        }
+
+        // Step 2: Ensure element is scrolled into view
+        let scroll_start = std::time::Instant::now();
+        if let Err(e) = self.scroll_into_view() {
+            warn!("scroll_into_view failed (non-fatal): {}", e);
+            // Continue anyway - scrolling is best-effort
+        }
+        info!(
+            "[PERF] scroll_into_view: {}ms",
+            scroll_start.elapsed().as_millis()
+        );
+
+        info!("[PERF] ensure_in_view: {}ms", start.elapsed().as_millis());
+
+        Ok(())
     }
 
     /// Capture a screenshot of the element

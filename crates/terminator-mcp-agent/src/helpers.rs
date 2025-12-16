@@ -424,9 +424,6 @@ pub async fn maybe_attach_tree(
     found_element: Option<&terminator::UIElement>,
     include_all_bounds: bool,
 ) -> Option<UiaBoundsCache> {
-    use std::time::Duration;
-    use terminator::Selector;
-
     // Check if tree should be included
     if !include_tree_after_action {
         return None;
@@ -435,7 +432,7 @@ pub async fn maybe_attach_tree(
     // Add delay for UI to stabilize (same as ui_diff_before_after mode)
     // This ensures we capture the tree after animations/transitions complete
     tracing::info!("[PERF] ui_settle_delay (maybe_attach_tree): 1500ms");
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
 
     // Only proceed if we have a PID
     let pid = match pid_opt {
@@ -443,8 +440,48 @@ pub async fn maybe_attach_tree(
         None => return None,
     };
 
-    // Build tree config with max_depth and other options
+    // Determine output format (default to CompactYaml)
+    let format = tree_output_format.unwrap_or(TreeOutputFormat::CompactYaml);
+
+    // Track the bounds cache to return
+    let mut bounds_cache: Option<UiaBoundsCache> = None;
+
+    // Helper function to format SerializableUIElement based on output format
+    // Returns (json_value, Option<bounds_cache>)
+    let format_serializable_tree = |tree: terminator::element::SerializableUIElement| -> (Result<Value, String>, Option<UiaBoundsCache>) {
+        match format {
+            TreeOutputFormat::CompactYaml | TreeOutputFormat::ClusteredYaml => {
+                let result = format_tree_as_compact_yaml(&tree, 0);
+                (Ok(json!(result.formatted)), Some(result.index_to_bounds))
+            }
+            TreeOutputFormat::VerboseJson => (serde_json::to_value(tree).map_err(|e| e.to_string()), None),
+        }
+    };
+
+    // Backward compatibility: from_selector="true" uses the found_element
+    if let Some(from_selector_value) = tree_from_selector {
+        if from_selector_value == "true" {
+            if let Some(element) = found_element {
+                let max_depth = tree_max_depth.unwrap_or(100);
+                let subtree = element.to_serializable_tree(max_depth);
+                let (tree_result, cache) = format_serializable_tree(subtree);
+                if let Ok(tree_val) = tree_result {
+                    if let Some(obj) = result_json.as_object_mut() {
+                        obj.insert("ui_tree".to_string(), tree_val);
+                        obj.insert("tree_type".to_string(), json!("subtree"));
+                    }
+                    bounds_cache = cache;
+                }
+                return bounds_cache;
+            }
+        }
+    }
+
+    // Build tree config with from_selector if provided (non-"true" value)
     let detailed = include_detailed_attributes.unwrap_or(true);
+    let from_selector_opt = tree_from_selector
+        .filter(|s| *s != "true")
+        .map(|s| s.to_string());
 
     let tree_config = terminator::platforms::TreeBuildConfig {
         property_mode: if detailed {
@@ -457,119 +494,70 @@ pub async fn maybe_attach_tree(
         batch_size: Some(25),
         max_depth: tree_max_depth,
         include_all_bounds,
+        ui_settle_delay_ms: None,
+        format_output: true, // Let SDK handle formatting
+        show_overlay: false,
+        overlay_display_mode: None,
+        from_selector: from_selector_opt.clone(),
     };
 
-    // Determine output format (default to CompactYaml)
-    let format = tree_output_format.unwrap_or(TreeOutputFormat::CompactYaml);
-
-    // Track the bounds cache to return
-    let mut bounds_cache: Option<UiaBoundsCache> = None;
-
-    // Helper function to format tree based on output format
-    // Returns (json_value, Option<bounds_cache>)
-    let format_tree = |tree: terminator::element::SerializableUIElement| -> (Result<Value, String>, Option<UiaBoundsCache>) {
-        match format {
-            TreeOutputFormat::CompactYaml | TreeOutputFormat::ClusteredYaml => {
-                // For ClusteredYaml, we still output individual trees in CompactYaml format
-                // The clustering happens later after all trees are collected
-                let result = format_tree_as_compact_yaml(&tree, 0);
-                (Ok(json!(result.formatted)), Some(result.index_to_bounds))
-            }
-            TreeOutputFormat::VerboseJson => (serde_json::to_value(tree).map_err(|e| e.to_string()), None),
-        }
-    };
-
-    // Handle from_selector logic
-    if let Some(from_selector_value) = tree_from_selector {
-        if from_selector_value == "true" {
-            // Backward compatibility: use the found_element if available
-            if let Some(element) = found_element {
-                let max_depth = tree_max_depth.unwrap_or(100);
-                let subtree = element.to_serializable_tree(max_depth);
-                let (tree_result, cache) = format_tree(subtree);
-                if let Ok(tree_val) = tree_result {
-                    if let Some(obj) = result_json.as_object_mut() {
-                        obj.insert("ui_tree".to_string(), tree_val);
-                        obj.insert("tree_type".to_string(), json!("subtree"));
-                    }
-                    bounds_cache = cache;
-                }
-                return bounds_cache;
-            }
-        } else {
-            // New behavior: treat from_selector as an actual selector string
-            let selector = Selector::from(from_selector_value);
-            let locator = desktop.locator(selector);
-
-            match locator.first(Some(Duration::from_millis(1000))).await {
-                Ok(from_element) => {
-                    // Build tree from this different element
-                    let max_depth = tree_max_depth.unwrap_or(100);
-                    let subtree = from_element.to_serializable_tree(max_depth);
-                    let (tree_result, cache) = format_tree(subtree);
-                    if let Ok(tree_val) = tree_result {
-                        if let Some(obj) = result_json.as_object_mut() {
-                            obj.insert("ui_tree".to_string(), tree_val);
-                            obj.insert("tree_type".to_string(), json!("subtree"));
-                            obj.insert(
-                                "from_selector_used".to_string(),
-                                json!(from_selector_value),
-                            );
-                        }
-                        bounds_cache = cache;
-                    }
-                    return bounds_cache;
-                }
-                Err(e) => {
-                    // Log warning and return with error info
-                    tracing::warn!("from_selector '{}' not found: {}", from_selector_value, e);
-                    // Add error information to result
-                    if let Some(obj) = result_json.as_object_mut() {
-                        obj.insert(
-                            "tree_error".to_string(),
-                            json!(format!(
-                                "from_selector '{}' not found: {}",
-                                from_selector_value, e
-                            )),
-                        );
-                        obj.insert("tree_type".to_string(), json!("none"));
-                    }
-                    return None;
-                }
-            }
-        }
-    }
-
-    // Default: get the full window tree
+    // Use SDK's async method which handles from_selector internally
     let tree_capture_start = std::time::Instant::now();
-    if let Ok(tree) = desktop.get_window_tree(pid, None, Some(tree_config)) {
-        tracing::info!(
-            "[PERF] maybe_attach_tree (get_window_tree): {}ms",
-            tree_capture_start.elapsed().as_millis()
-        );
-        // Format UINode based on output format
-        let (tree_val_result, cache) = match format {
-            TreeOutputFormat::CompactYaml | TreeOutputFormat::ClusteredYaml => {
-                // Convert UINode to SerializableUIElement and use compact formatter
-                // For ClusteredYaml, we still output individual trees in CompactYaml format
-                let result = format_ui_node_as_compact_yaml(&tree, 0);
-                (Ok(json!(result.formatted)), Some(result.index_to_bounds))
-            }
-            TreeOutputFormat::VerboseJson => (serde_json::to_value(tree), None),
-        };
+    match desktop
+        .get_window_tree_result_async(pid, None, Some(tree_config))
+        .await
+    {
+        Ok(result) => {
+            tracing::info!(
+                "[PERF] maybe_attach_tree (get_window_tree_result_async): {}ms",
+                tree_capture_start.elapsed().as_millis()
+            );
 
-        if let Ok(tree_val) = tree_val_result {
-            if let Some(obj) = result_json.as_object_mut() {
-                obj.insert("ui_tree".to_string(), tree_val);
-                obj.insert("tree_type".to_string(), json!("full_window"));
+            // Format based on output format
+            let (tree_val_result, cache) = match format {
+                TreeOutputFormat::CompactYaml | TreeOutputFormat::ClusteredYaml => {
+                    // SDK already formatted, use that
+                    if let Some(formatted) = result.formatted {
+                        (Ok(json!(formatted)), Some(result.index_to_bounds))
+                    } else {
+                        // Fallback: format UINode
+                        let fmt_result = format_ui_node_as_compact_yaml(&result.tree, 0);
+                        (
+                            Ok(json!(fmt_result.formatted)),
+                            Some(fmt_result.index_to_bounds),
+                        )
+                    }
+                }
+                TreeOutputFormat::VerboseJson => (serde_json::to_value(&result.tree), None),
+            };
+
+            if let Ok(tree_val) = tree_val_result {
+                if let Some(obj) = result_json.as_object_mut() {
+                    obj.insert("ui_tree".to_string(), tree_val);
+                    let tree_type = if from_selector_opt.is_some() {
+                        "subtree"
+                    } else {
+                        "full_window"
+                    };
+                    obj.insert("tree_type".to_string(), json!(tree_type));
+                    if let Some(sel) = &from_selector_opt {
+                        obj.insert("from_selector_used".to_string(), json!(sel));
+                    }
+                }
+                bounds_cache = cache;
             }
-            bounds_cache = cache;
         }
-    } else {
-        tracing::info!(
-            "[PERF] maybe_attach_tree (get_window_tree FAILED): {}ms",
-            tree_capture_start.elapsed().as_millis()
-        );
+        Err(e) => {
+            tracing::warn!(
+                "[PERF] maybe_attach_tree FAILED: {}ms - {}",
+                tree_capture_start.elapsed().as_millis(),
+                e
+            );
+            if let Some(obj) = result_json.as_object_mut() {
+                obj.insert("tree_error".to_string(), json!(format!("{}", e)));
+                obj.insert("tree_type".to_string(), json!("none"));
+            }
+        }
     }
 
     bounds_cache
@@ -579,113 +567,14 @@ pub async fn maybe_attach_tree(
 #[derive(Debug, Clone)]
 pub struct UiDiffResult {
     pub diff: String,
-    pub tree_before: String,
-    pub tree_after: String,
     pub has_changes: bool,
-}
-
-/// Helper to format tree based on output format
-fn format_tree_string(tree: &terminator::UINode, format: TreeOutputFormat) -> String {
-    match format {
-        TreeOutputFormat::CompactYaml | TreeOutputFormat::ClusteredYaml => {
-            format_ui_node_as_compact_yaml(tree, 0).formatted
-        }
-        TreeOutputFormat::VerboseJson => {
-            serde_json::to_string_pretty(tree).unwrap_or_else(|_| "{}".to_string())
-        }
-    }
-}
-
-/// Execute an action and optionally capture before/after UI tree diff
-///
-/// This function wraps action execution to optionally capture UI state before and after,
-/// computing a diff that shows what changed. Useful for workflow recording and verification.
-#[allow(clippy::too_many_arguments)]
-pub async fn execute_with_ui_diff<F, Fut>(
-    desktop: &Desktop,
-    action: F,
-    ui_diff_before_after: bool,
-    pid: u32,
-    tree_max_depth: Option<usize>,
-    include_detailed_attributes: Option<bool>,
-    tree_output_format: TreeOutputFormat,
-) -> Result<(Value, Option<UiDiffResult>), String>
-where
-    F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = Result<Value, String>>,
-{
-    if !ui_diff_before_after {
-        // Normal execution without diff
-        let result = action().await?;
-        return Ok((result, None));
-    }
-
-    // Build tree config with max_depth and other options
-    let detailed = include_detailed_attributes.unwrap_or(true);
-    let tree_config = terminator::platforms::TreeBuildConfig {
-        property_mode: if detailed {
-            terminator::platforms::PropertyLoadingMode::Complete
-        } else {
-            terminator::platforms::PropertyLoadingMode::Fast
-        },
-        timeout_per_operation_ms: Some(100),
-        yield_every_n_elements: Some(25),
-        batch_size: Some(25),
-        max_depth: tree_max_depth,
-        include_all_bounds: false,
-    };
-
-    // Capture BEFORE tree
-    tracing::debug!("Capturing UI tree before action (PID: {})", pid);
-    let tree_before = desktop
-        .get_window_tree(pid, None, Some(tree_config.clone()))
-        .map_err(|e| format!("Failed to capture tree before action: {e}"))?;
-    let before_str = format_tree_string(&tree_before, tree_output_format);
-
-    // Execute action
-    let result = action().await?;
-
-    // Delay for UI to settle (1500ms - same as maybe_attach_tree and find_and_execute_with_ui_diff)
-    tokio::time::sleep(Duration::from_millis(1500)).await;
-
-    // Capture AFTER tree
-    tracing::debug!("Capturing UI tree after action (PID: {})", pid);
-    let tree_after = desktop
-        .get_window_tree(pid, None, Some(tree_config))
-        .map_err(|e| format!("Failed to capture tree after action: {e}"))?;
-    let after_str = format_tree_string(&tree_after, tree_output_format);
-
-    // Compute diff using the ui_tree_diff module
-    let diff_result = match crate::ui_tree_diff::simple_ui_tree_diff(&before_str, &after_str) {
-        Ok(Some(diff)) => {
-            tracing::info!("UI changes detected: {} characters in diff", diff.len());
-            UiDiffResult {
-                diff,
-                tree_before: before_str,
-                tree_after: after_str,
-                has_changes: true,
-            }
-        }
-        Ok(None) => {
-            tracing::debug!("No UI changes detected");
-            UiDiffResult {
-                diff: "No UI changes detected".to_string(),
-                tree_before: before_str,
-                tree_after: after_str,
-                has_changes: false,
-            }
-        }
-        Err(e) => return Err(format!("Failed to compute UI diff: {e}")),
-    };
-
-    Ok((result, Some(diff_result)))
 }
 
 /// Find element and execute action with optional UI diff capture
 ///
 /// This is a wrapper around find_and_execute_with_retry_with_fallback that adds UI diff support.
-/// When ui_diff_before_after is true, it captures the UI tree before and after the action,
-/// then computes the diff showing what changed.
+/// When ui_diff_before_after is true, it uses the backend's execute_on_element_with_ui_diff
+/// to capture UI tree before and after the action, then compute the diff.
 ///
 /// Returns: ((action_result, element), successful_selector, optional_ui_diff)
 #[allow(clippy::too_many_arguments)]
@@ -700,7 +589,7 @@ pub async fn find_and_execute_with_ui_diff<F, Fut, T>(
     ui_diff_before_after: bool,
     tree_max_depth: Option<usize>,
     include_detailed_attributes: Option<bool>,
-    tree_output_format: TreeOutputFormat,
+    _tree_output_format: TreeOutputFormat, // Now handled by backend (always compact YAML)
 ) -> Result<((T, UIElement), String, Option<UiDiffResult>), anyhow::Error>
 where
     F: Fn(UIElement) -> Fut,
@@ -724,7 +613,7 @@ where
         return Ok(((result, element), selector, None));
     }
 
-    // UI diff requested - we need to capture trees before/after
+    // UI diff requested - use backend's execute_on_element_with_ui_diff
     tracing::debug!(
         "[ui_diff] UI diff capture enabled for selector: {}",
         primary_selector
@@ -733,8 +622,15 @@ where
     let retry_count = retries.unwrap_or(0);
     let mut last_error: Option<anyhow::Error> = None;
 
+    // Build UiDiffOptions for the backend
+    let diff_options = terminator::UiDiffOptions {
+        max_depth: tree_max_depth,
+        settle_delay_ms: Some(1500),
+        include_detailed_attributes,
+    };
+
     for attempt in 0..=retry_count {
-        // Find the element first to get PID
+        // Find the element first
         match find_element_with_fallbacks(
             desktop,
             primary_selector,
@@ -745,175 +641,30 @@ where
         .await
         {
             Ok((element, successful_selector)) => {
-                // Get PID for tree capture
-                let pid = element.process_id().unwrap_or(0);
-                if pid == 0 {
-                    tracing::warn!(
-                        "[ui_diff] Could not get PID from element, skipping diff capture"
-                    );
-                    // Fall back to executing without diff
-                    match action(element.clone()).await {
-                        Ok(result) => return Ok(((result, element), successful_selector, None)),
-                        Err(e) => {
-                            last_error = Some(e.into());
-                            if attempt < retry_count {
-                                tracing::warn!(
-                                    "[ui_diff] Action failed on attempt {}/{}. Retrying... Error: {}",
-                                    attempt + 1,
-                                    retry_count + 1,
-                                    last_error.as_ref().unwrap()
-                                );
-                                tokio::time::sleep(Duration::from_millis(250)).await;
-                                continue;
-                            }
-                        }
+                // Use backend's execute_on_element_with_ui_diff
+                match desktop
+                    .execute_on_element_with_ui_diff(element, &action, Some(diff_options.clone()))
+                    .await
+                {
+                    Ok((result, returned_element, ui_diff)) => {
+                        // Convert backend UiDiffResult to MCP UiDiffResult
+                        let mcp_diff = ui_diff.map(|d| UiDiffResult {
+                            diff: d.diff,
+                            has_changes: d.has_changes,
+                        });
+                        return Ok(((result, returned_element), successful_selector, mcp_diff));
                     }
-                } else {
-                    // Build tree config
-                    let detailed = include_detailed_attributes.unwrap_or(true);
-                    let tree_config = terminator::platforms::TreeBuildConfig {
-                        property_mode: if detailed {
-                            terminator::platforms::PropertyLoadingMode::Complete
-                        } else {
-                            terminator::platforms::PropertyLoadingMode::Fast
-                        },
-                        timeout_per_operation_ms: Some(100),
-                        yield_every_n_elements: Some(25),
-                        batch_size: Some(25),
-                        max_depth: tree_max_depth,
-                        include_all_bounds: false,
-                    };
-
-                    // Capture BEFORE tree
-                    tracing::debug!("[ui_diff] Capturing UI tree before action (PID: {})", pid);
-                    let tree_before_start = std::time::Instant::now();
-                    let tree_before = match desktop.get_window_tree(
-                        pid,
-                        None,
-                        Some(tree_config.clone()),
-                    ) {
-                        Ok(tree) => {
-                            tracing::info!(
-                                "[PERF] capture_tree_before: {}ms",
-                                tree_before_start.elapsed().as_millis()
+                    Err(e) => {
+                        last_error = Some(e.into());
+                        if attempt < retry_count {
+                            tracing::warn!(
+                                "[ui_diff] Action failed on attempt {}/{}. Retrying... Error: {}",
+                                attempt + 1,
+                                retry_count + 1,
+                                last_error.as_ref().unwrap()
                             );
-                            tree
-                        }
-                        Err(e) => {
-                            tracing::warn!("[ui_diff] Failed to capture tree before action: {}. Continuing without diff.", e);
-                            // Execute action without diff
-                            match action(element.clone()).await {
-                                Ok(result) => {
-                                    return Ok(((result, element), successful_selector, None))
-                                }
-                                Err(e) => {
-                                    last_error = Some(e.into());
-                                    if attempt < retry_count {
-                                        tracing::warn!(
-                                            "[ui_diff] Action failed on attempt {}/{}. Retrying... Error: {}",
-                                            attempt + 1,
-                                            retry_count + 1,
-                                            last_error.as_ref().unwrap()
-                                        );
-                                        tokio::time::sleep(Duration::from_millis(250)).await;
-                                        continue;
-                                    }
-                                }
-                            }
+                            tokio::time::sleep(Duration::from_millis(250)).await;
                             continue;
-                        }
-                    };
-                    // Clone tree_output_format to avoid move issues in retry loop
-                    let before_str = format_tree_string(&tree_before, tree_output_format);
-
-                    // Execute action
-                    let action_start = std::time::Instant::now();
-                    match action(element.clone()).await {
-                        Ok(result) => {
-                            tracing::info!(
-                                "[PERF] action_execution: {}ms",
-                                action_start.elapsed().as_millis()
-                            );
-                            // Small delay for UI to settle (1500ms - same delay used in maybe_attach_tree)
-                            tracing::info!("[PERF] ui_settle_delay (after_action): 1500ms");
-                            tokio::time::sleep(Duration::from_millis(1500)).await;
-
-                            // Capture AFTER tree
-                            tracing::debug!(
-                                "[ui_diff] Capturing UI tree after action (PID: {})",
-                                pid
-                            );
-                            let tree_after_start = std::time::Instant::now();
-                            let tree_after = match desktop.get_window_tree(
-                                pid,
-                                None,
-                                Some(tree_config),
-                            ) {
-                                Ok(tree) => {
-                                    tracing::info!(
-                                        "[PERF] capture_tree_after: {}ms",
-                                        tree_after_start.elapsed().as_millis()
-                                    );
-                                    tree
-                                }
-                                Err(e) => {
-                                    tracing::warn!("[ui_diff] Failed to capture tree after action: {}. Returning result without diff.", e);
-                                    return Ok(((result, element), successful_selector, None));
-                                }
-                            };
-                            // Clone tree_output_format to avoid move issues in retry loop
-                            let after_str = format_tree_string(&tree_after, tree_output_format);
-
-                            // Compute diff using the ui_tree_diff module
-                            let diff_start = std::time::Instant::now();
-                            let diff_result = match crate::ui_tree_diff::simple_ui_tree_diff(
-                                &before_str,
-                                &after_str,
-                            ) {
-                                Ok(Some(diff)) => {
-                                    tracing::info!(
-                                        "[ui_diff] UI changes detected: {} characters in diff",
-                                        diff.len()
-                                    );
-                                    Some(UiDiffResult {
-                                        diff,
-                                        tree_before: before_str,
-                                        tree_after: after_str,
-                                        has_changes: true,
-                                    })
-                                }
-                                Ok(None) => {
-                                    tracing::debug!("[ui_diff] No UI changes detected");
-                                    Some(UiDiffResult {
-                                        diff: "No UI changes detected".to_string(),
-                                        tree_before: before_str,
-                                        tree_after: after_str,
-                                        has_changes: false,
-                                    })
-                                }
-                                Err(e) => {
-                                    tracing::warn!("[ui_diff] Failed to compute UI diff: {}. Returning result without diff.", e);
-                                    None
-                                }
-                            };
-                            tracing::info!(
-                                "[PERF] compute_ui_diff: {}ms",
-                                diff_start.elapsed().as_millis()
-                            );
-
-                            return Ok(((result, element), successful_selector, diff_result));
-                        }
-                        Err(e) => {
-                            last_error = Some(e.into());
-                            if attempt < retry_count {
-                                tracing::warn!(
-                                    "[ui_diff] Action failed on attempt {}/{}. Retrying... Error: {}",
-                                    attempt + 1,
-                                    retry_count + 1,
-                                    last_error.as_ref().unwrap()
-                                );
-                                tokio::time::sleep(Duration::from_millis(250)).await;
-                            }
                         }
                     }
                 }
@@ -998,20 +749,18 @@ pub struct VerificationResult {
     pub elapsed_ms: u64,
 }
 
-/// Perform post-action verification using the new general-purpose verification system.
+/// Perform post-action verification using the core terminator verification methods.
 ///
-/// This function handles:
-/// 1. Fast path: Try reading the element directly (no tree walking)
-/// 2. Window-scoped search: Re-locate element within its window
-/// 3. Fallback: Desktop-wide search if window search fails
+/// This function delegates to `Desktop::verify_element_exists` and `Desktop::verify_element_not_exists`
+/// which perform window-scoped searches (no desktop-wide fallback).
 ///
 /// # Arguments
 /// * `desktop` - The Desktop instance
-/// * `element` - The element the action was performed on
+/// * `element` - The element the action was performed on (used to get application scope)
 /// * `verify_exists_selector` - Optional selector that should exist after action
 /// * `verify_not_exists_selector` - Optional selector that should NOT exist after action
 /// * `verify_timeout_ms` - Timeout for verification polling
-/// * `successful_selector` - The selector used to find the original element
+/// * `_successful_selector` - Unused, kept for API compatibility
 ///
 /// # Returns
 /// Ok(VerificationResult) if verification passed, Err if failed
@@ -1023,153 +772,57 @@ pub async fn verify_post_action(
     verify_timeout_ms: u64,
     _successful_selector: &str,
 ) -> Result<VerificationResult, anyhow::Error> {
-    use terminator::Selector;
-
     let start = tokio::time::Instant::now();
 
-    // Handle verify_element_exists
+    // Handle verify_element_exists using core method
     if let Some(exists_selector) = verify_exists_selector {
         tracing::debug!("[verify] Checking element exists: {}", exists_selector);
 
-        let mut verification_element = None;
-        let mut method = "unknown";
-
-        // OPTIMIZATION: Try window-scoped search using PID-based window lookup
-        // This is the standard pattern used throughout the codebase (tree capture, ui_diff, etc.)
-        match element.application() {
-            Ok(Some(app_window)) => {
-                tracing::debug!(
-                    "[verify] Got application window via PID (name={}, role={})",
-                    app_window.name().unwrap_or_default(),
-                    app_window.role()
+        match desktop
+            .verify_element_exists(element, exists_selector, verify_timeout_ms)
+            .await
+        {
+            Ok(_found_element) => {
+                tracing::info!(
+                    "[PERF] verify_element_exists: {}ms (selector: {})",
+                    start.elapsed().as_millis(),
+                    exists_selector
                 );
-
-                // Create locator scoped to the application window using .within()
-                let locator = desktop
-                    .locator(Selector::from(exists_selector))
-                    .within(app_window);
-
-                match locator
-                    .wait(Some(Duration::from_millis(verify_timeout_ms)))
-                    .await
-                {
-                    Ok(found_element) => {
-                        tracing::debug!("[verify] Window-scoped search SUCCESS");
-                        method = "window_scoped_search";
-                        verification_element = Some(found_element);
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            "[verify] Window-scoped search failed: {}, will try desktop-wide",
-                            e
-                        );
-                    }
-                }
-            }
-            Ok(None) => {
-                tracing::debug!(
-                    "[verify] element.application() returned None, will use desktop-wide search"
-                );
+                return Ok(VerificationResult {
+                    passed: true,
+                    method: "window_scoped_search".to_string(),
+                    details: format!("Element '{exists_selector}' found"),
+                    elapsed_ms: start.elapsed().as_millis() as u64,
+                });
             }
             Err(e) => {
-                tracing::warn!(
-                    "[verify] Failed to get application by PID: {}, will use desktop-wide search",
-                    e
+                tracing::info!(
+                    "[PERF] verify_element_exists: {}ms (FAILED selector: {})",
+                    start.elapsed().as_millis(),
+                    exists_selector
                 );
+                return Err(anyhow::anyhow!(
+                    "Verification failed: expected element '{}' not found after {}ms. {}",
+                    exists_selector,
+                    start.elapsed().as_millis(),
+                    e
+                ));
             }
         }
-
-        // Fallback: Desktop-wide search if window search failed or window not available
-        if verification_element.is_none() {
-            tracing::info!("[verify] Trying desktop-wide search as fallback");
-            method = "desktop_wide_search";
-
-            let locator = desktop.locator(Selector::from(exists_selector));
-            if let Ok(found_element) = locator
-                .wait(Some(Duration::from_millis(verify_timeout_ms)))
-                .await
-            {
-                verification_element = Some(found_element);
-            }
-        }
-
-        if verification_element.is_none() {
-            tracing::info!(
-                "[PERF] verify_element_exists: {}ms (FAILED selector: {})",
-                start.elapsed().as_millis(),
-                exists_selector
-            );
-            return Err(anyhow::anyhow!(
-                "Verification failed: expected element '{}' not found after {}ms",
-                exists_selector,
-                start.elapsed().as_millis()
-            ));
-        }
-
-        tracing::info!(
-            "[PERF] verify_element_exists: {}ms (selector: {})",
-            start.elapsed().as_millis(),
-            exists_selector
-        );
-        return Ok(VerificationResult {
-            passed: true,
-            method: method.to_string(),
-            details: format!("Element '{exists_selector}' found"),
-            elapsed_ms: start.elapsed().as_millis() as u64,
-        });
     }
 
-    // Handle verify_element_not_exists
+    // Handle verify_element_not_exists using core method
     if let Some(not_exists_selector) = verify_not_exists_selector {
         tracing::debug!(
             "[verify] Checking element does NOT exist: {}",
             not_exists_selector
         );
 
-        let mut method = "desktop_wide_search";
-
-        // Try window-scoped search using PID-based window lookup
-        let search_result = match element.application() {
-            Ok(Some(app_window)) => {
-                tracing::debug!("[verify] Got application window via PID for NOT_EXISTS check");
-                method = "window_scoped_search";
-
-                let locator = desktop
-                    .locator(Selector::from(not_exists_selector))
-                    .within(app_window);
-
-                locator
-                    .wait(Some(Duration::from_millis(verify_timeout_ms)))
-                    .await
-            }
-            Ok(None) | Err(_) => {
-                tracing::debug!(
-                    "[verify] PID-based window unavailable, using desktop-wide NOT_EXISTS check"
-                );
-
-                let locator = desktop.locator(Selector::from(not_exists_selector));
-                locator
-                    .wait(Some(Duration::from_millis(verify_timeout_ms)))
-                    .await
-            }
-        };
-
-        // Check the result - we WANT this to fail (element should NOT exist)
-        match search_result {
-            Ok(_) => {
-                // Element found - this is a verification failure!
-                tracing::info!(
-                    "[PERF] verify_element_not_exists: {}ms (FAILED - element found: {})",
-                    start.elapsed().as_millis(),
-                    not_exists_selector
-                );
-                return Err(anyhow::anyhow!(
-                    "Verification failed: element '{}' should not exist but was found",
-                    not_exists_selector
-                ));
-            }
-            Err(_) => {
-                // Element not found - this is what we wanted!
+        match desktop
+            .verify_element_not_exists(element, not_exists_selector, verify_timeout_ms)
+            .await
+        {
+            Ok(()) => {
                 tracing::info!(
                     "[PERF] verify_element_not_exists: {}ms (selector: {})",
                     start.elapsed().as_millis(),
@@ -1177,10 +830,22 @@ pub async fn verify_post_action(
                 );
                 return Ok(VerificationResult {
                     passed: true,
-                    method: method.to_string(),
+                    method: "window_scoped_search".to_string(),
                     details: format!("Element '{not_exists_selector}' correctly not present"),
                     elapsed_ms: start.elapsed().as_millis() as u64,
                 });
+            }
+            Err(e) => {
+                tracing::info!(
+                    "[PERF] verify_element_not_exists: {}ms (FAILED - element found: {})",
+                    start.elapsed().as_millis(),
+                    not_exists_selector
+                );
+                return Err(anyhow::anyhow!(
+                    "Verification failed: element '{}' should not exist but was found. {}",
+                    not_exists_selector,
+                    e
+                ));
             }
         }
     }

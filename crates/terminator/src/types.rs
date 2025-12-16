@@ -61,3 +61,29 @@ impl Drop for HighlightHandle {
         let _ = self.handle.take();
     }
 }
+
+/// An item detected by Omniparser vision model
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OmniparserItem {
+    /// Label type: e.g., "icon", "text", "button"
+    pub label: String,
+    /// Description or OCR text content
+    pub content: Option<String>,
+    /// Bounding box [x_min, y_min, x_max, y_max] in absolute pixel coordinates
+    pub box_2d: Option<[f64; 4]>,
+}
+
+/// An element detected by Gemini Vision model
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VisionElement {
+    /// Element type: text, icon, button, input, checkbox, dropdown, link, image, unknown
+    pub element_type: String,
+    /// Visible text or label on the element
+    pub content: Option<String>,
+    /// AI description of what this element is or does
+    pub description: Option<String>,
+    /// Bounding box [x_min, y_min, x_max, y_max] in absolute pixel coordinates
+    pub box_2d: Option<[f64; 4]>,
+    /// Whether the element is interactive/clickable
+    pub interactivity: Option<bool>,
+}

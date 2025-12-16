@@ -19,6 +19,18 @@ export {
     NextStepMarker,
 } from "./types";
 
+// Event streaming API
+export { emit, createStepEmitter, _getTransportMode } from "./events";
+export type {
+    WorkflowEvent,
+    ProgressEvent,
+    StepEvent,
+    ScreenshotEvent,
+    DataEvent,
+    LogEvent,
+    StepEmitter,
+} from "./events";
+
 export type {
     Desktop,
     Locator,
@@ -42,6 +54,11 @@ export type {
     WorkflowExecutionContext,
     WorkflowSuccessContext,
     WorkflowErrorContext,
+    // Trigger types
+    TriggerConfig,
+    CronTrigger,
+    ManualTrigger,
+    WebhookTrigger,
 } from "./types";
 
 export type { WorkflowRunnerOptions, WorkflowState } from "./runner";

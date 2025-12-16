@@ -7,21 +7,33 @@ use std::process::Command;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::{debug, error, info, warn, Instrument};
 
+use crate::event_pipe::{create_event_channel, try_parse_event, EventPipeServer};
+use crate::execution_logger::CapturedLogEntry;
+use crate::log_pipe::{create_log_channel, forward_log_to_tracing, LogPipeServer};
+use chrono::Utc;
 use rmcp::ErrorData as McpError;
+use std::sync::{Arc, Mutex};
+
+// Re-export types for use by other modules
+pub use crate::event_pipe::{EventSender, WorkflowEvent};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum JsRuntime {
-    Bun,
+    /// Bun runtime with the resolved executable path
+    Bun(String),
     Node,
 }
 
 /// Detect available JavaScript runtime (prefer bun, fallback to node)
+/// Uses bundled bun from mediar-app if available, otherwise searches PATH
 pub fn detect_js_runtime() -> JsRuntime {
-    // Try bun first
-    if let Ok(output) = Command::new("bun").arg("--version").output() {
-        if output.status.success() {
-            info!("Using bun runtime");
-            return JsRuntime::Bun;
+    // Use find_executable which checks bundled location first, then PATH
+    if let Some(bun_path) = crate::scripting_engine::find_executable("bun") {
+        if let Ok(output) = Command::new(&bun_path).arg("--version").output() {
+            if output.status.success() {
+                info!("Using bun runtime: {}", bun_path);
+                return JsRuntime::Bun(bun_path);
+            }
         }
     }
 
@@ -232,6 +244,15 @@ impl TypeScriptWorkflow {
                 Some(json!({"url": url})),
             )
         })?;
+        // Handle Windows file:/// URLs (strip leading / before drive letter like /C:)
+        let path_str = if path_str.starts_with('/')
+            && path_str.len() > 2
+            && path_str.chars().nth(2) == Some(':')
+        {
+            &path_str[1..]
+        } else {
+            path_str
+        };
 
         let path = PathBuf::from(path_str);
 
@@ -317,7 +338,31 @@ impl TypeScriptWorkflow {
         end_at_step: Option<&str>,
         restored_state: Option<Value>,
         execution_id: Option<&str>,
-    ) -> Result<TypeScriptWorkflowResult, McpError> {
+    ) -> Result<TypeScriptWorkflowExecutionResult, McpError> {
+        self.execute_with_events(
+            inputs,
+            start_from_step,
+            end_at_step,
+            restored_state,
+            execution_id,
+            None,
+        )
+        .await
+    }
+
+    /// Execute the entire TypeScript workflow with state management and event streaming
+    ///
+    /// When `event_sender` is provided, workflow events emitted via `emit.*()` in TypeScript
+    /// are parsed from stderr and sent through the channel in real-time.
+    pub async fn execute_with_events(
+        &self,
+        inputs: Value,
+        start_from_step: Option<&str>,
+        end_at_step: Option<&str>,
+        restored_state: Option<Value>,
+        execution_id: Option<&str>,
+        event_sender: Option<EventSender>,
+    ) -> Result<TypeScriptWorkflowExecutionResult, McpError> {
         use std::env;
 
         // Check execution mode
@@ -377,27 +422,186 @@ impl TypeScriptWorkflow {
         // Use tokio::process for async stderr streaming with tracing integration
         let runtime = detect_js_runtime();
 
+        // Set up Windows named pipe for event streaming if event_sender is provided
+        #[cfg(windows)]
+        let pipe_server_handle = if event_sender.is_some() {
+            let exec_id = execution_id.unwrap_or("default");
+            let (pipe_tx, mut pipe_rx) = create_event_channel();
+            let pipe_server = EventPipeServer::new(exec_id, pipe_tx);
+            let pipe_name = pipe_server.pipe_name().to_string();
+
+            // Start the pipe server
+            let handle = pipe_server.start().await.map_err(|e| {
+                McpError::internal_error(
+                    format!("Failed to start event pipe server: {e}"),
+                    Some(json!({"error": e.to_string()})),
+                )
+            })?;
+
+            // Spawn a task to forward pipe events to the event_sender
+            let event_sender_clone = event_sender.clone();
+            tokio::spawn(async move {
+                while let Some(event) = pipe_rx.recv().await {
+                    debug!(target: "workflow.event", "Received event from pipe: {:?}", event);
+
+                    // Log events as structured data for OTEL
+                    match &event {
+                        WorkflowEvent::Progress {
+                            current,
+                            total,
+                            message,
+                            ..
+                        } => {
+                            info!(
+                                target: "workflow.event",
+                                event_type = "progress",
+                                current = %current,
+                                total = ?total,
+                                "Progress: {}", message.as_deref().unwrap_or("...")
+                            );
+                        }
+                        WorkflowEvent::StepStarted {
+                            step_id,
+                            step_name,
+                            step_index,
+                            total_steps,
+                            ..
+                        } => {
+                            info!(
+                                target: "workflow.event",
+                                event_type = "step_started",
+                                step_id = %step_id,
+                                step_name = %step_name,
+                                step_index = ?step_index,
+                                total_steps = ?total_steps,
+                                "Step started: {}", step_name
+                            );
+                        }
+                        WorkflowEvent::StepCompleted {
+                            step_id,
+                            step_name,
+                            duration,
+                            ..
+                        } => {
+                            info!(
+                                target: "workflow.event",
+                                event_type = "step_completed",
+                                step_id = %step_id,
+                                step_name = %step_name,
+                                duration_ms = ?duration,
+                                "Step completed: {}", step_name
+                            );
+                        }
+                        WorkflowEvent::StepFailed {
+                            step_id,
+                            step_name,
+                            error,
+                            ..
+                        } => {
+                            error!(
+                                target: "workflow.event",
+                                event_type = "step_failed",
+                                step_id = %step_id,
+                                step_name = %step_name,
+                                error = ?error,
+                                "Step failed: {}", step_name
+                            );
+                        }
+                        WorkflowEvent::Log { level, message, .. } => match level.as_str() {
+                            "error" => error!(target: "workflow.event", "{}", message),
+                            "warn" => warn!(target: "workflow.event", "{}", message),
+                            "debug" => debug!(target: "workflow.event", "{}", message),
+                            _ => info!(target: "workflow.event", "{}", message),
+                        },
+                        _ => {
+                            debug!(target: "workflow.event", "Event: {:?}", event);
+                        }
+                    }
+
+                    // Forward to event_sender
+                    if let Some(ref sender) = event_sender_clone {
+                        if let Err(e) = sender.send(event) {
+                            debug!("Failed to forward workflow event: {}", e);
+                            break;
+                        }
+                    }
+                }
+            });
+
+            Some((handle, pipe_name))
+        } else {
+            None
+        };
+
+        #[cfg(not(windows))]
+        let pipe_server_handle: Option<((), String)> = None;
+
+        // Set up Windows named pipe for log streaming
+        #[cfg(windows)]
+        let log_pipe_handle = {
+            let exec_id = execution_id.unwrap_or("default");
+            let (log_tx, mut log_rx) = create_log_channel();
+            let log_server = LogPipeServer::new(exec_id, log_tx);
+            let log_pipe_name = log_server.pipe_name().to_string();
+
+            // Start the log pipe server
+            let handle = log_server.start().await.map_err(|e| {
+                McpError::internal_error(
+                    format!("Failed to start log pipe server: {e}"),
+                    Some(json!({"error": e.to_string()})),
+                )
+            })?;
+
+            // Clone for the spawned task
+            let captured_logs_for_pipe: Arc<Mutex<Vec<CapturedLogEntry>>> =
+                Arc::new(Mutex::new(Vec::new()));
+            let logs_pipe_clone = captured_logs_for_pipe.clone();
+            let exec_id_for_pipe = execution_id.map(|s| s.to_string());
+
+            // Spawn a task to forward log entries to tracing
+            // IMPORTANT: Keep the JoinHandle so we can wait for it to complete before extracting logs
+            let receiver_task = tokio::spawn(async move {
+                while let Some(entry) = log_rx.recv().await {
+                    // Forward to tracing
+                    forward_log_to_tracing(&entry, exec_id_for_pipe.as_deref());
+
+                    // Capture for return value
+                    if let Ok(mut logs) = logs_pipe_clone.lock() {
+                        logs.push(CapturedLogEntry {
+                            timestamp: Utc::now(),
+                            level: entry.level.to_uppercase(),
+                            message: entry.message.clone(),
+                        });
+                    }
+                }
+            });
+
+            Some((handle, log_pipe_name, captured_logs_for_pipe, receiver_task))
+        };
+
+        #[cfg(not(windows))]
+        let log_pipe_handle: Option<(
+            (),
+            String,
+            Arc<Mutex<Vec<CapturedLogEntry>>>,
+            tokio::task::JoinHandle<()>,
+        )> = None;
+
         use std::process::Stdio;
-        let mut child = match runtime {
-            JsRuntime::Bun => {
+        let mut cmd = match runtime {
+            JsRuntime::Bun(ref bun_path) => {
                 info!(
                     "Executing workflow with bun: {}/{}",
                     execution_dir.display(),
                     self.entry_file
                 );
-                tokio::process::Command::new("bun")
-                    .current_dir(&execution_dir)
+                let mut cmd = tokio::process::Command::new(bun_path);
+                cmd.current_dir(&execution_dir)
                     .arg("--eval")
                     .arg(&exec_script)
-                    .stdout(Stdio::piped()) // Capture stdout for JSON result
-                    .stderr(Stdio::piped()) // Capture stderr for tracing integration
-                    .spawn()
-                    .map_err(|e| {
-                        McpError::internal_error(
-                            format!("Failed to execute workflow with bun: {e}"),
-                            Some(json!({"error": e.to_string()})),
-                        )
-                    })?
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                cmd
             }
             JsRuntime::Node => {
                 info!(
@@ -405,36 +609,179 @@ impl TypeScriptWorkflow {
                     execution_dir.display(),
                     self.entry_file
                 );
-                tokio::process::Command::new("node")
-                    .current_dir(&execution_dir)
+                let mut cmd = tokio::process::Command::new("node");
+                cmd.current_dir(&execution_dir)
                     .arg("--import")
                     .arg("tsx/esm")
                     .arg("--eval")
                     .arg(&exec_script)
-                    .stdout(Stdio::piped()) // Capture stdout for JSON result
-                    .stderr(Stdio::piped()) // Capture stderr for tracing integration
-                    .spawn()
-                    .map_err(|e| {
-                        McpError::internal_error(
-                            format!("Failed to execute workflow with node: {e}"),
-                            Some(json!({"error": e.to_string()})),
-                        )
-                    })?
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                cmd
             }
         };
 
-        // Take stderr and spawn a task to stream logs through tracing
+        // Set the pipe path environment variables if we have pipe servers
+        #[cfg(windows)]
+        if let Some((_, ref pipe_name)) = pipe_server_handle {
+            cmd.env("MCP_EVENT_PIPE", pipe_name);
+            info!("Set MCP_EVENT_PIPE={}", pipe_name);
+        }
+
+        #[cfg(windows)]
+        if let Some((_, ref log_pipe_name, _, _)) = log_pipe_handle {
+            cmd.env("MCP_LOG_PIPE", log_pipe_name);
+            info!("Set MCP_LOG_PIPE={}", log_pipe_name);
+        }
+
+        let mut child = cmd.spawn().map_err(|e| {
+            McpError::internal_error(
+                format!("Failed to execute workflow: {e}"),
+                Some(json!({"error": e.to_string()})),
+            )
+        })?;
+
+        // Take stderr and spawn a task to stream logs through tracing AND capture them
         // execution_id is passed as a structured field for OpenTelemetry/ClickHouse filtering
         let stderr = child.stderr.take();
         let exec_id_for_logs = execution_id.map(|s| s.to_string());
-        if let Some(stderr) = stderr {
-            tokio::spawn(
+
+        // Create shared vector for captured logs
+        let captured_logs: Arc<Mutex<Vec<CapturedLogEntry>>> = Arc::new(Mutex::new(Vec::new()));
+        let logs_clone = captured_logs.clone();
+
+        // Determine if events/logs are going through pipe (Windows only)
+        #[cfg(windows)]
+        let events_via_pipe = pipe_server_handle.is_some();
+        #[cfg(not(windows))]
+        let events_via_pipe = false;
+
+        #[cfg(windows)]
+        let logs_via_pipe = log_pipe_handle.is_some();
+        #[cfg(not(windows))]
+        let logs_via_pipe = false;
+
+        #[allow(clippy::manual_map)]
+        let stderr_handle = if let Some(stderr) = stderr {
+            Some(tokio::spawn(
                 async move {
                     let reader = BufReader::new(stderr);
                     let mut lines = reader.lines();
                     while let Ok(Some(line)) = lines.next_line().await {
+                        // On non-Windows or when pipe is not available, parse events from stderr
+                        // This is kept as a fallback for backwards compatibility
+                        if !events_via_pipe {
+                            if let Some(event) = try_parse_event(&line) {
+                                debug!(target: "workflow.event", "Received workflow event from stderr: {:?}", event);
+
+                                // Send event through channel if sender is available
+                                if let Some(ref sender) = event_sender {
+                                    if let Err(e) = sender.send(event.clone()) {
+                                        debug!("Failed to send workflow event: {}", e);
+                                    }
+                                }
+
+                                // Log events as structured data for OTEL
+                                match &event {
+                                    WorkflowEvent::Progress { current, total, message, .. } => {
+                                        info!(
+                                            target: "workflow.event",
+                                            event_type = "progress",
+                                            current = %current,
+                                            total = ?total,
+                                            "Progress: {}", message.as_deref().unwrap_or("...")
+                                        );
+                                    }
+                                    WorkflowEvent::StepStarted { step_id, step_name, step_index, total_steps, .. } => {
+                                        info!(
+                                            target: "workflow.event",
+                                            event_type = "step_started",
+                                            step_id = %step_id,
+                                            step_name = %step_name,
+                                            step_index = ?step_index,
+                                            total_steps = ?total_steps,
+                                            "Step started: {}", step_name
+                                        );
+                                    }
+                                    WorkflowEvent::StepCompleted { step_id, step_name, duration, .. } => {
+                                        info!(
+                                            target: "workflow.event",
+                                            event_type = "step_completed",
+                                            step_id = %step_id,
+                                            step_name = %step_name,
+                                            duration_ms = ?duration,
+                                            "Step completed: {}", step_name
+                                        );
+                                    }
+                                    WorkflowEvent::StepFailed { step_id, step_name, error, .. } => {
+                                        error!(
+                                            target: "workflow.event",
+                                            event_type = "step_failed",
+                                            step_id = %step_id,
+                                            step_name = %step_name,
+                                            error = ?error,
+                                            "Step failed: {}", step_name
+                                        );
+                                    }
+                                    WorkflowEvent::Log { level, message, .. } => {
+                                        match level.as_str() {
+                                            "error" => error!(target: "workflow.event", "{}", message),
+                                            "warn" => warn!(target: "workflow.event", "{}", message),
+                                            "debug" => debug!(target: "workflow.event", "{}", message),
+                                            _ => info!(target: "workflow.event", "{}", message),
+                                        }
+                                    }
+                                    _ => {
+                                        debug!(target: "workflow.event", "Event: {:?}", event);
+                                    }
+                                }
+
+                                // Don't process as a regular log line
+                                continue;
+                            }
+                        }
+
+                        // Skip MCP event lines when using event pipe
+                        if events_via_pipe && line.trim_start().starts_with("{\"__mcp_event__\":true") {
+                            continue;
+                        }
+
+                        // Skip log lines when using log pipe (they're handled there)
+                        // Log pipe entries are JSON objects with "level" field
+                        if logs_via_pipe {
+                            let trimmed = line.trim_start();
+                            if trimmed.starts_with("{\"level\":") {
+                                continue;
+                            }
+                            // Also skip the prefixed format if it somehow appears
+                            if trimmed.starts_with("[ERROR]")
+                                || trimmed.starts_with("[WARN]")
+                                || trimmed.starts_with("[INFO]")
+                                || trimmed.starts_with("[DEBUG]")
+                            {
+                                continue;
+                            }
+                        }
+
+                        // Regular log line processing (fallback when logs not via pipe)
                         let parsed = parse_log_line(&line);
-                        let msg = parsed.message;
+                        let msg = parsed.message.clone();
+
+                        // Capture the log entry
+                        let level_str = match parsed.level {
+                            LogLevel::Error => "ERROR",
+                            LogLevel::Warn => "WARN",
+                            LogLevel::Debug => "DEBUG",
+                            LogLevel::Info => "INFO",
+                        };
+                        if let Ok(mut logs) = logs_clone.lock() {
+                            logs.push(CapturedLogEntry {
+                                timestamp: Utc::now(),
+                                level: level_str.to_string(),
+                                message: parsed.message.clone(),
+                            });
+                        }
+
                         // Pass execution_id as structured field (not in message body)
                         // This keeps logs clean while still enabling ClickHouse filtering via OTEL attributes
                         match (&exec_id_for_logs, parsed.level) {
@@ -466,8 +813,10 @@ impl TypeScriptWorkflow {
                     }
                 }
                 .in_current_span(),
-            );
-        }
+            ))
+        } else {
+            None
+        };
 
         // Wait for completion and get output
         let output = child.wait_with_output().await.map_err(|e| {
@@ -479,17 +828,91 @@ impl TypeScriptWorkflow {
 
         if !output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            return Err(McpError::internal_error(
-                format!(
-                    "Workflow execution failed with exit code: {:?}",
-                    output.status.code()
-                ),
-                Some(json!({
-                    "stdout": stdout.to_string(),
-                    "stderr": String::from_utf8_lossy(&output.stderr).to_string(),
-                    "exit_code": output.status.code()
-                })),
-            ));
+
+            // Wait for stderr handler to finish before extracting logs
+            if let Some(handle) = stderr_handle {
+                let _ = tokio::time::timeout(std::time::Duration::from_millis(100), handle).await;
+            }
+
+            // Extract captured logs even on failure
+            let logs: Vec<CapturedLogEntry> = captured_logs
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .drain(..)
+                .collect();
+
+            // Try to extract JSON from stdout (same logic as success case)
+            let mut error_message = format!(
+                "Workflow execution failed with exit code: {:?}",
+                output.status.code()
+            );
+            let mut parsed_result: Option<serde_json::Value> = None;
+
+            // Try to find and parse JSON in stdout
+            let json_str = if let Some(start) = stdout.rfind(
+                "
+{",
+            ) {
+                Some(&stdout[start + 1..])
+            } else if stdout.trim().starts_with('{') {
+                Some(stdout.trim())
+            } else if let Some(start) = stdout.find('{') {
+                stdout.rfind('}').map(|end| &stdout[start..=end])
+            } else {
+                None
+            };
+
+            if let Some(json_str) = json_str {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_str) {
+                    // Extract error message from result if available
+                    if let Some(msg) = parsed
+                        .get("result")
+                        .and_then(|r| r.get("message"))
+                        .and_then(|m| m.as_str())
+                    {
+                        error_message = msg.to_string();
+                    }
+                    parsed_result = Some(parsed);
+                }
+            }
+
+            // Build error data with logs
+            let mut error_data = json!({
+                "exit_code": output.status.code(),
+                "stderr": String::from_utf8_lossy(&output.stderr).to_string(),
+            });
+
+            if let Some(result) = parsed_result {
+                error_data["workflow_result"] = result;
+            } else {
+                error_data["stdout"] = json!(stdout.to_string());
+            }
+
+            // Add captured logs to error data
+            if !logs.is_empty() {
+                error_data["logs"] = json!(logs
+                    .iter()
+                    .map(|l| json!({
+                        "timestamp": l.timestamp.to_rfc3339(),
+                        "level": l.level,
+                        "message": l.message
+                    }))
+                    .collect::<Vec<_>>());
+            }
+
+            // Shutdown the pipe servers on error (Windows only)
+            #[cfg(windows)]
+            if let Some((handle, _)) = pipe_server_handle {
+                handle.shutdown().await;
+            }
+
+            #[cfg(windows)]
+            if let Some((handle, _, _, _receiver_task)) = log_pipe_handle {
+                handle.shutdown_and_wait().await;
+                // Note: We don't wait for receiver_task on error path - just clean up
+            }
+
+            return Err(McpError::internal_error(error_message, Some(error_data)));
         }
 
         // Parse result - try to extract JSON from potentially mixed output
@@ -539,7 +962,47 @@ impl TypeScriptWorkflow {
             cleanup_temp_dir(&temp_dir);
         }
 
-        Ok(result)
+        // Shutdown the pipe servers (Windows only)
+        #[cfg(windows)]
+        if let Some((handle, _)) = pipe_server_handle {
+            handle.shutdown().await;
+        }
+
+        // Note: log_pipe_handle shutdown is handled below after extracting logs
+
+        // Wait for stderr handler to finish (with short timeout)
+        if let Some(handle) = stderr_handle {
+            let _ = tokio::time::timeout(std::time::Duration::from_millis(100), handle).await;
+        }
+
+        // Extract captured logs - merge from stderr and log pipe
+        let mut logs: Vec<CapturedLogEntry> = captured_logs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .drain(..)
+            .collect();
+
+        // Merge logs from log pipe (Windows only)
+        #[cfg(windows)]
+        if let Some((handle, _, pipe_logs, receiver_task)) = log_pipe_handle {
+            // Wait for the pipe server to finish reading all data from the pipe
+            // This is important: shutdown_and_wait() ensures the pipe server has read
+            // everything and sent it through the channel before we proceed
+            handle.shutdown_and_wait().await;
+
+            // Now wait for the receiver task to finish processing all channel messages
+            // This ensures all logs have been captured in pipe_logs before we extract them
+            let _ = receiver_task.await;
+
+            if let Ok(mut pipe_captured) = pipe_logs.lock() {
+                logs.extend(pipe_captured.drain(..));
+            }
+        }
+
+        // Sort logs by timestamp
+        logs.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+
+        Ok(TypeScriptWorkflowExecutionResult { result, logs })
     }
 
     fn create_execution_script(
@@ -588,9 +1051,47 @@ impl TypeScriptWorkflow {
         // This automatically skips onError when step control options are present
         Ok(format!(
             r#"
-// Redirect console methods to stderr with level prefixes for Rust tracing integration
+// Set up logging transport - uses named pipe if MCP_LOG_PIPE is set, otherwise stderr
+const fs = require('fs');
 const originalLog = console.log;
 const originalError = console.error;
+
+// Log pipe transport
+let logPipe = null;
+let logPipeReady = false;
+const logPipePath = process.env.MCP_LOG_PIPE;
+
+if (logPipePath) {{
+    try {{
+        logPipe = fs.createWriteStream(logPipePath, {{ flags: 'w' }});
+        logPipe.on('error', () => {{ logPipe = null; }});
+        logPipeReady = true;
+    }} catch (e) {{
+        logPipe = null;
+    }}
+}}
+
+// Send structured log entry
+const sendLog = (level, message, data) => {{
+    const entry = {{
+        level,
+        message,
+        timestamp: new Date().toISOString(),
+        ...(data !== undefined && {{ data }})
+    }};
+
+    if (logPipe && logPipeReady) {{
+        try {{
+            logPipe.write(JSON.stringify(entry) + '\n');
+            return;
+        }} catch (e) {{
+            // Fall through to stderr
+        }}
+    }}
+
+    // Fallback to stderr with level prefix
+    originalError(`[${{level.toUpperCase()}}] ${{message}}${{data !== undefined ? ' ' + JSON.stringify(data) : ''}}`);
+}};
 
 // Format args to string for logging
 const formatArgs = (...args) => args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
@@ -600,13 +1101,30 @@ console.log = (...args) => {{
     if (args.length === 1 && typeof args[0] === 'string' && args[0].startsWith('{{')) {{
         originalLog(...args);
     }} else {{
-        originalError('[INFO]', formatArgs(...args));
+        sendLog('info', formatArgs(...args));
     }}
 }};
-console.info = (...args) => originalError('[INFO]', formatArgs(...args));
-console.warn = (...args) => originalError('[WARN]', formatArgs(...args));
-console.error = (...args) => originalError('[ERROR]', formatArgs(...args));
-console.debug = (...args) => originalError('[DEBUG]', formatArgs(...args));
+console.info = (...args) => sendLog('info', formatArgs(...args));
+console.warn = (...args) => sendLog('warn', formatArgs(...args));
+console.error = (...args) => sendLog('error', formatArgs(...args));
+console.debug = (...args) => sendLog('debug', formatArgs(...args));
+
+// Drain log pipe - waits for all buffered writes to complete
+const drainLogPipe = () => new Promise((resolve) => {{
+    if (logPipe && logPipeReady) {{
+        // Mark pipe as not ready BEFORE calling end() to prevent any further writes
+        logPipeReady = false;
+        logPipe.end(() => {{
+            // Don't use console.debug here - the pipe is already ended!
+            resolve();
+        }});
+    }} else {{
+        resolve();
+    }}
+}});
+
+// Cleanup on exit (fallback, but drain should be called explicitly)
+process.on('exit', () => {{ if (logPipe) try {{ logPipe.end(); }} catch(e) {{}} }});
 
 // Set environment to suppress workflow output if supported
 process.env.WORKFLOW_SILENT = 'true';
@@ -626,6 +1144,7 @@ try {{
             steps: workflow.steps || []
         }};
         originalLog(JSON.stringify({{ metadata }}, null, 2));
+        await drainLogPipe();
         process.exit(0);
     }}
 
@@ -665,6 +1184,8 @@ try {{
         state: result.state || {{ context: {{ data: result.data }} }}
     }}, null, 2));
 
+    // Drain log pipe before exit to ensure all logs are captured
+    await drainLogPipe();
     process.exit(result.status === 'success' ? 0 : 1);
 }} catch (error) {{
     console.error('Workflow execution error:', error);
@@ -676,6 +1197,8 @@ try {{
         }},
         state: {{}}
     }}, null, 2));
+    // Drain log pipe before exit to ensure all logs are captured
+    await drainLogPipe();
     process.exit(1);
 }}
 "#
@@ -699,8 +1222,18 @@ try {{
 
         // Check if dependencies need updating by comparing package.json mtime with lockfile
         let needs_install = if workflow_node_modules.exists() {
-            let lockfile_path = match runtime {
-                JsRuntime::Bun => workflow_dir.join("bun.lockb"),
+            // Bun uses bun.lockb (binary, older) or bun.lock (text, newer)
+            let lockfile_path = match &runtime {
+                JsRuntime::Bun(_) => {
+                    let lockb = workflow_dir.join("bun.lockb");
+                    let lock = workflow_dir.join("bun.lock");
+                    // Prefer bun.lock (newer text format), fallback to bun.lockb (older binary)
+                    if lock.exists() {
+                        lock
+                    } else {
+                        lockb
+                    }
+                }
                 JsRuntime::Node => workflow_dir.join("package-lock.json"),
             };
 
@@ -743,8 +1276,8 @@ try {{
         // Install dependencies in workflow directory
         info!("⏳ Installing dependencies...");
 
-        let install_result = match runtime {
-            JsRuntime::Bun => Command::new("bun")
+        let install_result = match &runtime {
+            JsRuntime::Bun(bun_path) => Command::new(bun_path)
                 .arg("install")
                 .current_dir(workflow_dir)
                 .output(),
@@ -784,6 +1317,46 @@ pub struct TypeScriptWorkflowResult {
     pub state: Value,
 }
 
+/// Result from TypeScript workflow execution including captured logs
+pub struct TypeScriptWorkflowExecutionResult {
+    pub result: TypeScriptWorkflowResult,
+    pub logs: Vec<CapturedLogEntry>,
+}
+
+/// Trigger configuration for workflows
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum TriggerConfig {
+    /// Cron-based scheduling
+    Cron {
+        /// Cron expression (5-field or 6-field format)
+        schedule: String,
+        /// Optional timezone (IANA format)
+        timezone: Option<String>,
+        /// Whether this trigger is enabled (default: true)
+        #[serde(default = "default_enabled")]
+        enabled: bool,
+    },
+    /// Manual trigger (default)
+    Manual {
+        /// Whether this trigger is enabled (default: true)
+        #[serde(default = "default_enabled")]
+        enabled: bool,
+    },
+    /// Webhook trigger
+    Webhook {
+        /// Optional webhook path suffix
+        path: Option<String>,
+        /// Whether this trigger is enabled (default: true)
+        #[serde(default = "default_enabled")]
+        enabled: bool,
+    },
+}
+
+fn default_enabled() -> bool {
+    true
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct WorkflowMetadata {
     pub name: String,
@@ -791,6 +1364,9 @@ pub struct WorkflowMetadata {
     pub version: Option<String>,
     pub input: Value,
     pub steps: Vec<StepMetadata>,
+    /// Trigger configuration for the workflow
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trigger: Option<TriggerConfig>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -819,7 +1395,7 @@ mod tests {
     fn test_detect_bun_or_node() {
         let runtime = detect_js_runtime();
         // Should return either Bun or Node (depending on environment)
-        assert!(matches!(runtime, JsRuntime::Bun) || matches!(runtime, JsRuntime::Node));
+        assert!(matches!(runtime, JsRuntime::Bun(_)) || matches!(runtime, JsRuntime::Node));
     }
 
     #[test]

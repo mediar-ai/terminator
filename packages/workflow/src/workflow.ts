@@ -96,7 +96,7 @@ export class WorkflowBuilder<
 
     /**
      * Set success handler that returns workflow result data
-     * The returned value will be automatically set as context.data
+     * The returned value will be set as context.data (workflow output)
      *
      * @example
      * ```typescript
@@ -232,6 +232,7 @@ function createWorkflowInstance<TInput = any>(
                                 name: s.config.name,
                                 description: s.config.description,
                             })),
+                            trigger: config.trigger,
                         };
                     },
                 };
@@ -324,10 +325,12 @@ function createWorkflowInstance<TInput = any>(
                         log.info("=".repeat(60));
                         log.success(`✅ Workflow completed early! (${duration}ms)`);
                         log.info("=".repeat(60));
+                        // Set context.data for consistency with state
+                        context.data = stepResult.result;
                         return {
                             status: "success",
                             message: stepResult.result.message || "Workflow completed early",
-                            data: stepResult.result,
+                            data: context.data,
                             lastStepId: step.config.id,
                             lastStepIndex: currentIndex,
                             state: { context, lastStepId: step.config.id, lastStepIndex: currentIndex },
@@ -508,6 +511,7 @@ function createWorkflowInstance<TInput = any>(
                 return {
                     status: "error",
                     message: error.message,
+                    data: context.data,
                     error: {
                         category: error.category || "technical",
                         code: error.code || "UNKNOWN_ERROR",
@@ -519,7 +523,6 @@ function createWorkflowInstance<TInput = any>(
                             timestamp: new Date().toISOString(),
                         },
                     },
-                    data: context.data,
                     lastStepId,
                     lastStepIndex,
                     state: { context, lastStepId, lastStepIndex },
@@ -534,6 +537,7 @@ function createWorkflowInstance<TInput = any>(
                 version: config.version,
                 input: config.input,
                 steps: steps.map((s) => s.getMetadata()),
+                trigger: config.trigger,
             };
         },
     };

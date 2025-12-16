@@ -1,4 +1,5 @@
-﻿use rmcp::ErrorData as McpError;
+use crate::event_pipe::{create_event_channel, EventPipeServer, EventSender, WorkflowEvent};
+use rmcp::ErrorData as McpError;
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -41,10 +42,32 @@ impl ScriptLogBuffer {
     }
 }
 
+/// Find bundled bun executable next to the current binary (for mediar-app distribution)
+fn find_bundled_bun() -> Option<String> {
+    let exe_path = std::env::current_exe().ok()?;
+    let exe_dir = exe_path.parent()?;
+
+    // Check for bun.exe in the same directory as this binary
+    let bun_path = exe_dir.join("bun.exe");
+    if bun_path.exists() && bun_path.is_file() {
+        info!("Found bundled bun at: {}", bun_path.display());
+        return Some(bun_path.to_string_lossy().to_string());
+    }
+
+    None
+}
+
 /// Find executable with cross-platform path resolution
 pub fn find_executable(name: &str) -> Option<String> {
     use std::env;
     use std::path::Path;
+
+    // Special case: for bun, check bundled location first (mediar-app distribution)
+    if name == "bun" {
+        if let Some(bundled) = find_bundled_bun() {
+            return Some(bundled);
+        }
+    }
 
     // On Windows, try multiple extensions, prioritizing executable types
     let candidates = if cfg!(windows) {
@@ -179,6 +202,7 @@ async fn ensure_terminator_js_installed(runtime: &str) -> Result<std::path::Path
   "version": "1.0.0",
   "dependencies": {
     "@mediar-ai/terminator": "latest",
+    "@mediar-ai/workflow": "latest",
     "tsx": "^4.7.0",
     "typescript": "^5.3.0",
     "@types/node": "^20.0.0"
@@ -884,11 +908,15 @@ async fn ensure_terminator_js_installed(runtime: &str) -> Result<std::path::Path
 /// * `cancellation_token` - Optional token to cancel execution
 /// * `working_dir` - Optional working directory for script execution
 /// * `log_buffer` - Optional shared buffer for real-time log capture (useful for timeout scenarios)
+/// * `event_sender` - Optional channel to send workflow events (for real-time streaming)
+/// * `execution_id` - Optional execution ID for named pipe identification
 pub async fn execute_javascript_with_nodejs(
     script: String,
     cancellation_token: Option<tokio_util::sync::CancellationToken>,
     working_dir: Option<PathBuf>,
     log_buffer: Option<ScriptLogBuffer>,
+    event_sender: Option<EventSender>,
+    execution_id: Option<&str>,
 ) -> Result<serde_json::Value, McpError> {
     // Dev override: allow forcing local bindings via env var
     if std::env::var("TERMINATOR_JS_USE_LOCAL")
@@ -1004,6 +1032,29 @@ global.desktop = new Desktop();
 global.log = console.log;
 global.sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+// Initialize workflow event emitter (for streaming events to MCP client)
+// Usage: emit.progress(1, 5, "Starting..."); emit.log("info", "hello");
+try {{
+    const {{ emit, createStepEmitter }} = require('@mediar-ai/workflow');
+    global.emit = emit;
+    global.createStepEmitter = createStepEmitter;
+}} catch (e) {{
+    // Workflow package not available - provide no-op fallbacks
+    const noopEmit = {{
+        progress: () => {{}},
+        stepStarted: () => {{}},
+        stepCompleted: () => {{}},
+        stepFailed: () => {{}},
+        log: () => {{}},
+        data: () => {{}},
+        screenshot: () => {{}},
+        status: () => {{}},
+        raw: () => {{}}
+    }};
+    global.emit = noopEmit;
+    global.createStepEmitter = () => ({{ ...noopEmit }});
+}}
+
 // Initialize KV client helper
 // Usage: const kv = createKVClient(ORG_TOKEN);
 try {{
@@ -1026,6 +1077,8 @@ try {{
 (async () => {{
     try {{
         const result = await (async () => {{
+            // Expose globals as local variables for user script
+            const {{ desktop, emit, createStepEmitter, log, sleep, createKVClient }} = global;
             {script}
         }})();
 
@@ -1106,48 +1159,153 @@ try {{
         unique_filename.clone()
     };
 
-    // Spawn Node.js/Bun process from the determined working directory
-    let mut child = if runtime == "bun" && !is_batch_file {
+    // Set up Windows named pipe for event streaming if event_sender is provided
+    #[cfg(windows)]
+    let pipe_server_handle = if event_sender.is_some() {
+        let exec_id = execution_id.unwrap_or("run-command");
+        let (pipe_tx, mut pipe_rx) = create_event_channel();
+        let pipe_server = EventPipeServer::new(exec_id, pipe_tx);
+        let pipe_name = pipe_server.pipe_name().to_string();
+
+        // Start the pipe server
+        let handle = pipe_server.start().await.map_err(|e| {
+            McpError::internal_error(
+                format!("Failed to start event pipe server: {e}"),
+                Some(json!({"error": e.to_string()})),
+            )
+        })?;
+
+        // Spawn a task to forward pipe events to the event_sender
+        let event_sender_clone = event_sender.clone();
+        tokio::spawn(async move {
+            while let Some(event) = pipe_rx.recv().await {
+                debug!(target: "run_command.event", "Received event from pipe: {:?}", event);
+
+                // Log events as structured data for OTEL
+                match &event {
+                    WorkflowEvent::Progress {
+                        current,
+                        total,
+                        message,
+                        ..
+                    } => {
+                        info!(
+                            target: "run_command.event",
+                            event_type = "progress",
+                            current = %current,
+                            total = ?total,
+                            "Progress: {}", message.as_deref().unwrap_or("...")
+                        );
+                    }
+                    WorkflowEvent::StepStarted {
+                        step_id, step_name, ..
+                    } => {
+                        info!(
+                            target: "run_command.event",
+                            event_type = "step_started",
+                            step_id = %step_id,
+                            step_name = %step_name,
+                            "Step started: {}", step_name
+                        );
+                    }
+                    WorkflowEvent::StepCompleted {
+                        step_id,
+                        step_name,
+                        duration,
+                        ..
+                    } => {
+                        info!(
+                            target: "run_command.event",
+                            event_type = "step_completed",
+                            step_id = %step_id,
+                            step_name = %step_name,
+                            duration_ms = ?duration,
+                            "Step completed: {}", step_name
+                        );
+                    }
+                    WorkflowEvent::StepFailed {
+                        step_id,
+                        step_name,
+                        error,
+                        ..
+                    } => {
+                        error!(
+                            target: "run_command.event",
+                            event_type = "step_failed",
+                            step_id = %step_id,
+                            step_name = %step_name,
+                            error = ?error,
+                            "Step failed: {}", step_name
+                        );
+                    }
+                    WorkflowEvent::Log { level, message, .. } => match level.as_str() {
+                        "error" => error!(target: "run_command.event", "{}", message),
+                        "warn" => warn!(target: "run_command.event", "{}", message),
+                        "debug" => debug!(target: "run_command.event", "{}", message),
+                        _ => info!(target: "run_command.event", "{}", message),
+                    },
+                    _ => {
+                        debug!(target: "run_command.event", "Event: {:?}", event);
+                    }
+                }
+
+                // Forward to event_sender
+                if let Some(ref sender) = event_sender_clone {
+                    if let Err(e) = sender.send(event) {
+                        debug!("Failed to forward workflow event: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
+
+        Some((handle, pipe_name))
+    } else {
+        None
+    };
+
+    #[cfg(not(windows))]
+    let pipe_server_handle: Option<((), String)> = None;
+
+    // Build command based on runtime type
+    let mut cmd = if runtime == "bun" && !is_batch_file {
         info!("[Node.js] Using direct bun execution");
-        // Bun can be executed directly if it's not a batch file
-        Command::new(&runtime_exe)
-            .current_dir(&process_working_dir)
-            .arg(&script_arg)
-            .envs(std::env::vars()) // Inherit parent environment (includes TERMINATOR_JS_USE_LOCAL)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
+        let mut c = Command::new(&runtime_exe);
+        c.current_dir(&process_working_dir).arg(&script_arg);
+        c
     } else if cfg!(windows) && is_batch_file {
         info!("[Node.js] Using cmd.exe for batch file execution on Windows");
-        // Use cmd.exe for batch files on Windows
-        Command::new("cmd")
-            .current_dir(&process_working_dir)
-            .args(["/c", &runtime_exe, &script_arg])
-            .envs(std::env::vars()) // Inherit parent environment (includes TERMINATOR_JS_USE_LOCAL)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
+        let mut c = Command::new("cmd");
+        c.current_dir(&process_working_dir)
+            .args(["/c", &runtime_exe, &script_arg]);
+        c
     } else if cfg!(windows) && runtime_exe.ends_with(".exe") {
         info!("[Node.js] Using direct .exe execution on Windows");
-        // Direct execution should work for .exe files
-        Command::new(&runtime_exe)
-            .current_dir(&process_working_dir)
-            .arg(&script_arg)
-            .envs(std::env::vars()) // Inherit parent environment (includes TERMINATOR_JS_USE_LOCAL)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
+        let mut c = Command::new(&runtime_exe);
+        c.current_dir(&process_working_dir).arg(&script_arg);
+        c
     } else {
         info!("[Node.js] Using direct execution");
-        Command::new(&runtime_exe)
-            .envs(std::env::vars()) // Inherit parent environment (includes TERMINATOR_JS_USE_LOCAL)
-            .current_dir(&process_working_dir)
-            .arg(&script_arg)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
+        let mut c = Command::new(&runtime_exe);
+        c.current_dir(&process_working_dir).arg(&script_arg);
+        c
+    };
+
+    // Inherit parent environment
+    cmd.envs(std::env::vars());
+
+    // Set the pipe path environment variable if we have a pipe server
+    #[cfg(windows)]
+    if let Some((_, ref pipe_name)) = pipe_server_handle {
+        cmd.env("MCP_EVENT_PIPE", pipe_name);
+        info!("[Node.js] Set MCP_EVENT_PIPE={}", pipe_name);
     }
-    .map_err(|e| {
+
+    // Configure stdio
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+    // Spawn the process
+    let mut child = cmd.spawn().map_err(|e| {
         error!("[Node.js] Failed to spawn {} process: {}", runtime, e);
         McpError::internal_error(
             format!("Failed to spawn {runtime} process"),
@@ -1347,6 +1505,12 @@ try {{
         script_dir.display()
     );
 
+    // Shutdown the pipe server (Windows only)
+    #[cfg(windows)]
+    if let Some((handle, _)) = pipe_server_handle {
+        handle.shutdown().await;
+    }
+
     if !status.success() {
         let exit_code = status.code();
         let stderr_combined = stderr_output.join("\n");
@@ -1434,11 +1598,15 @@ try {{
 /// * `cancellation_token` - Optional token to cancel execution
 /// * `working_dir` - Optional working directory for script execution
 /// * `log_buffer` - Optional shared buffer for real-time log capture (useful for timeout scenarios)
+/// * `event_sender` - Optional channel to send workflow events (for real-time streaming)
+/// * `execution_id` - Optional execution ID for named pipe identification
 pub async fn execute_typescript_with_nodejs(
     script: String,
     cancellation_token: Option<tokio_util::sync::CancellationToken>,
     working_dir: Option<PathBuf>,
     log_buffer: Option<ScriptLogBuffer>,
+    event_sender: Option<EventSender>,
+    execution_id: Option<&str>,
 ) -> Result<serde_json::Value, McpError> {
     use std::process::Stdio;
     use tokio::io::{AsyncBufReadExt, BufReader};
@@ -1594,6 +1762,46 @@ console.log('[TypeScript] Current working directory:', process.cwd());
         script_dir.clone()
     };
 
+    // Set up Windows named pipe for event streaming if event_sender is provided
+    #[cfg(windows)]
+    let pipe_server_handle = if event_sender.is_some() {
+        let exec_id = execution_id.unwrap_or("run-ts-command");
+        let (pipe_tx, mut pipe_rx) = create_event_channel();
+        let pipe_server = EventPipeServer::new(exec_id, pipe_tx);
+        let pipe_name = pipe_server.pipe_name().to_string();
+
+        // Start the pipe server
+        let handle = pipe_server.start().await.map_err(|e| {
+            McpError::internal_error(
+                format!("Failed to start event pipe server: {e}"),
+                Some(json!({"error": e.to_string()})),
+            )
+        })?;
+
+        // Spawn a task to forward pipe events to the event_sender
+        let event_sender_clone = event_sender.clone();
+        tokio::spawn(async move {
+            while let Some(event) = pipe_rx.recv().await {
+                debug!(target: "run_ts_command.event", "Received event from pipe: {:?}", event);
+
+                // Forward to event_sender
+                if let Some(ref sender) = event_sender_clone {
+                    if let Err(e) = sender.send(event) {
+                        debug!("Failed to forward workflow event: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
+
+        Some((handle, pipe_name))
+    } else {
+        None
+    };
+
+    #[cfg(not(windows))]
+    let pipe_server_handle: Option<((), String)> = None;
+
     let mut cmd = if runtime == "bun" {
         // Bun can run TypeScript directly
         let mut c = Command::new(runtime);
@@ -1615,6 +1823,13 @@ console.log('[TypeScript] Current working directory:', process.cwd());
     cmd.stderr(Stdio::piped());
     cmd.current_dir(&process_working_dir);
     cmd.env("TERMINATOR_PARENT_BRIDGE_PORT", "17373"); // Enable subprocess proxy mode
+
+    // Set the pipe path environment variable if we have a pipe server
+    #[cfg(windows)]
+    if let Some((_, ref pipe_name)) = pipe_server_handle {
+        cmd.env("MCP_EVENT_PIPE", pipe_name);
+        info!("[TypeScript] Set MCP_EVENT_PIPE={}", pipe_name);
+    }
 
     info!("[TypeScript] Executing command: {:?}", cmd);
 
@@ -1766,6 +1981,12 @@ console.log('[TypeScript] Current working directory:', process.cwd());
     } else {
         process_fut.await
     };
+
+    // Shutdown the pipe server (Windows only)
+    #[cfg(windows)]
+    if let Some((handle, _)) = pipe_server_handle {
+        handle.shutdown().await;
+    }
 
     // Clean up script file
     let _ = tokio::fs::remove_file(&script_path).await;
@@ -2542,6 +2763,12 @@ pub async fn execute_javascript_with_local_bindings(
     // Require the bindings index.js explicitly for maximum compatibility (Node/Bun)
     let bindings_entry_path = local_bindings_path.join("index.js");
     let bindings_abs_path = bindings_entry_path.to_string_lossy().replace('\\', "\\\\");
+    // Also resolve workflow package path (sibling to terminator-nodejs)
+    let workflow_path = local_bindings_path
+        .parent()
+        .map(|p| p.join("workflow"))
+        .unwrap_or_default();
+    let workflow_abs_path = workflow_path.to_string_lossy().replace('\\', "\\\\");
     let wrapper_script = format!(
         r#"
  const {{ Desktop }} = require("{bindings_abs_path}");
@@ -2551,10 +2778,34 @@ pub async fn execute_javascript_with_local_bindings(
  global.log = console.log;
  global.sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+ // Initialize workflow event emitter
+ try {{
+     const {{ emit, createStepEmitter }} = require("{workflow_abs_path}");
+     global.emit = emit;
+     global.createStepEmitter = createStepEmitter;
+ }} catch (e) {{
+     // Workflow package not available - provide no-op fallbacks
+     const noopEmit = {{
+         progress: () => {{}},
+         stepStarted: () => {{}},
+         stepCompleted: () => {{}},
+         stepFailed: () => {{}},
+         log: () => {{}},
+         data: () => {{}},
+         screenshot: () => {{}},
+         status: () => {{}},
+         raw: () => {{}}
+     }};
+     global.emit = noopEmit;
+     global.createStepEmitter = () => ({{ ...noopEmit }});
+ }}
+
  // Execute user script
  (async () => {{
      try {{
          const result = await (async () => {{
+             // Expose globals as local variables for user script
+             const {{ desktop, emit, createStepEmitter, log, sleep }} = global;
              {script}
          }})();
          
@@ -2736,5 +2987,112 @@ pub async fn execute_javascript_with_local_bindings(
             "No result received from Node.js process",
             None,
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Test that the wrapper script template includes global variable exposure
+    /// This ensures emit, desktop, etc. are accessible without 'global.' prefix
+    #[test]
+    fn test_wrapper_script_exposes_globals_as_local_variables() {
+        let script = "console.log('test')";
+
+        let wrapper_template = r#"
+            const result = await (async () => {
+                // Expose globals as local variables for user script
+                const { desktop, emit, createStepEmitter, log, sleep, createKVClient } = global;
+                SCRIPT_PLACEHOLDER
+            })();
+        "#;
+
+        let formatted = wrapper_template.replace("SCRIPT_PLACEHOLDER", script);
+
+        assert!(
+            formatted.contains(
+                "const { desktop, emit, createStepEmitter, log, sleep, createKVClient } = global;"
+            ),
+            "Wrapper script must expose globals as local variables"
+        );
+
+        assert!(
+            formatted.contains("console.log('test')"),
+            "User script must be injected into wrapper"
+        );
+    }
+
+    /// Test that emit.progress calls work when emit is exposed as local variable
+    #[test]
+    fn test_emit_accessible_in_user_script() {
+        let user_script = "emit.progress(1, 5, \"Starting...\");\nemit.status(\"Running\");\nawait desktop.delay(100);";
+
+        let wrapper_template = r#"
+            const result = await (async () => {
+                // Expose globals as local variables for user script
+                const { desktop, emit, createStepEmitter, log, sleep, createKVClient } = global;
+                SCRIPT_PLACEHOLDER
+            })();
+        "#;
+
+        let formatted = wrapper_template.replace("SCRIPT_PLACEHOLDER", user_script);
+
+        assert!(
+            formatted.contains("emit.progress(1, 5,"),
+            "emit.progress should be callable"
+        );
+        assert!(
+            formatted.contains("emit.status("),
+            "emit.status should be callable"
+        );
+        assert!(
+            formatted.contains("await desktop.delay("),
+            "desktop should be accessible"
+        );
+    }
+
+    /// Test that all expected globals are exposed
+    #[test]
+    fn test_all_globals_exposed() {
+        let expected_globals = vec![
+            "desktop",
+            "emit",
+            "createStepEmitter",
+            "log",
+            "sleep",
+            "createKVClient",
+        ];
+
+        let destructuring_line =
+            "const { desktop, emit, createStepEmitter, log, sleep, createKVClient } = global;";
+
+        for global in expected_globals {
+            assert!(
+                destructuring_line.contains(global),
+                "Global '{}' must be exposed as local variable",
+                global
+            );
+        }
+    }
+
+    /// Test backward compatibility - scripts using global.emit should still work
+    #[test]
+    fn test_global_prefix_still_works() {
+        let user_script =
+            "global.emit.progress(1, 5, \"Using global prefix\");\nglobal.desktop.delay(100);";
+
+        let wrapper_template = r#"
+            const result = await (async () => {
+                // Expose globals as local variables for user script
+                const { desktop, emit, createStepEmitter, log, sleep, createKVClient } = global;
+                SCRIPT_PLACEHOLDER
+            })();
+        "#;
+
+        let formatted = wrapper_template.replace("SCRIPT_PLACEHOLDER", user_script);
+
+        assert!(
+            formatted.contains("global.emit.progress"),
+            "global.emit syntax should still be valid"
+        );
     }
 }

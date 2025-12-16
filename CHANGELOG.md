@@ -7,6 +7,107 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.48] - 2025-12-15
+
+### Added
+- Workflow: Add `enabled` property to trigger configs (cron, manual, webhook)
+
+### Changed
+- CI: Remove crates.io publish workflow
+
+## [0.23.47] - 2025-12-15
+
+### Changed
+- CI: Publish all crates to crates.io in correct dependency order
+- CI: Remove Linux from CLI workflow (Windows-only)
+- CI: Remove Python CI/CD workflow
+
+### Fixed
+- Fix UiDiffOptions doc test (remove non-existent field)
+
+## [0.23.46] - 2025-12-15
+
+### Added
+- Workflow: Add context.data field for workflow output data (#431)
+
+### Fixed
+- Fix: add missing APIs to run_command description (openUrl, navigateBrowser, delay, etc.)
+- Fix: re-enable result.data assertions in onSuccess tests
+- Fix: replace deprecated logger with console in init templates
+- Fix: resolve log pipe race condition causing lost logs
+
+## [0.23.45] - 2025-12-15
+
+### Added
+- Workflow: Add trigger/cron scheduling support for TypeScript workflows (#427)
+- MCP: Add named pipe logging for TypeScript workflows (#416)
+- MCP: Add gitignore-aware file search and improved dropdown error messages (#420)
+
+### Changed
+- MCP: Prompt improvements and execution logging (#419)
+- Docs: Improve verify_element and select_option documentation (#422)
+
+### Fixed
+- Fix tests
+- Fix: expose globals as local variables in JS wrapper script
+- Fix log pipe drain before process exit (#426)
+- Fix: save focus state before window activation in type_into_element (#425)
+- Element and input improvements (#424)
+- Focus restoration and prompt improvements (#423)
+- Clippy and fmt fixes
+
+## [0.23.43] - 2025-12-10
+
+### Changed
+- Version bump release
+
+## [0.23.42] - 2025-12-10
+
+### Changed
+- Version bump release
+
+## [0.23.41] - 2025-12-10
+
+### Added
+- MCP: Scripting engine enhancements
+- Workflow: Add event tests
+
+## [0.23.40] - 2025-12-10
+
+### Added
+- MCP: Enhance event pipe and workflow events
+
+## [0.23.39] - 2025-12-10
+
+### Added
+- Workflow: Add screenshot emit test
+- MCP: Add screenshot collection from workflow events with metadata
+- Examples: Add strip-ui-styles example for CSS removal
+- Core: Focus restore tests and strip-styles improvements
+
+### Changed
+- Build: Static VC runtime linking for terminator-nodejs
+- Core: Refactor and debug improvements
+
+### Fixed
+- Clippy warnings and errors
+- Missing trait implementations
+
+## [0.23.38] - 2025-12-10
+
+### Added
+- MCP: Add workflow event streaming support with Windows named pipes IPC
+- MCP: Add `emit` API to TypeScript workflows for real-time progress updates
+- MCP: Add event streaming to `run_command` tool (event_sender, execution_id params)
+- SDK: Add `@mediar-ai/workflow` events module with `emit.progress()`, `emit.stepStarted()`, `emit.stepCompleted()`, etc.
+- SDK: Add `createStepEmitter()` for scoped event emission with auto-prefixed step context
+- Core: Add `get_value()` API for retrieving element values (#407)
+- Core: Move `type_into_element` auto-verification to core library (#408)
+
+### Changed
+- MCP: Use Windows named pipes instead of stderr JSON parsing for cleaner event IPC
+- Build: Bundle bun runtime support for workflows (#407)
+
 ## [0.23.36] - 2025-12-04
 
 ### Added

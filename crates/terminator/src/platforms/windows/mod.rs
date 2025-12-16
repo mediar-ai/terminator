@@ -14,6 +14,7 @@ pub mod tree_builder;
 pub mod types;
 pub mod utils;
 pub mod virtual_display;
+pub mod window_manager;
 
 // Re-export the main types that external code needs
 pub use element::WindowsUIElement;
@@ -24,10 +25,10 @@ pub use types::{FontStyle, HighlightHandle, TextPosition};
 pub use utils::{convert_uiautomation_element_to_terminator, generate_element_id};
 
 // Re-export from applications module
-pub use applications::get_process_name_by_pid;
+pub use applications::{get_process_name_by_pid, is_browser_process, KNOWN_BROWSER_PROCESS_NAMES};
 
 // Re-export highlighting control functions
-pub use highlighting::set_recording_mode;
+pub use highlighting::{set_recording_mode, stop_all_highlights};
 
 // Re-export inspect overlay functions
 pub use inspect_overlay::{
@@ -39,3 +40,9 @@ pub use inspect_overlay::{
 pub use virtual_display::{
     is_headless_environment, HeadlessConfig, VirtualDisplayConfig, VirtualDisplayManager,
 };
+
+// Re-export window manager
+pub use window_manager::{WindowCache, WindowInfo, WindowManager, WindowPlacement};
+
+// Re-export input functions
+pub use input::{restore_focus_state, save_focus_state, send_mouse_click, FocusState};

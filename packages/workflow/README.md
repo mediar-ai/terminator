@@ -24,7 +24,7 @@ const openApp = createStep({
   name: 'Open Notepad',
   execute: async ({ desktop }) => {
     desktop.openApplication('notepad');
-    await desktop.wait(2000);
+    await desktop.delay(2000);
   },
 });
 
@@ -32,8 +32,8 @@ const typeGreeting = createStep({
   id: 'type-greeting',
   name: 'Type Greeting',
   execute: async ({ desktop, input }) => {
-    const textbox = desktop.locator('role:Edit');
-    await textbox.type(`Hello, ${input.userName}!`);
+    const textbox = await desktop.locator('role:Edit').first(2000);
+    await textbox.typeText(`Hello, ${input.userName}!`);
   },
 });
 
@@ -87,18 +87,18 @@ const step = createStep({
 
 ### ✅ Context Sharing
 
-Share data between steps:
+Share state between steps using `return { state: {...} }`:
 
 ```typescript
 const step1 = createStep({
   execute: async ({ context }) => {
-    context.data = { userId: 123 };
+    return { state: { userId: 123 } };
   },
 });
 
 const step2 = createStep({
   execute: async ({ context }) => {
-    console.log(context.data.userId); // 123
+    console.log(context.state.userId); // 123
   },
 });
 ```
@@ -163,12 +163,112 @@ Creates a workflow builder.
 - `.onError(handler)` - Set error handler
 - `.build()` - Build the workflow
 
+## Control Flow
+
+### Early Success
+
+Complete the workflow early and skip remaining steps:
+
+```typescript
+import { createStep, success } from '@mediar-ai/workflow';
+
+const checkFiles = createStep({
+  id: 'check-files',
+  name: 'Check Files',
+  execute: async () => {
+    if (noFilesFound) {
+      return success({
+        message: 'No files to process',
+        data: { filesChecked: 0 }
+      });
+    }
+    return { state: { hasFiles: true } };
+  },
+});
+```
+
+### Step Navigation
+
+Jump to a specific step:
+
+```typescript
+import { createStep, next } from '@mediar-ai/workflow';
+
+const checkDuplicate = createStep({
+  id: 'check-duplicate',
+  name: 'Check Duplicate',
+  execute: async ({ context }) => {
+    if (context.state.isDuplicate) {
+      return next('handle_duplicate'); // Jump to handle_duplicate step
+    }
+    return { state: { checked: true } };
+  },
+});
+```
+
+### Retry from Execute
+
+Retry the current step:
+
+```typescript
+import { createStep, retry } from '@mediar-ai/workflow';
+
+const clickButton = createStep({
+  id: 'click-button',
+  name: 'Click Button',
+  execute: async ({ desktop }) => {
+    const button = await desktop.locator('role:Button').first(1000);
+    if (!button) {
+      return retry(); // Re-execute this step
+    }
+    await button.click();
+  },
+});
+```
+
+### Automatic Retries
+
+Use `retries` for simple retry logic with exponential backoff:
+
+```typescript
+const flakyStep = createStep({
+  id: 'flaky-step',
+  name: 'Flaky Operation',
+  retries: 3,        // Retry up to 3 times
+  retryDelayMs: 1000, // Start with 1s delay (doubles each retry)
+  execute: async ({ desktop }) => {
+    await desktop.locator('role:Button').first(2000);
+  },
+});
+```
+
+### Post-Execution Validation
+
+Validate step outcomes with `expect`:
+
+```typescript
+const submitForm = createStep({
+  id: 'submit-form',
+  name: 'Submit Form',
+  execute: async ({ desktop }) => {
+    await desktop.locator('role:Button|name:Submit').first(2000);
+  },
+  expect: async ({ desktop }) => {
+    const successMsg = await desktop.locator('name:Success').first(3000);
+    return {
+      success: !!successMsg,
+      message: successMsg ? 'Form submitted' : 'Success message not found',
+    };
+  },
+});
+```
+
 ## Examples
 
-See `examples/typescript-workflow/` for complete examples:
+See `examples/simple_notepad_workflow/` for a complete example:
 
-- `simple-workflow.ts` - Basic pattern
-- `production-workflow.ts` - Real-world with error recovery
+- `src/terminator.ts` - Main workflow definition
+- `src/steps/` - Individual step modules
 
 ## License
 

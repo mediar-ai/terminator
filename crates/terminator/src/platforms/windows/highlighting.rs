@@ -441,7 +441,14 @@ unsafe extern "system" fn overlay_window_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
+    use windows::Win32::UI::WindowsAndMessaging::{DestroyWindow, WM_CLOSE};
+
     match msg {
+        WM_CLOSE => {
+            // Handle WM_CLOSE by destroying the window
+            let _ = DestroyWindow(hwnd);
+            LRESULT(0)
+        }
         WM_DESTROY => LRESULT(0),
         WM_PAINT => {
             // On paint, redraw a basic border without text as a best-effort fallback
@@ -470,4 +477,69 @@ fn cleanup_previous_overlay() {
 /// Cleans up the current overlay window and clears thread-local storage
 fn cleanup_overlay_window() {
     cleanup_previous_overlay();
+}
+
+/// Stops all active highlight overlay windows globally.
+/// Uses Windows API to find and close all windows with the TerminatorHighlightOverlay class.
+/// Returns the number of highlights that were stopped.
+pub fn stop_all_highlights() -> usize {
+    use windows::Win32::UI::WindowsAndMessaging::{FindWindowExW, SendMessageW, WM_CLOSE};
+
+    let mut stopped = 0usize;
+
+    unsafe {
+        // First, collect all overlay window handles
+        let mut windows_to_close: Vec<HWND> = Vec::new();
+        let mut prev_hwnd = HWND::default();
+
+        // Use FindWindowExW to enumerate all windows of this class
+        loop {
+            let result = FindWindowExW(None, Some(prev_hwnd), OVERLAY_CLASS_NAME, None);
+            let hwnd = match result {
+                Ok(h) => h,
+                Err(e) => {
+                    debug!(
+                        "FindWindowExW returned error (expected when no more windows): {:?}",
+                        e
+                    );
+                    break;
+                }
+            };
+            if hwnd.is_invalid() || hwnd.0.is_null() {
+                debug!("FindWindowExW returned invalid HWND, stopping enumeration");
+                break;
+            }
+            debug!(
+                "FindWindowExW found overlay window {:?}, prev was {:?}",
+                hwnd.0, prev_hwnd.0
+            );
+            windows_to_close.push(hwnd);
+            prev_hwnd = hwnd;
+
+            // Safety limit
+            if windows_to_close.len() > 100 {
+                debug!("Hit safety limit of 100 windows");
+                break;
+            }
+        }
+
+        debug!(
+            "stop_all_highlights: found {} overlay windows",
+            windows_to_close.len()
+        );
+
+        // Now close all of them using SendMessageW which invokes window proc directly
+        // (PostMessageW won't work because these windows don't have a message loop)
+        for hwnd in windows_to_close {
+            SendMessageW(hwnd, WM_CLOSE, Some(WPARAM(0)), Some(LPARAM(0)));
+            stopped += 1;
+            debug!("Sent WM_CLOSE to highlight overlay window {:?}", hwnd.0);
+        }
+    }
+
+    if stopped > 0 {
+        debug!("stop_all_highlights: stopped {} overlay windows", stopped);
+    }
+
+    stopped
 }

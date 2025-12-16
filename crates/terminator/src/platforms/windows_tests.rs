@@ -446,6 +446,11 @@ fn test_unified_tree_api_with_config() {
         batch_size: Some(50),
         max_depth: None,
         include_all_bounds: false,
+        ui_settle_delay_ms: None,
+        format_output: false,
+        show_overlay: false,
+        overlay_display_mode: None,
+        from_selector: None,
     };
 
     let start_fast = std::time::Instant::now();
@@ -460,6 +465,11 @@ fn test_unified_tree_api_with_config() {
         batch_size: Some(25),
         max_depth: None,
         include_all_bounds: false,
+        ui_settle_delay_ms: None,
+        format_output: false,
+        show_overlay: false,
+        overlay_display_mode: None,
+        from_selector: None,
     };
 
     let start_full = std::time::Instant::now();

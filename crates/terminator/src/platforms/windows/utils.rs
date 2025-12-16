@@ -120,6 +120,7 @@ pub(crate) fn map_generic_role_to_win_roles(role: &str) -> ControlType {
         "button" => ControlType::Button,
         "checkbox" => ControlType::CheckBox,
         "menu" => ControlType::Menu,
+        "menubar" => ControlType::MenuBar,
         "menuitem" => ControlType::MenuItem,
         "text" => ControlType::Text,
         "tree" => ControlType::Tree,

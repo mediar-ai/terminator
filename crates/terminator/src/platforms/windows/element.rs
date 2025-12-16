@@ -1,5 +1,6 @@
 //! Windows UI Element implementation
 
+use super::input::{restore_focus_state, save_focus_state};
 use super::types::{FontStyle, HighlightHandle, TextPosition, ThreadSafeWinUIElement};
 use super::utils::{create_ui_automation_with_com_init, generate_element_id};
 use crate::element::UIElementImpl;
@@ -48,7 +49,7 @@ impl ScrollFallback for WindowsUIElement {
                     let times = (amount * 6.0).round().max(3.0) as usize; // ~3-5 arrow key presses
                     let key = if direction == "up" { "{up}" } else { "{down}" };
                     for _ in 0..times {
-                        self.press_key(key, true, true)?;
+                        self.press_key(key, true, true, false)?;
                         std::thread::sleep(std::time::Duration::from_millis(10));
                     }
                 } else {
@@ -60,7 +61,7 @@ impl ScrollFallback for WindowsUIElement {
                         "{page_down}"
                     };
                     for _ in 0..times {
-                        self.press_key(key, true, true)?;
+                        self.press_key(key, true, true, false)?;
                     }
                 }
             }
@@ -76,7 +77,7 @@ impl ScrollFallback for WindowsUIElement {
                     "{right}"
                 };
                 for _ in 0..times {
-                    self.press_key(key, true, true)?;
+                    self.press_key(key, true, true, false)?;
                     if use_arrow_keys {
                         std::thread::sleep(std::time::Duration::from_millis(10));
                     }
@@ -288,6 +289,7 @@ impl WindowsUIElement {
             action: action_name.to_string(),
             details,
             data: extra_data,
+            verification: None,
         })
     }
 
@@ -379,73 +381,25 @@ impl WindowsUIElement {
         }
     }
 
-    // Helper: Execute physical mouse click
-    fn execute_mouse_click(&self, x: f64, y: f64) -> Result<(), AutomationError> {
-        use windows::Win32::UI::Input::KeyboardAndMouse::{
-            SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN,
-            MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE, MOUSEINPUT,
-        };
-        use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+    // Helper: Execute physical mouse click (delegates to shared input module)
+    fn execute_mouse_click(
+        &self,
+        x: f64,
+        y: f64,
+        restore_cursor: bool,
+    ) -> Result<(), AutomationError> {
+        super::input::send_mouse_click(x, y, crate::ClickType::Left, restore_cursor)
+    }
 
-        unsafe {
-            let screen_width = GetSystemMetrics(SM_CXSCREEN) as f64;
-            let screen_height = GetSystemMetrics(SM_CYSCREEN) as f64;
-
-            let abs_x = ((x * 65535.0) / screen_width) as i32;
-            let abs_y = ((y * 65535.0) / screen_height) as i32;
-
-            let inputs = [
-                INPUT {
-                    r#type: INPUT_MOUSE,
-                    Anonymous: INPUT_0 {
-                        mi: MOUSEINPUT {
-                            dx: abs_x,
-                            dy: abs_y,
-                            mouseData: 0,
-                            dwFlags: MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE,
-                            time: 0,
-                            dwExtraInfo: 0,
-                        },
-                    },
-                },
-                INPUT {
-                    r#type: INPUT_MOUSE,
-                    Anonymous: INPUT_0 {
-                        mi: MOUSEINPUT {
-                            dx: abs_x,
-                            dy: abs_y,
-                            mouseData: 0,
-                            dwFlags: MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTDOWN,
-                            time: 0,
-                            dwExtraInfo: 0,
-                        },
-                    },
-                },
-                INPUT {
-                    r#type: INPUT_MOUSE,
-                    Anonymous: INPUT_0 {
-                        mi: MOUSEINPUT {
-                            dx: abs_x,
-                            dy: abs_y,
-                            mouseData: 0,
-                            dwFlags: MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTUP,
-                            time: 0,
-                            dwExtraInfo: 0,
-                        },
-                    },
-                },
-            ];
-
-            let result = SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
-
-            if result != 3 {
-                return Err(AutomationError::PlatformError(format!(
-                    "SendInput sent only {result} of 3 events"
-                )));
-            }
-        }
-
-        Ok(())
+    /// Execute mouse click with specified click type at given coordinates (delegates to shared input module)
+    fn execute_mouse_click_with_type(
+        &self,
+        x: f64,
+        y: f64,
+        click_type: crate::ClickType,
+        restore_cursor: bool,
+    ) -> Result<(), AutomationError> {
+        super::input::send_mouse_click(x, y, click_type, restore_cursor)
     }
 }
 
@@ -669,7 +623,7 @@ impl UIElementImpl for WindowsUIElement {
             click_y,
             path_used
         );
-        self.execute_mouse_click(click_x, click_y)?;
+        self.execute_mouse_click(click_x, click_y, false)?;
 
         // PHASE 5: POST-ACTION VERIFICATION
         // Removed 200ms delay - relying on tree capture delay instead
@@ -731,6 +685,55 @@ impl UIElementImpl for WindowsUIElement {
             .right_click(point)
             .map_err(|e| AutomationError::PlatformError(e.to_string()))?;
         Ok(())
+    }
+
+    fn click_at_position(
+        &self,
+        x_pct: u8,
+        y_pct: u8,
+        click_type: crate::ClickType,
+    ) -> Result<ClickResult, AutomationError> {
+        let click_start = std::time::Instant::now();
+
+        // Validate element is clickable
+        self.validate_clickable()?;
+
+        // Get bounds and calculate click position
+        let bounds = self.bounds()?;
+        let click_x = bounds.0 + bounds.2 * x_pct as f64 / 100.0;
+        let click_y = bounds.1 + bounds.3 * y_pct as f64 / 100.0;
+
+        // Try to focus first
+        let _ = self.element.0.try_focus();
+
+        // Execute click at position
+        self.execute_mouse_click_with_type(click_x, click_y, click_type, false)?;
+
+        let click_type_str = match click_type {
+            crate::ClickType::Left => "Left",
+            crate::ClickType::Double => "Double",
+            crate::ClickType::Right => "Right",
+        };
+
+        let details = format!(
+            "{}Click at {}%,{}% within bounds ({:.0}, {:.0}, {:.0}, {:.0}); duration_ms={}",
+            click_type_str,
+            x_pct,
+            y_pct,
+            bounds.0,
+            bounds.1,
+            bounds.2,
+            bounds.3,
+            click_start.elapsed().as_millis()
+        );
+
+        tracing::info!("click_at_position completed: {}", details);
+
+        Ok(ClickResult {
+            method: format!("PositionClick({}%, {}%)", x_pct, y_pct),
+            coordinates: Some((click_x, click_y)),
+            details,
+        })
     }
 
     fn hover(&self) -> Result<(), AutomationError> {
@@ -1055,7 +1058,15 @@ impl UIElementImpl for WindowsUIElement {
         use_clipboard: bool,
         try_focus_before: bool,
         try_click_before: bool,
+        restore_focus: bool,
     ) -> Result<(), AutomationError> {
+        // Save focus state before typing if restore is requested
+        let saved_focus = if restore_focus {
+            save_focus_state()
+        } else {
+            None
+        };
+
         // Attempt to focus/click before typing based on parameters
         // try_focus_before: Try to focus the element first (default: true)
         // try_click_before: If focus fails, try clicking as fallback (default: true)
@@ -1094,7 +1105,7 @@ impl UIElementImpl for WindowsUIElement {
             control_type, use_clipboard
         );
 
-        if use_clipboard {
+        let result = if use_clipboard {
             // Try clipboard typing first
             match self.element.0.send_text_by_clipboard(text) {
                 Ok(()) => Ok(()),
@@ -1116,7 +1127,14 @@ impl UIElementImpl for WindowsUIElement {
                 .0
                 .send_text(text, 10)
                 .map_err(|e| AutomationError::PlatformError(e.to_string()))
+        };
+
+        // Restore focus state after typing if we saved it
+        if let Some(state) = saved_focus {
+            restore_focus_state(state);
         }
+
+        result
     }
 
     fn press_key(
@@ -1124,7 +1142,15 @@ impl UIElementImpl for WindowsUIElement {
         key: &str,
         try_focus_before: bool,
         try_click_before: bool,
+        restore_focus: bool,
     ) -> Result<(), AutomationError> {
+        // Save focus state before pressing key if restore is requested
+        let saved_focus = if restore_focus {
+            save_focus_state()
+        } else {
+            None
+        };
+
         // Attempt to focus/click before pressing key based on parameters
         // try_focus_before: Try to focus the element first (default: true)
         // try_click_before: If focus fails, try clicking as fallback (default: true)
@@ -1169,10 +1195,18 @@ impl UIElementImpl for WindowsUIElement {
             let _ = self.element.0.send_keys("{END}", 10);
         }
 
-        self.element
+        let result = self
+            .element
             .0
             .send_keys(key, 10)
-            .map_err(|e| AutomationError::PlatformError(format!("Failed to press key: {e:?}")))
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to press key: {e:?}")));
+
+        // Restore focus state after pressing key if we saved it
+        if let Some(state) = saved_focus {
+            restore_focus_state(state);
+        }
+
+        result
     }
 
     fn get_text(&self, max_depth: usize) -> Result<String, AutomationError> {
@@ -1272,6 +1306,23 @@ impl UIElementImpl for WindowsUIElement {
         value_par
             .set_value(value)
             .map_err(|e| AutomationError::PlatformError(e.to_string()))
+    }
+
+    fn get_value(&self) -> Result<Option<String>, AutomationError> {
+        // Try to get the ValuePattern - if element doesn't support it, return None
+        match self.element.0.get_pattern::<patterns::UIValuePattern>() {
+            Ok(value_pattern) => match value_pattern.get_value() {
+                Ok(value) => Ok(Some(value)),
+                Err(e) => {
+                    debug!("Failed to get value from ValuePattern: {}", e);
+                    Ok(None)
+                }
+            },
+            Err(_) => {
+                // Element doesn't support ValuePattern - this is normal for many elements
+                Ok(None)
+            }
+        }
     }
 
     fn is_enabled(&self) -> Result<bool, AutomationError> {
@@ -2217,14 +2268,27 @@ impl UIElementImpl for WindowsUIElement {
                         option_name.into(),
                         None,
                     )
-                    .map_err(|e| AutomationError::PlatformError(
-                        format!("Failed to create Name condition for option '{}' at {}:{}: {:?}",
-                               option_name, file!(), line!(), e)
-                    ))?,
+                    .map_err(|e| {
+                        AutomationError::PlatformError(format!(
+                            "Failed to create Name condition for option '{}' at {}:{}: {:?}",
+                            option_name,
+                            file!(),
+                            line!(),
+                            e
+                        ))
+                    })?,
             )
-            .map_err(|e| {
+            .map_err(|_| {
+                // Collect available options to help user find the correct name
+                let available_options = self.collect_dropdown_options(&automation);
+                let options_hint = if available_options.is_empty() {
+                    "No options found - dropdown may not be expanded or has no selectable items."
+                        .to_string()
+                } else {
+                    format!("Available options: {}", available_options.join(", "))
+                };
                 AutomationError::ElementNotFound(format!(
-                    "Option '{option_name}' not found in dropdown. Make sure the dropdown is expanded and the option name is exact. Error: {e}"
+                    "Option '{option_name}' not found in dropdown. {options_hint}"
                 ))
             })?;
 
@@ -2498,7 +2562,7 @@ impl UIElementImpl for WindowsUIElement {
         if from_min_dist <= from_max_dist {
             // Go to min and step up.
             debug!("Moving from min. Resetting to HOME.");
-            self.press_key("{home}", true, true)?;
+            self.press_key("{home}", true, true, false)?;
             std::thread::sleep(std::time::Duration::from_millis(50));
             let num_steps = (from_min_dist / small_change).round() as u32;
             debug!(
@@ -2506,14 +2570,14 @@ impl UIElementImpl for WindowsUIElement {
                 num_steps, target_value
             );
             for i in 0..num_steps {
-                self.press_key("{right}", true, true)?;
+                self.press_key("{right}", true, true, false)?;
                 std::thread::sleep(std::time::Duration::from_millis(10));
                 debug!("Step {}/{}: Pressed RIGHT", i + 1, num_steps);
             }
         } else {
             // Go to max and step down.
             debug!("Moving from max. Resetting to END.");
-            self.press_key("{end}", true, true)?;
+            self.press_key("{end}", true, true, false)?;
             std::thread::sleep(std::time::Duration::from_millis(50));
             let num_steps = (from_max_dist / small_change).round() as u32;
             debug!(
@@ -2521,7 +2585,7 @@ impl UIElementImpl for WindowsUIElement {
                 num_steps, target_value
             );
             for i in 0..num_steps {
-                self.press_key("{left}", true, true)?;
+                self.press_key("{left}", true, true, false)?;
                 std::thread::sleep(std::time::Duration::from_millis(10));
                 debug!("Step {}/{}: Pressed LEFT", i + 1, num_steps);
             }
@@ -2650,7 +2714,7 @@ impl UIElementImpl for WindowsUIElement {
         let key_str = key.to_string();
         self.execute_with_state_tracking(
             "press_key",
-            |elem| elem.press_key(&key_str, try_focus_before, try_click_before),
+            |elem| elem.press_key(&key_str, try_focus_before, try_click_before, false),
             Some(serde_json::json!({"key": key_str, "try_focus_before": try_focus_before, "try_click_before": try_click_before})),
         )
     }
@@ -2676,11 +2740,42 @@ impl UIElementImpl for WindowsUIElement {
     ) -> Result<crate::ActionResult, AutomationError> {
         let text_str = text.to_string();
         let clipboard = use_clipboard;
-        self.execute_with_state_tracking(
+        let mut result = self.execute_with_state_tracking(
             "type_text",
-            |elem| elem.type_text(&text_str, clipboard, try_focus_before, try_click_before),
+            |elem| elem.type_text(&text_str, clipboard, try_focus_before, try_click_before, false),
             Some(serde_json::json!({"text": text_str, "use_clipboard": clipboard, "try_focus_before": try_focus_before, "try_click_before": try_click_before})),
-        )
+        )?;
+
+        // Auto-verify by reading the value back
+        result.verification = match self.get_value() {
+            Ok(Some(actual)) => {
+                let passed = actual.contains(text);
+                Some(crate::TypeVerification {
+                    passed,
+                    expected: text.to_string(),
+                    actual: Some(actual),
+                    error: if passed {
+                        None
+                    } else {
+                        Some("Value does not contain expected text".to_string())
+                    },
+                })
+            }
+            Ok(None) => Some(crate::TypeVerification {
+                passed: true, // Can't verify, assume success
+                expected: text.to_string(),
+                actual: None,
+                error: None,
+            }),
+            Err(e) => Some(crate::TypeVerification {
+                passed: true, // Can't verify, assume success
+                expected: text.to_string(),
+                actual: None,
+                error: Some(format!("Could not read value: {}", e)),
+            }),
+        };
+
+        Ok(result)
     }
 
     fn scroll_with_state(
@@ -2715,5 +2810,40 @@ impl UIElementImpl for WindowsUIElement {
 }
 
 impl WindowsUIElement {
-    // No more CDP stuff - using direct browser automation now
+    /// Collect available option names from dropdown descendants (ListItem, MenuItem roles)
+    fn collect_dropdown_options(&self, automation: &UIAutomation) -> Vec<String> {
+        let mut options = Vec::new();
+
+        // Try to find ListItem or MenuItem children which are typical dropdown options
+        if let Ok(true_condition) = automation.create_true_condition() {
+            if let Ok(descendants) = self
+                .element
+                .0
+                .find_all(TreeScope::Descendants, &true_condition)
+            {
+                for item in descendants {
+                    // Check if it's a selectable item (ListItem, MenuItem, etc.)
+                    if let Ok(control_type) = item.get_control_type() {
+                        let is_option = matches!(
+                            control_type,
+                            uiautomation::types::ControlType::ListItem
+                                | uiautomation::types::ControlType::MenuItem
+                                | uiautomation::types::ControlType::TreeItem
+                        );
+                        if is_option {
+                            if let Ok(name) = item.get_name() {
+                                if !name.is_empty() {
+                                    options.push(format!("'{}'", name));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Limit to first 10 to avoid huge error messages
+        options.truncate(10);
+        options
+    }
 }

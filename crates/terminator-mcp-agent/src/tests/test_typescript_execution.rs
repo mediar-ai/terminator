@@ -11,7 +11,7 @@ mod typescript_execution_tests {
             return { status: 'success', value: 42 };
         "#;
 
-        let result = execute_typescript_with_nodejs(script.to_string(), None, None).await;
+        let result = execute_typescript_with_nodejs(script.to_string(), None, None, None, None, None).await;
 
         assert!(result.is_ok(), "TypeScript execution should succeed");
         let value = result.unwrap();
@@ -28,7 +28,7 @@ mod typescript_execution_tests {
             return { status: 'async_success', timestamp: Date.now() };
         "#;
 
-        let result = execute_typescript_with_nodejs(script.to_string(), None, None).await;
+        let result = execute_typescript_with_nodejs(script.to_string(), None, None, None, None, None).await;
 
         assert!(result.is_ok(), "TypeScript async execution should succeed");
         let value = result.unwrap();
@@ -44,7 +44,7 @@ mod typescript_execution_tests {
             // No explicit return
         "#;
 
-        let result = execute_typescript_with_nodejs(script.to_string(), None, None).await;
+        let result = execute_typescript_with_nodejs(script.to_string(), None, None, None, None, None).await;
 
         assert!(result.is_ok(), "TypeScript execution should succeed even without return");
         let value = result.unwrap();
@@ -62,7 +62,7 @@ mod typescript_execution_tests {
 
         // This test would need access to the captured logs
         // For now just test that execution succeeds
-        let result = execute_typescript_with_nodejs(script.to_string(), None, None).await;
+        let result = execute_typescript_with_nodejs(script.to_string(), None, None, None, None, None).await;
 
         assert!(result.is_ok(), "TypeScript execution with console output should succeed");
         let value = result.unwrap();
@@ -76,7 +76,7 @@ mod typescript_execution_tests {
             throw new Error('Test error');
         "#;
 
-        let result = execute_typescript_with_nodejs(script.to_string(), None, None).await;
+        let result = execute_typescript_with_nodejs(script.to_string(), None, None, None, None, None).await;
 
         assert!(result.is_err(), "TypeScript execution should fail on error");
         let error = result.unwrap_err();
@@ -100,8 +100,8 @@ mod typescript_execution_tests {
         "#;
 
         // Test both engines with same script
-        let ts_result = execute_typescript_with_nodejs(test_script.to_string(), None, None).await;
-        let js_result = execute_javascript_with_nodejs(test_script.to_string(), None, None).await;
+        let ts_result = execute_typescript_with_nodejs(test_script.to_string(), None, None, None, None, None).await;
+        let js_result = execute_javascript_with_nodejs(test_script.to_string(), None, None, None, None, None).await;
 
         assert!(ts_result.is_ok(), "TypeScript should succeed");
         assert!(js_result.is_ok(), "JavaScript should succeed");
