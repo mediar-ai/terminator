@@ -64,6 +64,35 @@ We achieve this by pre-training workflows as deterministic code, and calling AI 
 
 **Note:** Terminator currently supports Windows only. macOS and Linux support is not available.
 
+## 🤖 Computer Use MCP that controls your entire desktop
+
+Give AI assistants (Claude, Cursor, VS Code, etc.) the ability to control your desktop and automate tasks across any application.
+
+**Claude Code (one-liner):**
+```bash
+claude mcp add terminator "npx -y terminator-mcp-agent@latest"
+```
+
+**Other clients (Cursor, VS Code, Windsurf, etc.):**
+
+Add to your MCP config file:
+```json
+{
+  "mcpServers": {
+    "terminator-mcp-agent": {
+      "command": "npx",
+      "args": ["-y", "terminator-mcp-agent@latest"],
+      "env": {
+        "LOG_LEVEL": "info",
+        "RUST_BACKTRACE": "1"
+      }
+    }
+  }
+}
+```
+
+See the [MCP Agent README](https://github.com/mediar-ai/terminator/tree/main/terminator-mcp-agent) for detailed setup instructions.
+
 ## 📥 Installation for technical users
 
 ### Terminator CLI
@@ -77,18 +106,6 @@ bunx @mediar-ai/cli --help
 # Or install globally
 npm install -g @mediar-ai/cli
 ```
-
-### Want AI Automation with Claude Code? 
-
-Install the Terminator MCP in Claude Code:
-
-```bash
-claude mcp add terminator "npx -y terminator-mcp-agent@latest" -s user
-```
-
-Or install via the [MCP directory](https://github.com/mediar-ai/terminator/tree/main/terminator-mcp-agent) for other clients (Cursor, VS Code, etc.).
-
-**What this does:** Gives AI assistants the ability to control your desktop and automate tasks across any application.
 
 ## Feature Support
 
