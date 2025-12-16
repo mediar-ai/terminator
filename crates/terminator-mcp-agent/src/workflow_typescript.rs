@@ -104,73 +104,41 @@ fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<(), McpError> {
         )
     })?;
 
-    // On Windows, use robocopy for better performance and symlink handling
-    #[cfg(target_os = "windows")]
-    {
-        let output = Command::new("robocopy")
-            .arg(src)
-            .arg(dst)
-            .arg("/E") // Copy subdirectories, including empty ones
-            .arg("/NFL") // No file list
-            .arg("/NDL") // No directory list
-            .arg("/NJH") // No job header
-            .arg("/NJS") // No job summary
-            .arg("/nc") // No class
-            .arg("/ns") // No size
-            .arg("/np") // No progress
-            .output()
-            .map_err(|e| {
-                McpError::internal_error(
-                    format!("Failed to execute robocopy: {e}"),
-                    Some(json!({"error": e.to_string()})),
-                )
-            })?;
+    // Use robocopy for better performance and symlink handling
+    let output = Command::new("robocopy")
+        .arg(src)
+        .arg(dst)
+        .arg("/E") // Copy subdirectories, including empty ones
+        .arg("/NFL") // No file list
+        .arg("/NDL") // No directory list
+        .arg("/NJH") // No job header
+        .arg("/NJS") // No job summary
+        .arg("/nc") // No class
+        .arg("/ns") // No size
+        .arg("/np") // No progress
+        .output()
+        .map_err(|e| {
+            McpError::internal_error(
+                format!("Failed to execute robocopy: {e}"),
+                Some(json!({"error": e.to_string()})),
+            )
+        })?;
 
-        // robocopy exit codes: 0-7 are success, 8+ are errors
-        let exit_code = output.status.code().unwrap_or(16);
-        if exit_code >= 8 {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(McpError::internal_error(
-                format!("Robocopy failed with exit code {exit_code}: {stderr}"),
-                Some(json!({
-                    "exit_code": exit_code,
-                    "stderr": stderr.to_string(),
-                })),
-            ));
-        }
-
-        debug!("Successfully copied directory using robocopy");
-        Ok(())
+    // robocopy exit codes: 0-7 are success, 8+ are errors
+    let exit_code = output.status.code().unwrap_or(16);
+    if exit_code >= 8 {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(McpError::internal_error(
+            format!("Robocopy failed with exit code {exit_code}: {stderr}"),
+            Some(json!({
+                "exit_code": exit_code,
+                "stderr": stderr.to_string(),
+            })),
+        ));
     }
 
-    // On Unix systems, use cp -r
-    #[cfg(not(target_os = "windows"))]
-    {
-        let output = Command::new("cp")
-            .arg("-r")
-            .arg(src)
-            .arg(dst)
-            .output()
-            .map_err(|e| {
-                McpError::internal_error(
-                    format!("Failed to execute cp: {e}"),
-                    Some(json!({"error": e.to_string()})),
-                )
-            })?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(McpError::internal_error(
-                format!("cp failed: {stderr}"),
-                Some(json!({
-                    "stderr": stderr.to_string(),
-                })),
-            ));
-        }
-
-        debug!("Successfully copied directory using cp");
-        Ok(())
-    }
+    debug!("Successfully copied directory using robocopy");
+    Ok(())
 }
 
 /// Clean up temporary directory
