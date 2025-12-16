@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.48] - 2025-12-15
+
+### Added
+- Workflow: Add `enabled` property to trigger configs (cron, manual, webhook)
+
+### Changed
+- CI: Remove crates.io publish workflow
+
 ## [0.23.47] - 2025-12-15
 
 ### Changed
