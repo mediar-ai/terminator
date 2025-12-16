@@ -9955,8 +9955,21 @@ impl ServerHandler for DesktopWrapper {
             self.desktop.reset_cancellation();
         }
 
-        // Log request before execution (direct MCP calls have no workflow context)
-        let log_ctx = execution_logger::log_request(&tool_name, &arguments, None, None, None);
+        // Log request before execution - extract workflow context from execute_sequence args
+        let (wf_id, step_id) = if tool_name == "execute_sequence" {
+            (
+                arguments.get("workflow_id").and_then(|v| v.as_str()),
+                arguments.get("start_from_step").and_then(|v| v.as_str()),
+            )
+        } else {
+            (None, None)
+        };
+        tracing::debug!(
+            "[call_tool] Logging with workflow_id={:?}, step_id={:?}",
+            wf_id,
+            step_id
+        );
+        let log_ctx = execution_logger::log_request(&tool_name, &arguments, wf_id, step_id, None);
         let start_time = std::time::Instant::now();
 
         // FOCUS RESTORATION: Extract restore_focus from arguments and save focus state BEFORE tool execution
