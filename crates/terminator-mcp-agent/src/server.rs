@@ -3400,7 +3400,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
 
 Docs: docs/TERMINATOR_JS_API.md | Selectors: docs/SELECTORS_CHEATSHEET.md | Examples: examples/*.yml | KV: packages/kv/README.md
 
-Executes shell commands OR inline JS/TS via engine. Use 'run' for shell, or 'engine': 'javascript'/'typescript' for terminator.js code.
+Executes shell commands OR inline JS/TS via engine. Use 'run' for shell, or 'engine': 'typescript' (preferred) / 'javascript' for terminator.js code.
 
 INJECTED GLOBALS (engine mode):
 desktop, log, sleep(ms), setEnv({k:v}), kv (auto-initialized when ORG_TOKEN set), variables
@@ -7388,8 +7388,7 @@ DATA PASSING:
 
 Execute JavaScript/TypeScript in browser via Chrome extension. Full DOM access for extraction and manipulation.
 
-TYPESCRIPT SUPPORT:
-- Use modern TS syntax: (() => { ... })() or (async () => { ... })()
+TYPESCRIPT (preferred):
 - Type annotations auto-detected and transpiled to JS before execution
 - Type errors caught BEFORE execution with precise line/column info
 
