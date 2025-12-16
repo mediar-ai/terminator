@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.1] - 2025-12-16
+
+### Added
+- MCP: Improve execution logging with step_id tracking
+
+### Fixed
+- CLI: Sync all workspace crate versions (terminator-computer-use, terminator-rs)
+
 ## [0.24.0] - 2025-12-16
 
 ### Fixed
