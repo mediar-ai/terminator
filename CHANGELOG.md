@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.49] - 2025-12-16
+
+### Changed
+- CLI: Improve init template with trigger, metadata, and context.data support
+
 ## [0.23.48] - 2025-12-15
 
 ### Added
