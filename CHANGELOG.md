@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0] - 2025-12-16
+
+### Fixed
+- CLI: Add type annotations to all callbacks in init template
+- Workflow: Use `unknown` instead of `any` for better type inference in callbacks
+
 ## [0.23.51] - 2025-12-16
 
 ### Fixed

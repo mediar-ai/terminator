@@ -21,7 +21,7 @@ license-file = "LICENSE"
 [workspace.dependencies]
 # Terminator Core library itself (for other members to depend on)
 terminator = { version = "0.24.0", path = "./crates/terminator", package = "terminator-rs" }
-terminator-computer-use = { version = "0.23.36", path = "./crates/terminator-computer-use" }
+terminator-computer-use = { version = "0.24.0", path = "./crates/terminator-computer-use" }
 
 # Common dependencies from your original Cargo.toml
 serde = { version = "1.0.219", features = ["derive"] }
