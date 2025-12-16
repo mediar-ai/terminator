@@ -28,7 +28,7 @@
   "main": "dist/index.js",
   "name": "@mediar-ai/workflow",
   "peerDependencies": {
-    "@mediar-ai/terminator": "^0.23.47"
+    "@mediar-ai/terminator": "^0.23.48"
   },
   "publishConfig": {
     "access": "public"
@@ -45,5 +45,5 @@
   },
   "type": "commonjs",
   "types": "dist/index.d.ts",
-  "version": "0.23.47"
+  "version": "0.23.48"
 }
