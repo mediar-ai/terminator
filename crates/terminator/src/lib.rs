@@ -1548,7 +1548,6 @@ impl Desktop {
     /// async fn example() -> Result<(), terminator::AutomationError> {
     ///     let desktop = Desktop::new_default()?;
     ///     let options = UiDiffOptions {
-    ///         include_full_trees: false,
     ///         settle_delay_ms: Some(1500),
     ///         ..Default::default()
     ///     };
