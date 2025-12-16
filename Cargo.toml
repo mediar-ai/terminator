@@ -43,14 +43,6 @@ tempfile = "3.10.1"
 async-trait = "0.1.88"
 base64 = "0.22.1"
 
-# macOS specific dependencies
-accessibility-sys = "0.2.0"
-accessibility = "0.2.0"
-objc = "0.2.7"
-objc-foundation = "0.1.1"
-core-foundation = { version = "0.10.0" }
-core-graphics = { version = "0.24.0", features = ["highsierra"] }
-
 # Windows specific dependencies
 sysinfo = "0.36.1   "
 windows = "0.61.3"
