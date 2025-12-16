@@ -115,12 +115,6 @@ jobs:
           cp crates/terminator-mcp-agent/npm/${{ matrix.settings.npm_dir }}/${{ matrix.settings.bin_name }} release/
         shell: bash
 
-      - name: Create release archive (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          cd release
-          tar -czf ../terminator-mcp-agent-${{ matrix.settings.npm_dir }}.tar.gz ${{ matrix.settings.bin_name }}
-
       - name: Create release archive (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -263,11 +257,10 @@ jobs:
             - **Windows x64**: `terminator-mcp-agent-win32-x64-msvc.zip`
             - **Windows ARM64**: `terminator-mcp-agent-win32-arm64-msvc.zip`
 
-            ### Installation
+            ### Installation (Windows only)
             1. Download the appropriate archive for your platform
             2. Extract the binary
-            3. Make it executable (Unix/macOS): `chmod +x terminator-mcp-agent`
-            4. Run the agent: `./terminator-mcp-agent --transport http --port 3000`
+            3. Run the agent: `terminator-mcp-agent.exe --transport http --port 3000`
 
             ### NPM Package
             The MCP agent is also available as an NPM package: `npm install -g @terminator/terminator-mcp-agent`
