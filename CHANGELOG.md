@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.50] - 2025-12-16
+
+### Changed
+- Platform: Windows-only support - removed macOS and Linux platform code, dependencies, and CI workflows
+- Docs: Reorganized README with improved MCP setup instructions and new demo video
+
+### Added
+- Transpiler: TypeScript support for `execute_browser_script` with context-engineered error messages
+
 ## [0.23.49] - 2025-12-16
 
 ### Changed
