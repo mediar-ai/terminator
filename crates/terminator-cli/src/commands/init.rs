@@ -142,7 +142,7 @@ export default createWorkflow({
       hello: "World"
     };
   },
-  onError: async ({ error }) => {
+  onError: async ({ error }: { error: Error }) => {
     console.error("Workflow failed:", error.message);
   },
 });
