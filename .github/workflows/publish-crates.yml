@@ -47,7 +47,7 @@ jobs:
           fi
           
           echo "Publishing version $TAG_VERSION"
-      
+
       - name: Publish terminator-computer-use crate
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
@@ -61,6 +61,14 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
         run: |
           cargo publish --package terminator-rs
+          echo "Waiting for crates.io to index..."
+          sleep 30
+
+      - name: Publish terminator-mcp-agent crate
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: |
+          cargo publish --package terminator-mcp-agent
           echo "Waiting for crates.io to index..."
           sleep 30
 
