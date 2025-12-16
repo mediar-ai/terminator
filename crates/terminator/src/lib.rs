@@ -1141,10 +1141,7 @@ impl Desktop {
         let tree = self.engine.get_window_tree(pid, title, tree_config)?;
 
         // Check if browser process
-        #[cfg(target_os = "windows")]
         let is_browser = is_browser_process(pid);
-        #[cfg(not(target_os = "windows"))]
-        let is_browser = false;
 
         // Format the tree and get bounds mapping if requested
         let (formatted, index_to_bounds, element_count) = if format_output {
@@ -1228,10 +1225,7 @@ impl Desktop {
             let tree = serializable_to_ui_node(&serializable_tree);
 
             // Check if browser process
-            #[cfg(target_os = "windows")]
             let is_browser = is_browser_process(pid);
-            #[cfg(not(target_os = "windows"))]
-            let is_browser = false;
 
             // Format the tree and get bounds mapping if requested
             let (formatted, index_to_bounds, element_count) = if format_output {
