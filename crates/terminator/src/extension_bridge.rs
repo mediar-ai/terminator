@@ -664,7 +664,6 @@ impl ExtensionBridge {
         })
     }
 
-    #[cfg(target_os = "windows")]
     async fn find_process_on_port(port: u16) -> Option<u32> {
         use tokio::process::Command;
 
@@ -694,28 +693,6 @@ impl ExtensionBridge {
         None
     }
 
-    #[cfg(not(target_os = "windows"))]
-    async fn find_process_on_port(port: u16) -> Option<u32> {
-        use tokio::process::Command;
-
-        // Use lsof on Unix-like systems
-        let output = Command::new("lsof")
-            .args(&["-i", &format!(":{}", port), "-t"])
-            .output()
-            .await
-            .ok()?;
-
-        let output_str = String::from_utf8_lossy(&output.stdout);
-        if let Ok(pid) = output_str.trim().parse::<u32>() {
-            // Verify it's a terminator process
-            if Self::is_terminator_process(pid).await {
-                return Some(pid);
-            }
-        }
-        None
-    }
-
-    #[cfg(target_os = "windows")]
     async fn is_terminator_process(pid: u32) -> bool {
         use tokio::process::Command;
 
@@ -741,7 +718,6 @@ impl ExtensionBridge {
 
     /// Find any terminator-mcp-agent process in our parent chain
     /// Returns the PID if found, None otherwise
-    #[cfg(target_os = "windows")]
     async fn find_terminator_ancestor() -> Option<u32> {
         use tokio::process::Command;
 
@@ -827,7 +803,6 @@ impl ExtensionBridge {
 
     /// Check if the given PID is our parent process or an ancestor
     #[allow(dead_code)]
-    #[cfg(target_os = "windows")]
     async fn is_parent_or_ancestor_process(target_pid: u32) -> bool {
         use tokio::process::Command;
 
@@ -883,142 +858,11 @@ impl ExtensionBridge {
         false
     }
 
-    #[cfg(not(target_os = "windows"))]
-    async fn is_terminator_process(pid: u32) -> bool {
-        use tokio::process::Command;
-
-        let output = Command::new("ps")
-            .args(&["-p", &pid.to_string(), "-o", "comm="])
-            .output()
-            .await
-            .ok();
-
-        if let Some(output) = output {
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            output_str.contains("terminator")
-        } else {
-            false
-        }
-    }
-
-    /// Find any terminator-mcp-agent process in our parent chain (Unix version)
-    #[cfg(not(target_os = "windows"))]
-    async fn find_terminator_ancestor() -> Option<u32> {
-        use tokio::process::Command;
-
-        // Get current process ID
-        let current_pid = std::process::id();
-
-        // Traverse the parent chain
-        let mut checking_pid = current_pid;
-        for _ in 0..10 {
-            // Get parent PID and command
-            let output = Command::new("ps")
-                .args(&["-p", &checking_pid.to_string(), "-o", "ppid=,comm="])
-                .output()
-                .await
-                .ok()?;
-
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            let parts: Vec<&str> = output_str.trim().split_whitespace().collect();
-
-            if parts.len() >= 2 {
-                if let Ok(parent_pid) = parts[0].parse::<u32>() {
-                    if parent_pid <= 1 || parent_pid == checking_pid {
-                        break;
-                    }
-
-                    // Check if parent is terminator
-                    let comm = parts[1];
-                    if comm.contains("terminator") {
-                        tracing::debug!(
-                            "Found terminator ancestor at PID {} (current_pid={})",
-                            parent_pid,
-                            current_pid
-                        );
-                        return Some(parent_pid);
-                    }
-
-                    checking_pid = parent_pid;
-                    continue;
-                }
-            }
-            break;
-        }
-
-        None
-    }
-
-    /// Check if the given PID is our parent process or an ancestor (Unix version)
-    #[cfg(not(target_os = "windows"))]
-    async fn is_parent_or_ancestor_process(target_pid: u32) -> bool {
-        use tokio::process::Command;
-
-        // Get current process ID
-        let current_pid = std::process::id();
-
-        // Traverse the parent chain
-        let mut checking_pid = current_pid;
-        for _ in 0..10 {
-            // Limit depth to prevent infinite loops
-            // Get parent PID using ps
-            let output = Command::new("ps")
-                .args(&["-p", &checking_pid.to_string(), "-o", "ppid="])
-                .output()
-                .await
-                .ok();
-
-            if let Some(output) = output {
-                let output_str = String::from_utf8_lossy(&output.stdout);
-                if let Ok(parent_pid) = output_str.trim().parse::<u32>() {
-                    if parent_pid == target_pid {
-                        tracing::debug!(
-                            "Found target PID {} in parent chain (current_pid={}, checking_pid={})",
-                            target_pid,
-                            current_pid,
-                            checking_pid
-                        );
-                        return true;
-                    }
-                    if parent_pid <= 1 || parent_pid == checking_pid {
-                        // Reached init or circular reference
-                        break;
-                    }
-                    checking_pid = parent_pid;
-                    continue;
-                }
-            }
-            break;
-        }
-
-        false
-    }
-
-    #[cfg(target_os = "windows")]
     async fn kill_process(pid: u32) -> Result<(), ExtensionBridgeError> {
         use tokio::process::Command;
 
         let output = Command::new("wmic")
             .args(["process", "where", &format!("ProcessID={pid}"), "delete"])
-            .output()
-            .await
-            .map_err(|e| ExtensionBridgeError::ProcessKillError(e.to_string()))?;
-
-        if output.status.success() {
-            Ok(())
-        } else {
-            Err(ExtensionBridgeError::ProcessKillError(
-                String::from_utf8_lossy(&output.stderr).to_string(),
-            ))
-        }
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    async fn kill_process(pid: u32) -> Result<(), ExtensionBridgeError> {
-        use tokio::process::Command;
-
-        let output = Command::new("kill")
-            .args(&["-9", &pid.to_string()])
             .output()
             .await
             .map_err(|e| ExtensionBridgeError::ProcessKillError(e.to_string()))?;
