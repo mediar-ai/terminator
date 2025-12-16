@@ -56,13 +56,13 @@ We achieve this by pre-training workflows as deterministic code, and calling AI 
 - Deploy AI to execute them at >95% success rate without managing hundreds of Windows VMs
 - Kill repetitive work without legacy RPA complexity, implementation and maintenance cost
 
-### Platform installation method
+### Platform Support
 
 | Platform | CLI | MCP Agent | Automation | Installation Method |
 |----------|:---:|:---------:|:----------:|---------------------|
 | Windows  | ✅  | ✅        | ✅         | npm/bunx |
-| macOS    | 🟡  | 🟡        | 🟡         | Compile from source |
-| Linux    | 🟡  | 🟡        | 🟡         | Compile from source |
+
+**Note:** Terminator currently supports Windows only. macOS and Linux support is not available.
 
 ## 📥 Installation for technical users
 
@@ -78,18 +78,7 @@ bunx @mediar-ai/cli --help
 npm install -g @mediar-ai/cli
 ```
 
-**macOS / Linux (Experimental - Compile from Source):**
-
-⚠️ **Warning:** macOS and Linux support is experimental. Many features are Windows-only or incomplete on other platforms.
-
-```bash
-git clone https://github.com/mediar-ai/terminator
-cd terminator
-cargo build --release
-# Binary at: ./target/release/terminator
-```
-
-### 🤖 Want AI Automation with Claude Code? 
+### Want AI Automation with Claude Code? 
 
 Install the Terminator MCP in Claude Code:
 
