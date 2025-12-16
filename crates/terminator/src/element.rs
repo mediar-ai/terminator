@@ -129,16 +129,8 @@ impl From<&UIElement> for SerializableUIElement {
 
         // Get process_id and derive process_name
         let process_id = element.process_id().ok();
-        let process_name = process_id.and_then(|_pid| {
-            #[cfg(target_os = "windows")]
-            {
-                crate::platforms::windows::get_process_name_by_pid(_pid as i32).ok()
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                None
-            }
-        });
+        let process_name = process_id
+            .and_then(|pid| crate::platforms::windows::get_process_name_by_pid(pid as i32).ok());
 
         Self {
             id: element.id(),
@@ -770,7 +762,6 @@ pub trait UIElementImpl: Send + Sync + Debug {
                 })? as f64;
 
                 // Get work area for this monitor if it's Windows and primary
-                #[cfg(target_os = "windows")]
                 let work_area = if is_primary {
                     use crate::platforms::windows::element::WorkArea;
                     if let Ok(work_area) = WorkArea::get_primary() {
@@ -791,14 +782,6 @@ pub trait UIElementImpl: Send + Sync + Debug {
                         height: mon_h as u32,
                     })
                 };
-
-                #[cfg(not(target_os = "windows"))]
-                let work_area = Some(crate::WorkAreaBounds {
-                    x: mon_x,
-                    y: mon_y,
-                    width: mon_w as u32,
-                    height: mon_h as u32,
-                });
 
                 return Ok(crate::Monitor {
                     id: format!("monitor_{idx}"),
@@ -855,8 +838,7 @@ pub trait UIElementImpl: Send + Sync + Debug {
                     ))
                 })? as f64;
 
-                // Get work area for primary monitor (Windows only)
-                #[cfg(target_os = "windows")]
+                // Get work area for primary monitor
                 let work_area = {
                     use crate::platforms::windows::element::WorkArea;
                     if let Ok(work_area) = WorkArea::get_primary() {
@@ -870,14 +852,6 @@ pub trait UIElementImpl: Send + Sync + Debug {
                         None
                     }
                 };
-
-                #[cfg(not(target_os = "windows"))]
-                let work_area = Some(crate::WorkAreaBounds {
-                    x,
-                    y,
-                    width,
-                    height,
-                });
 
                 return Ok(crate::Monitor {
                     id: format!("monitor_{idx}"),
@@ -1253,7 +1227,6 @@ impl UIElement {
     /// * `text` - Optional text to display as overlay. Text will be truncated to 30 characters.
     /// * `text_position` - Optional position for the text overlay (Top, Bottom, etc.)
     /// * `font_style` - Optional font styling (size, bold, color)
-    #[cfg(target_os = "windows")]
     pub fn highlight(
         &self,
         color: Option<u32>,
@@ -1264,24 +1237,6 @@ impl UIElement {
     ) -> Result<crate::HighlightHandle, AutomationError> {
         self.inner
             .highlight(color, duration, text, text_position, font_style)
-    }
-
-    /// Highlights the element with a colored border (simplified version for non-Windows platforms).
-    ///
-    /// # Arguments
-    /// * `color` - Optional BGR color code (32-bit integer). Default: 0x0000FF (red)
-    /// * `duration` - Optional duration for the highlight.
-    #[cfg(not(target_os = "windows"))]
-    pub fn highlight(
-        &self,
-        color: Option<u32>,
-        duration: Option<std::time::Duration>,
-        _text: Option<&str>,
-        _text_position: Option<crate::TextPosition>,
-        _font_style: Option<crate::FontStyle>,
-    ) -> Result<crate::HighlightHandle, AutomationError> {
-        // For non-Windows platforms, ignore text parameters and create dummy handle
-        self.inner.highlight(color, duration, None, None, None)
     }
 
     /// Ensures element is visible and highlights it before performing an action.
@@ -1302,7 +1257,6 @@ impl UIElement {
     /// # Returns
     /// * `Ok(Option<HighlightHandle>)` - Handle to control the highlight, or None if highlight failed
     /// * Scrolling failures are logged but don't cause errors (best-effort)
-    #[cfg(target_os = "windows")]
     pub fn highlight_before_action(
         &self,
         action_name: &str,
@@ -1334,50 +1288,6 @@ impl UIElement {
         );
 
         let handle = match self.highlight(color, duration, text, text_position, font_style) {
-            Ok(h) => Some(h),
-            Err(e) => {
-                warn!(
-                    "Failed to apply highlighting before {} action: {}",
-                    action_name, e
-                );
-                None
-            }
-        };
-
-        info!(
-            "[PERF] highlight_before_action: {}ms",
-            start.elapsed().as_millis()
-        );
-
-        Ok(handle)
-    }
-
-    /// Ensures element is visible and highlights it before performing an action (non-Windows).
-    ///
-    /// Simplified version for non-Windows platforms without text overlay support.
-    #[cfg(not(target_os = "windows"))]
-    pub fn highlight_before_action(
-        &self,
-        action_name: &str,
-    ) -> Result<Option<crate::HighlightHandle>, AutomationError> {
-        use tracing::{info, warn};
-
-        let start = std::time::Instant::now();
-
-        // Step 1: Ensure element is visible (focus + scroll)
-        let _ = self.ensure_in_view();
-
-        // Step 2: Apply highlight (simplified for non-Windows)
-        let duration = Some(std::time::Duration::from_millis(500));
-        let color = Some(0x00FF00); // Green
-
-        info!(
-            "HIGHLIGHT_BEFORE_{} duration={:?}",
-            action_name.to_uppercase(),
-            duration
-        );
-
-        let handle = match self.highlight(color, duration, None, None, None) {
             Ok(h) => Some(h),
             Err(e) => {
                 warn!(
@@ -1612,7 +1522,6 @@ impl UIElement {
         }
 
         // Helper: check if element is within work area (excluding taskbar)
-        #[cfg(target_os = "windows")]
         fn is_in_work_area(elem_bounds: (f64, f64, f64, f64)) -> bool {
             use crate::platforms::windows::element::WorkArea;
             if let Ok(work_area) = WorkArea::get_primary() {
@@ -1621,11 +1530,6 @@ impl UIElement {
             } else {
                 true // If we can't get work area, assume it's visible
             }
-        }
-
-        #[cfg(not(target_os = "windows"))]
-        fn is_in_work_area(_elem_bounds: (f64, f64, f64, f64)) -> bool {
-            true // On non-Windows platforms, no taskbar adjustment needed
         }
 
         // Initial snapshot for diagnostics
