@@ -23,20 +23,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ---------- Windows ----------
-          # - os: macos-latest
-          #   target: x86_64-apple-darwin
-          #   archive: terminator-cli-darwin-x86_64.tar.gz
-          #   ext: ""
-          #   bin_name: terminator
-          #   npm_dir: darwin-x64
-          # - os: macos-latest
-          #   target: aarch64-apple-darwin
-          #   archive: terminator-cli-darwin-arm64.tar.gz
-          #   ext: ""
-          #   bin_name: terminator
-          #   npm_dir: darwin-arm64
-          # ---------- Windows ----------
+          # Windows only - Linux and macOS are not supported
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             archive: terminator-cli-windows-x86_64.zip
