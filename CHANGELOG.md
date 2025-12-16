@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.47] - 2025-12-15
+
+### Changed
+- CI: Publish all crates to crates.io in correct dependency order
+- CI: Remove Linux from CLI workflow (Windows-only)
+- CI: Remove Python CI/CD workflow
+
+### Fixed
+- Fix UiDiffOptions doc test (remove non-existent field)
+
 ## [0.23.46] - 2025-12-15
 
 ### Added
