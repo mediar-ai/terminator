@@ -12,8 +12,8 @@
   ],
   "name": "@mediar-ai/cli",
   "optionalDependencies": {
-    "@mediar-ai/cli-win32-arm64-msvc": "0.23.49",
-    "@mediar-ai/cli-win32-x64-msvc": "0.23.49"
+    "@mediar-ai/cli-win32-arm64-msvc": "0.23.50",
+    "@mediar-ai/cli-win32-x64-msvc": "0.23.50"
   },
   "repository": {
     "type": "git",
@@ -24,5 +24,5 @@
     "build:debug": "node ./utils/build-cli.js --debug",
     "sync-version": "node ./utils/sync-version.js"
   },
-  "version": "0.23.49"
+  "version": "0.23.50"
 }
