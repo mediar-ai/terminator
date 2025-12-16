@@ -1333,14 +1333,28 @@ pub enum TriggerConfig {
         schedule: String,
         /// Optional timezone (IANA format)
         timezone: Option<String>,
+        /// Whether this trigger is enabled (default: true)
+        #[serde(default = "default_enabled")]
+        enabled: bool,
     },
     /// Manual trigger (default)
-    Manual,
+    Manual {
+        /// Whether this trigger is enabled (default: true)
+        #[serde(default = "default_enabled")]
+        enabled: bool,
+    },
     /// Webhook trigger
     Webhook {
         /// Optional webhook path suffix
         path: Option<String>,
+        /// Whether this trigger is enabled (default: true)
+        #[serde(default = "default_enabled")]
+        enabled: bool,
     },
+}
+
+fn default_enabled() -> bool {
+    true
 }
 
 #[derive(Debug, Deserialize, Serialize)]

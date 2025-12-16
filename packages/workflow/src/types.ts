@@ -439,6 +439,8 @@ export interface CronTrigger {
     schedule: string;
     /** Optional timezone (IANA format, e.g., 'America/New_York') */
     timezone?: string;
+    /** Whether this trigger is enabled (default: true) */
+    enabled?: boolean;
 }
 
 /**
@@ -446,6 +448,8 @@ export interface CronTrigger {
  */
 export interface ManualTrigger {
     type: 'manual';
+    /** Whether this trigger is enabled (default: true) */
+    enabled?: boolean;
 }
 
 /**
@@ -455,6 +459,8 @@ export interface WebhookTrigger {
     type: 'webhook';
     /** Optional webhook path suffix */
     path?: string;
+    /** Whether this trigger is enabled (default: true) */
+    enabled?: boolean;
 }
 
 /**
