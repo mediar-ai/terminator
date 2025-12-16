@@ -27,14 +27,6 @@
   </a>
 </p>
 
-### Platform Support
-
-| Platform | CLI | MCP Agent | Automation | Installation Method |
-|----------|:---:|:---------:|:----------:|---------------------|
-| Windows  | ✅  | ✅        | ✅         | npm/bunx |
-
-**Note:** Terminator currently supports Windows only. macOS and Linux support is not available.
-
 ## 🤖 Computer Use MCP that controls your entire desktop
 
 Give AI assistants (Claude, Cursor, VS Code, etc.) the ability to control your desktop and automate tasks across any application.
@@ -144,6 +136,14 @@ To create reliable selectors (e.g. `name:Seven`, `role:Button`, `window:Calculat
 - **Usage:** Open the app you want to inspect → launch Accessibility Insights → hover or use keyboard navigation to explore the UI tree (Name, Role, ControlType, AutomationId).
 
 > These tools show you the `Name`, `Role`, `ControlType`, and other metadata used in Terminator selectors.
+
+### Platform Support
+
+| Platform | CLI | MCP Agent | Automation | Installation Method |
+|----------|:---:|:---------:|:----------:|---------------------|
+| Windows  | ✅  | ✅        | ✅         | npm/bunx |
+
+**Note:** Terminator currently supports Windows only. macOS and Linux support is not available.
 
 ## Troubleshooting
 
