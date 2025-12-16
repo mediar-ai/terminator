@@ -21,7 +21,10 @@ export interface Logger {
  * @template TInput - Type of workflow input
  * @template TState - Type of accumulated state from previous steps
  */
-export interface WorkflowContext<TInput = any, TState = Record<string, any>> {
+export interface WorkflowContext<
+    TInput = unknown,
+    TState = Record<string, unknown>,
+> {
     /** Workflow output data - set this to return data to MCP/CLI */
     data: Record<string, any>;
     /** Shared state between steps - use `return { state: {...} }` to update */
@@ -35,7 +38,10 @@ export interface WorkflowContext<TInput = any, TState = Record<string, any>> {
  * @template TInput - Type of workflow input
  * @template TState - Type of accumulated state from previous steps
  */
-export interface StepContext<TInput = any, TState = Record<string, any>> {
+export interface StepContext<
+    TInput = unknown,
+    TState = Record<string, unknown>,
+> {
     /** Desktop automation instance */
     desktop: import("@mediar-ai/terminator").Desktop;
     /** Workflow input (validated by Zod schema) */
@@ -90,9 +96,9 @@ export interface StepContext<TInput = any, TState = Record<string, any>> {
  * ```
  */
 export interface ErrorContext<
-    TInput = any,
-    TOutput = any,
-    TState = Record<string, any>,
+    TInput = unknown,
+    TOutput = unknown,
+    TState = Record<string, unknown>,
 > {
     /** The error that occurred */
     error: Error;
@@ -434,7 +440,7 @@ export interface Step<
  * ```
  */
 export interface CronTrigger {
-    type: 'cron';
+    type: "cron";
     /** Cron expression (5-field or 6-field format) */
     schedule: string;
     /** Optional timezone (IANA format, e.g., 'America/New_York') */
@@ -447,7 +453,7 @@ export interface CronTrigger {
  * Manual trigger - workflow must be triggered explicitly
  */
 export interface ManualTrigger {
-    type: 'manual';
+    type: "manual";
     /** Whether this trigger is enabled (default: true) */
     enabled?: boolean;
 }
@@ -456,7 +462,7 @@ export interface ManualTrigger {
  * Webhook trigger - workflow triggered via HTTP endpoint
  */
 export interface WebhookTrigger {
-    type: 'webhook';
+    type: "webhook";
     /** Optional webhook path suffix */
     path?: string;
     /** Whether this trigger is enabled (default: true) */
@@ -528,13 +534,14 @@ export interface WorkflowConfig<TInput = any> {
      * }
      * ```
      */
-    onSuccess?: (context: WorkflowSuccessContext<TInput>) => Promise<SuccessResult> | SuccessResult | void;
+    onSuccess?: (
+        context: WorkflowSuccessContext<TInput>,
+    ) => Promise<SuccessResult> | SuccessResult | void;
     /** Workflow-level error handler */
     onError?: (
         context: WorkflowErrorContext<TInput>,
     ) => Promise<ExecutionResponse | void>;
 }
-
 
 /**
  * Internal resolved workflow configuration with metadata from package.json
@@ -572,8 +579,8 @@ export interface WorkflowExecutionContext<
  * Workflow success handler context
  */
 export interface WorkflowSuccessContext<
-    TInput = any,
-    TState = Record<string, any>,
+    TInput = unknown,
+    TState = Record<string, unknown>,
 > {
     /** Workflow input */
     input: TInput;
@@ -593,8 +600,8 @@ export interface WorkflowSuccessContext<
  * Workflow error handler context
  */
 export interface WorkflowErrorContext<
-    TInput = any,
-    TState = Record<string, any>,
+    TInput = unknown,
+    TState = Record<string, unknown>,
 > {
     /** The error that occurred */
     error: Error;
@@ -704,7 +711,7 @@ export function retry(): RetryMarker {
  * @internal
  */
 export function isRetry(value: any): value is RetryMarker {
-    return value && typeof value === 'object' && value.__retry === true;
+    return value && typeof value === "object" && value.__retry === true;
 }
 
 /**
@@ -746,7 +753,7 @@ export function next(stepId: string): NextStepMarker {
  * @internal
  */
 export function isNextStep(value: any): value is NextStepMarker {
-    return value && typeof value === 'object' && value.__nextStep === true;
+    return value && typeof value === "object" && value.__nextStep === true;
 }
 
 /**
@@ -795,5 +802,7 @@ export function success(result: SuccessResult): WorkflowSuccessMarker {
  * @internal
  */
 export function isWorkflowSuccess(value: any): value is WorkflowSuccessMarker {
-    return value && typeof value === 'object' && value.__workflowSuccess === true;
+    return (
+        value && typeof value === "object" && value.__workflowSuccess === true
+    );
 }

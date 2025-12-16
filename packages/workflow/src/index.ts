@@ -12,10 +12,12 @@ export {
     WorkflowError,
     createWorkflowError,
     retry,
-    RetryMarker,
     success,
-    WorkflowSuccessMarker,
     next,
+} from "./types";
+export type {
+    RetryMarker,
+    WorkflowSuccessMarker,
     NextStepMarker,
 } from "./types";
 
