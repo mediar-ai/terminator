@@ -136,11 +136,9 @@ export default createWorkflow({
     exampleStep,
     // Add more steps here
   ],
-  onSuccess: async ({ context }) => {
+  onSuccess: async ({ context }: { context: { data: Record<string, unknown> } }) => {
     // Set context.data to return results to MCP/CLI
-    context.data = {
-      hello: "World"
-    };
+    context.data = { hello: "World" };
   },
   onError: async ({ error }: { error: Error }) => {
     console.error("Workflow failed:", error.message);
@@ -154,15 +152,14 @@ export default createWorkflow({
     }
 
     fn create_example_step(&self, project_path: &Path) -> Result<()> {
-        let step = r#"import { createStep } from "@mediar-ai/workflow";
+        let step = r#"import { createStep, Desktop, StepContext } from "@mediar-ai/workflow";
 
 export const exampleStep = createStep({
   id: "example_step",
   name: "Example Step",
-  execute: async ({ desktop, input, context }) => {
+  execute: async ({ desktop, context }: { desktop: Desktop; context: StepContext }) => {
     console.log("Starting example step...");
 
-    // Access input variables: input.message
     // Access previous state: context.state.someValue
 
     // Example: Open an application
@@ -178,11 +175,7 @@ export const exampleStep = createStep({
 
     console.log("Example step completed!");
 
-    return {
-      state: {
-        completed: true,
-      },
-    };
+    return { state: { completed: true } };
   },
 });
 "#;
