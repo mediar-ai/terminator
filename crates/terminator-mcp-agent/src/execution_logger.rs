@@ -127,19 +127,21 @@ pub fn is_enabled() -> bool {
     LOGGING_ENABLED.load(Ordering::Relaxed)
 }
 
-/// Generate file prefix: YYYYMMDD_HHMMSS_workflowId_toolName
+/// Generate file prefix: YYYYMMDD_HHMMSS_workflowId_stepId_toolName
 fn generate_file_prefix(
     timestamp: &chrono::DateTime<Local>,
     workflow_id: Option<&str>,
+    step_id: Option<&str>,
     tool_name: &str,
 ) -> String {
     let date_time = timestamp.format("%Y%m%d_%H%M%S").to_string();
     let wf_id = workflow_id.unwrap_or("standalone");
+    let step = step_id.unwrap_or("full");
     // Sanitize tool name (remove mcp__ prefix if present)
     let clean_tool = tool_name
         .strip_prefix("mcp__terminator-mcp-agent__")
         .unwrap_or(tool_name);
-    format!("{}_{}_{}", date_time, wf_id, clean_tool)
+    format!("{}_{}_{}_{}", date_time, wf_id, step, clean_tool)
 }
 
 /// Start logging an execution (call before tool dispatch)
@@ -161,7 +163,7 @@ pub fn log_request(
     }
 
     let timestamp = Local::now();
-    let file_prefix = generate_file_prefix(&timestamp, workflow_id, tool_name);
+    let file_prefix = generate_file_prefix(&timestamp, workflow_id, step_id, tool_name);
 
     Some(ExecutionContext {
         timestamp,
@@ -1902,12 +1904,14 @@ mod tests {
     #[test]
     fn test_generate_file_prefix() {
         let ts = Local::now();
-        let prefix = generate_file_prefix(&ts, Some("198"), "click_element");
+        let prefix = generate_file_prefix(&ts, Some("198"), Some("step_xyz"), "click_element");
         assert!(prefix.contains("198"));
+        assert!(prefix.contains("step_xyz"));
         assert!(prefix.contains("click_element"));
 
-        let prefix_standalone = generate_file_prefix(&ts, None, "get_window_tree");
+        let prefix_standalone = generate_file_prefix(&ts, None, None, "get_window_tree");
         assert!(prefix_standalone.contains("standalone"));
+        assert!(prefix_standalone.contains("full"));
     }
 
     #[test]
