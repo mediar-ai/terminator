@@ -10,10 +10,13 @@
 use crate::Desktop;
 use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
+use chrono::Local;
 use image::codecs::png::PngEncoder;
 use image::imageops::FilterType;
 use image::{ExtendedColorType, ImageBuffer, ImageEncoder, Rgba};
+use std::fs;
 use std::io::Cursor;
+use std::path::PathBuf;
 use std::time::Duration;
 use sysinfo::{ProcessesToUpdate, System};
 use terminator_computer_use::{
@@ -37,6 +40,82 @@ struct WindowCaptureData {
     resize_scale: f64,
     /// Browser URL if available
     browser_url: Option<String>,
+}
+
+// ===== Screenshot Storage =====
+
+/// Get the executions directory and ensure it exists.
+/// Returns the path to %LOCALAPPDATA%/terminator/executions/
+fn get_executions_dir() -> Result<PathBuf, String> {
+    let dir = dirs::data_local_dir()
+        .ok_or_else(|| "Failed to get LOCALAPPDATA directory".to_string())?
+        .join("terminator")
+        .join("executions");
+
+    fs::create_dir_all(&dir)
+        .map_err(|e| format!("Failed to create executions directory: {}", e))?;
+
+    Ok(dir)
+}
+
+/// Generate execution ID from timestamp and process name.
+fn generate_execution_id(process: &str) -> String {
+    let timestamp = Local::now().format("%Y%m%d_%H%M%S").to_string();
+    let safe_process = process
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    format!("{}_geminiComputerUse_{}", timestamp, safe_process)
+}
+
+/// Save a base64-encoded PNG screenshot to disk (async, non-blocking).
+/// Spawns a background task so it doesn't slow down the computer use loop.
+fn save_screenshot_async(base64_image: String, path: PathBuf) {
+    tokio::spawn(async move {
+        let result = tokio::task::spawn_blocking(move || {
+            let png_data = general_purpose::STANDARD
+                .decode(&base64_image)
+                .map_err(|e| format!("Failed to decode base64 screenshot: {}", e))?;
+
+            fs::write(&path, png_data)
+                .map_err(|e| format!("Failed to write screenshot to {}: {}", path.display(), e))?;
+
+            Ok::<(), String>(())
+        })
+        .await;
+
+        if let Err(e) = result {
+            warn!("[computer_use] Screenshot save task failed: {:?}", e);
+        } else if let Ok(Err(e)) = result {
+            warn!("[computer_use] Failed to save screenshot: {}", e);
+        }
+    });
+}
+
+/// Save the execution result as JSON (flat structure).
+fn save_execution_result(
+    result: &ComputerUseResult,
+    executions_dir: &std::path::Path,
+    execution_id: &str,
+) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(result)
+        .map_err(|e| format!("Failed to serialize execution result: {}", e))?;
+
+    let path = executions_dir.join(format!("{}.json", execution_id));
+    fs::write(&path, json).map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
+
+    info!(
+        "[computer_use] Saved execution result to {}",
+        path.display()
+    );
+
+    Ok(())
 }
 
 // ===== Window Capture =====
@@ -81,8 +160,7 @@ fn capture_window_for_computer_use(
         let window_name = window_element
             .name()
             .unwrap_or_default()
-            .replace(' ', "_")
-            .replace('/', "_");
+            .replace([' ', '/'], "_");
         Some(format!("app://{}/{}", process, window_name))
     });
 
@@ -157,6 +235,7 @@ fn capture_window_for_computer_use(
 /// Execute a computer use action
 async fn execute_action(
     desktop: &Desktop,
+    process: &str,
     action: &str,
     args: &serde_json::Value,
     window_bounds: (f64, f64, f64, f64),
@@ -194,7 +273,7 @@ async fn execute_action(
                 x, y, screen_x, screen_y
             );
             desktop
-                .click_at_coordinates(screen_x, screen_y)
+                .click_at_coordinates(screen_x, screen_y, false)
                 .map_err(|e| format!("Click failed: {e}"))?;
         }
         "type_text_at" => {
@@ -209,7 +288,7 @@ async fn execute_action(
             );
             // Click first to focus
             desktop
-                .click_at_coordinates(screen_x, screen_y)
+                .click_at_coordinates(screen_x, screen_y, false)
                 .map_err(|e| format!("Click before type failed: {e}"))?;
             tokio::time::sleep(Duration::from_millis(100)).await;
             // Select all (Ctrl+A) to clear existing text before typing
@@ -255,7 +334,7 @@ async fn execute_action(
             if let (Some(x), Some(y)) = (get_f64("x"), get_f64("y")) {
                 let (screen_x, screen_y) = convert_coord(x, y);
                 desktop
-                    .click_at_coordinates(screen_x, screen_y)
+                    .click_at_coordinates(screen_x, screen_y, false)
                     .map_err(|e| format!("Click before scroll failed: {e}"))?;
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
@@ -305,10 +384,37 @@ async fn execute_action(
         }
         "navigate" => {
             let url = get_str("url").ok_or("navigate requires url")?;
-            info!("[computer_use] navigate to: {}", url);
+            info!("[computer_use] navigate to: {} (process: {})", url, process);
+            // First, activate the browser window to ensure it has focus
+            if let Err(e) = desktop.activate_application(process) {
+                warn!("[computer_use] Failed to activate {}: {}", process, e);
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            // Use Ctrl+L to focus address bar, then type URL and press Enter
+            // This navigates the current tab instead of opening a new one
             desktop
-                .open_url(url, None)
-                .map_err(|e| format!("Navigate failed: {e}"))?;
+                .press_key("{Ctrl}l")
+                .await
+                .map_err(|e| format!("Focus address bar failed: {e}"))?;
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            // Select all existing text in address bar
+            desktop
+                .press_key("{Ctrl}a")
+                .await
+                .map_err(|e| format!("Select all in address bar failed: {e}"))?;
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            // Type the URL
+            let root = desktop.root();
+            root.type_text(url, false)
+                .map_err(|e| format!("Type URL failed: {e}"))?;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            // Press Enter to navigate
+            desktop
+                .press_key("{Enter}")
+                .await
+                .map_err(|e| format!("Press Enter to navigate failed: {e}"))?;
+            // Wait for navigation to start
+            tokio::time::sleep(Duration::from_millis(1000)).await;
         }
         "search" => {
             let query = get_str("query")
@@ -389,12 +495,29 @@ impl Desktop {
         let mut final_text: Option<String> = None;
         let mut pending_confirmation: Option<serde_json::Value> = None;
 
+        // Setup executions directory for screenshots (flat structure)
+        let execution_id = generate_execution_id(process);
+        let executions_dir = match get_executions_dir() {
+            Ok(dir) => Some(dir),
+            Err(e) => {
+                warn!("[computer_use] Failed to get executions dir: {}", e);
+                None
+            }
+        };
+
         info!(
-            "[computer_use] Starting agentic loop for goal: {} (max_steps: {})",
-            goal, max_steps
+            "[computer_use] Starting agentic loop for goal: {} (max_steps: {}, execution_id: {})",
+            goal, max_steps, execution_id
         );
 
         for step_num in 1..=max_steps {
+            // Check for cancellation at start of each iteration
+            if self.is_cancelled() {
+                info!("[computer_use] Cancelled by stop_execution");
+                final_status = "cancelled";
+                break;
+            }
+
             info!("[computer_use] Step {}/{}", step_num, max_steps);
 
             // 1. Capture screenshot of target window
@@ -406,6 +529,14 @@ impl Desktop {
                     break;
                 }
             };
+
+            // 1b. Save initial screenshot only (before any action) - async, non-blocking
+            if step_num == 1 {
+                if let Some(ref dir) = executions_dir {
+                    let screenshot_path = dir.join(format!("{}_000_initial.png", execution_id));
+                    save_screenshot_async(capture_data.base64_image.clone(), screenshot_path);
+                }
+            }
 
             // 2. Call backend to get next action
             let response = match call_computer_use_backend(
@@ -470,6 +601,7 @@ impl Desktop {
             // 6. Execute action
             let execute_result = execute_action(
                 self,
+                process,
                 &function_call.name,
                 &function_call.args,
                 capture_data.window_bounds,
@@ -502,14 +634,36 @@ impl Desktop {
 
             // 8. Wait for UI to settle before capturing post-action screenshot
             // This is critical for actions that cause page navigation (e.g., press Enter on search)
-            tokio::time::sleep(Duration::from_millis(1000)).await;
+            // Use select! to allow cancellation during the wait
+            let ct = self.cancellation_token();
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_millis(1000)) => {},
+                _ = ct.cancelled() => {
+                    info!("[computer_use] Cancelled during wait by stop_execution");
+                    final_status = "cancelled";
+                    break;
+                }
+            }
 
             // 9. Capture new screenshot after action for next iteration
-            let (post_action_screenshot, post_action_url) =
-                match capture_window_for_computer_use(self, process) {
-                    Ok(data) => (data.base64_image, data.browser_url),
-                    Err(_) => (capture_data.base64_image.clone(), None),
-                };
+            let (post_action_screenshot, post_action_url) = match capture_window_for_computer_use(
+                self, process,
+            ) {
+                Ok(data) => (data.base64_image, data.browser_url),
+                Err(e) => {
+                    warn!("[computer_use] Failed to capture post-action screenshot: {}. Skipping previous_actions update.", e);
+                    // Don't fallback to pre-action screenshot - that would confuse Gemini
+                    // Just continue to next iteration without adding to previous_actions
+                    continue;
+                }
+            };
+
+            // 9b. Save post-action screenshot (result of this step's action) - async, non-blocking
+            if let Some(ref dir) = executions_dir {
+                let screenshot_path =
+                    dir.join(format!("{}_{:03}_after.png", execution_id, step_num));
+                save_screenshot_async(post_action_screenshot.clone(), screenshot_path);
+            }
 
             previous_actions.push(ComputerUsePreviousAction {
                 name: function_call.name,
@@ -533,7 +687,7 @@ impl Desktop {
             steps.len()
         );
 
-        Ok(ComputerUseResult {
+        let result = ComputerUseResult {
             status: final_status.to_string(),
             goal: goal.to_string(),
             steps_executed: steps.len() as u32,
@@ -541,6 +695,16 @@ impl Desktop {
             final_text,
             steps,
             pending_confirmation,
-        })
+            execution_id: Some(execution_id.clone()),
+        };
+
+        // Save execution result as JSON (flat structure)
+        if let Some(ref dir) = executions_dir {
+            if let Err(e) = save_execution_result(&result, dir, &execution_id) {
+                warn!("[computer_use] Failed to save execution result: {}", e);
+            }
+        }
+
+        Ok(result)
     }
 }

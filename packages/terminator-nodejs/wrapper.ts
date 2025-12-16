@@ -182,11 +182,35 @@ export type BrowserScriptOptions = {
 type BrowserScriptInput = string | BrowserScriptFunction | BrowserScriptOptions;
 
 // Enhanced executeBrowserScript with function and file support
+// Desktop signature: (script, process, timeoutMs?)
+// Element signature: (script)
 async function enhancedExecuteBrowserScript(
   this: any,
   scriptOrFunction: BrowserScriptInput,
-  envOrOptions?: any,
+  processOrEnv?: string | any,
+  timeoutMs?: number,
 ): Promise<any> {
+  // Detect if this is Desktop or Element
+  // Can't use .length on napi functions (always returns 0), so check constructor name
+  const isDesktop = this.constructor?.name === 'Desktop';
+
+  // For Desktop: second param is process name, third is timeout
+  // For Element: second param is env options (backward compatible)
+  let process: string | undefined;
+  let envOrOptions: any;
+
+  if (isDesktop) {
+    if (typeof processOrEnv !== 'string') {
+      throw new Error(
+        "Desktop.executeBrowserScript requires 'process' as second argument (e.g., 'chrome', 'msedge', 'firefox'). " +
+        "Usage: desktop.executeBrowserScript(script, 'chrome', timeoutMs?)"
+      );
+    }
+    process = processOrEnv;
+  } else {
+    // Element - second param is env options
+    envOrOptions = processOrEnv;
+  }
   let script: string;
   let env: any = {};
   let shouldInjectEnv = false; // Only inject env for file-based and string scripts, not functions
@@ -247,7 +271,7 @@ async function enhancedExecuteBrowserScript(
           }
           return String(result);
         }
-        return null;
+        return "undefined";
       })()
     `;
   } else if (
@@ -298,7 +322,10 @@ async function enhancedExecuteBrowserScript(
   }
 
   // Call the original native method
-  const resultStr = await this._originalExecuteBrowserScript(script);
+  // Desktop requires (script, process, timeoutMs?), Element only needs (script)
+  const resultStr = isDesktop
+    ? await this._originalExecuteBrowserScript(script, process, timeoutMs)
+    : await this._originalExecuteBrowserScript(script);
 
   // If function was passed, try to parse JSON result
   if (typeof scriptOrFunction === "function") {
@@ -319,6 +346,7 @@ export const Desktop = wrapClassMethods(native.Desktop);
 export const Element = wrapClass(native.Element);
 export const Locator = wrapClass(native.Locator);
 export const Selector = wrapClass(native.Selector);
+export const WindowManager = wrapClassMethods(native.WindowManager);
 
 // Patch executeBrowserScript on Desktop and Element
 if (Desktop.prototype.executeBrowserScript) {
@@ -345,5 +373,22 @@ export type {
   ScreenshotResult,
   UIElementAttributes,
   UINode,
+  WindowInfo,
+  ActionOptions,
+  TypeTextOptions,
+  PressKeyOptions,
+  // Computer Use types
+  ComputerUseResult,
+  ComputerUseStep,
+  ComputerUsePendingConfirmation,
 } from "./index.js";
-export { PropertyLoadingMode, TextPosition } from "./index.js";
+export {
+  ClickType,
+  ClusteredBoundsEntry,
+  ClusteredFormattingResult,
+  ElementSource,
+  PropertyLoadingMode,
+  TextPosition,
+  TreeOutputFormat,
+  VisionType,
+} from "./index.js";

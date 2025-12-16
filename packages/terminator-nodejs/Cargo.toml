@@ -16,8 +16,17 @@ napi = { version = "2.12.2", default-features = false, features = [
 ] }
 napi-derive = "2.12.2"
 terminator = { workspace = true }
+tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# For Gemini Vision image processing and HTTP requests
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# For blocking on async in sync context
+futures = "0.3"
 
 [build-dependencies]
 napi-build = "2.0.1"
+static_vcruntime = "2.0"

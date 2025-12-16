@@ -471,6 +471,11 @@ impl From<TreeBuildConfig> for ::terminator_core::platforms::TreeBuildConfig {
             batch_size: config.batch_size,
             max_depth: None, // Not exposed in Python bindings yet
             include_all_bounds: false,
+            ui_settle_delay_ms: None,
+            format_output: false,
+            show_overlay: false,
+            overlay_display_mode: None,
+            from_selector: None,
         }
     }
 }

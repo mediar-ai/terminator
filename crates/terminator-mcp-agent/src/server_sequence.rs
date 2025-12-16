@@ -6,14 +6,18 @@ use crate::utils::{
     DesktopWrapper, ExecuteSequenceArgs, SequenceItem, ToolCall, ToolGroup, VariableDefinition,
 };
 use crate::workflow_format::{detect_workflow_format, WorkflowFormat};
-use crate::workflow_typescript::TypeScriptWorkflow;
-use rmcp::model::{CallToolResult, Content};
+use crate::workflow_typescript::{TypeScriptWorkflow, WorkflowEvent};
+use rmcp::model::{
+    CallToolResult, Content, LoggingLevel, LoggingMessageNotificationParam, NumberOrString,
+    ProgressNotificationParam, ProgressToken,
+};
 use rmcp::service::{Peer, RequestContext, RoleServer};
 use rmcp::ErrorData as McpError;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::sync::mpsc;
 use tracing::{debug, info, info_span, warn, Instrument};
 use uuid::Uuid;
 
@@ -352,7 +356,7 @@ impl DesktopWrapper {
         let trace_id_val = args.trace_id.clone().unwrap_or_default();
         let execution_id_val = args.execution_id.clone().unwrap_or_default();
         let tracing_span = info_span!(
-            "execute_sequence",
+            "execute_ts_workflow",
             trace_id = %trace_id_val,
             execution_id = %execution_id_val,
             log_source = "agent",
@@ -400,10 +404,10 @@ impl DesktopWrapper {
 
             match format {
                 WorkflowFormat::TypeScript => {
-                    // Execute TypeScript workflow
+                    // Execute TypeScript workflow with MCP notification streaming
                     let url_clone = url.clone();
                     return self
-                        .execute_typescript_workflow(&url_clone, args, execution_id)
+                        .execute_typescript_workflow(&url_clone, args, execution_id, peer)
                         .await;
                 }
                 WorkflowFormat::Yaml => {
@@ -420,6 +424,15 @@ impl DesktopWrapper {
             let workflow_content = if url.starts_with("file://") {
                 // Handle local file URLs
                 let file_path = url.strip_prefix("file://").unwrap_or(url);
+                // Handle Windows file:/// URLs (strip leading / before drive letter like /C:)
+                let file_path = if file_path.starts_with('/')
+                    && file_path.len() > 2
+                    && file_path.chars().nth(2) == Some(':')
+                {
+                    &file_path[1..]
+                } else {
+                    file_path
+                };
                 info!("Reading file from path: {}", file_path);
 
                 // Store the workflow directory for relative path resolution
@@ -1553,14 +1566,17 @@ impl DesktopWrapper {
                             ],
                         );
 
-                        // Create execution context for window management
-                        let execution_context =
-                            Some(crate::utils::ToolExecutionContext::sequence_step(
+                        // Create execution context for window management + logging
+                        let step_id = original_step.and_then(|s| s.id.clone());
+                        let execution_context = Some(
+                            crate::utils::ToolExecutionContext::sequence_step(
                                 args.url.clone().unwrap_or_default(),
                                 current_index + 1, // 1-based for user display
                                 total_steps,
                                 last_executed_process.clone(),
-                            ));
+                            )
+                            .with_workflow_context(args.workflow_id.clone(), step_id.clone()),
+                        );
 
                         let (result, error_occurred) = self
                             .execute_single_tool(
@@ -1571,7 +1587,7 @@ impl DesktopWrapper {
                                 tool_call.continue_on_error.unwrap_or(false),
                                 current_index,
                                 include_detailed,
-                                original_step.and_then(|s| s.id.as_deref()),
+                                step_id.as_deref(),
                                 execution_context,
                             )
                             .await;
@@ -1997,14 +2013,20 @@ impl DesktopWrapper {
                                 .and_then(|v| v.as_str())
                                 .map(|s| s.to_string());
 
-                            // Create execution context for window management
-                            let tool_execution_context =
-                                Some(crate::utils::ToolExecutionContext::sequence_step(
+                            // Create execution context for window management + logging
+                            let step_id_for_ctx = step_tool_call.id.clone();
+                            let tool_execution_context = Some(
+                                crate::utils::ToolExecutionContext::sequence_step(
                                     args.url.clone().unwrap_or_default(),
                                     current_index + 1, // 1-based for user display
                                     total_steps,
                                     last_executed_process.clone(),
-                                ));
+                                )
+                                .with_workflow_context(
+                                    args.workflow_id.clone(),
+                                    step_id_for_ctx.clone(),
+                                ),
+                            );
 
                             let (result, error_occurred) = self
                                 .execute_single_tool(
@@ -2015,7 +2037,7 @@ impl DesktopWrapper {
                                     step_tool_call.continue_on_error.unwrap_or(false),
                                     step_index,
                                     include_detailed,
-                                    step_tool_call.id.as_deref(), // Use step ID if available
+                                    step_id_for_ctx.as_deref(), // Use step ID if available
                                     tool_execution_context,
                                 )
                                 .await;
@@ -2306,7 +2328,7 @@ impl DesktopWrapper {
         );
 
         let mut summary = json!({
-            "action": "execute_sequence",
+            "action": "execute_ts_workflow",
             "status": final_status,
             "total_tools": sequence_items.len(),
             "executed_tools": actually_executed_count,
@@ -2604,12 +2626,13 @@ impl DesktopWrapper {
         (processed_result, error_occurred)
     }
 
-    /// Execute TypeScript workflow
+    /// Execute TypeScript workflow with MCP notification streaming
     async fn execute_typescript_workflow(
         &self,
         url: &str,
         args: ExecuteSequenceArgs,
         execution_id: String,
+        peer: Peer<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         // Extract trace context for distributed tracing
         let trace_id_val = args.trace_id.clone().unwrap_or_default();
@@ -2650,44 +2673,244 @@ impl DesktopWrapper {
             // Create TypeScript workflow executor
             let ts_workflow = TypeScriptWorkflow::new(url)?;
 
-            // Execute workflow
+            // Create event channel for streaming workflow events to MCP client
+            let (event_tx, mut event_rx) = mpsc::unbounded_channel::<WorkflowEvent>();
+
+            // Generate a progress token for this workflow execution
+            let progress_token = ProgressToken(NumberOrString::String(
+                format!("workflow-{}", execution_id_val).into(),
+            ));
+
+            // Shared storage for collecting screenshots from events with metadata
+            // (index, timestamp, annotation, element, base64)
+            #[allow(clippy::type_complexity)]
+            let collected_screenshots: Arc<
+                std::sync::Mutex<Vec<(usize, String, Option<String>, Option<String>, String)>>,
+            > = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let screenshots_clone = collected_screenshots.clone();
+
+            // Spawn task to forward events as MCP notifications
+            let peer_clone = peer.clone();
+            let progress_token_clone = progress_token.clone();
+            let notification_handle = tokio::spawn(async move {
+                let mut step_counter: u32 = 0;
+                let mut total_steps: Option<u32> = None;
+                let mut screenshot_index: usize = 0;
+
+                while let Some(event) = event_rx.recv().await {
+                    match event {
+                        WorkflowEvent::Progress {
+                            current,
+                            total,
+                            message,
+                            ..
+                        } => {
+                            // Send MCP progress notification
+                            let _ = peer_clone
+                                .notify_progress(ProgressNotificationParam {
+                                    progress_token: progress_token_clone.clone(),
+                                    progress: current,
+                                    total,
+                                    message,
+                                })
+                                .await;
+                        }
+                        WorkflowEvent::StepStarted {
+                            step_name,
+                            step_index,
+                            total_steps: steps_total,
+                            ..
+                        } => {
+                            step_counter = step_index.unwrap_or(step_counter + 1);
+                            if let Some(t) = steps_total {
+                                total_steps = Some(t);
+                            }
+                            // Send as logging message for clients that support it
+                            let _ = peer_clone
+                                .notify_logging_message(LoggingMessageNotificationParam {
+                                    level: LoggingLevel::Info,
+                                    logger: Some("workflow".to_string()),
+                                    data: json!({
+                                        "type": "step_started",
+                                        "step": step_counter,
+                                        "total": total_steps,
+                                        "name": step_name
+                                    }),
+                                })
+                                .await;
+                            // Also send as progress notification
+                            let _ = peer_clone
+                                .notify_progress(ProgressNotificationParam {
+                                    progress_token: progress_token_clone.clone(),
+                                    progress: step_counter as f64,
+                                    total: total_steps.map(|t| t as f64),
+                                    message: Some(format!("Starting: {}", step_name)),
+                                })
+                                .await;
+                        }
+                        WorkflowEvent::StepCompleted {
+                            step_name,
+                            duration,
+                            step_index,
+                            ..
+                        } => {
+                            let step = step_index.unwrap_or(step_counter);
+                            let _ = peer_clone
+                                .notify_logging_message(LoggingMessageNotificationParam {
+                                    level: LoggingLevel::Info,
+                                    logger: Some("workflow".to_string()),
+                                    data: json!({
+                                        "type": "step_completed",
+                                        "step": step,
+                                        "name": step_name,
+                                        "duration_ms": duration
+                                    }),
+                                })
+                                .await;
+                        }
+                        WorkflowEvent::StepFailed {
+                            step_name, error, ..
+                        } => {
+                            let _ = peer_clone
+                                .notify_logging_message(LoggingMessageNotificationParam {
+                                    level: LoggingLevel::Error,
+                                    logger: Some("workflow".to_string()),
+                                    data: json!({
+                                        "type": "step_failed",
+                                        "name": step_name,
+                                        "error": error
+                                    }),
+                                })
+                                .await;
+                        }
+                        WorkflowEvent::Log {
+                            level,
+                            message,
+                            data,
+                            ..
+                        } => {
+                            let log_level = match level.as_str() {
+                                "error" => LoggingLevel::Error,
+                                "warn" | "warning" => LoggingLevel::Warning,
+                                "debug" => LoggingLevel::Debug,
+                                _ => LoggingLevel::Info,
+                            };
+                            let _ = peer_clone
+                                .notify_logging_message(LoggingMessageNotificationParam {
+                                    level: log_level,
+                                    logger: Some("workflow".to_string()),
+                                    data: data.unwrap_or_else(|| json!({ "message": message })),
+                                })
+                                .await;
+                        }
+                        WorkflowEvent::Data { key, value, .. } => {
+                            let _ = peer_clone
+                                .notify_logging_message(LoggingMessageNotificationParam {
+                                    level: LoggingLevel::Info,
+                                    logger: Some("workflow.data".to_string()),
+                                    data: json!({ "key": key, "value": value }),
+                                })
+                                .await;
+                        }
+                        WorkflowEvent::Screenshot {
+                            path,
+                            base64,
+                            annotation,
+                            element,
+                            timestamp,
+                        } => {
+                            // Collect base64 screenshots with metadata for inclusion in the result
+                            if let Some(ref b64) = base64 {
+                                if let Ok(mut screenshots) = screenshots_clone.lock() {
+                                    screenshots.push((
+                                        screenshot_index,
+                                        timestamp.clone(),
+                                        annotation.clone(),
+                                        element.clone(),
+                                        b64.clone(),
+                                    ));
+                                    screenshot_index += 1;
+                                }
+                            }
+                            let _ = peer_clone
+                                .notify_logging_message(LoggingMessageNotificationParam {
+                                    level: LoggingLevel::Info,
+                                    logger: Some("workflow.screenshot".to_string()),
+                                    data: json!({
+                                        "type": "screenshot",
+                                        "path": path,
+                                        "annotation": annotation,
+                                        "index": screenshot_index.saturating_sub(1)
+                                    }),
+                                })
+                                .await;
+                        }
+                        WorkflowEvent::Status {
+                            text,
+                            duration_ms,
+                            position,
+                            timestamp,
+                        } => {
+                            let _ = peer_clone
+                                .notify_logging_message(LoggingMessageNotificationParam {
+                                    level: LoggingLevel::Info,
+                                    logger: Some("workflow.status".to_string()),
+                                    data: json!({
+                                        "text": text,
+                                        "durationMs": duration_ms,
+                                        "position": position,
+                                        "timestamp": timestamp
+                                    }),
+                                })
+                                .await;
+                        }
+                    }
+                }
+            });
+
+            // Execute workflow with event streaming
             let result = ts_workflow
-                .execute(
+                .execute_with_events(
                     args.inputs.unwrap_or(json!({})),
                     args.start_from_step.as_deref(),
                     args.end_at_step.as_deref(),
                     restored_state,
                     Some(&execution_id_val),
+                    Some(event_tx),
                 )
                 .await?;
 
+            // Wait for notification handler to finish (it will exit when sender is dropped)
+            let _ = notification_handle.await;
+
             // Save state for resumption (only if last_step_index is provided by runner-based workflows)
-            if let (Some(ref last_step_id), Some(last_step_index)) =
-                (&result.result.last_step_id, result.result.last_step_index)
-            {
+            if let (Some(ref last_step_id), Some(last_step_index)) = (
+                &result.result.result.last_step_id,
+                result.result.result.last_step_index,
+            ) {
                 Self::save_workflow_state(
                     args.workflow_id.as_deref(),
                     Some(url),
                     Some(last_step_id),
                     last_step_index,
-                    &result.state,
+                    &result.result.state,
                 )
                 .await?;
             }
 
             // Return result
             let mut output = json!({
-                "status": result.result.status,
-                "message": result.result.message,
-                "data": result.result.data,
-                "metadata": result.metadata,
-                "state": result.state,
-                "last_step_id": result.result.last_step_id,
-                "last_step_index": result.result.last_step_index,
+                "status": result.result.result.status,
+                "message": result.result.result.message,
+                "data": result.result.result.data,
+                "metadata": result.result.metadata,
+                "state": result.result.state,
+                "last_step_id": result.result.result.last_step_id,
+                "last_step_index": result.result.result.last_step_index,
             });
 
             // If there's data from context.data, add it as parsed_output for CLI compatibility
-            if let Some(data) = &result.result.data {
+            if let Some(data) = &result.result.result.data {
                 if !data.is_null() {
                     if let Some(obj) = output.as_object_mut() {
                         obj.insert(
@@ -2717,11 +2940,54 @@ impl DesktopWrapper {
                 );
             }
 
+            // Store captured stderr logs for dispatch_tool to include in execution log
+            if let Ok(mut logs) = self.captured_stderr_logs.lock() {
+                logs.clear();
+                logs.extend(result.logs);
+            }
+
+            // Build content with JSON response and any collected screenshots
+            // Add screenshot metadata to output for ordering context
+            if let Ok(screenshots) = collected_screenshots.lock() {
+                if !screenshots.is_empty() {
+                    let screenshot_metadata: Vec<serde_json::Value> = screenshots
+                        .iter()
+                        .map(|(idx, ts, annotation, element, _)| {
+                            json!({
+                                "index": idx,
+                                "timestamp": ts,
+                                "annotation": annotation,
+                                "element": element
+                            })
+                        })
+                        .collect();
+                    output["screenshots"] = json!(screenshot_metadata);
+                }
+            }
+
+            let mut contents = vec![Content::text(
+                serde_json::to_string_pretty(&output).unwrap(),
+            )];
+
+            // Append collected screenshots as image content for MCP vision support (in order)
+            if let Ok(screenshots) = collected_screenshots.lock() {
+                for (_, _, _, _, base64_image) in screenshots.iter() {
+                    contents.push(Content::image(
+                        base64_image.clone(),
+                        "image/png".to_string(),
+                    ));
+                }
+                if !screenshots.is_empty() {
+                    info!(
+                        "[execute_sequence] Appended {} screenshots to response",
+                        screenshots.len()
+                    );
+                }
+            }
+
             Ok(CallToolResult {
-                content: vec![Content::text(
-                    serde_json::to_string_pretty(&output).unwrap(),
-                )],
-                is_error: Some(result.result.status != "success"),
+                content: contents,
+                is_error: Some(result.result.result.status != "success"),
                 meta: None,
                 structured_content: None,
             })

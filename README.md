@@ -1,16 +1,3 @@
-# [Want a turnkey automation? mediar.ai](https://mediar.ai)
-
-## [Want No code workflow builder? app.mediar.ai](https://app.mediar.ai)
-
-## 💰 Bounty Developer Program
-
-We have listed a few issues with bounties - ask questions, complete tasks, make money!
-
-Check out our bounty-tagged issues and start contributing today:
-- [Example Issue #372 - Add GitHub Workflow to Handle Dependent PR Releases](https://github.com/mediar-ai/terminator/issues/372)
-- [View all bounty issues](https://github.com/mediar-ai/terminator/issues?q=is%3Aissue+is%3Aopen+label%3Abounty)
-
-Join our [Discord](https://discord.gg/dU9EBuw7Uq) to discuss bounties and get help getting started.
 
 # demo of terminator drawing in paint
 

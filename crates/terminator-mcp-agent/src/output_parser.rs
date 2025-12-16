@@ -117,7 +117,7 @@ pub async fn run_output_parser(
     };
 
     // Execute JavaScript code asynchronously
-    let result = execute_javascript_with_nodejs(full_script, None, None, None)
+    let result = execute_javascript_with_nodejs(full_script, None, None, None, None, None)
         .await
         .map_err(|e| anyhow::anyhow!("JavaScript execution failed: {}", e))?;
 

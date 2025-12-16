@@ -2838,6 +2838,12 @@ impl UIElementImpl for LinuxUIElement {
         resp_rx.recv().unwrap()
     }
 
+    fn get_value(&self) -> Result<Option<String>, AutomationError> {
+        // Linux AT-SPI doesn't have a direct Value pattern like Windows UIA
+        // Return None - callers should use text() or other methods
+        Ok(None)
+    }
+
     fn capture(&self) -> Result<ScreenshotResult, AutomationError> {
         Err(AutomationError::UnsupportedPlatform(
             "Linux implementation is not yet available".to_string(),

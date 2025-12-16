@@ -69,6 +69,7 @@ mod text_input_tracker_tests {
             _use_clipboard: bool,
             _try_focus_before: bool,
             _try_click_before: bool,
+            _restore_focus: bool,
         ) -> Result<(), AutomationError> {
             unimplemented!()
         }
@@ -77,6 +78,7 @@ mod text_input_tracker_tests {
             _key: &str,
             _try_focus_before: bool,
             _try_click_before: bool,
+            _restore_focus: bool,
         ) -> Result<(), AutomationError> {
             unimplemented!()
         }
@@ -206,6 +208,9 @@ mod text_input_tracker_tests {
         }
         fn invoke(&self) -> Result<(), AutomationError> {
             todo!()
+        }
+        fn get_value(&self) -> Result<Option<String>, AutomationError> {
+            Ok(Some(self.text.clone()))
         }
     }
 

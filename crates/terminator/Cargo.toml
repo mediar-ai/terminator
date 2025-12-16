@@ -29,6 +29,9 @@ uni-ocr = { workspace = true }
 async-trait = { workspace = true }
 futures = "0.3"
 blake3 = "1.5.0"
+# Screenshot storage
+chrono = "0.4"
+dirs = "5.0"
 # Extension bridge (WebSocket)
 once_cell = "1.19"
 similar = "2.5"
@@ -67,6 +70,7 @@ objc = { workspace = true }
 objc-foundation = { workspace = true }
 core-foundation = { workspace = true }
 core-graphics = { workspace = true }
+sysinfo = { workspace = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 terminator-computer-use = { workspace = true }

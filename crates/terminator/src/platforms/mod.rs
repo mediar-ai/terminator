@@ -17,6 +17,39 @@ pub struct TreeBuildConfig {
     pub max_depth: Option<usize>,
     /// Include bounds for all elements (not just focusable). Used for inspect overlay.
     pub include_all_bounds: bool,
+    /// Delay in milliseconds to wait for UI to stabilize before capturing tree.
+    /// Useful for letting animations/transitions complete. Default: 0 (no delay)
+    pub ui_settle_delay_ms: Option<u64>,
+    /// Generate formatted compact YAML output alongside the tree structure
+    pub format_output: bool,
+    /// Show visual overlay with indexed elements after building tree (Windows only)
+    pub show_overlay: bool,
+    /// Display mode for overlay labels when show_overlay is true
+    pub overlay_display_mode: Option<OverlayDisplayMode>,
+    /// Optional selector to start tree from instead of window root.
+    /// When specified, the tree will be built from the element matching this selector
+    /// rather than the full window. Useful for getting focused subtrees.
+    pub from_selector: Option<String>,
+}
+
+/// Display mode for inspect overlay labels (cross-platform definition)
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum OverlayDisplayMode {
+    /// Just rectangles, no labels
+    Rectangles,
+    /// [index] only
+    #[default]
+    Index,
+    /// [role] only
+    Role,
+    /// [index:role]
+    IndexRole,
+    /// [name] only
+    Name,
+    /// [index:name]
+    IndexName,
+    /// [index:role:name]
+    Full,
 }
 
 /// Defines how much element property data to load
@@ -39,6 +72,11 @@ impl Default for TreeBuildConfig {
             batch_size: Some(50),
             max_depth: None, // No limit by default
             include_all_bounds: false,
+            ui_settle_delay_ms: None, // No delay by default
+            format_output: false,
+            show_overlay: false,
+            overlay_display_mode: None,
+            from_selector: None,
         }
     }
 }
@@ -195,7 +233,13 @@ pub trait AccessibilityEngine: Send + Sync {
 
     /// Click at absolute screen coordinates
     /// Default implementation returns UnsupportedOperation - override in platform-specific engines
-    fn click_at_coordinates(&self, _x: f64, _y: f64) -> Result<(), AutomationError> {
+    /// If `restore_cursor` is true, the cursor position will be restored after the click
+    fn click_at_coordinates(
+        &self,
+        _x: f64,
+        _y: f64,
+        _restore_cursor: bool,
+    ) -> Result<(), AutomationError> {
         Err(AutomationError::UnsupportedOperation(
             "Click at coordinates not supported on this platform".to_string(),
         ))
@@ -203,11 +247,13 @@ pub trait AccessibilityEngine: Send + Sync {
 
     /// Click at absolute screen coordinates with specified click type (left, double, right)
     /// Default implementation returns UnsupportedOperation - override in platform-specific engines
+    /// If `restore_cursor` is true, the cursor position will be restored after the click
     fn click_at_coordinates_with_type(
         &self,
         _x: f64,
         _y: f64,
         _click_type: crate::ClickType,
+        _restore_cursor: bool,
     ) -> Result<(), AutomationError> {
         Err(AutomationError::UnsupportedOperation(
             "Click at coordinates with type not supported on this platform".to_string(),

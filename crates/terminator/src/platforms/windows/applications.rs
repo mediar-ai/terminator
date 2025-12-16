@@ -45,10 +45,10 @@ const DEFAULT_FIND_TIMEOUT: Duration = Duration::from_millis(5000);
 static ENUM_TARGET_PID: AtomicU32 = AtomicU32::new(0);
 static ENUM_FOUND_HWND: AtomicIsize = AtomicIsize::new(0);
 
-// List of common browser process names (without .exe)
-const KNOWN_BROWSER_PROCESS_NAMES: &[&str] = &[
+/// Known browser process names for detection (without .exe)
+pub const KNOWN_BROWSER_PROCESS_NAMES: &[&str] = &[
     "chrome", "firefox", "msedge", "edge", "iexplore", "opera", "brave", "vivaldi", "browser",
-    "arc", "explorer",
+    "arc",
 ];
 
 /// Fast window finder using Win32 EnumWindows API
@@ -186,6 +186,19 @@ pub fn get_process_name_by_pid(pid: i32) -> Result<String, AutomationError> {
         Err(AutomationError::PlatformError(format!(
             "Process with PID {pid} not found"
         )))
+    }
+}
+
+/// Check if a process (by PID) is a known browser
+/// Returns true if the process name matches any known browser, false otherwise
+pub fn is_browser_process(pid: u32) -> bool {
+    if let Ok(process_name) = get_process_name_by_pid(pid as i32) {
+        let process_name_lower = process_name.to_lowercase();
+        KNOWN_BROWSER_PROCESS_NAMES
+            .iter()
+            .any(|&browser| process_name_lower.contains(browser))
+    } else {
+        false
     }
 }
 

@@ -6,12 +6,139 @@ use terminator::{
 };
 
 use crate::{
-    map_error, Bounds, ClickResult, FontStyle, HighlightHandle, Locator, ScreenshotResult,
-    TextPosition, UIElementAttributes,
+    map_error, ActionResult, Bounds, ClickResult, ClickType, FontStyle, HighlightHandle, Locator,
+    ScreenshotResult, TextPosition, UIElementAttributes,
 };
 
 use crate::Selector;
 use napi::bindgen_prelude::Either;
+
+/// Click position within element bounds as percentages (0-100)
+#[napi(object)]
+#[derive(Default, Clone)]
+pub struct ClickPosition {
+    /// X position as percentage from left edge (0-100). 50 = center.
+    pub x_percentage: u8,
+    /// Y position as percentage from top edge (0-100). 50 = center.
+    pub y_percentage: u8,
+}
+
+/// Options for action methods (click, pressKey, scroll, etc.)
+#[napi(object)]
+#[derive(Default)]
+pub struct ActionOptions {
+    /// Whether to highlight the element before performing the action. Defaults to false.
+    pub highlight_before_action: Option<bool>,
+    /// Whether to capture window screenshot after action. Defaults to true.
+    pub include_window_screenshot: Option<bool>,
+    /// Whether to capture monitor screenshots after action. Defaults to false.
+    pub include_monitor_screenshots: Option<bool>,
+    /// Whether to try focusing the element before the action. Defaults to true.
+    pub try_focus_before: Option<bool>,
+    /// Whether to try clicking the element if focus fails. Defaults to true.
+    pub try_click_before: Option<bool>,
+    /// Whether to capture UI tree before/after action and compute diff. Defaults to false.
+    pub ui_diff_before_after: Option<bool>,
+    /// Max depth for tree capture when doing UI diff.
+    pub ui_diff_max_depth: Option<u32>,
+    /// Click position within element bounds. If not specified, clicks at center.
+    pub click_position: Option<ClickPosition>,
+    /// Type of click: 'Left', 'Double', or 'Right'. Defaults to 'Left'.
+    pub click_type: Option<ClickType>,
+    /// Whether to restore cursor to original position after click. Defaults to false.
+    pub restore_cursor: Option<bool>,
+    /// Whether to restore the original focus and caret position after the action. Defaults to false.
+    /// When true, saves the currently focused element and caret position before the action, then restores them after.
+    pub restore_focus: Option<bool>,
+}
+
+/// Options for typeText method
+#[napi(object)]
+#[derive(Default)]
+pub struct TypeTextOptions {
+    /// REQUIRED: Whether to clear existing text before typing.
+    /// Set to true to clear the field first, false to append.
+    pub clear_before_typing: bool,
+    /// Whether to use clipboard for pasting. Defaults to false.
+    pub use_clipboard: Option<bool>,
+    /// Whether to highlight the element before typing. Defaults to false.
+    pub highlight_before_action: Option<bool>,
+    /// Whether to capture window screenshot after action. Defaults to true.
+    pub include_window_screenshot: Option<bool>,
+    /// Whether to capture monitor screenshots after action. Defaults to false.
+    pub include_monitor_screenshots: Option<bool>,
+    /// Whether to try focusing the element before typing. Defaults to true.
+    pub try_focus_before: Option<bool>,
+    /// Whether to try clicking the element if focus fails. Defaults to true.
+    pub try_click_before: Option<bool>,
+    /// Whether to restore the original focus and caret position after typing. Defaults to false.
+    /// When true, saves the currently focused element and caret position before typing, then restores them after.
+    pub restore_focus: Option<bool>,
+    /// Whether to capture UI tree before/after action and compute diff. Defaults to false.
+    pub ui_diff_before_after: Option<bool>,
+    /// Max depth for tree capture when doing UI diff.
+    pub ui_diff_max_depth: Option<u32>,
+}
+
+/// Result of screenshot capture for Element methods
+#[derive(Default)]
+struct ElementScreenshotPaths {
+    window_path: Option<String>,
+    monitor_paths: Option<Vec<String>>,
+}
+
+/// Helper to capture and save screenshots for Element methods
+fn capture_element_screenshots(
+    element: &TerminatorUIElement,
+    include_window: bool,
+    include_monitors: bool,
+    operation: &str,
+) -> ElementScreenshotPaths {
+    let mut result = ElementScreenshotPaths::default();
+
+    if !include_window && !include_monitors {
+        return result;
+    }
+
+    terminator::screenshot_logger::init();
+    let prefix = terminator::screenshot_logger::generate_prefix(None, operation);
+
+    if include_window {
+        // Capture via element's application
+        if let Ok(Some(app)) = element.application() {
+            if let Ok(screenshot) = app.capture() {
+                if let Some(saved) = terminator::screenshot_logger::save_window_screenshot(
+                    &screenshot,
+                    &prefix,
+                    None,
+                ) {
+                    result.window_path = Some(saved.path.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+
+    if include_monitors {
+        // Create temporary desktop for monitor capture
+        if let Ok(temp_desktop) = terminator::Desktop::new(false, false) {
+            if let Ok(monitors) = futures::executor::block_on(temp_desktop.capture_all_monitors()) {
+                let saved = terminator::screenshot_logger::save_monitor_screenshots(
+                    &monitors, &prefix, None,
+                );
+                if !saved.is_empty() {
+                    result.monitor_paths = Some(
+                        saved
+                            .into_iter()
+                            .map(|s| s.path.to_string_lossy().to_string())
+                            .collect(),
+                    );
+                }
+            }
+        }
+    }
+
+    result
+}
 
 /// A UI element in the accessibility tree.
 #[napi(js_name = "Element")]
@@ -127,33 +254,244 @@ impl Element {
 
     /// Click on this element.
     ///
-    /// @returns {ClickResult} Result of the click operation.
+    /// @param {ActionOptions} [options] - Options for the click action.
+    /// @returns {Promise<ClickResult>} Result of the click operation.
     #[napi]
-    pub fn click(&self) -> napi::Result<ClickResult> {
-        self.inner.click().map(ClickResult::from).map_err(map_error)
+    pub async fn click(&self, options: Option<ActionOptions>) -> napi::Result<ClickResult> {
+        let opts = options.unwrap_or_default();
+        let restore_focus = opts.restore_focus.unwrap_or(true);
+
+        // FOCUS RESTORATION: Save focus state BEFORE any window operations
+        #[cfg(target_os = "windows")]
+        let saved_focus = if restore_focus {
+            tracing::debug!("[TS SDK] click: saving focus state BEFORE activate_window");
+            terminator::platforms::windows::save_focus_state()
+        } else {
+            None
+        };
+
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("click");
+        }
+        let _ = self.inner.activate_window();
+
+        // Determine click type
+        let click_type: terminator::ClickType = opts
+            .click_type
+            .map(|ct| ct.into())
+            .unwrap_or(terminator::ClickType::Left);
+
+        // Check if custom position is specified
+        let use_position = opts.click_position.is_some();
+        let (x_pct, y_pct) = opts
+            .click_position
+            .map(|p| (p.x_percentage, p.y_percentage))
+            .unwrap_or((50, 50));
+
+        let mut result = if opts.ui_diff_before_after.unwrap_or(false) {
+            // Use backend's execute_on_element_with_ui_diff for UI diff capture
+            let diff_options = terminator::UiDiffOptions {
+                max_depth: opts.ui_diff_max_depth.map(|d| d as usize),
+                settle_delay_ms: Some(1500),
+                include_detailed_attributes: Some(true),
+            };
+
+            // Get desktop to call execute_on_element_with_ui_diff
+            let desktop = terminator::Desktop::new_default().map_err(map_error)?;
+            let element_clone = self.inner.clone();
+
+            let click_result_with_diff = if use_position {
+                desktop
+                    .execute_on_element_with_ui_diff(
+                        element_clone,
+                        |el| async move { el.click_at_position(x_pct, y_pct, click_type) },
+                        Some(diff_options),
+                    )
+                    .await
+            } else {
+                desktop
+                    .execute_on_element_with_ui_diff(
+                        element_clone,
+                        |el| async move { el.click() },
+                        Some(diff_options),
+                    )
+                    .await
+            };
+
+            match click_result_with_diff {
+                Ok((click_result, _element, ui_diff)) => {
+                    let ui_diff_converted = ui_diff.map(|d| crate::types::UiDiffResult {
+                        diff: d.diff,
+                        has_changes: d.has_changes,
+                    });
+                    ClickResult {
+                        method: click_result.method,
+                        coordinates: click_result
+                            .coordinates
+                            .map(|c| crate::Coordinates { x: c.0, y: c.1 }),
+                        details: click_result.details,
+                        window_screenshot_path: None,
+                        monitor_screenshot_paths: None,
+                        ui_diff: ui_diff_converted,
+                    }
+                }
+                Err(e) => {
+                    return Err(map_error(e));
+                }
+            }
+        } else {
+            // Standard click without UI diff
+            let click_res = if use_position {
+                self.inner
+                    .click_at_position(x_pct, y_pct, click_type)
+                    .map_err(map_error)?
+            } else {
+                self.inner.click().map_err(map_error)?
+            };
+            ClickResult {
+                method: click_res.method,
+                coordinates: click_res
+                    .coordinates
+                    .map(|c| crate::Coordinates { x: c.0, y: c.1 }),
+                details: click_res.details,
+                window_screenshot_path: None,
+                monitor_screenshot_paths: None,
+                ui_diff: None,
+            }
+        };
+
+        // Capture screenshots if requested
+        let screenshots = capture_element_screenshots(
+            &self.inner,
+            opts.include_window_screenshot.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(false),
+            "click",
+        );
+        result.window_screenshot_path = screenshots.window_path;
+        result.monitor_screenshot_paths = screenshots.monitor_paths;
+
+        // FOCUS RESTORATION: Restore focus state after action if we saved it
+        #[cfg(target_os = "windows")]
+        if let Some(state) = saved_focus {
+            tracing::debug!("[TS SDK] click: restoring focus state after action");
+            terminator::platforms::windows::restore_focus_state(state);
+        }
+
+        Ok(result)
     }
 
     /// Double click on this element.
     ///
+    /// @param {ActionOptions} [options] - Options for the double click action.
     /// @returns {ClickResult} Result of the click operation.
     #[napi]
-    pub fn double_click(&self) -> napi::Result<ClickResult> {
-        self.inner
+    pub fn double_click(&self, options: Option<ActionOptions>) -> napi::Result<ClickResult> {
+        let opts = options.unwrap_or_default();
+        let restore_focus = opts.restore_focus.unwrap_or(true);
+
+        // FOCUS RESTORATION: Save focus state BEFORE any window operations
+        #[cfg(target_os = "windows")]
+        let saved_focus = if restore_focus {
+            tracing::debug!("[TS SDK] double_click: saving focus state BEFORE activate_window");
+            terminator::platforms::windows::save_focus_state()
+        } else {
+            None
+        };
+
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("double_click");
+        }
+        let _ = self.inner.activate_window();
+        let mut result: ClickResult = self
+            .inner
             .double_click()
             .map(ClickResult::from)
-            .map_err(map_error)
+            .map_err(map_error)?;
+
+        // Capture screenshots if requested
+        let screenshots = capture_element_screenshots(
+            &self.inner,
+            opts.include_window_screenshot.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(false),
+            "doubleClick",
+        );
+        result.window_screenshot_path = screenshots.window_path;
+        result.monitor_screenshot_paths = screenshots.monitor_paths;
+
+        // FOCUS RESTORATION: Restore focus state after action if we saved it
+        #[cfg(target_os = "windows")]
+        if let Some(state) = saved_focus {
+            tracing::debug!("[TS SDK] double_click: restoring focus state after action");
+            terminator::platforms::windows::restore_focus_state(state);
+        }
+
+        Ok(result)
     }
 
     /// Right click on this element.
+    ///
+    /// @param {ActionOptions} [options] - Options for the right click action.
     #[napi]
-    pub fn right_click(&self) -> napi::Result<()> {
-        self.inner.right_click().map_err(map_error)
+    pub fn right_click(&self, options: Option<ActionOptions>) -> napi::Result<()> {
+        let opts = options.unwrap_or_default();
+        let restore_focus = opts.restore_focus.unwrap_or(true);
+
+        // FOCUS RESTORATION: Save focus state BEFORE any window operations
+        #[cfg(target_os = "windows")]
+        let saved_focus = if restore_focus {
+            tracing::debug!("[TS SDK] right_click: saving focus state BEFORE activate_window");
+            terminator::platforms::windows::save_focus_state()
+        } else {
+            None
+        };
+
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("right_click");
+        }
+        let _ = self.inner.activate_window();
+        let result = self.inner.right_click().map_err(map_error);
+
+        // FOCUS RESTORATION: Restore focus state after action if we saved it
+        #[cfg(target_os = "windows")]
+        if let Some(state) = saved_focus {
+            tracing::debug!("[TS SDK] right_click: restoring focus state after action");
+            terminator::platforms::windows::restore_focus_state(state);
+        }
+
+        result
     }
 
     /// Hover over this element.
+    ///
+    /// @param {ActionOptions} [options] - Optional action options.
     #[napi]
-    pub fn hover(&self) -> napi::Result<()> {
-        self.inner.hover().map_err(map_error)
+    pub fn hover(&self, options: Option<ActionOptions>) -> napi::Result<()> {
+        let opts = options.unwrap_or_default();
+        let restore_focus = opts.restore_focus.unwrap_or(true);
+
+        // FOCUS RESTORATION: Save focus state BEFORE any window operations
+        #[cfg(target_os = "windows")]
+        let saved_focus = if restore_focus {
+            tracing::debug!("[TS SDK] hover: saving focus state BEFORE activate_window");
+            terminator::platforms::windows::save_focus_state()
+        } else {
+            None
+        };
+
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("hover");
+        }
+        let _ = self.inner.activate_window();
+        let result = self.inner.hover().map_err(map_error);
+
+        // FOCUS RESTORATION: Restore focus state after action if we saved it
+        #[cfg(target_os = "windows")]
+        if let Some(state) = saved_focus {
+            tracing::debug!("[TS SDK] hover: restoring focus state after action");
+            terminator::platforms::windows::restore_focus_state(state);
+        }
+
+        result
     }
 
     /// Check if element is visible.
@@ -192,28 +530,178 @@ impl Element {
     /// Type text into this element.
     ///
     /// @param {string} text - The text to type.
-    /// @param {boolean} [useClipboard] - Whether to use clipboard for pasting.
+    /// @param {TypeTextOptions} [options] - Options for typing.
+    /// @returns {ActionResult} Result of the type operation.
     #[napi]
-    pub fn type_text(&self, text: String, use_clipboard: Option<bool>) -> napi::Result<()> {
+    pub fn type_text(
+        &self,
+        text: String,
+        options: Option<TypeTextOptions>,
+    ) -> napi::Result<ActionResult> {
+        let opts = options.unwrap_or_default();
+        let restore_focus = opts.restore_focus.unwrap_or(true);
+
+        // CRITICAL: Save focus state BEFORE activate_window() if restore is requested
+        // activate_window() steals focus, so we must save first
+        #[cfg(target_os = "windows")]
+        let saved_focus = if restore_focus {
+            tracing::debug!("[TS SDK] type_text: saving focus state BEFORE activate_window");
+            terminator::platforms::windows::save_focus_state()
+        } else {
+            None
+        };
+
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("type");
+        }
+        let _ = self.inner.activate_window();
+
+        // Clear existing text if requested (matches MCP's clear_before_typing behavior)
+        if opts.clear_before_typing {
+            let _ = self.inner.set_value("");
+        }
+
+        let try_focus_before = opts.try_focus_before.unwrap_or(true);
+        let try_click_before = opts.try_click_before.unwrap_or(true);
+        // Pass restore_focus=false to platform layer since we handle it ourselves
         self.inner
-            .type_text(&text, use_clipboard.unwrap_or(false))
-            .map_err(map_error)
+            .type_text_with_state_and_focus_restore(
+                &text,
+                opts.use_clipboard.unwrap_or(false),
+                try_focus_before,
+                try_click_before,
+                false, // We handle focus restore ourselves since we saved BEFORE activate_window
+            )
+            .map_err(map_error)?;
+
+        // Restore focus state if we saved it
+        #[cfg(target_os = "windows")]
+        if let Some(state) = saved_focus {
+            tracing::debug!("[TS SDK] type_text: restoring focus state after typing");
+            terminator::platforms::windows::restore_focus_state(state);
+        }
+
+        // Capture screenshots if requested
+        let screenshots = capture_element_screenshots(
+            &self.inner,
+            opts.include_window_screenshot.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(false),
+            "typeText",
+        );
+
+        Ok(ActionResult {
+            success: true,
+            window_screenshot_path: screenshots.window_path,
+            monitor_screenshot_paths: screenshots.monitor_paths,
+            ui_diff: None,
+        })
     }
 
     /// Press a key while this element is focused.
     ///
     /// @param {string} key - The key to press.
+    /// @param {ActionOptions} [options] - Options for the key press action.
+    /// @returns {ActionResult} Result of the key press operation.
     #[napi]
-    pub fn press_key(&self, key: String) -> napi::Result<()> {
-        self.inner.press_key(&key).map_err(map_error)
+    pub fn press_key(
+        &self,
+        key: String,
+        options: Option<ActionOptions>,
+    ) -> napi::Result<ActionResult> {
+        let opts = options.unwrap_or_default();
+        let restore_focus = opts.restore_focus.unwrap_or(true);
+
+        // FOCUS RESTORATION: Save focus state BEFORE any window operations
+        #[cfg(target_os = "windows")]
+        let saved_focus = if restore_focus {
+            tracing::debug!("[TS SDK] press_key: saving focus state BEFORE activate_window");
+            terminator::platforms::windows::save_focus_state()
+        } else {
+            None
+        };
+
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("key");
+        }
+        let _ = self.inner.activate_window();
+        let try_focus_before = opts.try_focus_before.unwrap_or(true);
+        let try_click_before = opts.try_click_before.unwrap_or(true);
+        self.inner
+            .press_key_with_state_and_focus(&key, try_focus_before, try_click_before)
+            .map_err(map_error)?;
+
+        // Capture screenshots if requested
+        let screenshots = capture_element_screenshots(
+            &self.inner,
+            opts.include_window_screenshot.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(false),
+            "pressKey",
+        );
+
+        // FOCUS RESTORATION: Restore focus state after action if we saved it
+        #[cfg(target_os = "windows")]
+        if let Some(state) = saved_focus {
+            tracing::debug!("[TS SDK] press_key: restoring focus state after action");
+            terminator::platforms::windows::restore_focus_state(state);
+        }
+
+        Ok(ActionResult {
+            success: true,
+            window_screenshot_path: screenshots.window_path,
+            monitor_screenshot_paths: screenshots.monitor_paths,
+            ui_diff: None,
+        })
     }
 
     /// Set value of this element.
     ///
     /// @param {string} value - The value to set.
+    /// @param {ActionOptions} [options] - Options for the set value action.
+    /// @returns {ActionResult} Result of the set value operation.
     #[napi]
-    pub fn set_value(&self, value: String) -> napi::Result<()> {
-        self.inner.set_value(&value).map_err(map_error)
+    pub fn set_value(
+        &self,
+        value: String,
+        options: Option<ActionOptions>,
+    ) -> napi::Result<ActionResult> {
+        let opts = options.unwrap_or_default();
+        let restore_focus = opts.restore_focus.unwrap_or(true);
+
+        // FOCUS RESTORATION: Save focus state BEFORE any window operations
+        #[cfg(target_os = "windows")]
+        let saved_focus = if restore_focus {
+            tracing::debug!("[TS SDK] set_value: saving focus state BEFORE action");
+            terminator::platforms::windows::save_focus_state()
+        } else {
+            None
+        };
+
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("set_value");
+        }
+        self.inner.set_value(&value).map_err(map_error)?;
+
+        // Capture screenshots if requested
+        let screenshots = capture_element_screenshots(
+            &self.inner,
+            opts.include_window_screenshot.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(false),
+            "setValue",
+        );
+
+        // FOCUS RESTORATION: Restore focus state after action if we saved it
+        #[cfg(target_os = "windows")]
+        if let Some(state) = saved_focus {
+            tracing::debug!("[TS SDK] set_value: restoring focus state after action");
+            terminator::platforms::windows::restore_focus_state(state);
+        }
+
+        Ok(ActionResult {
+            success: true,
+            window_screenshot_path: screenshots.window_path,
+            monitor_screenshot_paths: screenshots.monitor_paths,
+            ui_diff: None,
+        })
     }
 
     /// Perform a named action on this element.
@@ -226,18 +714,102 @@ impl Element {
 
     /// Invoke this element (triggers the default action).
     /// This is often more reliable than clicking for controls like radio buttons or menu items.
+    ///
+    /// @param {ActionOptions} [options] - Options for the invoke action.
+    /// @returns {ActionResult} Result of the invoke operation.
     #[napi]
-    pub fn invoke(&self) -> napi::Result<()> {
-        self.inner.invoke().map_err(map_error)
+    pub fn invoke(&self, options: Option<ActionOptions>) -> napi::Result<ActionResult> {
+        let opts = options.unwrap_or_default();
+        let restore_focus = opts.restore_focus.unwrap_or(true);
+
+        // FOCUS RESTORATION: Save focus state BEFORE any window operations
+        #[cfg(target_os = "windows")]
+        let saved_focus = if restore_focus {
+            tracing::debug!("[TS SDK] invoke: saving focus state BEFORE action");
+            terminator::platforms::windows::save_focus_state()
+        } else {
+            None
+        };
+
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("invoke");
+        }
+        self.inner.invoke().map_err(map_error)?;
+
+        // Capture screenshots if requested
+        let screenshots = capture_element_screenshots(
+            &self.inner,
+            opts.include_window_screenshot.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(false),
+            "invoke",
+        );
+
+        // FOCUS RESTORATION: Restore focus state after action if we saved it
+        #[cfg(target_os = "windows")]
+        if let Some(state) = saved_focus {
+            tracing::debug!("[TS SDK] invoke: restoring focus state after action");
+            terminator::platforms::windows::restore_focus_state(state);
+        }
+
+        Ok(ActionResult {
+            success: true,
+            window_screenshot_path: screenshots.window_path,
+            monitor_screenshot_paths: screenshots.monitor_paths,
+            ui_diff: None,
+        })
     }
 
     /// Scroll the element in a given direction.
     ///
     /// @param {string} direction - The direction to scroll.
     /// @param {number} amount - The amount to scroll.
+    /// @param {ActionOptions} [options] - Options for the scroll action.
+    /// @returns {ActionResult} Result of the scroll operation.
     #[napi]
-    pub fn scroll(&self, direction: String, amount: f64) -> napi::Result<()> {
-        self.inner.scroll(&direction, amount).map_err(map_error)
+    pub fn scroll(
+        &self,
+        direction: String,
+        amount: f64,
+        options: Option<ActionOptions>,
+    ) -> napi::Result<ActionResult> {
+        let opts = options.unwrap_or_default();
+        let restore_focus = opts.restore_focus.unwrap_or(true);
+
+        // FOCUS RESTORATION: Save focus state BEFORE any window operations
+        #[cfg(target_os = "windows")]
+        let saved_focus = if restore_focus {
+            tracing::debug!("[TS SDK] scroll: saving focus state BEFORE action");
+            terminator::platforms::windows::save_focus_state()
+        } else {
+            None
+        };
+
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("scroll");
+        }
+        self.inner.scroll(&direction, amount).map_err(map_error)?;
+
+        // Capture screenshots if requested
+        let screenshots = capture_element_screenshots(
+            &self.inner,
+            opts.include_window_screenshot.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(false),
+            "scroll",
+        );
+
+        // FOCUS RESTORATION: Restore focus state after action if we saved it
+        #[cfg(target_os = "windows")]
+        if let Some(state) = saved_focus {
+            tracing::debug!("[TS SDK] scroll: restoring focus state after action");
+            terminator::platforms::windows::restore_focus_state(state);
+        }
+
+        Ok(ActionResult {
+            success: true,
+            window_screenshot_path: screenshots.window_path,
+            monitor_screenshot_paths: screenshots.monitor_paths,
+            ui_diff: None,
+        })
     }
 
     /// Activate the window containing this element.
@@ -487,10 +1059,39 @@ impl Element {
     /// Selects an option in a dropdown or combobox by its visible text.
     ///
     /// @param {string} optionName - The visible text of the option to select.
+    /// @param {ActionOptions} [options] - Optional action options.
     /// @returns {void}
     #[napi]
-    pub fn select_option(&self, option_name: String) -> napi::Result<()> {
-        self.inner.select_option(&option_name).map_err(map_error)
+    pub fn select_option(
+        &self,
+        option_name: String,
+        options: Option<ActionOptions>,
+    ) -> napi::Result<()> {
+        let opts = options.unwrap_or_default();
+        let restore_focus = opts.restore_focus.unwrap_or(true);
+
+        // FOCUS RESTORATION: Save focus state BEFORE any window operations
+        #[cfg(target_os = "windows")]
+        let saved_focus = if restore_focus {
+            tracing::debug!("[TS SDK] select_option: saving focus state BEFORE action");
+            terminator::platforms::windows::save_focus_state()
+        } else {
+            None
+        };
+
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("select_option");
+        }
+        let result = self.inner.select_option(&option_name).map_err(map_error);
+
+        // FOCUS RESTORATION: Restore focus state after action if we saved it
+        #[cfg(target_os = "windows")]
+        if let Some(state) = saved_focus {
+            tracing::debug!("[TS SDK] select_option: restoring focus state after action");
+            terminator::platforms::windows::restore_focus_state(state);
+        }
+
+        result
     }
 
     /// Lists all available option strings from a dropdown or list box.
@@ -531,10 +1132,35 @@ impl Element {
     /// Only performs an action if the element is not already in the desired state.
     ///
     /// @param {boolean} state - The desired selection state.
+    /// @param {ActionOptions} [options] - Optional action options.
     /// @returns {void}
     #[napi]
-    pub fn set_selected(&self, state: bool) -> napi::Result<()> {
-        self.inner.set_selected(state).map_err(map_error)
+    pub fn set_selected(&self, state: bool, options: Option<ActionOptions>) -> napi::Result<()> {
+        let opts = options.unwrap_or_default();
+        let restore_focus = opts.restore_focus.unwrap_or(true);
+
+        // FOCUS RESTORATION: Save focus state BEFORE any window operations
+        #[cfg(target_os = "windows")]
+        let saved_focus = if restore_focus {
+            tracing::debug!("[TS SDK] set_selected: saving focus state BEFORE action");
+            terminator::platforms::windows::save_focus_state()
+        } else {
+            None
+        };
+
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("set_selected");
+        }
+        let result = self.inner.set_selected(state).map_err(map_error);
+
+        // FOCUS RESTORATION: Restore focus state after action if we saved it
+        #[cfg(target_os = "windows")]
+        if let Some(state) = saved_focus {
+            tracing::debug!("[TS SDK] set_selected: restoring focus state after action");
+            terminator::platforms::windows::restore_focus_state(state);
+        }
+
+        result
     }
 
     /// Gets the current value from a range-based control like a slider or progress bar.

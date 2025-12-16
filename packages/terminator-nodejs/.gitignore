@@ -200,3 +200,7 @@ Cargo.lock
 wrapper.js
 index.js
 index.d.ts
+*.node.old
+
+# Bun cache symlinks
+[0-9]*@@@*/

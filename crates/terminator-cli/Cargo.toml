@@ -62,6 +62,9 @@ dirs = "5.0"
 # Regex for stripping ANSI codes
 regex = "1.10"
 
+# For snippet generation
+terminator-mcp-agent = { path = "../terminator-mcp-agent" }
+
 # Simple HTTP server for receiving telemetry
 bytes = "1.5"
 

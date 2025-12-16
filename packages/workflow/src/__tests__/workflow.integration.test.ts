@@ -5,6 +5,7 @@
 
 import { Desktop } from "@mediar-ai/terminator";
 import { createWorkflow, createStep, z } from "../index";
+import type { StepResult } from "../types";
 
 describe("Workflow Integration Tests - Calculator", () => {
     let desktop: Desktop;
@@ -31,7 +32,7 @@ describe("Workflow Integration Tests - Calculator", () => {
             const failingStep = createStep({
                 id: "failing_step",
                 name: "Failing Step",
-                execute: async () => {
+                execute: async (): Promise<StepResult> => {
                     throw new Error("Intentional test failure");
                 },
             });
@@ -39,7 +40,7 @@ describe("Workflow Integration Tests - Calculator", () => {
             const workflow = createWorkflow({
                 input: z.object({}),
                 steps: [failingStep],
-                onError: async ({ error, step, logger }) => {
+                onError: async ({ error, step, logger }: { error: Error; step: any; logger: any }) => {
                     errorCaught = true;
                     errorHandler(error, step.config.name);
                     logger.error(`Error handler called: ${error.message}`);
@@ -63,7 +64,7 @@ describe("Workflow Integration Tests - Calculator", () => {
             const failingStep = createStep({
                 id: "failing_step",
                 name: "Failing Step",
-                execute: async () => {
+                execute: async (): Promise<StepResult> => {
                     throw new Error("Test error");
                 },
             });
@@ -71,7 +72,7 @@ describe("Workflow Integration Tests - Calculator", () => {
             const workflow = createWorkflow({
                 input: z.object({}),
                 steps: [failingStep],
-                onError: async () => {
+                onError: async (): Promise<any> => {
                     return {
                         status: "error" as const,
                         message: "Custom error message from handler",
@@ -99,7 +100,7 @@ describe("Workflow Integration Tests - Calculator", () => {
             const failingStep = createStep({
                 id: "failing_step",
                 name: "Failing Step",
-                execute: async () => {
+                execute: async (): Promise<StepResult> => {
                     throw new Error("Step failure");
                 },
             });
@@ -107,7 +108,7 @@ describe("Workflow Integration Tests - Calculator", () => {
             const workflow = createWorkflow({
                 input: z.object({}),
                 steps: [failingStep],
-                onError: async () => {
+                onError: async (): Promise<void> => {
                     throw new Error("Error handler also fails");
                 },
             });

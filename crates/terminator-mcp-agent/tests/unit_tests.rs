@@ -688,30 +688,30 @@ async fn test_nodejs_script_execution_debug() {
 try {
     console.log("Working directory:", process.cwd());
     console.log("Attempting to require terminator.js...");
-    
+
     const { Desktop } = require('terminator.js');
     console.log("SUCCESS: terminator.js loaded");
-    
+
     process.stdout.write('__RESULT__{"success": true}__END__\n');
 } catch (error) {
     console.log("FAILED to load terminator.js:", error.message);
     console.log("Error code:", error.code);
     console.log("Error stack:", error.stack);
-    
+
     // Try to show what modules are available
     const fs = require('fs');
     const path = require('path');
-    
+
     try {
         const nodeModulesPath = path.join(process.cwd(), 'node_modules');
         if (fs.existsSync(nodeModulesPath)) {
             console.log("Available modules:", fs.readdirSync(nodeModulesPath));
-            
+
             const terminatorPath = path.join(nodeModulesPath, 'terminator.js');
             if (fs.existsSync(terminatorPath)) {
                 console.log("terminator.js directory exists");
                 console.log("terminator.js contents:", fs.readdirSync(terminatorPath));
-                
+
                 const packageJsonPath = path.join(terminatorPath, 'package.json');
                 if (fs.existsSync(packageJsonPath)) {
                     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
@@ -724,7 +724,7 @@ try {
     } catch (fsError) {
         console.log("Filesystem check error:", fsError.message);
     }
-    
+
     process.stdout.write('__RESULT__{"success": false, "error": "' + error.message + '"}__END__\n');
 }
 "#;
@@ -801,18 +801,18 @@ try {
     console.log("Testing terminator.js import...");
     const { Desktop } = require('terminator.js');
     console.log("✅ terminator.js imported successfully");
-    
+
     // Test basic functionality
     const desktop = new Desktop();
     console.log("✅ Desktop instance created");
-    
+
     // Return success result
     return {
         success: true,
         message: "terminator.js working correctly",
         hasDesktop: typeof desktop !== 'undefined'
     };
-    
+
 } catch (error) {
     console.log("❌ Error:", error.message);
     return {
@@ -825,7 +825,8 @@ try {
 
     println!("🧪 Testing complete Node.js terminator.js execution...");
 
-    let result = execute_javascript_with_nodejs(test_script.to_string(), None, None).await;
+    let result =
+        execute_javascript_with_nodejs(test_script.to_string(), None, None, None, None, None).await;
 
     match result {
         Ok(value) => {
@@ -928,30 +929,30 @@ async fn test_debug_nodejs_execution_with_logs() {
 try {
     console.log("Working directory:", process.cwd());
     console.log("Attempting to require terminator.js...");
-    
+
     const { Desktop } = require('terminator.js');
     console.log("SUCCESS: terminator.js loaded");
-    
+
     process.stdout.write('__RESULT__{"success": true}__END__\n');
 } catch (error) {
     console.log("FAILED to load terminator.js:", error.message);
     console.log("Error code:", error.code);
     console.log("Error stack:", error.stack);
-    
+
     // Try to show what modules are available
     const fs = require('fs');
     const path = require('path');
-    
+
     try {
         const nodeModulesPath = path.join(process.cwd(), 'node_modules');
         if (fs.existsSync(nodeModulesPath)) {
             console.log("Available modules:", fs.readdirSync(nodeModulesPath));
-            
+
             const terminatorPath = path.join(nodeModulesPath, 'terminator.js');
             if (fs.existsSync(terminatorPath)) {
                 console.log("terminator.js directory exists");
                 console.log("terminator.js contents:", fs.readdirSync(terminatorPath));
-                
+
                 const packageJsonPath = path.join(terminatorPath, 'package.json');
                 if (fs.existsSync(packageJsonPath)) {
                     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
@@ -964,7 +965,7 @@ try {
     } catch (fsError) {
         console.log("Filesystem check error:", fsError.message);
     }
-    
+
     process.stdout.write('__RESULT__{"success": false, "error": "' + error.message + '"}__END__\n');
 }
 "#;
@@ -1175,26 +1176,26 @@ async fn test_nodejs_execution_with_local_bindings() {
 try {
     console.log("🧪 Testing local terminator.js bindings...");
     console.log("Working directory:", process.cwd());
-    
+
     // Import terminator.js
     const { Desktop } = require('terminator.js');
     console.log("✅ Successfully imported Desktop from local terminator.js");
-    
+
     // Create Desktop instance
     const desktop = new Desktop();
     console.log("✅ Successfully created Desktop instance");
-    
+
     // Test basic functionality - get root element
     const root = desktop.root();
     console.log("✅ Successfully got root element");
     console.log("Root role:", root.role());
     console.log("Root name:", root.name());
-    
+
     // Test applications list
     const apps = desktop.applications();
     console.log("✅ Successfully got applications list");
     console.log("Found", apps.length, "applications");
-    
+
     // Return success result
     const result = {
         success: true,
@@ -1205,20 +1206,20 @@ try {
         rootRole: root.role(),
         rootName: root.name()
     };
-    
+
     process.stdout.write('__RESULT__' + JSON.stringify(result) + '__END__\n');
-    
+
 } catch (error) {
     console.log("❌ Error testing local bindings:", error.message);
     console.log("Error stack:", error.stack);
-    
+
     const errorResult = {
         success: false,
         error: error.message,
         stack: error.stack,
         code: error.code || 'UNKNOWN'
     };
-    
+
     process.stdout.write('__RESULT__' + JSON.stringify(errorResult) + '__END__\n');
 }
 "#;
@@ -1337,21 +1338,21 @@ async fn test_scripting_engine_with_local_bindings() {
 // Test basic terminator.js functionality with local bindings
 try {
     log("🧪 Testing scripting engine with local bindings...");
-    
+
     // Test that desktop is available globally
     if (typeof desktop === 'undefined') {
         throw new Error("Desktop global not available");
     }
-    
+
     log("✅ Desktop global is available");
-    
+
     // Test basic desktop functionality
     const root = desktop.root();
     log("✅ Got root element:", root.role());
-    
+
     const apps = desktop.applications();
     log("✅ Got applications list, count:", apps.length);
-    
+
     // Return success result
     return {
         success: true,
@@ -1361,7 +1362,7 @@ try {
         appCount: apps.length,
         testTimestamp: new Date().toISOString()
     };
-    
+
 } catch (error) {
     log("❌ Error:", error.message);
     return {

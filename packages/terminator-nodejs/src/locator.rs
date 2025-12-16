@@ -29,12 +29,12 @@ impl From<TerminatorLocator> for Locator {
 impl Locator {
     /// (async) Get the first matching element.
     ///
-    /// @param {number} timeoutMs - Timeout in milliseconds (required).
+    /// @param {number} [timeoutMs] - Timeout in milliseconds (default: 10000).
     /// @returns {Promise<Element>} The first matching element.
     #[napi]
-    pub async fn first(&self, timeout_ms: f64) -> napi::Result<Element> {
+    pub async fn first(&self, timeout_ms: Option<f64>) -> napi::Result<Element> {
         use std::time::Duration;
-        let timeout = Duration::from_millis(timeout_ms as u64);
+        let timeout = Duration::from_millis(timeout_ms.unwrap_or(10000.0) as u64);
         self.inner
             .first(Some(timeout))
             .await

@@ -4,8 +4,9 @@
 //! through accessibility APIs, inspired by Playwright's web automation model.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, RwLock};
 use tracing::{debug, error, info, instrument};
 
 pub mod browser_script;
@@ -16,6 +17,7 @@ pub mod health;
 pub mod locator;
 pub mod platforms;
 pub mod screenshot;
+pub mod screenshot_logger;
 pub mod selector;
 #[cfg(test)]
 mod tests;
@@ -30,11 +32,17 @@ pub mod computer_use;
 pub use element::{OcrElement, SerializableUIElement, UIElement, UIElementAttributes};
 pub use errors::AutomationError;
 pub use locator::Locator;
-pub use screenshot::ScreenshotResult;
+pub use screenshot::{ScreenshotError, ScreenshotResult, DEFAULT_MAX_DIMENSION};
 pub use selector::Selector;
 pub use tokio_util::sync::CancellationToken;
-pub use tree_formatter::{format_tree_as_compact_yaml, format_ui_node_as_compact_yaml};
-pub use types::{FontStyle, HighlightHandle, TextPosition};
+pub use tree_formatter::{
+    format_clustered_tree_from_caches, format_ocr_tree_as_compact_yaml,
+    format_tree_as_compact_yaml, format_ui_node_as_compact_yaml, serializable_to_ui_node,
+    ClusteredFormattingResult, ElementSource, OcrFormattingResult, TreeFormattingResult,
+    UnifiedElement,
+};
+pub use types::{FontStyle, HighlightHandle, OmniparserItem, TextPosition, VisionElement};
+pub use utils::find_pid_for_process;
 
 // Re-export types from terminator-computer-use crate
 #[cfg(target_os = "windows")]
@@ -42,6 +50,15 @@ pub use terminator_computer_use::{
     call_computer_use_backend, convert_normalized_to_screen, translate_gemini_keys,
     ComputerUseActionResponse, ComputerUseFunctionCall, ComputerUsePreviousAction,
     ComputerUseResponse, ComputerUseResult, ComputerUseStep, ProgressCallback,
+};
+
+// Re-export cross-platform types from platforms
+pub use platforms::{OverlayDisplayMode, PropertyLoadingMode, TreeBuildConfig};
+
+// Re-export window manager types (Windows only)
+#[cfg(target_os = "windows")]
+pub use platforms::windows::window_manager::{
+    WindowCache, WindowInfo, WindowManager, WindowPlacement,
 };
 
 /// Recommend to use any of these: ["Default", "Chrome", "Firefox", "Edge", "Brave", "Opera", "Vivaldi"]
@@ -68,11 +85,27 @@ pub enum ClickType {
     Right,
 }
 
+/// Source of indexed elements for click targeting
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum VisionType {
+    /// UI Automation tree elements
+    #[default]
+    UiTree,
+    /// OCR-detected text elements
+    Ocr,
+    /// Omniparser-detected elements
+    Omniparser,
+    /// Gemini Vision-detected elements
+    Gemini,
+    /// Browser DOM elements
+    Dom,
+}
+
 #[cfg(target_os = "windows")]
 pub use platforms::windows::{
     convert_uiautomation_element_to_terminator, get_process_name_by_pid, hide_inspect_overlay,
-    set_recording_mode, show_inspect_overlay, InspectElement, InspectOverlayHandle,
-    OverlayDisplayMode,
+    is_browser_process, set_recording_mode, show_inspect_overlay, stop_all_highlights,
+    InspectElement, InspectOverlayHandle, KNOWN_BROWSER_PROCESS_NAMES,
 };
 
 // Define a new struct to hold click result information - move to module level
@@ -82,11 +115,26 @@ pub struct ClickResult {
     pub details: String,
 }
 
+/// Result of text verification after typing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TypeVerification {
+    /// Whether verification passed
+    pub passed: bool,
+    /// The expected text that was typed
+    pub expected: String,
+    /// The actual value read from the element
+    pub actual: Option<String>,
+    /// Error message if verification failed
+    pub error: Option<String>,
+}
+
 /// Generic result struct for UI actions with state tracking
 pub struct ActionResult {
     pub action: String,
     pub details: String,
     pub data: Option<serde_json::Value>,
+    /// Verification result for type operations
+    pub verification: Option<TypeVerification>,
 }
 
 /// Holds the output of a terminal command execution
@@ -94,6 +142,52 @@ pub struct CommandOutput {
     pub exit_status: Option<i32>,
     pub stdout: String,
     pub stderr: String,
+}
+
+/// Result of get_window_tree operation with all computed data
+///
+/// This struct provides everything needed for UI automation:
+/// - Raw UINode tree for programmatic traversal
+/// - Formatted output for LLM consumption
+/// - Index-to-bounds mapping for click targeting
+/// - Metadata about the window/process
+#[derive(Debug, Clone)]
+#[allow(clippy::type_complexity)]
+pub struct WindowTreeResult {
+    /// The raw UI tree structure
+    pub tree: UINode,
+    /// Process ID of the window
+    pub pid: u32,
+    /// Whether this is a browser window
+    pub is_browser: bool,
+    /// Formatted compact YAML output (if format_output was true)
+    pub formatted: Option<String>,
+    /// Mapping of index to (role, name, bounds, selector) for click targeting
+    /// Key is 1-based index, value is (role, name, (x, y, width, height), selector)
+    pub index_to_bounds:
+        std::collections::HashMap<u32, (String, String, (f64, f64, f64, f64), Option<String>)>,
+    /// Total count of indexed elements (elements with bounds)
+    pub element_count: u32,
+}
+
+/// Options for UI diff capture during action execution
+#[derive(Debug, Clone, Default)]
+pub struct UiDiffOptions {
+    /// Maximum depth for tree capture
+    pub max_depth: Option<usize>,
+    /// Delay in ms after action for UI to settle (default 1500)
+    pub settle_delay_ms: Option<u64>,
+    /// Include detailed element attributes (enabled, focused, etc.)
+    pub include_detailed_attributes: Option<bool>,
+}
+
+/// Result of UI diff capture
+#[derive(Debug, Clone)]
+pub struct UiDiffResult {
+    /// The computed diff showing changes (lines starting with + or -)
+    pub diff: String,
+    /// Whether any UI changes were detected
+    pub has_changes: bool,
 }
 
 /// Represents a monitor/display device
@@ -243,11 +337,29 @@ impl fmt::Debug for DebugNodeWithDepth<'_> {
 
 // Removed struct ScreenshotResult (moved to screenshot.rs)
 
+/// Cached element bounds for index-based click targeting
+/// Stored as (role/label, name/text, bounds, optional_selector)
+type UiaBoundsCache = HashMap<u32, (String, String, (f64, f64, f64, f64), Option<String>)>;
+/// OCR bounds cache: (text, bounds)
+type OcrBoundsCache = HashMap<u32, (String, (f64, f64, f64, f64))>;
+/// DOM bounds cache: (tag, id, bounds)
+type DomBoundsCache = HashMap<u32, (String, String, (f64, f64, f64, f64))>;
+
 /// The main entry point for UI automation
 pub struct Desktop {
     engine: Arc<dyn platforms::AccessibilityEngine>,
-    /// Cancellation token for stopping execution
-    cancellation_token: CancellationToken,
+    /// Cancellation token for stopping execution (wrapped in RwLock to allow reset)
+    cancellation_token: Arc<RwLock<CancellationToken>>,
+    /// Cache for UI Automation tree element bounds (index → bounds info)
+    uia_cache: Arc<Mutex<UiaBoundsCache>>,
+    /// Cache for OCR element bounds
+    ocr_cache: Arc<Mutex<OcrBoundsCache>>,
+    /// Cache for Omniparser element bounds
+    omniparser_cache: Arc<Mutex<HashMap<u32, OmniparserItem>>>,
+    /// Cache for Gemini Vision element bounds
+    vision_cache: Arc<Mutex<HashMap<u32, VisionElement>>>,
+    /// Cache for DOM element bounds
+    dom_cache: Arc<Mutex<DomBoundsCache>>,
 }
 
 impl Desktop {
@@ -256,7 +368,12 @@ impl Desktop {
         let engine = platforms::create_engine(use_background_apps, activate_app)?;
         Ok(Self {
             engine,
-            cancellation_token: CancellationToken::new(),
+            cancellation_token: Arc::new(RwLock::new(CancellationToken::new())),
+            uia_cache: Arc::new(Mutex::new(HashMap::new())),
+            ocr_cache: Arc::new(Mutex::new(HashMap::new())),
+            omniparser_cache: Arc::new(Mutex::new(HashMap::new())),
+            vision_cache: Arc::new(Mutex::new(HashMap::new())),
+            dom_cache: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -583,6 +700,47 @@ impl Desktop {
         Ok(results)
     }
 
+    /// Capture a screenshot of a window by process name
+    ///
+    /// Finds the first window matching the given process name and captures its screenshot.
+    /// Process name matching is case-insensitive and uses substring matching.
+    ///
+    /// # Arguments
+    /// * `process` - Process name to match (e.g., "chrome", "notepad", "code")
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use terminator::Desktop;
+    /// fn main() {
+    ///     let desktop = Desktop::new_default().unwrap();
+    ///     let screenshot = desktop.capture_window_by_process("notepad").unwrap();
+    ///     // Convert to base64 PNG for LLM consumption
+    ///     let base64_png = screenshot.to_base64_png_resized(Some(1920)).unwrap();
+    /// }
+    /// ```
+    #[instrument(skip(self))]
+    pub fn capture_window_by_process(
+        &self,
+        process: &str,
+    ) -> Result<ScreenshotResult, AutomationError> {
+        let apps = self.applications()?;
+        let process_lower = process.to_lowercase();
+
+        // Find matching window by process name
+        let window_element = apps.into_iter().find(|app| {
+            app.process_name()
+                .map(|name| name.to_lowercase().contains(&process_lower))
+                .unwrap_or(false)
+        });
+
+        let window_element = window_element.ok_or_else(|| {
+            AutomationError::ElementNotFound(format!("No window found for process '{}'", process))
+        })?;
+
+        window_element.capture()
+    }
+
     // ============== DEPRECATED METHODS ==============
 
     // ============== END DEPRECATED METHODS ==============
@@ -629,21 +787,282 @@ impl Desktop {
 
     /// Click at absolute screen coordinates
     /// This is useful for clicking on OCR-detected text elements
+    /// If `restore_cursor` is true, the cursor position will be restored after the click
     #[instrument(skip(self))]
-    pub fn click_at_coordinates(&self, x: f64, y: f64) -> Result<(), AutomationError> {
-        self.engine.click_at_coordinates(x, y)
+    pub fn click_at_coordinates(
+        &self,
+        x: f64,
+        y: f64,
+        restore_cursor: bool,
+    ) -> Result<(), AutomationError> {
+        self.engine.click_at_coordinates(x, y, restore_cursor)
     }
 
     /// Click at absolute screen coordinates with specified click type (left, double, right)
     /// This is useful for clicking on OCR-detected text elements with different click types
+    /// If `restore_cursor` is true, the cursor position will be restored after the click
     #[instrument(skip(self))]
     pub fn click_at_coordinates_with_type(
         &self,
         x: f64,
         y: f64,
         click_type: ClickType,
+        restore_cursor: bool,
     ) -> Result<(), AutomationError> {
-        self.engine.click_at_coordinates_with_type(x, y, click_type)
+        self.engine
+            .click_at_coordinates_with_type(x, y, click_type, restore_cursor)
+    }
+
+    /// Click within element bounds at a specified position (percentage-based).
+    ///
+    /// This is useful for clicking on elements from UI tree, OCR, omniparser, gemini vision, or DOM
+    /// without needing an element reference - just the bounds.
+    ///
+    /// # Arguments
+    /// * `bounds` - Element bounds as (x, y, width, height)
+    /// * `click_position` - Optional (x_percentage, y_percentage) within bounds. Defaults to center (50, 50)
+    /// * `click_type` - Type of click: Left, Double, or Right
+    /// * `restore_cursor` - If true, cursor position will be restored after the click
+    ///
+    /// # Returns
+    /// ClickResult with coordinates and method details
+    #[instrument(skip(self))]
+    pub fn click_at_bounds(
+        &self,
+        bounds: (f64, f64, f64, f64),
+        click_position: Option<(u8, u8)>,
+        click_type: ClickType,
+        restore_cursor: bool,
+    ) -> Result<ClickResult, AutomationError> {
+        let (x_pct, y_pct) = click_position.unwrap_or((50, 50));
+        let x = bounds.0 + bounds.2 * x_pct as f64 / 100.0;
+        let y = bounds.1 + bounds.3 * y_pct as f64 / 100.0;
+
+        self.engine
+            .click_at_coordinates_with_type(x, y, click_type, restore_cursor)?;
+
+        Ok(ClickResult {
+            method: "bounds".to_string(),
+            coordinates: Some((x, y)),
+            details: format!(
+                "Clicked at {}%,{}% within bounds ({}, {}, {}, {})",
+                x_pct, y_pct, bounds.0, bounds.1, bounds.2, bounds.3
+            ),
+        })
+    }
+
+    /// Click on an element by its index from the last tree/vision query.
+    ///
+    /// This looks up cached bounds from the appropriate cache based on vision_type,
+    /// then clicks at the specified position within those bounds.
+    ///
+    /// # Arguments
+    /// * `index` - 1-based index from the tree/vision output (e.g., #1, #2)
+    /// * `vision_type` - Source of the index: UiTree, Ocr, Omniparser, Gemini, or Dom
+    /// * `click_position` - Optional (x_percentage, y_percentage) within bounds. Defaults to center (50, 50)
+    /// * `click_type` - Type of click: Left, Double, or Right
+    /// * `restore_cursor` - If true, cursor position will be restored after the click
+    ///
+    /// # Returns
+    /// ClickResult with coordinates, element info, and method details
+    ///
+    /// # Errors
+    /// Returns error if index not found in cache (call get_window_tree/get_ocr/etc first)
+    #[instrument(skip(self))]
+    pub fn click_by_index(
+        &self,
+        index: u32,
+        vision_type: VisionType,
+        click_position: Option<(u8, u8)>,
+        click_type: ClickType,
+        restore_cursor: bool,
+    ) -> Result<ClickResult, AutomationError> {
+        let (label, bounds) = match vision_type {
+            VisionType::UiTree => {
+                let cache = self.uia_cache.lock().map_err(|e| {
+                    AutomationError::Internal(format!("Failed to lock UIA cache: {}", e))
+                })?;
+                let entry = cache.get(&index).ok_or_else(|| {
+                    AutomationError::ElementNotFound(format!(
+                        "UI tree index #{} not found. Call get_window_tree first.",
+                        index
+                    ))
+                })?;
+                let label = if entry.1.is_empty() {
+                    entry.0.clone()
+                } else {
+                    format!("{}: {}", entry.0, entry.1)
+                };
+                (label, entry.2)
+            }
+            VisionType::Ocr => {
+                let cache = self.ocr_cache.lock().map_err(|e| {
+                    AutomationError::Internal(format!("Failed to lock OCR cache: {}", e))
+                })?;
+                let entry = cache.get(&index).ok_or_else(|| {
+                    AutomationError::ElementNotFound(format!(
+                        "OCR index #{} not found. Call ocr methods first.",
+                        index
+                    ))
+                })?;
+                (entry.0.clone(), entry.1)
+            }
+            VisionType::Omniparser => {
+                let cache = self.omniparser_cache.lock().map_err(|e| {
+                    AutomationError::Internal(format!("Failed to lock Omniparser cache: {}", e))
+                })?;
+                let item = cache.get(&index).ok_or_else(|| {
+                    AutomationError::ElementNotFound(format!(
+                        "Omniparser index #{} not found. Call omniparser methods first.",
+                        index
+                    ))
+                })?;
+                let box_2d = item.box_2d.ok_or_else(|| {
+                    AutomationError::Internal(format!("Omniparser index #{} has no bounds", index))
+                })?;
+                // Convert [x_min, y_min, x_max, y_max] to (x, y, width, height)
+                let bounds = (
+                    box_2d[0],
+                    box_2d[1],
+                    box_2d[2] - box_2d[0],
+                    box_2d[3] - box_2d[1],
+                );
+                (item.label.clone(), bounds)
+            }
+            VisionType::Gemini => {
+                let cache = self.vision_cache.lock().map_err(|e| {
+                    AutomationError::Internal(format!("Failed to lock Vision cache: {}", e))
+                })?;
+                let item = cache.get(&index).ok_or_else(|| {
+                    AutomationError::ElementNotFound(format!(
+                        "Gemini index #{} not found. Call gemini vision methods first.",
+                        index
+                    ))
+                })?;
+                let box_2d = item.box_2d.ok_or_else(|| {
+                    AutomationError::Internal(format!("Gemini index #{} has no bounds", index))
+                })?;
+                // Convert [x_min, y_min, x_max, y_max] to (x, y, width, height)
+                let bounds = (
+                    box_2d[0],
+                    box_2d[1],
+                    box_2d[2] - box_2d[0],
+                    box_2d[3] - box_2d[1],
+                );
+                (item.element_type.clone(), bounds)
+            }
+            VisionType::Dom => {
+                let cache = self.dom_cache.lock().map_err(|e| {
+                    AutomationError::Internal(format!("Failed to lock DOM cache: {}", e))
+                })?;
+                let entry = cache.get(&index).ok_or_else(|| {
+                    AutomationError::ElementNotFound(format!(
+                        "DOM index #{} not found. Call DOM methods first.",
+                        index
+                    ))
+                })?;
+                let label = if entry.1.is_empty() {
+                    entry.0.clone()
+                } else {
+                    format!("{}: {}", entry.0, entry.1)
+                };
+                (label, entry.2)
+            }
+        };
+
+        let (x_pct, y_pct) = click_position.unwrap_or((50, 50));
+        let x = bounds.0 + bounds.2 * x_pct as f64 / 100.0;
+        let y = bounds.1 + bounds.3 * y_pct as f64 / 100.0;
+
+        self.engine
+            .click_at_coordinates_with_type(x, y, click_type, restore_cursor)?;
+
+        Ok(ClickResult {
+            method: "index".to_string(),
+            coordinates: Some((x, y)),
+            details: format!(
+                "Clicked #{} [{}] at {}%,{}% (bounds: {:.0},{:.0},{:.0},{:.0})",
+                index, label, x_pct, y_pct, bounds.0, bounds.1, bounds.2, bounds.3
+            ),
+        })
+    }
+
+    /// Populate the OCR cache for index-based clicking.
+    /// Call this after performing OCR to enable click_by_index with VisionType::Ocr.
+    ///
+    /// # Arguments
+    /// * `bounds_map` - Map of index to (text, bounds) from OCR formatting result
+    #[allow(clippy::type_complexity)]
+    pub fn populate_ocr_cache(&self, bounds_map: HashMap<u32, (String, (f64, f64, f64, f64))>) {
+        if let Ok(mut cache) = self.ocr_cache.lock() {
+            cache.clear();
+            cache.extend(bounds_map);
+            debug!("Populated OCR cache with {} elements", cache.len());
+        }
+    }
+
+    /// Populate the Omniparser cache for index-based clicking.
+    /// Call this after performing Omniparser to enable click_by_index with VisionType::Omniparser.
+    ///
+    /// # Arguments
+    /// * `items` - Map of index to OmniparserItem from Omniparser result
+    pub fn populate_omniparser_cache(&self, items: HashMap<u32, OmniparserItem>) {
+        if let Ok(mut cache) = self.omniparser_cache.lock() {
+            cache.clear();
+            cache.extend(items);
+            debug!("Populated Omniparser cache with {} elements", cache.len());
+        }
+    }
+
+    /// Populate the Gemini vision cache for index-based clicking.
+    /// Call this after performing Gemini vision to enable click_by_index with VisionType::Gemini.
+    ///
+    /// # Arguments
+    /// * `items` - Map of index to VisionElement from Gemini result
+    pub fn populate_vision_cache(&self, items: HashMap<u32, VisionElement>) {
+        if let Ok(mut cache) = self.vision_cache.lock() {
+            cache.clear();
+            cache.extend(items);
+            debug!("Populated Vision cache with {} elements", cache.len());
+        }
+    }
+
+    /// Populate the DOM cache for index-based clicking.
+    /// Call this after capturing browser DOM to enable click_by_index with VisionType::Dom.
+    ///
+    /// # Arguments
+    /// * `bounds_map` - Map of index to (tag, id, bounds) from DOM capture
+    #[allow(clippy::type_complexity)]
+    pub fn populate_dom_cache(
+        &self,
+        bounds_map: HashMap<u32, (String, String, (f64, f64, f64, f64))>,
+    ) {
+        if let Ok(mut cache) = self.dom_cache.lock() {
+            cache.clear();
+            cache.extend(bounds_map);
+            debug!("Populated DOM cache with {} elements", cache.len());
+        }
+    }
+
+    /// Clear all vision caches.
+    /// Call this when starting a new session or switching contexts.
+    pub fn clear_vision_caches(&self) {
+        if let Ok(mut cache) = self.uia_cache.lock() {
+            cache.clear();
+        }
+        if let Ok(mut cache) = self.ocr_cache.lock() {
+            cache.clear();
+        }
+        if let Ok(mut cache) = self.omniparser_cache.lock() {
+            cache.clear();
+        }
+        if let Ok(mut cache) = self.vision_cache.lock() {
+            cache.clear();
+        }
+        if let Ok(mut cache) = self.dom_cache.lock() {
+            cache.clear();
+        }
+        debug!("Cleared all vision caches");
     }
 
     #[instrument(skip(self, title))]
@@ -664,9 +1083,10 @@ impl Desktop {
     #[instrument(skip(self, script))]
     pub async fn execute_browser_script(&self, script: &str) -> Result<String, AutomationError> {
         let browser_window = self.engine.get_current_browser_window().await?;
+        let cancel_token = self.cancellation_token();
         tokio::select! {
             result = browser_window.execute_browser_script(script) => result,
-            _ = self.cancellation_token.cancelled() => {
+            _ = cancel_token.cancelled() => {
                 Err(AutomationError::OperationCancelled("Browser script execution cancelled by stop_execution".into()))
             }
         }
@@ -691,6 +1111,164 @@ impl Desktop {
     ) -> Result<UINode, AutomationError> {
         let tree_config = config.unwrap_or_default();
         self.engine.get_window_tree(pid, title, tree_config)
+    }
+
+    /// Get the UI tree with full result including formatting and bounds mapping
+    ///
+    /// This is the recommended method for getting window trees when you need:
+    /// - Formatted YAML output for LLM consumption
+    /// - Index-to-bounds mapping for click targeting
+    /// - Browser detection
+    ///
+    /// # Arguments
+    /// * `pid` - Process ID of the target application
+    /// * `title` - Optional window title filter
+    /// * `config` - Tree building configuration (format_output controls formatted output)
+    ///
+    /// # Returns
+    /// `WindowTreeResult` containing the tree, formatted output, and bounds mapping
+    #[instrument(skip(self, pid, title, config))]
+    pub fn get_window_tree_result(
+        &self,
+        pid: u32,
+        title: Option<&str>,
+        config: Option<crate::platforms::TreeBuildConfig>,
+    ) -> Result<WindowTreeResult, AutomationError> {
+        let tree_config = config.unwrap_or_default();
+        let format_output = tree_config.format_output;
+
+        // Get the raw tree
+        let tree = self.engine.get_window_tree(pid, title, tree_config)?;
+
+        // Check if browser process
+        #[cfg(target_os = "windows")]
+        let is_browser = is_browser_process(pid);
+        #[cfg(not(target_os = "windows"))]
+        let is_browser = false;
+
+        // Format the tree and get bounds mapping if requested
+        let (formatted, index_to_bounds, element_count) = if format_output {
+            let result = format_ui_node_as_compact_yaml(&tree, 0);
+            (
+                Some(result.formatted),
+                result.index_to_bounds,
+                result.element_count,
+            )
+        } else {
+            (None, HashMap::new(), 0)
+        };
+
+        // Populate the UIA cache for index-based clicking
+        if !index_to_bounds.is_empty() {
+            if let Ok(mut cache) = self.uia_cache.lock() {
+                cache.clear();
+                cache.extend(index_to_bounds.clone());
+                debug!("Populated UIA cache with {} elements", cache.len());
+            }
+        }
+
+        Ok(WindowTreeResult {
+            tree,
+            pid,
+            is_browser,
+            formatted,
+            index_to_bounds,
+            element_count,
+        })
+    }
+
+    /// Get the UI tree with full result, with async support for from_selector
+    ///
+    /// This method extends `get_window_tree_result` with support for `from_selector`
+    /// in the config, which allows building a subtree starting from a specific element
+    /// instead of the full window.
+    ///
+    /// # Arguments
+    /// * `pid` - Process ID of the target application
+    /// * `title` - Optional window title filter
+    /// * `config` - Tree building configuration. Set `from_selector` to scope the tree.
+    ///
+    /// # Returns
+    /// `WindowTreeResult` containing the tree (or subtree), formatted output, and bounds mapping
+    #[instrument(skip(self, pid, title, config))]
+    pub async fn get_window_tree_result_async(
+        &self,
+        pid: u32,
+        title: Option<&str>,
+        config: Option<crate::platforms::TreeBuildConfig>,
+    ) -> Result<WindowTreeResult, AutomationError> {
+        let tree_config = config.unwrap_or_default();
+        let format_output = tree_config.format_output;
+        let from_selector = tree_config.from_selector.clone();
+        let max_depth = tree_config.max_depth.unwrap_or(100);
+
+        // If from_selector is specified, find the element and build subtree from it
+        if let Some(selector_str) = from_selector {
+            // Find app element by PID
+            let apps = self.applications()?;
+            let app_element = apps
+                .into_iter()
+                .find(|app| app.process_id().ok() == Some(pid))
+                .ok_or_else(|| {
+                    AutomationError::ElementNotFound(format!(
+                        "No application found with PID {}",
+                        pid
+                    ))
+                })?;
+
+            // Find element by selector within the app
+            let selector = Selector::from(selector_str.as_str());
+            let locator = app_element.locator(selector)?;
+            let element = locator
+                .first(Some(std::time::Duration::from_millis(2000)))
+                .await?;
+
+            // Build subtree from this element
+            let serializable_tree = element.to_serializable_tree(max_depth);
+            let tree = serializable_to_ui_node(&serializable_tree);
+
+            // Check if browser process
+            #[cfg(target_os = "windows")]
+            let is_browser = is_browser_process(pid);
+            #[cfg(not(target_os = "windows"))]
+            let is_browser = false;
+
+            // Format the tree and get bounds mapping if requested
+            let (formatted, index_to_bounds, element_count) = if format_output {
+                let result = format_tree_as_compact_yaml(&serializable_tree, 0);
+                (
+                    Some(result.formatted),
+                    result.index_to_bounds,
+                    result.element_count,
+                )
+            } else {
+                (None, HashMap::new(), 0)
+            };
+
+            // Populate the UIA cache for index-based clicking
+            if !index_to_bounds.is_empty() {
+                if let Ok(mut cache) = self.uia_cache.lock() {
+                    cache.clear();
+                    cache.extend(index_to_bounds.clone());
+                    debug!(
+                        "Populated UIA cache with {} elements (from_selector)",
+                        cache.len()
+                    );
+                }
+            }
+
+            return Ok(WindowTreeResult {
+                tree,
+                pid,
+                is_browser,
+                formatted,
+                index_to_bounds,
+                element_count,
+            });
+        }
+
+        // No from_selector - use the sync method
+        self.get_window_tree_result(pid, title, Some(tree_config))
     }
 
     /// Get the UI tree for all open applications in parallel.
@@ -749,6 +1327,7 @@ impl Desktop {
         });
 
         // Use select to allow cancellation while waiting for all futures
+        let cancel_token = self.cancellation_token();
         tokio::select! {
             results = futures::future::join_all(futures) => {
                 let trees: Vec<UINode> = results
@@ -765,7 +1344,7 @@ impl Desktop {
 
                 Ok(trees)
             }
-            _ = self.cancellation_token.cancelled() => {
+            _ = cancel_token.cancelled() => {
                 Err(AutomationError::OperationCancelled("get_all_applications_tree cancelled by stop_execution".into()))
             }
         }
@@ -837,9 +1416,10 @@ impl Desktop {
     /// This method respects cancellation - if `stop_execution()` is called,
     /// the delay will be interrupted and return an error.
     pub async fn delay(&self, delay_ms: u64) -> Result<(), AutomationError> {
+        let cancel_token = self.cancellation_token();
         tokio::select! {
             _ = tokio::time::sleep(std::time::Duration::from_millis(delay_ms)) => Ok(()),
-            _ = self.cancellation_token.cancelled() => {
+            _ = cancel_token.cancelled() => {
                 Err(AutomationError::OperationCancelled("Delay cancelled by stop_execution".into()))
             }
         }
@@ -884,7 +1464,9 @@ impl Desktop {
     /// ```
     pub fn stop_execution(&self) {
         info!("🛑 Stop execution requested - cancelling all operations");
-        self.cancellation_token.cancel();
+        if let Ok(token) = self.cancellation_token.read() {
+            token.cancel();
+        }
     }
 
     /// Check if execution has been cancelled.
@@ -902,14 +1484,423 @@ impl Desktop {
     /// }
     /// ```
     pub fn is_cancelled(&self) -> bool {
-        self.cancellation_token.is_cancelled()
+        self.cancellation_token
+            .read()
+            .map(|t| t.is_cancelled())
+            .unwrap_or(false)
     }
 
     /// Get a clone of the cancellation token for use in async operations.
     ///
     /// This allows external code to wait on cancellation or create child tokens.
     pub fn cancellation_token(&self) -> CancellationToken {
-        self.cancellation_token.clone()
+        self.cancellation_token
+            .read()
+            .map(|t| t.clone())
+            .unwrap_or_else(|_| CancellationToken::new())
+    }
+
+    /// Reset the cancellation state, allowing new operations to run.
+    ///
+    /// This should be called at the start of new operations to clear any
+    /// previous cancellation state from `stop_execution()`.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use terminator::Desktop;
+    ///
+    /// let desktop = Desktop::new_default().unwrap();
+    /// desktop.stop_execution(); // Cancel previous operations
+    /// // ... later ...
+    /// desktop.reset_cancellation(); // Allow new operations
+    /// ```
+    pub fn reset_cancellation(&self) {
+        if let Ok(mut token) = self.cancellation_token.write() {
+            if token.is_cancelled() {
+                info!("🔄 Resetting cancellation state for new operations");
+                *token = CancellationToken::new();
+            }
+        }
+    }
+
+    /// Execute an action on an element with UI diff capture.
+    ///
+    /// This method:
+    /// 1. Finds the element by selector
+    /// 2. Captures the UI tree before the action
+    /// 3. Executes the action
+    /// 4. Waits for UI to settle (configurable, default 1500ms)
+    /// 5. Captures the UI tree after the action
+    /// 6. Computes and returns the diff
+    ///
+    /// # Arguments
+    /// * `selector` - Selector string to find the element
+    /// * `action` - Closure that takes &UIElement and returns Result<T, AutomationError>
+    /// * `options` - Optional UI diff capture options
+    ///
+    /// # Returns
+    /// Tuple of (action_result, element, Option<UiDiffResult>)
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use terminator::{Desktop, UiDiffOptions};
+    ///
+    /// async fn example() -> Result<(), terminator::AutomationError> {
+    ///     let desktop = Desktop::new_default()?;
+    ///     let options = UiDiffOptions {
+    ///         settle_delay_ms: Some(1500),
+    ///         ..Default::default()
+    ///     };
+    ///     let (result, element, diff) = desktop.execute_with_ui_diff(
+    ///         "role:Button && name:Submit",
+    ///         |el| el.click(),
+    ///         Some(options),
+    ///     ).await?;
+    ///     Ok(())
+    /// }
+    /// ```
+    pub async fn execute_with_ui_diff<T, F>(
+        &self,
+        selector: &str,
+        action: F,
+        options: Option<UiDiffOptions>,
+    ) -> Result<(T, UIElement, Option<UiDiffResult>), AutomationError>
+    where
+        F: FnOnce(&UIElement) -> Result<T, AutomationError>,
+    {
+        use std::time::Duration;
+
+        // Find the element (with default 30s timeout)
+        let element = self
+            .locator(selector)
+            .first(Some(Duration::from_secs(30)))
+            .await?;
+
+        let opts = options.unwrap_or_default();
+
+        // Get PID for tree capture
+        let pid = element.process_id().unwrap_or(0);
+        if pid == 0 {
+            debug!("[ui_diff] Could not get PID from element, executing without diff capture");
+            let result = action(&element)?;
+            return Ok((result, element, None));
+        }
+
+        // Build tree config
+        let detailed = opts.include_detailed_attributes.unwrap_or(true);
+        let tree_config = platforms::TreeBuildConfig {
+            property_mode: if detailed {
+                platforms::PropertyLoadingMode::Complete
+            } else {
+                platforms::PropertyLoadingMode::Fast
+            },
+            timeout_per_operation_ms: Some(100),
+            yield_every_n_elements: Some(25),
+            batch_size: Some(25),
+            max_depth: opts.max_depth,
+            include_all_bounds: false,
+            ui_settle_delay_ms: None,
+            format_output: false,
+            show_overlay: false,
+            overlay_display_mode: None,
+            from_selector: None,
+        };
+
+        // Capture BEFORE tree
+        debug!("[ui_diff] Capturing UI tree before action (PID: {})", pid);
+        let tree_before = match self.get_window_tree(pid, None, Some(tree_config.clone())) {
+            Ok(tree) => tree,
+            Err(e) => {
+                debug!(
+                    "[ui_diff] Failed to capture tree before action: {}. Executing without diff.",
+                    e
+                );
+                let result = action(&element)?;
+                return Ok((result, element, None));
+            }
+        };
+        let before_str = format_ui_node_as_compact_yaml(&tree_before, 0).formatted;
+
+        // Execute action
+        let result = action(&element)?;
+
+        // Wait for UI to settle
+        let settle_ms = opts.settle_delay_ms.unwrap_or(1500);
+        debug!("[ui_diff] Waiting {}ms for UI to settle", settle_ms);
+        tokio::time::sleep(Duration::from_millis(settle_ms)).await;
+
+        // Capture AFTER tree
+        debug!("[ui_diff] Capturing UI tree after action (PID: {})", pid);
+        let tree_after = match self.get_window_tree(pid, None, Some(tree_config)) {
+            Ok(tree) => tree,
+            Err(e) => {
+                debug!(
+                    "[ui_diff] Failed to capture tree after action: {}. Returning without diff.",
+                    e
+                );
+                return Ok((result, element, None));
+            }
+        };
+        let after_str = format_ui_node_as_compact_yaml(&tree_after, 0).formatted;
+
+        // Compute diff
+        let diff_result = match ui_tree_diff::simple_ui_tree_diff(&before_str, &after_str) {
+            Ok(Some(diff)) => {
+                info!(
+                    "[ui_diff] UI changes detected: {} characters in diff",
+                    diff.len()
+                );
+                UiDiffResult {
+                    diff,
+                    has_changes: true,
+                }
+            }
+            Ok(None) => {
+                debug!("[ui_diff] No UI changes detected");
+                UiDiffResult {
+                    diff: "No UI changes detected".to_string(),
+                    has_changes: false,
+                }
+            }
+            Err(e) => {
+                debug!(
+                    "[ui_diff] Failed to compute UI diff: {}. Returning without diff.",
+                    e
+                );
+                return Ok((result, element, None));
+            }
+        };
+
+        Ok((result, element, Some(diff_result)))
+    }
+
+    /// Execute an action on an already-found element with UI diff capture (async action variant).
+    ///
+    /// Use this when you have complex element-finding logic (fallback selectors, retries)
+    /// and want to separate element finding from diff capture. This variant accepts async
+    /// actions that take ownership of the element.
+    ///
+    /// # Arguments
+    /// * `element` - The element to execute the action on (will be cloned for return)
+    /// * `action` - Async closure that takes UIElement and returns Future<Result<T, AutomationError>>
+    /// * `options` - Optional UI diff capture options
+    ///
+    /// # Returns
+    /// Tuple of (action_result, element, Option<UiDiffResult>)
+    pub async fn execute_on_element_with_ui_diff<T, F, Fut>(
+        &self,
+        element: UIElement,
+        action: F,
+        options: Option<UiDiffOptions>,
+    ) -> Result<(T, UIElement, Option<UiDiffResult>), AutomationError>
+    where
+        F: FnOnce(UIElement) -> Fut,
+        Fut: std::future::Future<Output = Result<T, AutomationError>>,
+    {
+        use std::time::Duration;
+
+        let opts = options.unwrap_or_default();
+
+        // Clone element so we can return it after action consumes one copy
+        let element_for_return = element.clone();
+
+        // Get PID for tree capture
+        let pid = element.process_id().unwrap_or(0);
+        if pid == 0 {
+            debug!("[ui_diff] Could not get PID from element, executing without diff capture");
+            let result = action(element).await?;
+            return Ok((result, element_for_return, None));
+        }
+
+        // Build tree config
+        let detailed = opts.include_detailed_attributes.unwrap_or(true);
+        let tree_config = platforms::TreeBuildConfig {
+            property_mode: if detailed {
+                platforms::PropertyLoadingMode::Complete
+            } else {
+                platforms::PropertyLoadingMode::Fast
+            },
+            timeout_per_operation_ms: Some(100),
+            yield_every_n_elements: Some(25),
+            batch_size: Some(25),
+            max_depth: opts.max_depth,
+            include_all_bounds: false,
+            ui_settle_delay_ms: None,
+            format_output: false,
+            show_overlay: false,
+            overlay_display_mode: None,
+            from_selector: None,
+        };
+
+        // Capture BEFORE tree
+        debug!("[ui_diff] Capturing UI tree before action (PID: {})", pid);
+        let tree_before = match self.get_window_tree(pid, None, Some(tree_config.clone())) {
+            Ok(tree) => tree,
+            Err(e) => {
+                debug!(
+                    "[ui_diff] Failed to capture tree before action: {}. Executing without diff.",
+                    e
+                );
+                let result = action(element).await?;
+                return Ok((result, element_for_return, None));
+            }
+        };
+        let before_str = format_ui_node_as_compact_yaml(&tree_before, 0).formatted;
+
+        // Execute action (async)
+        let result = action(element).await?;
+
+        // Wait for UI to settle
+        let settle_ms = opts.settle_delay_ms.unwrap_or(1500);
+        debug!("[ui_diff] Waiting {}ms for UI to settle", settle_ms);
+        tokio::time::sleep(Duration::from_millis(settle_ms)).await;
+
+        // Capture AFTER tree
+        debug!("[ui_diff] Capturing UI tree after action (PID: {})", pid);
+        let tree_after = match self.get_window_tree(pid, None, Some(tree_config)) {
+            Ok(tree) => tree,
+            Err(e) => {
+                debug!(
+                    "[ui_diff] Failed to capture tree after action: {}. Returning without diff.",
+                    e
+                );
+                return Ok((result, element_for_return, None));
+            }
+        };
+        let after_str = format_ui_node_as_compact_yaml(&tree_after, 0).formatted;
+
+        // Compute diff
+        let diff_result = match ui_tree_diff::simple_ui_tree_diff(&before_str, &after_str) {
+            Ok(Some(diff)) => {
+                info!(
+                    "[ui_diff] UI changes detected: {} characters in diff",
+                    diff.len()
+                );
+                UiDiffResult {
+                    diff,
+                    has_changes: true,
+                }
+            }
+            Ok(None) => {
+                debug!("[ui_diff] No UI changes detected");
+                UiDiffResult {
+                    diff: "No UI changes detected".to_string(),
+                    has_changes: false,
+                }
+            }
+            Err(e) => {
+                debug!(
+                    "[ui_diff] Failed to compute UI diff: {}. Returning without diff.",
+                    e
+                );
+                return Ok((result, element_for_return, None));
+            }
+        };
+
+        Ok((result, element_for_return, Some(diff_result)))
+    }
+
+    // ============== ELEMENT VERIFICATION ==============
+
+    /// Verify that an element matching the selector exists within the same application as the scope element.
+    ///
+    /// This is used for post-action verification - checking that an expected element appeared after
+    /// performing an action (e.g., a success dialog after clicking submit).
+    ///
+    /// # Arguments
+    /// * `scope_element` - The element to get the application scope from (typically the element the action was performed on)
+    /// * `selector` - The selector string to search for
+    /// * `timeout_ms` - How long to wait for the element to appear
+    ///
+    /// # Returns
+    /// The found element if verification passes, or an error if the element is not found within the timeout
+    ///
+    /// # Errors
+    /// * `AutomationError::ElementNotFound` - If the application window cannot be determined from scope_element
+    /// * `AutomationError::Timeout` - If the element is not found within the timeout
+    #[instrument(skip(self, scope_element, selector))]
+    pub async fn verify_element_exists(
+        &self,
+        scope_element: &UIElement,
+        selector: &str,
+        timeout_ms: u64,
+    ) -> Result<UIElement, AutomationError> {
+        use std::time::Duration;
+
+        debug!(
+            "Verifying element exists: '{}' within '{}'",
+            selector,
+            scope_element.name().unwrap_or_default()
+        );
+
+        // Create a locator scoped to the provided element (same as element.locator())
+        let locator = self
+            .locator(Selector::from(selector))
+            .within(scope_element.clone());
+
+        // Wait for the element with the specified timeout
+        locator
+            .wait(Some(Duration::from_millis(timeout_ms)))
+            .await
+            .map_err(|e| {
+                AutomationError::Timeout(format!(
+                    "Verification failed: element '{}' not found after {}ms. {}",
+                    selector, timeout_ms, e
+                ))
+            })
+    }
+
+    /// Verify that an element matching the selector does NOT exist within the same application as the scope element.
+    ///
+    /// This is used for post-action verification - checking that an element disappeared after
+    /// performing an action (e.g., a modal dialog closed after clicking OK).
+    ///
+    /// # Arguments
+    /// * `scope_element` - The element to get the application scope from (typically the element the action was performed on)
+    /// * `selector` - The selector string that should NOT be found
+    /// * `timeout_ms` - How long to wait/check that the element doesn't appear
+    ///
+    /// # Returns
+    /// Ok(()) if the element is NOT found (verification passes), or an error if the element IS found
+    ///
+    /// # Errors
+    /// * `AutomationError::ElementNotFound` - If the application window cannot be determined from scope_element
+    /// * `AutomationError::VerificationFailed` - If the element IS found (meaning verification failed)
+    #[instrument(skip(self, scope_element, selector))]
+    pub async fn verify_element_not_exists(
+        &self,
+        scope_element: &UIElement,
+        selector: &str,
+        timeout_ms: u64,
+    ) -> Result<(), AutomationError> {
+        use std::time::Duration;
+
+        debug!(
+            "Verifying element does NOT exist: '{}' within '{}'",
+            selector,
+            scope_element.name().unwrap_or_default()
+        );
+
+        // Create a locator scoped to the provided element (same as element.locator())
+        let locator = self
+            .locator(Selector::from(selector))
+            .within(scope_element.clone());
+
+        // Try to find the element - we WANT this to fail (timeout)
+        match locator.wait(Some(Duration::from_millis(timeout_ms))).await {
+            Ok(_found_element) => {
+                // Element was found - this is a verification FAILURE
+                Err(AutomationError::VerificationFailed(format!(
+                    "Verification failed: element '{}' should not exist but was found",
+                    selector
+                )))
+            }
+            Err(_) => {
+                // Element not found - this is what we wanted, verification PASSED
+                debug!("Verification passed: element '{}' not present", selector);
+                Ok(())
+            }
+        }
     }
 }
 
@@ -919,6 +1910,12 @@ impl Clone for Desktop {
             engine: self.engine.clone(),
             // Clone shares the same cancellation token so stop_execution affects all clones
             cancellation_token: self.cancellation_token.clone(),
+            // Clone shares the same caches so index lookups work across clones
+            uia_cache: self.uia_cache.clone(),
+            ocr_cache: self.ocr_cache.clone(),
+            omniparser_cache: self.omniparser_cache.clone(),
+            vision_cache: self.vision_cache.clone(),
+            dom_cache: self.dom_cache.clone(),
         }
     }
 }

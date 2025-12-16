@@ -145,6 +145,27 @@ export class WorkflowRunner {
           continue;
         }
 
+        // Process state updates from step result
+        // Steps can return { state: {...}, set_env: {...} } to update context.state
+        if (result && typeof result === 'object') {
+          // Merge result.state into context.state
+          if (result.state && typeof result.state === 'object') {
+            console.log(`[runner] merging result.state keys: ${Object.keys(result.state).join(', ')}`);
+            this.state.context.state = {
+              ...this.state.context.state,
+              ...result.state,
+            };
+          }
+          // Also support set_env (YAML workflow compat) - merge into context.state
+          if (result.set_env && typeof result.set_env === 'object') {
+            console.log(`[runner] merging result.set_env keys: ${Object.keys(result.set_env).join(', ')}`);
+            this.state.context.state = {
+              ...this.state.context.state,
+              ...result.set_env,
+            };
+          }
+        }
+
         // Save step result
         this.state.stepResults[step.config.id] = {
           status: 'success',

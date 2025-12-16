@@ -57,4 +57,7 @@ pub enum AutomationError {
 
     #[error("Operation cancelled: {0}")]
     OperationCancelled(String),
+
+    #[error("Verification failed: {0}")]
+    VerificationFailed(String),
 }

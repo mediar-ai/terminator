@@ -93,5 +93,6 @@ pub fn automation_error_to_pyerr(e: AutomationError) -> pyo3::PyErr {
         AutomationError::ElementObscured(_) => ElementObscuredError::new_err(msg),
         AutomationError::ScrollFailed(_) => ScrollFailedError::new_err(msg),
         AutomationError::OperationCancelled(_) => OperationCancelledError::new_err(msg),
+        AutomationError::VerificationFailed(_) => InternalError::new_err(msg),
     }
 }

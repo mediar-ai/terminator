@@ -1506,6 +1506,38 @@ impl UIElementImpl for MacOSUIElement {
         Ok(())
     }
 
+    fn get_value(&self) -> Result<Option<String>, AutomationError> {
+        // Try to get the AXValue attribute from the element
+        unsafe {
+            let element_ref = self.element.0.as_concrete_TypeRef() as *mut ::std::os::raw::c_void;
+            let attr_str = CFString::new("AXValue");
+            let attr_str_ref = attr_str.as_concrete_TypeRef() as *const ::std::os::raw::c_void;
+            let mut value_ref: *mut ::std::os::raw::c_void = std::ptr::null_mut();
+
+            let result = AXUIElementCopyAttributeValue(
+                element_ref,
+                attr_str_ref,
+                &mut value_ref as *mut *mut ::std::os::raw::c_void,
+            );
+
+            if result != 0 || value_ref.is_null() {
+                // Element doesn't have AXValue or failed to get it - this is normal
+                return Ok(None);
+            }
+
+            // Try to convert to CFString
+            let cf_type = core_foundation::base::CFType::wrap_under_get_rule(
+                value_ref as core_foundation::base::CFTypeRef,
+            );
+            if let Some(cf_string) = cf_type.downcast::<CFString>() {
+                Ok(Some(cf_string.to_string()))
+            } else {
+                // Value exists but isn't a string
+                Ok(None)
+            }
+        }
+    }
+
     fn is_enabled(&self) -> Result<bool, AutomationError> {
         // not implemented
         Err(AutomationError::UnsupportedOperation(

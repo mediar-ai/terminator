@@ -1,14 +1,10 @@
 use anyhow::{anyhow, Result};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::env;
 use tracing::{debug, info, warn};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct OmniparserItem {
-    pub label: String,            // e.g. "icon", "text"
-    pub content: Option<String>,  // Description or OCR text
-    pub box_2d: Option<[f64; 4]>, // [x_min, y_min, x_max, y_max] in pixels (absolute coordinates)
-}
+// Re-export from core terminator crate
+pub use terminator::OmniparserItem;
 
 /// Element as returned by the web backend (normalized coordinates)
 #[derive(Debug, Deserialize)]

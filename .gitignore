@@ -19,7 +19,6 @@ build/
 dist/
 .vagrant/
 
-.env 
 
 /workflows/
 
@@ -45,3 +44,4 @@ mcp.json
 
 # Windows null device file (created when running >nul in Git Bash)
 nul
+config.bat

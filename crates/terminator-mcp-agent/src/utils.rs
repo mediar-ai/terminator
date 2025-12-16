@@ -1,7 +1,6 @@
 use crate::cancellation::RequestManager;
 use crate::mcp_types::{FontStyle, TextPosition, TreeOutputFormat};
 use crate::tool_logging::{LogCapture, LogCaptureLayer};
-use crate::window_manager::WindowManager;
 use anyhow::Result;
 use rmcp::{schemars, schemars::JsonSchema};
 use serde::{Deserialize, Serialize};
@@ -10,6 +9,7 @@ use std::env;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
+use terminator::WindowManager;
 use terminator::{AutomationError, Desktop, UIElement};
 use tokio::sync::Mutex as TokioMutex;
 use tracing::{warn, Instrument, Level};
@@ -24,6 +24,15 @@ pub struct MonitorScreenshotOptions {
         description = "Whether to include screenshots of all monitors in the response. Defaults to false."
     )]
     pub include_monitor_screenshots: Option<bool>,
+}
+
+/// Common fields for operations that include window screenshots
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+pub struct WindowScreenshotOptions {
+    #[schemars(
+        description = "Whether to include a screenshot of the target window in the response. For action tools, captured after the action completes. Defaults to true. Set to false to disable."
+    )]
+    pub include_window_screenshot: Option<bool>,
 }
 
 /// Common fields for window management control
@@ -48,20 +57,20 @@ pub struct WindowManagementOptions {
         description = "Whether to bring the target window to front (BringWindowToTop + SetForegroundWindow). Only used if enable_window_management is true. Defaults to true."
     )]
     pub bring_to_front: Option<bool>,
+
+    #[schemars(
+        description = "Whether to restore focus and caret position after tool execution. When true, saves the currently focused element and caret position before window management, then restores them after the tool completes. Defaults to false."
+    )]
+    pub restore_focus: Option<bool>,
 }
 
 /// Tree options for action tools that modify UI - captures diff before/after
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 pub struct DiffTreeOptions {
     #[schemars(
-        description = "REQUIRED: Capture UI tree before and after action execution, then compute and return the diff. Returns ui_diff and has_ui_changes fields. Set include_full_trees: true to also get tree_before and tree_after."
+        description = "REQUIRED: Capture UI tree before and after action execution, then compute and return the diff. Returns ui_diff and has_ui_changes fields."
     )]
     pub ui_diff_before_after: bool,
-
-    #[schemars(
-        description = "Include full tree_before and tree_after in response. Defaults to false (only ui_diff and has_ui_changes). Set to true for debugging or when you need the complete trees."
-    )]
-    pub ui_diff_include_full_trees_in_response: Option<bool>,
 
     #[schemars(description = "Maximum depth to traverse when building tree")]
     pub tree_max_depth: Option<usize>,
@@ -194,12 +203,12 @@ pub struct ActionOptions {
     pub retries: Option<u32>,
 
     #[schemars(
-        description = "REQUIRED: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Supports variable substitution like {{text_to_type}}. Use empty string \"\" to skip this check. If verification fails, the tool execution fails."
+        description = "Selector that should exist after action. EXACT match from UI tree only - never guess. Use \"\" to skip."
     )]
     pub verify_element_exists: String,
 
     #[schemars(
-        description = "REQUIRED: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). Use empty string \"\" to skip this check. If verification fails, the tool execution fails."
+        description = "Selector that should NOT exist after action. EXACT match from UI tree only - never guess. Use \"\" to skip."
     )]
     pub verify_element_not_exists: String,
 
@@ -248,7 +257,7 @@ pub struct DelayArgs {
     pub window_mgmt: WindowManagementOptions,
 }
 
-// Tool execution context for window management
+// Tool execution context for window management and execution logging
 #[derive(Clone, Debug)]
 pub struct ToolExecutionContext {
     pub in_sequence: bool,
@@ -257,6 +266,8 @@ pub struct ToolExecutionContext {
     pub current_step: usize,
     pub is_last_step: bool,
     pub previous_process: Option<String>, // Track previous process for detecting switches
+    pub workflow_id: Option<String>,      // For execution logging
+    pub step_id: Option<String>,          // For execution logging
 }
 
 impl ToolExecutionContext {
@@ -268,6 +279,8 @@ impl ToolExecutionContext {
             current_step: 1,
             is_last_step: true,
             previous_process: None,
+            workflow_id: None,
+            step_id: None,
         }
     }
 
@@ -284,7 +297,20 @@ impl ToolExecutionContext {
             current_step: current,
             is_last_step: current == total,
             previous_process,
+            workflow_id: None,
+            step_id: None,
         }
+    }
+
+    /// Set workflow context for execution logging
+    pub fn with_workflow_context(
+        mut self,
+        workflow_id: Option<String>,
+        step_id: Option<String>,
+    ) -> Self {
+        self.workflow_id = workflow_id;
+        self.step_id = step_id;
+        self
     }
 }
 
@@ -306,6 +332,7 @@ fn default_true() -> bool {
 
 // Removed IncludeTreeOption and TreeOptions - now using separate fields
 
+#[allow(clippy::type_complexity)]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct DesktopWrapper {
     #[serde(skip, default = "default_desktop")]
@@ -318,6 +345,8 @@ pub struct DesktopWrapper {
     pub active_highlights: Arc<TokioMutex<Vec<terminator::HighlightHandle>>>,
     #[serde(skip)]
     pub log_capture: Option<LogCapture>,
+    #[serde(skip)]
+    pub captured_stderr_logs: Arc<Mutex<Vec<crate::execution_logger::CapturedLogEntry>>>,
     #[serde(skip)]
     pub current_workflow_dir: Arc<TokioMutex<Option<std::path::PathBuf>>>,
     #[serde(skip)]
@@ -416,6 +445,8 @@ pub struct GetWindowTreeArgs {
     pub tree: SimpleTreeOptions,
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -481,6 +512,8 @@ pub struct LocatorArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -496,10 +529,15 @@ pub struct InvokeElementArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
+    pub highlight: HighlightOptions,
+
+    #[serde(flatten)]
     pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -629,6 +667,12 @@ pub struct ClickElementArgs {
     #[serde(default)]
     pub click_type: ClickType,
 
+    #[schemars(
+        description = "If true, restore cursor to its original position after clicking. Defaults to true."
+    )]
+    #[serde(default = "default_true")]
+    pub restore_cursor: bool,
+
     #[serde(flatten)]
     pub action: ActionOptions,
 
@@ -640,6 +684,8 @@ pub struct ClickElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -659,7 +705,9 @@ pub enum ClickMode {
 impl ClickElementArgs {
     /// Determine which click mode based on provided arguments
     pub fn determine_mode(&self) -> Result<ClickMode, String> {
-        let has_selector = self.process.is_some();
+        // Selector mode requires an actual selector, not just process
+        // (process is just a scoping filter that can be used with any mode)
+        let has_selector = self.selector.is_some();
         let has_index = self.index.is_some();
         let has_coords = self.x.is_some() && self.y.is_some();
         let has_partial_coords = self.x.is_some() || self.y.is_some();
@@ -676,15 +724,13 @@ impl ClickElementArgs {
                 return Err("Coordinate mode requires both 'x' and 'y' parameters".to_string());
             }
             return Err(
-                "Must specify one of: (process + selector), (index), or (x + y coordinates)"
-                    .to_string(),
+                "Must specify one of: (selector), (index), or (x + y coordinates)".to_string(),
             );
         }
 
         if mode_count > 1 {
             return Err(
-                "Cannot mix modes: specify only one of (process + selector), (index), or (x + y)"
-                    .to_string(),
+                "Cannot mix modes: specify only one of (selector), (index), or (x + y)".to_string(),
             );
         }
 
@@ -775,11 +821,20 @@ pub struct TypeIntoElementArgs {
     )]
     #[serde(default = "default_true")]
     pub try_click_before: bool,
+    #[schemars(
+        description = "Whether to restore the original focus and caret position after typing (default: false). When true, saves the currently focused element and caret position before typing, then restores them after. Useful when automation should not disrupt user's current work."
+    )]
+    #[serde(default)]
+    pub restore_focus: bool,
     #[serde(flatten)]
     pub selector: SelectorOptions,
 
-    #[serde(flatten)]
-    pub action: ActionOptions,
+    // Note: No ActionOptions here - typing uses auto-verification from core library
+    #[schemars(description = "Optional timeout in milliseconds for the action")]
+    pub timeout_ms: Option<u64>,
+
+    #[schemars(description = "Number of times to retry this step on failure.")]
+    pub retries: Option<u32>,
 
     #[serde(flatten)]
     pub highlight: HighlightOptions,
@@ -789,6 +844,8 @@ pub struct TypeIntoElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -822,6 +879,8 @@ pub struct PressKeyArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -840,12 +899,12 @@ pub struct GlobalKeyArgs {
     pub key: String,
 
     #[schemars(
-        description = "REQUIRED: Selector that should exist after the action completes. Used for post-action verification (e.g., dialog appeared, success message visible). Use empty string \"\" to skip this check."
+        description = "Selector that should exist after action. EXACT match from UI tree only - never guess. Use \"\" to skip."
     )]
     pub verify_element_exists: String,
 
     #[schemars(
-        description = "REQUIRED: Selector that should NOT exist after the action completes. Used for post-action verification (e.g., button disappeared, dialog closed). Use empty string \"\" to skip this check."
+        description = "Selector that should NOT exist after action. EXACT match from UI tree only - never guess. Use \"\" to skip."
     )]
     pub verify_element_not_exists: String,
 
@@ -858,6 +917,8 @@ pub struct GlobalKeyArgs {
     pub tree: DiffTreeOptions,
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -920,10 +981,15 @@ pub struct MouseDragArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
+    pub highlight: HighlightOptions,
+
+    #[serde(flatten)]
     pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -966,6 +1032,8 @@ pub struct ValidateElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     /// Maximum dimension (width or height) for the screenshot. Default: 1920px
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -991,6 +1059,8 @@ pub struct CaptureScreenshotArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     /// Maximum dimension (width or height) for the screenshot. Default: 1920px
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1036,6 +1106,8 @@ pub struct HighlightElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -1056,6 +1128,8 @@ pub struct WaitForElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -1071,12 +1145,12 @@ pub struct NavigateBrowserArgs {
     pub process: String,
 
     #[schemars(
-        description = "REQUIRED: Selector that should exist after navigation completes. Used to verify the page loaded successfully. Use empty string \"\" to skip this check."
+        description = "Selector that should exist after navigation. EXACT match from UI tree only - never guess. Use \"\" to skip."
     )]
     pub verify_element_exists: String,
 
     #[schemars(
-        description = "REQUIRED: Selector that should NOT exist after navigation completes. Use empty string \"\" to skip this check."
+        description = "Selector that should NOT exist after navigation. EXACT match from UI tree only - never guess. Use \"\" to skip."
     )]
     pub verify_element_not_exists: String,
 
@@ -1089,6 +1163,8 @@ pub struct NavigateBrowserArgs {
     pub tree: SimpleTreeOptions,
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -1114,6 +1190,8 @@ pub struct ExecuteBrowserScriptArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -1125,12 +1203,12 @@ pub struct OpenApplicationArgs {
     pub app_name: String,
 
     #[schemars(
-        description = "REQUIRED: Selector that should exist after the application opens. Used to verify the app loaded successfully (e.g., 'process:notepad|role:Document'). Use empty string \"\" to skip this check."
+        description = "Selector that should exist after app opens. EXACT match from UI tree only - never guess. Use \"\" to skip."
     )]
     pub verify_element_exists: String,
 
     #[schemars(
-        description = "REQUIRED: Selector that should NOT exist after the application opens. Use empty string \"\" to skip this check."
+        description = "Selector that should NOT exist after app opens. EXACT match from UI tree only - never guess. Use \"\" to skip."
     )]
     pub verify_element_not_exists: String,
 
@@ -1144,6 +1222,8 @@ pub struct OpenApplicationArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -1160,10 +1240,15 @@ pub struct SelectOptionArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
+    pub highlight: HighlightOptions,
+
+    #[serde(flatten)]
     pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -1180,10 +1265,15 @@ pub struct SetValueArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
+    pub highlight: HighlightOptions,
+
+    #[serde(flatten)]
     pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -1200,10 +1290,15 @@ pub struct SetSelectedArgs {
     pub action: ActionOptions,
 
     #[serde(flatten)]
+    pub highlight: HighlightOptions,
+
+    #[serde(flatten)]
     pub tree: DiffTreeOptions,
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -1232,6 +1327,8 @@ pub struct ScrollElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -1250,6 +1347,8 @@ pub struct ActivateElementArgs {
 
     #[serde(flatten)]
     pub monitor: MonitorScreenshotOptions,
+    #[serde(flatten)]
+    pub window_screenshot: WindowScreenshotOptions,
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
@@ -1514,6 +1613,174 @@ pub struct GeminiComputerUseArgs {
 
     #[serde(flatten)]
     pub window_mgmt: WindowManagementOptions,
+}
+
+// ===== File Operation Tools Args =====
+
+/// Arguments for reading a file
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ReadFileArgs {
+    #[schemars(
+        description = "Path to the file to read. Can be relative (resolved from working_directory) or absolute."
+    )]
+    pub path: String,
+
+    #[schemars(
+        description = "Working directory for resolving relative paths. Injected automatically by mediar-app based on focused workflow."
+    )]
+    pub working_directory: Option<String>,
+
+    #[schemars(description = "Line number to start reading from (1-indexed). Defaults to 1.")]
+    pub offset: Option<usize>,
+
+    #[schemars(description = "Maximum number of lines to read. Defaults to 100, max 200.")]
+    pub limit: Option<usize>,
+}
+
+/// Arguments for writing a file
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct WriteFileArgs {
+    #[schemars(
+        description = "Path to the file to write. Can be relative (resolved from working_directory) or absolute."
+    )]
+    pub path: String,
+
+    #[schemars(description = "Content to write to the file.")]
+    pub content: String,
+
+    #[schemars(
+        description = "Working directory for resolving relative paths. Injected automatically by mediar-app based on focused workflow."
+    )]
+    pub working_directory: Option<String>,
+}
+
+/// Arguments for editing a file (string replacement)
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct EditFileArgs {
+    #[schemars(
+        description = "Path to the file to edit. Can be relative (resolved from working_directory) or absolute."
+    )]
+    pub path: String,
+
+    #[schemars(
+        description = "String to find and replace. Can be multi-line - prefer replacing entire functions or code blocks rather than making many small edits. Line endings are normalized for matching. Must be unique in the file unless replace_all is true."
+    )]
+    pub old_string: String,
+
+    #[schemars(description = "String to replace with.")]
+    pub new_string: String,
+
+    #[schemars(
+        description = "Replace all occurrences instead of requiring uniqueness. Defaults to false."
+    )]
+    pub replace_all: Option<bool>,
+
+    #[schemars(
+        description = "Working directory for resolving relative paths. Injected automatically by mediar-app based on focused workflow."
+    )]
+    pub working_directory: Option<String>,
+}
+
+/// Arguments for finding files by glob pattern
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GlobFilesArgs {
+    #[schemars(
+        description = "Glob pattern to match files. Examples: '**/*.ts', 'src/*.rs', '*.yml'"
+    )]
+    pub pattern: String,
+
+    #[schemars(
+        description = "Working directory for resolving the glob pattern. Injected automatically by mediar-app based on focused workflow."
+    )]
+    pub working_directory: Option<String>,
+}
+
+/// Arguments for searching file contents
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GrepFilesArgs {
+    #[schemars(description = "Regex pattern to search for in file contents.")]
+    pub pattern: String,
+
+    #[schemars(
+        description = "Optional glob pattern to filter which files to search. Examples: '*.ts', '**/*.rs'"
+    )]
+    pub glob: Option<String>,
+
+    #[schemars(description = "Case insensitive search. Defaults to false.")]
+    pub ignore_case: Option<bool>,
+
+    #[schemars(
+        description = "Number of context lines before and after each match. Defaults to 2."
+    )]
+    pub context_lines: Option<usize>,
+
+    #[schemars(description = "Maximum number of results to return. Defaults to 50.")]
+    pub max_results: Option<usize>,
+
+    #[schemars(
+        description = "Working directory for resolving relative paths. Injected automatically by mediar-app based on focused workflow."
+    )]
+    pub working_directory: Option<String>,
+}
+
+/// Arguments for copying content between files
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CopyContentArgs {
+    #[schemars(description = "Path to the source file to copy content from.")]
+    pub source_path: String,
+
+    #[schemars(description = "Path to the target file to insert/replace content into.")]
+    pub target_path: String,
+
+    #[schemars(
+        description = "How to select content from source. Options: 'lines' (use source_start_line/source_end_line), 'pattern' (use source_start_pattern/source_end_pattern), or 'all' (entire file content)."
+    )]
+    pub source_mode: String,
+
+    #[schemars(
+        description = "Start line number (1-indexed, inclusive). Required when source_mode is 'lines'."
+    )]
+    pub source_start_line: Option<usize>,
+
+    #[schemars(
+        description = "End line number (1-indexed, inclusive). Required when source_mode is 'lines'."
+    )]
+    pub source_end_line: Option<usize>,
+
+    #[schemars(
+        description = "Substring to match start of content (line containing this is included). Required when source_mode is 'pattern'."
+    )]
+    pub source_start_pattern: Option<String>,
+
+    #[schemars(
+        description = "Substring to match end of content (first line containing this after start is included). Required when source_mode is 'pattern'."
+    )]
+    pub source_end_pattern: Option<String>,
+
+    #[schemars(
+        description = "Where to insert in target. Options: 'replace' (replace target_pattern match), 'after' (insert after target_pattern), 'before' (insert before target_pattern), 'at_line' (insert before target_line, pushing existing content down), 'append' (end of file), 'prepend' (start of file)."
+    )]
+    pub target_mode: String,
+
+    #[schemars(
+        description = "Substring to find in target file. Must be unique unless replace_all is true. Required for replace/after/before modes."
+    )]
+    pub target_pattern: Option<String>,
+
+    #[schemars(
+        description = "Replace all occurrences of target_pattern. Defaults to false (requires unique match)."
+    )]
+    pub replace_all: Option<bool>,
+
+    #[schemars(
+        description = "Line number to insert at (1-indexed). Content is inserted before this line. Required when target_mode is 'at_line'."
+    )]
+    pub target_line: Option<usize>,
+
+    #[schemars(
+        description = "Working directory for resolving relative paths. Injected automatically by mediar-app based on focused workflow."
+    )]
+    pub working_directory: Option<String>,
 }
 
 #[derive(Debug)]

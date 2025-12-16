@@ -677,6 +677,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bstr"
+version = "1.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63044e1ae8e69f3b5a92c736ca6269b8d12fa7efe39bf34ddb06d102cf0e2cab"
+dependencies = [
+ "memchr",
+ "serde",
+]
+
+[[package]]
 name = "built"
 version = "0.7.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1861,6 +1871,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
+name = "globset"
+version = "0.4.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52dfc19153a48bde0cbd630453615c8151bce3a5adfac7a0aebfbf0a1e1f57e3"
+dependencies = [
+ "aho-corasick",
+ "bstr",
+ "log",
+ "regex-automata",
+ "regex-syntax",
+]
+
+[[package]]
 name = "h2"
 version = "0.3.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2295,6 +2318,22 @@ checksum = "3acae9609540aa318d1bc588455225fb2085b9ed0c4f6bd0d9d5bcd86f1a0344"
 dependencies = [
  "icu_normalizer",
  "icu_properties",
+]
+
+[[package]]
+name = "ignore"
+version = "0.4.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3d782a365a015e0f5c04902246139249abf769125006fbe7649e2ee88169b4a"
+dependencies = [
+ "crossbeam-deque",
+ "globset",
+ "log",
+ "memchr",
+ "regex-automata",
+ "same-file",
+ "walkdir",
+ "winapi-util",
 ]
 
 [[package]]
@@ -5054,6 +5093,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
+name = "static_vcruntime"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "954e3e877803def9dc46075bf4060147c55cd70db97873077232eae0269dc89b"
+
+[[package]]
 name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5204,7 +5249,7 @@ dependencies = [
 
 [[package]]
 name = "terminator-cli"
-version = "0.23.36"
+version = "0.23.48"
 dependencies = [
  "anthropic-sdk",
  "anyhow",
@@ -5220,6 +5265,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "terminator-mcp-agent",
  "tokio",
  "tokio-cron-scheduler",
  "tracing",
@@ -5229,7 +5275,7 @@ dependencies = [
 
 [[package]]
 name = "terminator-computer-use"
-version = "0.23.36"
+version = "0.23.48"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -5243,7 +5289,7 @@ dependencies = [
 
 [[package]]
 name = "terminator-mcp-agent"
-version = "0.23.36"
+version = "0.23.48"
 dependencies = [
  "anyhow",
  "arboard",
@@ -5253,7 +5299,9 @@ dependencies = [
  "clap",
  "dirs",
  "futures",
+ "glob",
  "hostname",
+ "ignore",
  "image",
  "libc",
  "ollama-rs",
@@ -5285,24 +5333,32 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "uuid",
+ "walkdir",
  "windows 0.58.0",
 ]
 
 [[package]]
 name = "terminator-node-bindings"
-version = "0.23.36"
+version = "0.23.48"
 dependencies = [
+ "base64 0.22.1",
+ "futures",
+ "image",
  "napi",
  "napi-build",
  "napi-derive",
+ "reqwest",
+ "serde",
  "serde_json",
+ "static_vcruntime",
  "terminator-rs",
+ "tracing",
  "tracing-subscriber",
 ]
 
 [[package]]
 name = "terminator-py-bindings"
-version = "0.23.36"
+version = "0.23.48"
 dependencies = [
  "pyo3",
  "pyo3-async-runtimes",
@@ -5316,7 +5372,7 @@ dependencies = [
 
 [[package]]
 name = "terminator-rs"
-version = "0.23.36"
+version = "0.23.48"
 dependencies = [
  "accessibility",
  "accessibility-sys",
@@ -5328,9 +5384,11 @@ dependencies = [
  "axum 0.8.4",
  "base64 0.22.1",
  "blake3",
+ "chrono",
  "core-foundation 0.10.1",
  "core-graphics 0.24.0",
  "criterion",
+ "dirs",
  "futures",
  "futures-util",
  "image",
@@ -5364,7 +5422,7 @@ dependencies = [
 
 [[package]]
 name = "terminator-workflow-recorder"
-version = "0.23.36"
+version = "0.23.48"
 dependencies = [
  "arboard",
  "async-stream",

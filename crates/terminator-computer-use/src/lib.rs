@@ -97,6 +97,8 @@ pub struct ComputerUseResult {
     pub steps: Vec<ComputerUseStep>,
     /// Pending confirmation info if status is "needs_confirmation"
     pub pending_confirmation: Option<serde_json::Value>,
+    /// Execution ID for finding screenshots (e.g., "20251205_134500_geminiComputerUse_msedge")
+    pub execution_id: Option<String>,
 }
 
 /// Callback for progress updates during computer use execution
@@ -330,6 +332,7 @@ pub fn translate_gemini_keys(gemini_keys: &str) -> Result<String, String> {
 ///
 /// # Returns
 /// Tuple of (screen_x, screen_y) absolute coordinates
+#[allow(clippy::too_many_arguments)]
 pub fn convert_normalized_to_screen(
     norm_x: f64,
     norm_y: f64,

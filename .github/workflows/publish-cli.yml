@@ -23,18 +23,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ---------- Linux ----------
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            archive: terminator-cli-linux-x86_64.tar.gz
-            ext: ""
-            bin_name: terminator
-            npm_dir: linux-x64-gnu
-          # - os: ubuntu-latest
-          #   target: aarch64-unknown-linux-gnu
-          #   archive: terminator-cli-linux-aarch64.tar.gz
-          #   ext: ""
-          # ---------- macOS ----------
+          # ---------- Windows ----------
           # - os: macos-latest
           #   target: x86_64-apple-darwin
           #   archive: terminator-cli-darwin-x86_64.tar.gz
@@ -63,10 +52,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: bash scripts/install_linux_deps.sh
 
       - name: Setup node (Windows ARM64)
         if: matrix.target == 'aarch64-pc-windows-msvc'
@@ -262,23 +247,10 @@ jobs:
             This release contains the Terminator CLI standalone binaries for various platforms.
 
             ### Available Downloads:
-            - **Linux x64**: `terminator-cli-linux-x86_64.tar.gz`
             - **Windows x64**: `terminator-cli-windows-x86_64.zip`
             - **Windows ARM64**: `terminator-cli-windows-aarch64.zip`
 
             ### Quick Installation
-
-            #### Linux:
-            ```bash
-            # Download and extract (replace URL with your platform's file)
-            curl -L https://github.com/mediar-ai/terminator/releases/download/${{ github.ref_name }}/terminator-cli-{platform}.tar.gz | tar xz
-
-            # Make executable
-            chmod +x terminator-cli
-
-            # Move to PATH (optional)
-            sudo mv terminator-cli /usr/local/bin/
-            ```
 
             #### Windows:
             ```powershell

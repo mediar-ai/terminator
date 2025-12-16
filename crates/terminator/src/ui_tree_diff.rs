@@ -172,7 +172,8 @@ mod tests {
 
     #[test]
     fn test_remove_ids_and_bounds_from_compact_yaml() {
-        let input = "- [Button] Submit #id123 (bounds: [10,20,100,30], focusable)\n  - [Text] Label #id456";
+        let input =
+            "- [Button] Submit #id123 (bounds: [10,20,100,30], focusable)\n  - [Text] Label #id456";
         let expected = "- [Button] Submit (focusable)\n  - [Text] Label";
 
         let result = remove_ids_and_bounds_from_compact_yaml(input);
@@ -204,7 +205,10 @@ mod tests {
         let tree2 = "- [Group] Comment from flappy-goose (bounds: [26,472,617,485], focusable)\n  - [Button] Reply (bounds: [128,1079,82,34], focusable)";
 
         let diff = simple_ui_tree_diff(tree1, tree2).unwrap();
-        assert!(diff.is_none(), "Bounds-only changes should not produce a diff");
+        assert!(
+            diff.is_none(),
+            "Bounds-only changes should not produce a diff"
+        );
     }
 
     #[test]
