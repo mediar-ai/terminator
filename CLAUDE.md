@@ -1,6 +1,6 @@
 # Terminator - AI-Native GUI Automation
 
-Open-source desktop automation (MIT). Gives AI hands to control any app on Windows/macOS/Linux.
+Open-source desktop automation (MIT). Gives AI hands to control any app on Windows.
 **Mediar AI** | [$2.8M seed](https://x.com/louis030195/status/1948745185178914929) | [mediar.ai](https://mediar.ai)
 
 ## Installation
@@ -11,21 +11,14 @@ npx @mediar-ai/cli --help  # Run without install
 npm i -g @mediar-ai/cli    # Or install globally
 ```
 
-**macOS/Linux (Experimental):**
-Compile from source - npm wrapper only includes Windows binaries.
-```bash
-cargo build --release
-```
-
 ## Release
 
 **CRITICAL**: Use `terminator` CLI only (syncs versions across workspace).
 
 ```bash
-# Windows: use npx @mediar-ai/cli or installed CLI
-# Others: compile from source first
-cargo install --path crates/terminator-cli  # Once
-terminator release                   # Bump patch → tag → push (triggers CI/CD)
+npx @mediar-ai/cli release           # Bump patch → tag → push (triggers CI/CD)
+# Or with globally installed CLI:
+terminator release
 ```
 
 **Never manually edit versions in package.json or Cargo.toml.**
@@ -54,13 +47,13 @@ cargo fmt && cargo clippy
 
 ## MCP Debugging
 
-**Logs:** `%LOCALAPPDATA%\claude-cli-nodejs\Cache\*\mcp-logs-terminator-mcp-agent\*.txt` (Windows) / `~/.cache/...` (Linux) / `~/Library/Caches/...` (macOS)
+**Logs:** `%LOCALAPPDATA%\claude-cli-nodejs\Cache\*\mcp-logs-terminator-mcp-agent\*.txt`
 
 **Enable:** Set `LOG_LEVEL=debug` and `RUST_BACKTRACE=1` in MCP config.
 
 ## Packages
 
-- npm: `@mediar-ai/terminator` (5 platform packages), `terminator-mcp-agent`, `@mediar-ai/workflow`
+- npm: `@mediar-ai/terminator` (2 Windows platform packages), `terminator-mcp-agent`, `@mediar-ai/workflow`
 - PyPI: `terminator`
 - crates.io: `terminator-rs`
 
