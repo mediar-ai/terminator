@@ -45,32 +45,8 @@ path = "src/lib.rs"
 
 
 [features]
-# Define a no-op feature to satisfy objc macros that gate on `cfg(feature = "cargo-clippy")`.
-# Without this, Rust's `unexpected_cfgs` lint warns about unknown feature values during macro expansion.
 default = []
-cargo-clippy = []
 
-
-[target.'cfg(target_os = "linux")'.dependencies]
-atspi = { version = "0.26.3", features = [
-    "tokio",
-    "proxies-tokio",
-    "zbus",
-    "connection",
-] }
-zbus = { version = "5.5", default-features = false }
-atspi-common = { version = "0.10.1", default-features = false }
-atspi-proxies = { version = "0.10.2", default-features = false }
-sysinfo = { workspace = true }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-accessibility-sys = { workspace = true }
-accessibility = { workspace = true }
-objc = { workspace = true }
-objc-foundation = { workspace = true }
-core-foundation = { workspace = true }
-core-graphics = { workspace = true }
-sysinfo = { workspace = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 terminator-computer-use = { workspace = true }
