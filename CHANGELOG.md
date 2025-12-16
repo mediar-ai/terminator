@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.51] - 2025-12-16
+
+### Fixed
+- CLI: Remove double braces in init template
+- MCP: Change default `tree_max_depth` from 100 to 30 with improved guidance
+
+### Changed
+- Docs: Use GIF for autoplay demo video in README
+
 ## [0.23.50] - 2025-12-16
 
 ### Changed
