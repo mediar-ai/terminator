@@ -6,7 +6,7 @@
     "@modelcontextprotocol/sdk": "^1.17.3",
     "node-fetch": "^2.7.0"
   },
-  "description": "Cross-platform Model Context Protocol (MCP) agent for Terminator",
+  "description": "Windows Model Context Protocol (MCP) agent for Terminator",
   "engines": {
     "node": ">= 10"
   },
@@ -17,9 +17,6 @@
   ],
   "name": "terminator-mcp-agent",
   "optionalDependencies": {
-    "terminator-mcp-darwin-arm64": "0.23.49",
-    "terminator-mcp-darwin-x64": "0.23.49",
-    "terminator-mcp-linux-x64-gnu": "0.23.49",
     "terminator-mcp-win32-arm64-msvc": "0.23.49",
     "terminator-mcp-win32-x64-msvc": "0.23.49"
   },
