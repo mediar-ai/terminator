@@ -1,7 +1,4 @@
-
-# demo of terminator drawing in paint
-
-https://github.com/user-attachments/assets/b7bec5df-64a9-4f0e-aba4-1578c11275c7
+[![Terminator Demo - GitHub Star Automation](https://img.youtube.com/vi/Cz-3X5nLIpY/maxresdefault.jpg)](https://youtu.be/Cz-3X5nLIpY)
 
 <p align="center">
   <a href="https://discord.gg/dU9EBuw7Uq">
@@ -92,6 +89,18 @@ Add to your MCP config file:
 ```
 
 See the [MCP Agent README](https://github.com/mediar-ai/terminator/tree/main/terminator-mcp-agent) for detailed setup instructions.
+
+### Why Terminator MCP?
+
+- **Uses your browser session** - no need to relogin, keeps all your cookies and auth
+- **Doesn't take over your cursor or keyboard** - runs in the background without interrupting your work
+- **Works across all dimensions** - pixels, DOM, and Accessibility tree for maximum reliability
+
+### Use Cases
+
+- Create a new instance on GCP, connect to it using CLI
+- Check logs on Vercel to find most common errors
+- Test my app new features based on recent commits
 
 ## 📥 Installation for technical users
 
