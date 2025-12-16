@@ -87,22 +87,17 @@ jobs:
         run: |
           cd packages/terminator-nodejs
           echo "Verifying .node file was created and copied:"
-          
-          # Construct platform package directory name correctly
-          if [ "${{ matrix.settings.platform }}" = "win32" ]; then
-            platform_package="npm/${{ matrix.settings.platform }}-${{ matrix.settings.arch }}-msvc"
-          else
-            # For darwin and other platforms, no suffix
-            platform_package="npm/${{ matrix.settings.platform }}-${{ matrix.settings.arch }}"
-          fi
-          
+
+          # Windows only - platform package with -msvc suffix
+          platform_package="npm/${{ matrix.settings.platform }}-${{ matrix.settings.arch }}-msvc"
+
           echo "Looking for .node file in: ${platform_package}/"
           ls -la "${platform_package}/" || echo "Directory not found"
           if ls "${platform_package}/"*.node 1> /dev/null 2>&1; then
-            echo "✓ Native binary found in platform package"
+            echo "Native binary found in platform package"
             ls -la "${platform_package}/"*.node
           else
-            echo "✗ ERROR: No .node file found in platform package!"
+            echo "ERROR: No .node file found in platform package!"
             exit 1
           fi
         shell: bash
