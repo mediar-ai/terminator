@@ -462,7 +462,7 @@ pub async fn maybe_attach_tree(
     if let Some(from_selector_value) = tree_from_selector {
         if from_selector_value == "true" {
             if let Some(element) = found_element {
-                let max_depth = tree_max_depth.unwrap_or(100);
+                let max_depth = tree_max_depth.unwrap_or(30);
                 let subtree = element.to_serializable_tree(max_depth);
                 let (tree_result, cache) = format_serializable_tree(subtree);
                 if let Ok(tree_val) = tree_result {

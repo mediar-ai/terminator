@@ -1197,7 +1197,7 @@ impl Desktop {
         let tree_config = config.unwrap_or_default();
         let format_output = tree_config.format_output;
         let from_selector = tree_config.from_selector.clone();
-        let max_depth = tree_config.max_depth.unwrap_or(100);
+        let max_depth = tree_config.max_depth.unwrap_or(30);
 
         // If from_selector is specified, find the element and build subtree from it
         if let Some(selector_str) = from_selector {
