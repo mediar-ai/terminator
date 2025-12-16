@@ -1,4 +1,4 @@
-https://github.com/user-attachments/assets/7e9f7234-c44f-4f20-bdda-5119281603aa
+https://github.com/user-attachments/assets/b33212a6-7bd1-4654-b658-8a2f9a3a8b77
 
 <p align="center">
   <a href="https://discord.gg/dU9EBuw7Uq">
