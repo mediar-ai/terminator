@@ -1,4 +1,4 @@
-[![Terminator Demo - GitHub Star Automation](https://img.youtube.com/vi/Cz-3X5nLIpY/maxresdefault.jpg)](https://youtu.be/Cz-3X5nLIpY)
+https://github.com/user-attachments/assets/7e9f7234-c44f-4f20-bdda-5119281603aa
 
 <p align="center">
   <a href="https://discord.gg/dU9EBuw7Uq">
