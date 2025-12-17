@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.5] - 2025-12-17
+
+### Added
+- CLI: Add `success()` early exit example to init template
+- CLI: Add README.md template with non-technical workflow description
+
 ## [0.24.4] - 2025-12-17
 
 ### Added
