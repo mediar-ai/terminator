@@ -51,7 +51,7 @@ describe("Workflow onSuccess Handler", () => {
 
             const result = await workflow.run({}, desktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(onSuccessMock).toHaveBeenCalledTimes(1);
         });
 
@@ -156,7 +156,7 @@ describe("Workflow onSuccess Handler", () => {
 
             const result = await workflow.run({}, desktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(result.data).toEqual({
                 summary: "# Report Generated\n- File: report.xlsx\n- Outlet: ABC123\n- Date: 2024-01-15",
                 success: true,
@@ -244,7 +244,7 @@ describe("Workflow onSuccess Handler", () => {
 
             const result = await workflow.run({}, desktop);
 
-            expect(result.status).toBe("error");
+            expect(result.status).toBe("execution_error");
             expect(onSuccessMock).not.toHaveBeenCalled();
             expect(onErrorMock).toHaveBeenCalledWith("Step failed");
         });
@@ -270,7 +270,7 @@ describe("Workflow onSuccess Handler", () => {
 
             const result = await workflow.run({}, desktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(result.data).toEqual({ computed: 2 });
         });
 
@@ -292,7 +292,7 @@ describe("Workflow onSuccess Handler", () => {
 
             const result = await workflow.run({}, desktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(result.data).toEqual({ result: 10 });
         });
 
@@ -317,7 +317,7 @@ describe("Workflow onSuccess Handler", () => {
 
             const result = await workflow.run({}, desktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(onSuccessCalled).toHaveBeenCalled();
             // context.data should still have step data
             expect(result.data).toEqual({ step1: { fromStep: true } });
@@ -346,7 +346,7 @@ describe("Workflow onSuccess Handler", () => {
 
             const result = await workflow.run({}, desktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(capturedState).toEqual({ accumulated: "data" });
             expect(result.data).toEqual({ summary: "Done!", success: true });
         });
@@ -389,7 +389,7 @@ describe("Workflow onSuccess Handler", () => {
 
             const result = await workflow.run({}, desktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(lastExecutedStep).toBe("final_step");
             // step2 was skipped, so skipNext should be true but ran should be undefined
             expect(result.data.state.skipNext).toBe(true);
@@ -436,7 +436,7 @@ describe("Workflow onSuccess Handler", () => {
 
             const result = await workflow.run({}, desktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             // Last actually executed step was step1 (index 0)
             expect(capturedLastStepId).toBe("step1");
             expect(capturedLastStepIndex).toBe(0);
@@ -521,7 +521,7 @@ Source: \`${input.file_path}\``,
                 desktop,
             );
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(result.data.summary).toContain(
                 "# SAP Journal Entry - Success",
             );
