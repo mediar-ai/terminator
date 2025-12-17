@@ -278,6 +278,7 @@ terminator workflow run src/terminator.ts
 dist/
 *.log
 .DS_Store
+state.json
 "#;
 
         fs::write(project_path.join(".gitignore"), gitignore)
