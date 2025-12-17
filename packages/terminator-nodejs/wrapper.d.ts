@@ -1,5 +1,5 @@
 // Re-export everything from the native bindings
-export * from "./index.d";
+export * from "./index";
 
 /** Thrown when an element is not found. */
 export class ElementNotFoundError extends Error {
