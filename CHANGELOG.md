@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.3] - 2025-12-17
+
+### Added
+- MCP: Add typecheck_workflow tool for TypeScript type checking
+
+### Fixed
+- Tests: Handle missing esbuild in transpiler tests
+
+### Changed
+- MCP: Improve execution logger and update README
+
 ## [0.24.2] - 2025-12-16
 
 ### Changed
