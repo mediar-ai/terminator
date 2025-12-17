@@ -269,8 +269,7 @@ terminator workflow run src/terminator.ts
             self.name
         );
 
-        fs::write(project_path.join("README.md"), readme)
-            .context("Failed to create README.md")?;
+        fs::write(project_path.join("README.md"), readme).context("Failed to create README.md")?;
         Ok(())
     }
 
