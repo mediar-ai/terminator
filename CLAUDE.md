@@ -1,11 +1,9 @@
 # Terminator - AI-Native GUI Automation
 
-Open-source desktop automation (MIT). Gives AI hands to control any app on Windows.
+Open-source desktop automation (MIT). Gives AI hands to control any app. **Windows-only.**
 **Mediar AI** | [$2.8M seed](https://x.com/louis030195/status/1948745185178914929) | [mediar.ai](https://mediar.ai)
 
 ## Installation
-
-**Windows (Primary Platform):**
 ```bash
 npx @mediar-ai/cli --help  # Run without install
 npm i -g @mediar-ai/cli    # Or install globally
