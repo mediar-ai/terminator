@@ -96,40 +96,40 @@ We achieve this by pre-training workflows as deterministic code, and calling AI 
 
 ## Feature Support
 
-While Terminator aims for full cross-platform support, current capabilities vary by OS. Windows is the primary development target and has the most complete feature set.
+Terminator currently supports **Windows only**. macOS and Linux are not supported.
 
 | Feature                      | Windows | macOS | Linux | Notes                                                |
 | ---------------------------- | :-----: | :---: | :---: | ---------------------------------------------------- |
 | **Core Automation**          |         |       |       |                                                      |
-| Element Locators             |    ✅    |   🟡   |   🟡   | Find elements by `name`, `role`, `window`, etc.      |
-| UI Actions (`click`, `type`) |    ✅    |   🟡   |   🟡   | Core interactions with UI elements.                  |
-| Application Management       |    ✅    |   🟡   |   🟡   | Launch, list, and manage applications.               |
-| Window Management            |    ✅    |   🟡   |   🟡   | Get active window, list windows.                     |
+| Element Locators             |    ✅    |   ❌   |   ❌   | Find elements by `name`, `role`, `window`, etc.      |
+| UI Actions (`click`, `type`) |    ✅    |   ❌   |   ❌   | Core interactions with UI elements.                  |
+| Application Management       |    ✅    |   ❌   |   ❌   | Launch, list, and manage applications.               |
+| Window Management            |    ✅    |   ❌   |   ❌   | Get active window, list windows.                     |
 | **Advanced Features**        |         |       |       |                                                      |
-| Browser Automation           |    ✅    |   ✅   |   ✅   | Chrome extension enables browser control.            |
+| Browser Automation           |    ✅    |   ❌   |   ❌   | Chrome extension enables browser control.            |
 | Workflow Recording           |    ✅    |   ❌   |   ❌   | Record human workflows for deterministic automation. |
-| Monitor Management           |    ✅    |   🟡   |   🟡   | Multi-display support.                               |
-| Screen & Element Capture     |    ✅    |   ✅   |   🟡   | Take screenshots of displays or elements.            |
-| **Libraries**        |         |       |       |                                                      |
-| Python (`terminator.py`)     |    🟡    |   🟡   |   🟡   | `pip install terminator`                          |
-| TypeScript (`@mediar-ai/terminator`) |    ✅    |   ✅   |   ✅   | `npm i @mediar-ai/terminator`                                |
-| Workflow (`@mediar-ai/workflow`) |    ✅    |   ✅   |   ✅   | `npm i @mediar-ai/workflow`                                |
-| CLI (`@mediar-ai/cli`) |    ✅    |   ✅   |   ✅   | `npm i @mediar-ai/cli`                                |
-| KV (`@mediar-ai/kv`) |    ✅    |   ✅   |   ✅   | `npm i @mediar-ai/kv`                                |
-| MCP (`terminator-mcp-agent`) |    ✅    |   ✅   |   ✅   | `npx -y terminator-mcp-agent --add-to-app [app]`     |
-| Rust (`terminator-rs`)       |    ✅    |   ✅   |   ✅   | `cargo add terminator-rs`                            |
+| Monitor Management           |    ✅    |   ❌   |   ❌   | Multi-display support.                               |
+| Screen & Element Capture     |    ✅    |   ❌   |   ❌   | Take screenshots of displays or elements.            |
+| **Libraries**                |         |       |       |                                                      |
+| Python (`terminator.py`)     |    🟡    |   ❌   |   ❌   | `pip install terminator`                             |
+| TypeScript (`@mediar-ai/terminator`) |    ✅    |   ❌   |   ❌   | `npm i @mediar-ai/terminator`                        |
+| Workflow (`@mediar-ai/workflow`) |    ✅    |   ❌   |   ❌   | `npm i @mediar-ai/workflow`                          |
+| CLI (`@mediar-ai/cli`)       |    ✅    |   ❌   |   ❌   | `npm i @mediar-ai/cli`                               |
+| KV (`@mediar-ai/kv`)         |    ✅    |   ❌   |   ❌   | `npm i @mediar-ai/kv`                                |
+| MCP (`terminator-mcp-agent`) |    ✅    |   ❌   |   ❌   | `npx -y terminator-mcp-agent --add-to-app [app]`     |
+| Rust (`terminator-rs`)       |    ✅    |   ❌   |   ❌   | `cargo add terminator-rs`                            |
 
 **Legend:**
 
 - ✅: **Supported** - The feature is stable and well-tested.
 - 🟡: **Partial / Experimental** - The feature is in development and may have limitations.
-- ❌: **Not Supported** - The feature is not yet available on this platform.
+- ❌: **Not Supported** - Not available on this platform.
 
 ## 🕵️ How to Inspect Accessibility Elements (like `name:Seven`)
 
-To create reliable selectors (e.g. `name:Seven`, `role:Button`, `window:Calculator`), you need to inspect the Accessibility Tree of your OS. Here's how to explore UI elements on each platform:
+To create reliable selectors (e.g. `name:Seven`, `role:Button`, `window:Calculator`), you need to inspect the Windows Accessibility Tree:
 
-### 🪟 Windows
+### Windows
 
 - **Tool:** [Accessibility Insights for Windows](https://accessibilityinsights.io/downloads/)
 - **Alt:** [Inspect.exe](https://learn.microsoft.com/en-us/windows/win32/winauto/inspect-objects) (comes with Windows SDK)

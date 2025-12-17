@@ -74,11 +74,23 @@ pub struct ExecutionContext {
     pub file_prefix: String,
 }
 
-/// Get the executions directory path
+/// Get the executions directory path for standalone tool calls (no workflow context)
+/// Path: %LOCALAPPDATA%/mediar/executions/
 pub fn get_executions_dir() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(std::env::temp_dir)
-        .join("terminator")
+        .join("mediar")
+        .join("executions")
+}
+
+/// Get the executions directory path for a specific workflow
+/// Path: %LOCALAPPDATA%/mediar/workflows/{workflow_id}/executions/
+pub fn get_workflow_executions_dir(workflow_id: &str) -> PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("mediar")
+        .join("workflows")
+        .join(workflow_id)
         .join("executions")
 }
 
@@ -179,15 +191,27 @@ pub fn log_request(
 /// Complete logging an execution (call after tool dispatch)
 pub fn log_response(ctx: ExecutionContext, result: Result<&Value, &str>, duration_ms: u64) {
     info!(
-        "[execution_logger] log_response called for tool: {}, enabled: {}",
+        "[execution_logger] log_response called for tool: {}, workflow_id: {:?}, enabled: {}",
         ctx.tool_name,
+        ctx.workflow_id,
         is_enabled()
     );
     if !is_enabled() {
         return;
     }
 
-    let dir = get_executions_dir();
+    // Use workflow-specific directory if workflow_id is available, otherwise use standalone dir
+    let dir = match &ctx.workflow_id {
+        Some(wf_id) => get_workflow_executions_dir(wf_id),
+        None => get_executions_dir(),
+    };
+
+    // Ensure directory exists
+    if let Err(e) = fs::create_dir_all(&dir) {
+        error!("[execution_logger] Failed to create executions dir {:?}: {}", dir, e);
+        return;
+    }
+
     let json_path = dir.join(format!("{}.json", ctx.file_prefix));
 
     // Extract screenshots from result and save them
@@ -263,8 +287,9 @@ pub fn log_response_with_logs(
     logs: Option<Vec<CapturedLogEntry>>,
 ) {
     info!(
-        "[execution_logger] log_response_with_logs called for tool: {}, enabled: {}, logs: {:?}",
+        "[execution_logger] log_response_with_logs called for tool: {}, workflow_id: {:?}, enabled: {}, logs: {:?}",
         ctx.tool_name,
+        ctx.workflow_id,
         is_enabled(),
         logs.as_ref().map(|l| l.len())
     );
@@ -272,7 +297,18 @@ pub fn log_response_with_logs(
         return;
     }
 
-    let dir = get_executions_dir();
+    // Use workflow-specific directory if workflow_id is available, otherwise use standalone dir
+    let dir = match &ctx.workflow_id {
+        Some(wf_id) => get_workflow_executions_dir(wf_id),
+        None => get_executions_dir(),
+    };
+
+    // Ensure directory exists
+    if let Err(e) = fs::create_dir_all(&dir) {
+        error!("[execution_logger] Failed to create executions dir {:?}: {}", dir, e);
+        return;
+    }
+
     let json_path = dir.join(format!("{}.json", ctx.file_prefix));
 
     // Extract screenshots from result and save them
@@ -1837,25 +1873,16 @@ fn extract_iife_body(script: &str) -> String {
     trimmed.to_string()
 }
 
-/// Clean up execution logs older than RETENTION_DAYS
-async fn cleanup_old_executions() {
-    let dir = get_executions_dir();
-    if !dir.exists() {
-        return;
-    }
-
-    let cutoff_date = Local::now().date_naive() - chrono::Duration::days(RETENTION_DAYS);
-    let cutoff_prefix = cutoff_date.format("%Y%m%d").to_string();
-
-    debug!(
-        "[execution_logger] Cleaning up files older than {} (prefix < {})",
-        cutoff_date, cutoff_prefix
-    );
-
+/// Clean up execution logs older than RETENTION_DAYS in a single directory
+fn cleanup_directory(dir: &std::path::Path, cutoff_prefix: &str) -> (usize, usize) {
     let mut deleted_count = 0;
     let mut error_count = 0;
 
-    match fs::read_dir(&dir) {
+    if !dir.exists() {
+        return (0, 0);
+    }
+
+    match fs::read_dir(dir) {
         Ok(entries) => {
             for entry in entries.flatten() {
                 let filename = entry.file_name().to_string_lossy().to_string();
@@ -1865,7 +1892,7 @@ async fn cleanup_old_executions() {
                     let file_date_prefix = &filename[..8];
 
                     // Compare lexicographically (works for YYYYMMDD format)
-                    if file_date_prefix < cutoff_prefix.as_str() {
+                    if file_date_prefix < cutoff_prefix {
                         match fs::remove_file(entry.path()) {
                             Ok(_) => {
                                 deleted_count += 1;
@@ -1882,16 +1909,57 @@ async fn cleanup_old_executions() {
         }
         Err(e) => {
             warn!(
-                "[execution_logger] Failed to read executions dir for cleanup: {}",
-                e
+                "[execution_logger] Failed to read dir {:?} for cleanup: {}",
+                dir, e
             );
         }
     }
 
-    if deleted_count > 0 || error_count > 0 {
+    (deleted_count, error_count)
+}
+
+/// Clean up execution logs older than RETENTION_DAYS
+async fn cleanup_old_executions() {
+    let cutoff_date = Local::now().date_naive() - chrono::Duration::days(RETENTION_DAYS);
+    let cutoff_prefix = cutoff_date.format("%Y%m%d").to_string();
+
+    debug!(
+        "[execution_logger] Cleaning up files older than {} (prefix < {})",
+        cutoff_date, cutoff_prefix
+    );
+
+    let mut total_deleted = 0;
+    let mut total_errors = 0;
+
+    // 1. Clean standalone executions (mediar/executions/)
+    let standalone_dir = get_executions_dir();
+    let (deleted, errors) = cleanup_directory(&standalone_dir, &cutoff_prefix);
+    total_deleted += deleted;
+    total_errors += errors;
+
+    // 2. Clean workflow executions (mediar/workflows/*/executions/)
+    let workflows_dir = dirs::data_local_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("mediar")
+        .join("workflows");
+
+    if workflows_dir.exists() {
+        if let Ok(entries) = fs::read_dir(&workflows_dir) {
+            for entry in entries.flatten() {
+                if entry.path().is_dir() {
+                    let executions_dir = entry.path().join("executions");
+                    let (deleted, errors) = cleanup_directory(&executions_dir, &cutoff_prefix);
+                    total_deleted += deleted;
+                    total_errors += errors;
+                }
+            }
+        }
+    }
+
+    if total_deleted > 0 || total_errors > 0 {
         info!(
             "[execution_logger] Cleanup complete: deleted {} files, {} errors",
-            deleted_count, error_count
+            total_deleted, total_errors
         );
     }
 }
