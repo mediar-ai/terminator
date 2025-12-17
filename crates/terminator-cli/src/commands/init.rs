@@ -63,10 +63,6 @@ impl InitCommand {
     fn create_directory_structure(&self, project_path: &Path) -> Result<()> {
         fs::create_dir_all(project_path.join("src/steps"))
             .context("Failed to create src/steps directory")?;
-        fs::create_dir_all(project_path.join("recorder/screenshots"))
-            .context("Failed to create recorder/screenshots directory")?;
-        fs::create_dir_all(project_path.join("recorder/ui-trees"))
-            .context("Failed to create recorder/ui-trees directory")?;
         Ok(())
     }
 
@@ -195,12 +191,10 @@ export const stepOne = createStep({
     }
 
     // TODO: Open your application
-    // UI REFERENCE: Expected screen after launch - see recorder/screenshots/
     // desktop.openApplication("notepad");
     // await desktop.delay(1500);
 
     // TODO: Click login button or perform initial action
-    // UI REFERENCE: Login button location - see recorder/ui-trees/
     // const btn = await desktop.locator("role:Button && name:Login").first(2000);
     // await btn.click();
 
@@ -241,11 +235,9 @@ export const stepTwo = createStep({
     }
 
     // TODO: Fill in form fields with your data
-    // UI REFERENCE: Form layout - see recorder/screenshots/form-screen.png
     // await desktop.locator("role:TextBox && name:Invoice Number").fill("INV-001");
 
     // TODO: Click submit or perform main action
-    // UI REFERENCE: Submit button - see recorder/ui-trees/form-ui.json
     // await desktop.locator("role:Button && name:Submit").click();
 
     // Mark completion for workflow summary
@@ -299,9 +291,6 @@ src/
   steps/
     01-step-one.ts   # First step
     02-step-two.ts   # Second step
-recorder/
-  screenshots/       # UI screenshots for reference
-  ui-trees/          # UI element trees (JSON)
 ```
 
 ## Comment Conventions
@@ -310,12 +299,11 @@ Each step should have comments explaining:
 
 - **BUSINESS CONTEXT**: What the step does in plain language
 - **WHY THIS EXISTS**: The business reason for this step
-- **UI REFERENCE**: Links to screenshots or UI trees in recorder/
 
 Example:
 ```typescript
-// TODO: Click the submit button
-// UI REFERENCE: See recorder/screenshots/submit-button.png
+// BUSINESS CONTEXT: Submit the invoice form
+// WHY: Finance team needs invoices submitted before 9am daily
 await desktop.locator("role:Button && name:Submit").click();
 ```
 
@@ -338,10 +326,6 @@ dist/
 *.log
 .DS_Store
 state.json
-
-# Keep recorder folder but ignore large files if needed
-# recorder/screenshots/*.png
-# recorder/ui-trees/*.json
 "#;
 
         fs::write(project_path.join(".gitignore"), gitignore)
