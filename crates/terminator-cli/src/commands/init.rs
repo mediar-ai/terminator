@@ -44,6 +44,7 @@ impl InitCommand {
         self.create_main_workflow(project_path)?;
         self.create_step_one(project_path)?;
         self.create_step_two(project_path)?;
+        self.create_readme(project_path)?;
         self.create_gitignore(project_path)?;
 
         println!("  {} Created project structure", "✓".green());
@@ -127,7 +128,8 @@ export default createWorkflow({
   // use package.json to set name, description, and version
   input: z.object({
     // Add your input variables here
-    skipStepTwo: z.boolean().default(false),
+    alreadyDone: z.boolean().default(false),  // exits early with success()
+    skipStepTwo: z.boolean().default(false),  // jumps with next()
   }).optional(),
   trigger: {
     type: 'cron',
@@ -154,7 +156,7 @@ export default createWorkflow({
     }
 
     fn create_step_one(&self, project_path: &Path) -> Result<()> {
-        let step = r#"import { createStep, next } from "@mediar-ai/workflow";
+        let step = r#"import { createStep, next, success } from "@mediar-ai/workflow";
 
 export const stepOne = createStep({
   id: "step_one",
@@ -162,13 +164,22 @@ export const stepOne = createStep({
   execute: async ({ desktop, input, context }) => {
     console.log("Starting step one...");
 
+    // Early exit with success() - like onSuccess but exits immediately
+    // Bypasses remaining steps AND onSuccess handler
+    if (input?.alreadyDone) {
+      return success({
+        message: "Nothing to do - already completed",
+        data: { skipped: true },
+      });
+    }
+
     // Update state using setState (React-style)
     context.setState({ stepOneCompleted: true });
 
-    // Conditional navigation: skip step two if input says so
+    // Conditional navigation: skip to a different step
     if (input?.skipStepTwo) {
       console.log("Skipping step two as requested");
-      return next("final_step"); // Jump to a different step by ID
+      return next("step_two"); // Jump to step by ID
     }
 
     // Example: Open an application
@@ -211,6 +222,55 @@ export const stepTwo = createStep({
 
         fs::write(project_path.join("src/steps/02-step-two.ts"), step)
             .context("Failed to create src/steps/02-step-two.ts")?;
+        Ok(())
+    }
+
+    fn create_readme(&self, project_path: &Path) -> Result<()> {
+        let readme = format!(
+            r#"# {}
+
+## What does this workflow do?
+
+Describe what this workflow accomplishes in plain language. For example:
+
+- Opens an application
+- Fills out a form with data
+- Clicks buttons and navigates through screens
+- Extracts information and saves results
+
+## Inputs
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| alreadyDone | boolean | false | Skip the workflow if already completed |
+| skipStepTwo | boolean | false | Skip the second step |
+
+## Steps
+
+### Step 1: Step One
+The first step that runs. It can:
+- Exit early if work is already done
+- Skip to other steps based on conditions
+
+### Step 2: Step Two
+The second step that processes data from Step One.
+
+## How to run
+
+```bash
+terminator workflow run src/terminator.ts
+```
+
+## Notes
+
+- Edit this README to describe what your workflow actually does
+- This description will be shown in the Mediar app
+"#,
+            self.name
+        );
+
+        fs::write(project_path.join("README.md"), readme)
+            .context("Failed to create README.md")?;
         Ok(())
     }
 
