@@ -2,8 +2,9 @@
 //!
 //! Provides functionality to type-check TypeScript workflows using `tsc --noEmit`.
 
-use serde::{Deserialize, Serialize};
 use rmcp::{schemars, schemars::JsonSchema};
+use serde::{Deserialize, Serialize};
+use std::fs;
 use std::path::Path;
 use std::process::Stdio;
 use tokio::process::Command;
@@ -49,19 +50,33 @@ pub struct TypecheckResult {
 /// TSC output format: `file(line,col): error TSxxxx: message`
 fn parse_tsc_output(output: &str) -> Vec<TypeError> {
     let mut errors = Vec::new();
-    let re = regex::Regex::new(
-        r"^(.+?)\((\d+),(\d+)\):\s*error\s+(TS\d+):\s*(.+)$"
-    ).expect("Invalid regex");
-    
+    let re = regex::Regex::new(r"^(.+?)\((\d+),(\d+)\):\s*error\s+(TS\d+):\s*(.+)$")
+        .expect("Invalid regex");
+
     for line in output.lines() {
         let line = line.trim();
         if let Some(caps) = re.captures(line) {
             errors.push(TypeError {
-                file: caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default(),
-                line: caps.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0),
-                column: caps.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(0),
-                code: caps.get(4).map(|m| m.as_str().to_string()).unwrap_or_default(),
-                message: caps.get(5).map(|m| m.as_str().to_string()).unwrap_or_default(),
+                file: caps
+                    .get(1)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default(),
+                line: caps
+                    .get(2)
+                    .and_then(|m| m.as_str().parse().ok())
+                    .unwrap_or(0),
+                column: caps
+                    .get(3)
+                    .and_then(|m| m.as_str().parse().ok())
+                    .unwrap_or(0),
+                code: caps
+                    .get(4)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default(),
+                message: caps
+                    .get(5)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default(),
             });
         }
     }
@@ -74,7 +89,7 @@ async fn command_exists(cmd: &str) -> bool {
     let check_cmd = "where";
     #[cfg(not(windows))]
     let check_cmd = "which";
-    
+
     Command::new(check_cmd)
         .arg(cmd)
         .stdout(Stdio::null())
@@ -88,18 +103,18 @@ async fn command_exists(cmd: &str) -> bool {
 /// Run type-checking on a TypeScript workflow.
 pub async fn typecheck_workflow(workflow_path: &str) -> Result<TypecheckResult, String> {
     let path = Path::new(workflow_path);
-    
+
     if !path.exists() {
         return Err(format!("Workflow path does not exist: {}", workflow_path));
     }
-    
+
     let tsconfig = path.join("tsconfig.json");
     if !tsconfig.exists() {
         return Err(format!("No tsconfig.json found in: {}", workflow_path));
     }
-    
+
     info!("[typecheck] Running tsc --noEmit in {}", workflow_path);
-    
+
     let (program, args) = if command_exists("bun").await {
         ("bun", vec!["tsc", "--noEmit"])
     } else if command_exists("npx").await {
@@ -107,7 +122,7 @@ pub async fn typecheck_workflow(workflow_path: &str) -> Result<TypecheckResult, 
     } else {
         return Err("Neither bun nor npx found. Install bun or Node.js.".to_string());
     };
-    
+
     let output = Command::new(program)
         .args(&args)
         .current_dir(path)
@@ -116,25 +131,32 @@ pub async fn typecheck_workflow(workflow_path: &str) -> Result<TypecheckResult, 
         .output()
         .await
         .map_err(|e| format!("Failed to run tsc: {}", e))?;
-    
+
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let combined_output = format!("{}\n{}", stdout, stderr);
     let errors = parse_tsc_output(&combined_output);
     let error_count = errors.len();
     let success = output.status.success() && error_count == 0;
-    
+
     if success {
         info!("[typecheck] Type-check passed for {}", workflow_path);
     } else {
-        warn!("[typecheck] Found {} type errors in {}", error_count, workflow_path);
+        warn!(
+            "[typecheck] Found {} type errors in {}",
+            error_count, workflow_path
+        );
     }
-    
+
     Ok(TypecheckResult {
         success,
         errors,
         error_count,
-        raw_output: if success { None } else { Some(combined_output.to_string()) },
+        raw_output: if success {
+            None
+        } else {
+            Some(combined_output.to_string())
+        },
     })
 }
 

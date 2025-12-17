@@ -208,7 +208,10 @@ pub fn log_response(ctx: ExecutionContext, result: Result<&Value, &str>, duratio
 
     // Ensure directory exists
     if let Err(e) = fs::create_dir_all(&dir) {
-        error!("[execution_logger] Failed to create executions dir {:?}: {}", dir, e);
+        error!(
+            "[execution_logger] Failed to create executions dir {:?}: {}",
+            dir, e
+        );
         return;
     }
 
@@ -305,7 +308,10 @@ pub fn log_response_with_logs(
 
     // Ensure directory exists
     if let Err(e) = fs::create_dir_all(&dir) {
-        error!("[execution_logger] Failed to create executions dir {:?}: {}", dir, e);
+        error!(
+            "[execution_logger] Failed to create executions dir {:?}: {}",
+            dir, e
+        );
         return;
     }
 

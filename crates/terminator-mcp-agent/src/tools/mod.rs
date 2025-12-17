@@ -4,4 +4,4 @@
 
 pub mod typecheck;
 
-pub use typecheck::{TypecheckWorkflowArgs, TypecheckResult, TypeError, typecheck_workflow};
+pub use typecheck::{typecheck_workflow, TypeError, TypecheckResult, TypecheckWorkflowArgs};
