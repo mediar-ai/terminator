@@ -328,7 +328,7 @@ function createWorkflowInstance<TInput = any>(
                         // Set context.data for consistency with state
                         context.data = stepResult.result;
                         return {
-                            status: "success",
+                            status: "executed_without_error",
                             message: stepResult.result.message || "Workflow completed early",
                             data: context.data,
                             lastStepId: step.config.id,
@@ -422,7 +422,7 @@ function createWorkflowInstance<TInput = any>(
 
                 // Return success response with state tracking
                 return {
-                    status: "success",
+                    status: "executed_without_error",
                     message: `Workflow completed successfully in ${duration}ms`,
                     data: context.data,
                     lastStepId,
@@ -509,7 +509,7 @@ function createWorkflowInstance<TInput = any>(
 
                 // Return error response with state tracking
                 return {
-                    status: "error",
+                    status: "execution_error",
                     message: error.message,
                     data: context.data,
                     error: {
