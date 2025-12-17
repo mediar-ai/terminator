@@ -411,7 +411,10 @@ mod tests {
     #[test]
     fn test_coalesce_with_string_comparison() {
         let vars = json!({"status": "executed_without_error"});
-        assert!(evaluate("coalesce(status, 'pending') == 'executed_without_error'", &vars));
+        assert!(evaluate(
+            "coalesce(status, 'pending') == 'executed_without_error'",
+            &vars
+        ));
 
         let vars = json!({});
         assert!(evaluate("coalesce(status, 'pending') == 'pending'", &vars));
