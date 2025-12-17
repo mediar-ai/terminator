@@ -152,13 +152,16 @@ export default createWorkflow({
     }
 
     fn create_example_step(&self, project_path: &Path) -> Result<()> {
-        let step = r#"import { createStep, Desktop, StepContext } from "@mediar-ai/workflow";
+        let step = r#"import { createStep } from "@mediar-ai/workflow";
 
 export const exampleStep = createStep({
   id: "example_step",
   name: "Example Step",
-  execute: async ({ desktop, context }: { desktop: Desktop; context: StepContext }) => {
+  execute: async ({ desktop, context }) => {
     console.log("Starting example step...");
+
+    // Update state using setState (React-style)
+    context.setState({ started: true });
 
     // Access previous state: context.state.someValue
 
@@ -175,7 +178,8 @@ export const exampleStep = createStep({
 
     console.log("Example step completed!");
 
-    return { state: { completed: true } };
+    // Functional setState with previous state
+    context.setState(prev => ({ ...prev, completed: true }));
   },
 });
 "#;
