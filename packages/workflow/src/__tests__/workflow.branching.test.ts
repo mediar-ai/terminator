@@ -51,7 +51,7 @@ describe("Workflow Branching Tests", () => {
 
             const result = await workflow.run({}, mockDesktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(executionOrder).toEqual(["step1", "step3"]);
         });
 
@@ -72,7 +72,7 @@ describe("Workflow Branching Tests", () => {
 
             const result = await workflow.run({}, mockDesktop);
 
-            expect(result.status).toBe("error");
+            expect(result.status).toBe("execution_error");
             expect(result.message).toContain(
                 "references unknown next step: 'nonexistent_step'",
             );
@@ -130,7 +130,7 @@ describe("Workflow Branching Tests", () => {
 
             const result = await workflow.run({}, mockDesktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(executionOrder).toEqual(["check", "handle_dupe", "done"]);
         });
 
@@ -184,7 +184,7 @@ describe("Workflow Branching Tests", () => {
 
             const result = await workflow.run({}, mockDesktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(executionOrder).toEqual(["check", "process", "done"]);
         });
 
@@ -227,7 +227,7 @@ describe("Workflow Branching Tests", () => {
 
             const result = await workflow.run({}, mockDesktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(executionOrder).toEqual(["step1", "step2", "step3"]);
         });
     });
@@ -289,7 +289,7 @@ describe("Workflow Branching Tests", () => {
 
             const result = await workflow.run({}, mockDesktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(executionOrder).toEqual([
                 "attempt_1",
                 "attempt_2",
@@ -317,7 +317,7 @@ describe("Workflow Branching Tests", () => {
 
             const result = await workflow.run({}, mockDesktop);
 
-            expect(result.status).toBe("error");
+            expect(result.status).toBe("execution_error");
             expect(result.message).toContain("maximum iterations");
             expect(result.message).toContain("infinite loop");
         });
@@ -379,7 +379,7 @@ describe("Workflow Branching Tests", () => {
 
             const result = await workflow.run({}, mockDesktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(executionOrder).toEqual(["start", "branch_a", "merge"]);
         });
 
@@ -423,7 +423,7 @@ describe("Workflow Branching Tests", () => {
 
             const result = await workflow.run({}, mockDesktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(executionOrder).toEqual(["step1", "exit"]);
         });
 
@@ -477,13 +477,13 @@ describe("Workflow Branching Tests", () => {
 
             // Test with prod
             const prodResult = await workflow.run({ env: "prod" }, mockDesktop);
-            expect(prodResult.status).toBe("success");
+            expect(prodResult.status).toBe("executed_without_error");
             expect(executionOrder).toEqual(["router", "prod_flow", "finish"]);
 
             // Reset and test with test env
             executionOrder.length = 0;
             const testResult = await workflow.run({ env: "test" }, mockDesktop);
-            expect(testResult.status).toBe("success");
+            expect(testResult.status).toBe("executed_without_error");
             expect(executionOrder).toEqual(["router", "test_flow", "finish"]);
         });
     });
@@ -526,7 +526,7 @@ describe("Workflow Branching Tests", () => {
 
             const result = await workflow.run({}, mockDesktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(executionOrder).toEqual(["step1", "step2", "step3"]);
         });
 
@@ -568,7 +568,7 @@ describe("Workflow Branching Tests", () => {
 
             const result = await workflow.run({}, mockDesktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(executionOrder).toEqual(["step1", "step3"]);
         });
     });
@@ -601,7 +601,7 @@ describe("Workflow Branching Tests", () => {
 
             const result = await workflow.run({}, mockDesktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(result.lastStepId).toBe("step3");
         });
     });

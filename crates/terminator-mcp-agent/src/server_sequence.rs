@@ -2511,7 +2511,7 @@ impl DesktopWrapper {
                     // The extracted_content already contains just the results, not the tool arguments/definitions
                     json!({
                         "type": "tool_result",
-                        "status": "success",
+                        "status": "executed_without_error",
                         "content_count": content_count,
                         "content": extracted_content
                     })
@@ -2520,7 +2520,7 @@ impl DesktopWrapper {
                 let mut result_json = json!({
                     "tool_name": tool_name,
                     "index": index,
-                    "status": "success",
+                    "status": "executed_without_error",
                     "duration_ms": duration_ms,
                     "result": content_summary,
                 });

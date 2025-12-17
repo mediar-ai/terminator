@@ -168,9 +168,9 @@ export interface ExpectationContext<
  * Workflow execution status
  */
 export type ExecutionStatus =
-    | "success"
-    | "error"
-    | "warning"
+    | "executed_without_error"
+    | "execution_error"
+    | "executed_with_warnings"
     | "user_input_required";
 
 /**

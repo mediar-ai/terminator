@@ -76,7 +76,7 @@ describe("Workflow E2E Tests - MCP Client+Server Loop", () => {
 
             const result = await workflow.run({}, desktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
 
             // Verify state is in response
             expect(result.data).toBeDefined();
@@ -119,12 +119,12 @@ describe("Workflow E2E Tests - MCP Client+Server Loop", () => {
 
             // First run - should fail on step 2
             const result1 = await workflow.run({}, desktop);
-            expect(result1.status).toBe("error");
+            expect(result1.status).toBe("execution_error");
             expect(step2Attempts).toBe(1);
 
             // Second run - should succeed and preserve state from step 1
             const result2 = await workflow.run({}, desktop);
-            expect(result2.status).toBe("success");
+            expect(result2.status).toBe("executed_without_error");
             expect(step2Attempts).toBe(2);
         });
     });
@@ -160,7 +160,7 @@ describe("Workflow E2E Tests - MCP Client+Server Loop", () => {
 
             const result = await workflow.run({}, desktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(attempts).toBe(3);
         });
 
@@ -193,7 +193,7 @@ describe("Workflow E2E Tests - MCP Client+Server Loop", () => {
 
             const result = await workflow.run({}, desktop);
 
-            expect(result.status).toBe("error");
+            expect(result.status).toBe("execution_error");
             expect(attempts).toBe(MAX_RETRIES);
             expect(result.message).toContain("always fails");
         });
@@ -220,7 +220,7 @@ describe("Workflow E2E Tests - MCP Client+Server Loop", () => {
 
             const result = await workflow.run({}, desktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(attempts).toBe(3);
         });
 
@@ -261,7 +261,7 @@ describe("Workflow E2E Tests - MCP Client+Server Loop", () => {
 
             const result = await workflow.run({}, desktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(attempts).toBe(2);
         });
 
@@ -318,7 +318,7 @@ describe("Workflow E2E Tests - MCP Client+Server Loop", () => {
 
             const result = await workflow.run({}, desktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(retryCount).toBe(2);
         });
     });
@@ -388,7 +388,7 @@ describe("Workflow E2E Tests - MCP Client+Server Loop", () => {
 
             const result = await workflow.run({}, desktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(openAttempts).toBe(1);
             expect(clickAttempts).toBe(2); // Failed once, succeeded on second attempt
         });
@@ -453,7 +453,7 @@ describe("Workflow E2E Tests - MCP Client+Server Loop", () => {
 
             const result = await workflow.run({}, desktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(errorRecovered).toBe(true);
         });
     });
@@ -528,7 +528,7 @@ describe("Workflow E2E Tests - MCP Client+Server Loop", () => {
 
             const result = await workflow.run({}, desktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(step1Retries).toBe(3);
             expect(step2Retries).toBe(2);
             expect(workflowOnErrorCalled).toBe(false); // Shouldn't be called since workflow succeeded
@@ -563,7 +563,7 @@ describe("Workflow E2E Tests - MCP Client+Server Loop", () => {
                     );
 
                     return {
-                        status: "error" as const,
+                        status: "execution_error" as const,
                         message: "Workflow handled the error gracefully",
                         error: {
                             category: "business" as const,
@@ -578,7 +578,7 @@ describe("Workflow E2E Tests - MCP Client+Server Loop", () => {
 
             const result = await workflow.run({}, desktop);
 
-            expect(result.status).toBe("error");
+            expect(result.status).toBe("execution_error");
             expect(result.message).toBe(
                 "Workflow handled the error gracefully",
             );
@@ -620,7 +620,7 @@ describe("Workflow E2E Tests - MCP Client+Server Loop", () => {
 
             const result = await workflow.run({}, desktop);
 
-            expect(result.status).toBe("error");
+            expect(result.status).toBe("execution_error");
             expect(failingStepExecutions).toBe(1);
 
             // State from step 1 should still be in context, but not dirty state from failed step
@@ -659,7 +659,7 @@ describe("Workflow E2E Tests - MCP Client+Server Loop", () => {
 
             const result = await workflow.run({}, desktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
         });
     });
 });

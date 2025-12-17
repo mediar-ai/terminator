@@ -457,20 +457,29 @@ async fn main() -> Result<()> {
                         let log_capture = log_capture.clone();
 
                         // Block on async to get or create the singleton DesktopWrapper
-                        futures::executor::block_on(async move {
-                            let mut wrapper_guard = desktop_wrapper.write().await;
-                            if wrapper_guard.is_none() {
-                                tracing::info!("Creating singleton DesktopWrapper for HTTP mode");
-                                match server::DesktopWrapper::new_with_log_capture(log_capture) {
-                                    Ok(wrapper) => {
-                                        *wrapper_guard = Some(wrapper.clone());
-                                        Ok(wrapper)
+                        // Use block_in_place to safely block within tokio runtime (fixes crashes with multiple MCP clients)
+                        tracing::debug!(
+                            "MCP service factory called - using block_in_place for tokio safety"
+                        );
+                        tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async move {
+                                let mut wrapper_guard = desktop_wrapper.write().await;
+                                if wrapper_guard.is_none() {
+                                    tracing::info!(
+                                        "Creating singleton DesktopWrapper for HTTP mode"
+                                    );
+                                    match server::DesktopWrapper::new_with_log_capture(log_capture)
+                                    {
+                                        Ok(wrapper) => {
+                                            *wrapper_guard = Some(wrapper.clone());
+                                            Ok(wrapper)
+                                        }
+                                        Err(e) => Err(std::io::Error::other(e.to_string())),
                                     }
-                                    Err(e) => Err(std::io::Error::other(e.to_string())),
+                                } else {
+                                    Ok(wrapper_guard.as_ref().unwrap().clone())
                                 }
-                            } else {
-                                Ok(wrapper_guard.as_ref().unwrap().clone())
-                            }
+                            })
                         })
                     }
                 },
@@ -486,6 +495,7 @@ async fn main() -> Result<()> {
                 max_concurrent: usize,
                 request_manager: RequestManager,
                 auth_token: Option<String>,
+                desktop_wrapper: Arc<tokio::sync::RwLock<Option<server::DesktopWrapper>>>,
             }
 
             let max_concurrent = std::env::var("MCP_MAX_CONCURRENT")
@@ -499,6 +509,7 @@ async fn main() -> Result<()> {
                 max_concurrent,
                 request_manager: RequestManager::new(),
                 auth_token: args.auth_token.clone(),
+                desktop_wrapper: desktop_wrapper.clone(),
             };
 
             // Log authentication status
@@ -653,9 +664,38 @@ async fn main() -> Result<()> {
                 next.run(req).await
             }
 
+            // Middleware to extract X-Workflow-Dir header and set current_workflow_dir
+            async fn workflow_dir_middleware(
+                State(state): State<AppState>,
+                req: Request<Body>,
+                next: Next,
+            ) -> impl IntoResponse {
+                // Extract X-Workflow-Dir header
+                if let Some(workflow_dir) = req
+                    .headers()
+                    .get("x-workflow-dir")
+                    .and_then(|v| v.to_str().ok())
+                {
+                    // Set current_workflow_dir on the DesktopWrapper
+                    if let Some(ref wrapper) = *state.desktop_wrapper.read().await {
+                        let mut dir_guard = wrapper.current_workflow_dir.lock().await;
+                        *dir_guard = Some(std::path::PathBuf::from(workflow_dir));
+                        tracing::debug!(
+                            "[workflow_dir_middleware] Set current_workflow_dir={}",
+                            workflow_dir
+                        );
+                    }
+                }
+                next.run(req).await
+            }
+
             // Build a sub-router for /mcp that uses the service with auth and concurrency gate middleware
             let mcp_router = Router::new()
                 .fallback_service(service)
+                .layer(axum::middleware::from_fn_with_state(
+                    app_state.clone(),
+                    workflow_dir_middleware,
+                ))
                 .layer(axum::middleware::from_fn_with_state(
                     app_state.clone(),
                     mcp_gate,

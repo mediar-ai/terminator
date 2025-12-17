@@ -1374,7 +1374,7 @@ impl DesktopWrapper {
         // Build the base result JSON first
         let mut result_json = json!({
             "action": "get_window_tree",
-            "status": "success",
+            "status": "executed_without_error",
             "process": args.process,
             "pid": pid,
             "title": args.title,
@@ -2126,7 +2126,7 @@ impl DesktopWrapper {
 
         let result_json = json!({
             "action": "get_applications_and_windows_list",
-            "status": "success",
+            "status": "executed_without_error",
             "applications": applications,
             "timestamp": chrono::Utc::now().to_rfc3339()
         });
@@ -2324,7 +2324,7 @@ impl DesktopWrapper {
 
         let mut result_json = json!({
             "action": "type_into_element",
-            "status": "success",
+            "status": "executed_without_error",
             "text_typed": args.text_to_type,
             "cleared_before_typing": args.clear_before_typing,
             "action_result": {
@@ -2488,7 +2488,7 @@ Click types: 'left' (default), 'double', 'right'. Use ui_diff_before_after:true 
                             crate::utils::ClickType::Right => "right",
                         };
                         let result_json = json!({
-                            "action": "click", "mode": "coordinates", "status": "success",
+                            "action": "click", "mode": "coordinates", "status": "executed_without_error",
                             "click_type": ct_str,
                             "clicked_at": { "x": x, "y": y },
                             "timestamp": chrono::Utc::now().to_rfc3339()
@@ -2673,7 +2673,7 @@ Click types: 'left' (default), 'double', 'right'. Use ui_diff_before_after:true 
                             crate::utils::ClickType::Right => "right",
                         };
                         let mut result_json = json!({
-                            "action": "click", "mode": "index", "status": "success",
+                            "action": "click", "mode": "index", "status": "executed_without_error",
                             "index": index, "vision_type": vt_str, "click_type": ct_str, "label": item_label,
                             "clicked_at": { "x": click_x, "y": click_y },
                             "bounds": { "x": bounds.0, "y": bounds.1, "width": bounds.2, "height": bounds.3 },
@@ -2868,7 +2868,7 @@ Click types: 'left' (default), 'double', 'right'. Use ui_diff_before_after:true 
                 };
 
                 let mut result_json = json!({
-                    "action": "click", "mode": "selector", "status": "success",
+                    "action": "click", "mode": "selector", "status": "executed_without_error",
                     "selector_used": successful_selector,
                     "click_type": ct_str,
                     "click_result": { "method": click_result.method, "coordinates": click_result.coordinates, "details": click_result.details },
@@ -3088,7 +3088,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
 
         let mut result_json = json!({
             "action": "press_key",
-            "status": "success",
+            "status": "executed_without_error",
             "key_pressed": args.key,
             "action_result": {
                 "action": result.action,
@@ -3291,7 +3291,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
 
         let mut result_json = json!({
             "action": "press_key_global",
-            "status": "success",
+            "status": "executed_without_error",
             "process": args.process,
             "key_pressed": args.key,
             "window": window_info,
@@ -3984,7 +3984,7 @@ DATA PASSING:
                     "action": "run_command",
                     "mode": "engine",
                     "engine": engine,
-                    "status": "success",
+                    "status": "executed_without_error",
                     "result": actual_result
                 });
 
@@ -4176,7 +4176,7 @@ DATA PASSING:
                     "action": "run_command",
                     "mode": "engine",
                     "engine": engine,
-                    "status": "success",
+                    "status": "executed_without_error",
                     "result": actual_result
                 });
 
@@ -4308,7 +4308,7 @@ DATA PASSING:
                     "action": "run_command",
                     "mode": "engine",
                     "engine": engine,
-                    "status": "success",
+                    "status": "executed_without_error",
                     "result": actual_result
                 });
 
@@ -4820,7 +4820,7 @@ DATA PASSING:
                 &self.desktop,
                 vec![Content::json(json!({
                     "action": "delay",
-                    "status": "success",
+                    "status": "executed_without_error",
                     "requested_delay_ms": args.delay_ms,
                     "actual_delay_ms": actual_delay_ms,
                     "timestamp": end_time.to_rfc3339()
@@ -4904,7 +4904,7 @@ DATA PASSING:
 
         let mut result_json = json!({
             "action": "mouse_drag",
-            "status": "success",
+            "status": "executed_without_error",
             "element": element_info,
             "selector_used": successful_selector,
             "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
@@ -5081,7 +5081,7 @@ DATA PASSING:
 
                 let mut result_json = json!({
                     "action": "validate_element",
-                    "status": "success",
+                    "status": "executed_without_error",
                     "element": element_info,
                     "selector_used": successful_selector,
                     "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
@@ -5151,7 +5151,7 @@ DATA PASSING:
 
                 let contents = vec![Content::json(json!({
                     "action": "validate_element",
-                    "status": "failed",
+                    "status": "execution_error",
                     "exists": false,
                     "reason": reason_payload,
                     "timestamp": chrono::Utc::now().to_rfc3339()
@@ -5304,7 +5304,7 @@ DATA PASSING:
         // Build minimal response by default; gate heavy element info behind flag
         let mut result_json = json!({
             "action": "highlight_element",
-            "status": "success",
+            "status": "executed_without_error",
             "selector_used": successful_selector,
             "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
             "color": args.color.unwrap_or(0x0000FF),
@@ -5353,7 +5353,7 @@ DATA PASSING:
 
         Ok(CallToolResult::success(vec![Content::json(json!({
             "action": "hide_inspect_overlay",
-            "status": "success",
+            "status": "executed_without_error",
             "message": "Inspect overlay hidden"
         }))?]))
     }
@@ -5421,7 +5421,7 @@ DATA PASSING:
                     );
                     let mut result_json = json!({
                         "action": "wait_for_element",
-                        "status": "success",
+                        "status": "executed_without_error",
                         "condition": args.condition,
                         "condition_met": true,
                         "selector": args.selector.selector,
@@ -5581,7 +5581,7 @@ DATA PASSING:
                         // Condition is met, return success
                         let mut result_json = json!({
                             "action": "wait_for_element",
-                            "status": "success",
+                            "status": "executed_without_error",
                             "condition": args.condition,
                             "condition_met": true,
                             "selector": args.selector.selector,
@@ -5690,7 +5690,7 @@ DATA PASSING:
 
         let mut result_json = json!({
             "action": "navigate_browser",
-            "status": "success",
+            "status": "executed_without_error",
             "url": args.url,
             "process": args.process,
             "element": element_info,
@@ -5858,7 +5858,7 @@ DATA PASSING:
 
         let mut result_json = json!({
             "action": "open_application",
-            "status": "success",
+            "status": "executed_without_error",
             "app_name": args.app_name,
             "application": element_info,
             "timestamp": chrono::Utc::now().to_rfc3339()
@@ -6072,7 +6072,7 @@ DATA PASSING:
 
         let mut result_json = json!({
             "action": "scroll_element",
-            "status": "success",
+            "status": "executed_without_error",
             "action_result": {
                 "action": result.action,
                 "details": result.details,
@@ -6286,7 +6286,7 @@ DATA PASSING:
 
         let mut result_json = json!({
             "action": "select_option",
-            "status": "success",
+            "status": "executed_without_error",
             "action_result": {
                 "action": result.action,
                 "details": result.details,
@@ -6422,7 +6422,7 @@ DATA PASSING:
 
         let mut result_json = json!({
             "action": "set_selected",
-            "status": "success",
+            "status": "executed_without_error",
             "action_result": {
                 "action": result.action,
                 "details": result.details,
@@ -6766,7 +6766,7 @@ DATA PASSING:
         // Build metadata with resize information
         let metadata = json!({
             "action": "capture_screenshot",
-            "status": "success",
+            "status": "executed_without_error",
             "capture_mode": capture_mode,
             "target": element_info,
             "selector_used": successful_selector,
@@ -6907,7 +6907,7 @@ DATA PASSING:
 
         let mut result_json = json!({
             "action": "invoke",
-            "status": "success",
+            "status": "executed_without_error",
             "action_result": {
                 "action": result.action,
                 "details": result.details,
@@ -7051,7 +7051,7 @@ DATA PASSING:
         }
         let response = json!({
             "action": "stop_highlighting",
-            "status": "success",
+            "status": "executed_without_error",
             "highlights_stopped": stopped,
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
@@ -7218,7 +7218,7 @@ DATA PASSING:
 
         let mut result_json = json!({
             "action": "set_value",
-            "status": "success",
+            "status": "executed_without_error",
             "element": element_info,
             "selector_used": successful_selector,
             "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
@@ -8085,7 +8085,7 @@ console.info = function(...args) {
 
         let mut result_json = json!({
             "action": "execute_browser_script",
-            "status": "success",
+            "status": "executed_without_error",
             "selector": successful_selector,
             "selector_used": successful_selector,
             "selectors_tried": selectors_tried,
@@ -8149,7 +8149,7 @@ console.info = function(...args) {
 
         let result_json = json!({
             "action": "stop_execution",
-            "status": "success",
+            "status": "executed_without_error",
             "message": "All active requests have been cancelled",
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
