@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.4] - 2025-12-17
+
+### Added
+- Workflow: Add `setState()` method to WorkflowContext for React-style state updates
+- CLI: Update init template with two-step example using `next()` and `setState()`
+
+### Fixed
+- MCP: Prevent dangling bun/node processes when MCP agent stops
+
+### Changed
+- Workflow: Update ExecutionStatus enum values (`executed_without_error`, `execution_error`)
+- MCP: Add X-Workflow-Dir header support
+
 ## [0.24.3] - 2025-12-17
 
 ### Added
