@@ -34,18 +34,35 @@ export class WorkflowRunner {
 
     // Initialize or restore state
     if (options.restoredState) {
+      // Rehydrate context with setState method (lost during serialization)
+      const restored = options.restoredState.context;
+      const context: WorkflowContext = {
+        data: restored.data || {},
+        state: restored.state || {},
+        variables: restored.variables ?? this.inputs,
+        setState(update) {
+          const updates = typeof update === "function" ? update(this.state) : update;
+          Object.assign(this.state, updates);
+        },
+      };
       this.state = {
         ...options.restoredState,
+        context,
         stepResults: options.restoredState.stepResults || {},
       };
       this.logger.info('🔄 Restored state from previous run');
     } else {
-      this.state = {
-        context: {
-          data: {},
-          state: {},
-          variables: this.inputs,
+      const context: WorkflowContext = {
+        data: {},
+        state: {},
+        variables: this.inputs,
+        setState(update) {
+          const updates = typeof update === "function" ? update(this.state) : update;
+          Object.assign(this.state, updates);
         },
+      };
+      this.state = {
+        context,
         stepResults: {},
         lastStepIndex: -1,
       };

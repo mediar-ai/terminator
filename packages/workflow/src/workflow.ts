@@ -271,6 +271,10 @@ function createWorkflowInstance<TInput = any>(
                 data: {},
                 state: {},
                 variables: validatedInput,
+                setState(update) {
+                    const updates = typeof update === "function" ? update(this.state) : update;
+                    Object.assign(this.state, updates);
+                },
             };
 
             // Track last completed step
