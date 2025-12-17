@@ -15,6 +15,7 @@ pub mod server;
 pub mod server_sequence;
 pub mod telemetry;
 pub mod tool_logging;
+pub mod tools;
 pub mod transpiler;
 pub mod tree_formatter;
 pub mod utils;

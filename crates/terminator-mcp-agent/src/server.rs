@@ -9002,6 +9002,32 @@ console.info = function(...args) {
             ))]))
         }
     }
+
+    #[tool(
+        description = "Type-check a TypeScript workflow using tsc --noEmit. Returns structured error information including file, line, column, error code, and message for each type error found."
+    )]
+    pub async fn typecheck_workflow(
+        &self,
+        Parameters(args): Parameters<crate::tools::typecheck::TypecheckWorkflowArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::tools::typecheck;
+
+        let mut span = StepSpan::new("typecheck_workflow", None);
+        span.set_attribute("workflow_path", args.workflow_path.clone());
+
+        match typecheck::typecheck_workflow(&args.workflow_path).await {
+            Ok(result) => {
+                span.set_status(result.success, None);
+                span.end();
+                Ok(CallToolResult::success(vec![Content::json(result)?]))
+            }
+            Err(e) => {
+                span.set_status(false, Some(&e));
+                span.end();
+                Ok(CallToolResult::error(vec![Content::text(e)]))
+            }
+        }
+    }
 }
 
 /// Get the path to the terminator source directory
