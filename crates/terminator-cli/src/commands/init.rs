@@ -62,7 +62,11 @@ impl InitCommand {
 
     fn create_directory_structure(&self, project_path: &Path) -> Result<()> {
         fs::create_dir_all(project_path.join("src/steps"))
-            .context("Failed to create directory structure")?;
+            .context("Failed to create src/steps directory")?;
+        fs::create_dir_all(project_path.join("recorder/screenshots"))
+            .context("Failed to create recorder/screenshots directory")?;
+        fs::create_dir_all(project_path.join("recorder/ui-trees"))
+            .context("Failed to create recorder/ui-trees directory")?;
         Ok(())
     }
 
@@ -158,14 +162,22 @@ export default createWorkflow({
     fn create_step_one(&self, project_path: &Path) -> Result<()> {
         let step = r#"import { createStep, next, success } from "@mediar-ai/workflow";
 
+/**
+ * Step One: Open Application and Login
+ *
+ * BUSINESS CONTEXT:
+ * This step launches the target application and performs initial setup.
+ * It handles cases where work is already done (skips execution).
+ *
+ * WHY THIS EXISTS:
+ * Users need automated login to avoid manual repetitive work.
+ * The alreadyDone check prevents duplicate processing.
+ */
 export const stepOne = createStep({
   id: "step_one",
-  name: "Step One",
+  name: "Open Application and Login",
   execute: async ({ desktop, input, context }) => {
-    console.log("Starting step one...");
-
-    // Early exit with success() - like onSuccess but exits immediately
-    // Bypasses remaining steps AND onSuccess handler
+    // Skip if already processed (e.g., invoice already submitted today)
     if (input?.alreadyDone) {
       return success({
         message: "Nothing to do - already completed",
@@ -173,24 +185,26 @@ export const stepOne = createStep({
       });
     }
 
-    // Update state using setState (React-style)
+    // Track progress for subsequent steps
     context.setState({ stepOneCompleted: true });
 
-    // Conditional navigation: skip to a different step
+    // Skip step two if requested (e.g., user only wants partial run)
     if (input?.skipStepTwo) {
       console.log("Skipping step two as requested");
-      return next("step_two"); // Jump to step by ID
+      return next("step_two");
     }
 
-    // Example: Open an application
+    // TODO: Open your application
+    // UI REFERENCE: Expected screen after launch - see recorder/screenshots/
     // desktop.openApplication("notepad");
     // await desktop.delay(1500);
 
-    // Example: Find and click a button
-    // const btn = await desktop.locator("role:Button && name:OK").first(2000);
+    // TODO: Click login button or perform initial action
+    // UI REFERENCE: Login button location - see recorder/ui-trees/
+    // const btn = await desktop.locator("role:Button && name:Login").first(2000);
     // await btn.click();
 
-    console.log("Step one completed, continuing to step two...");
+    console.log("Step one completed");
   },
 });
 "#;
@@ -203,19 +217,41 @@ export const stepOne = createStep({
     fn create_step_two(&self, project_path: &Path) -> Result<()> {
         let step = r#"import { createStep } from "@mediar-ai/workflow";
 
+/**
+ * Step Two: Process Data and Submit
+ *
+ * BUSINESS CONTEXT:
+ * This step performs the main business action after login.
+ * It uses data from step one to complete the workflow.
+ *
+ * WHY THIS EXISTS:
+ * The actual work happens here - filling forms, clicking buttons,
+ * extracting data, or submitting information.
+ *
+ * DEPENDENCIES:
+ * - Requires stepOneCompleted=true from previous step
+ */
 export const stepTwo = createStep({
   id: "step_two",
-  name: "Step Two",
-  execute: async ({ context }) => {
-    console.log("Starting step two...");
+  name: "Process Data and Submit",
+  execute: async ({ desktop, context }) => {
+    // Verify previous step completed successfully
+    if (!context.state.stepOneCompleted) {
+      throw new Error("Step one must complete before step two");
+    }
 
-    // Access state from previous step
-    console.log("Step one completed:", context.state.stepOneCompleted);
+    // TODO: Fill in form fields with your data
+    // UI REFERENCE: Form layout - see recorder/screenshots/form-screen.png
+    // await desktop.locator("role:TextBox && name:Invoice Number").fill("INV-001");
 
-    // Update state
+    // TODO: Click submit or perform main action
+    // UI REFERENCE: Submit button - see recorder/ui-trees/form-ui.json
+    // await desktop.locator("role:Button && name:Submit").click();
+
+    // Mark completion for workflow summary
     context.setState(prev => ({ ...prev, stepTwoCompleted: true }));
 
-    console.log("Step two completed!");
+    console.log("Step two completed - workflow finished");
   },
 });
 "#;
@@ -247,24 +283,47 @@ Describe what this workflow accomplishes in plain language. For example:
 
 ## Steps
 
-### Step 1: Step One
+### Step 1: Open Application and Login
 The first step that runs. It can:
 - Exit early if work is already done
 - Skip to other steps based on conditions
 
-### Step 2: Step Two
+### Step 2: Process Data and Submit
 The second step that processes data from Step One.
+
+## Folder Structure
+
+```
+src/
+  terminator.ts      # Main workflow definition
+  steps/
+    01-step-one.ts   # First step
+    02-step-two.ts   # Second step
+recorder/
+  screenshots/       # UI screenshots for reference
+  ui-trees/          # UI element trees (JSON)
+```
+
+## Comment Conventions
+
+Each step should have comments explaining:
+
+- **BUSINESS CONTEXT**: What the step does in plain language
+- **WHY THIS EXISTS**: The business reason for this step
+- **UI REFERENCE**: Links to screenshots or UI trees in recorder/
+
+Example:
+```typescript
+// TODO: Click the submit button
+// UI REFERENCE: See recorder/screenshots/submit-button.png
+await desktop.locator("role:Button && name:Submit").click();
+```
 
 ## How to run
 
 ```bash
 terminator workflow run src/terminator.ts
 ```
-
-## Notes
-
-- Edit this README to describe what your workflow actually does
-- This description will be shown in the Mediar app
 "#,
             self.name
         );
@@ -279,6 +338,10 @@ dist/
 *.log
 .DS_Store
 state.json
+
+# Keep recorder folder but ignore large files if needed
+# recorder/screenshots/*.png
+# recorder/ui-trees/*.json
 "#;
 
         fs::write(project_path.join(".gitignore"), gitignore)
