@@ -251,30 +251,18 @@ impl ExtensionBridge {
                         });
                     }
 
-                    // Try to find and kill existing process holding the port
-                    if let Some((pid, process_name)) = Self::find_process_on_port(port).await {
-                        let name_lower = process_name.to_lowercase();
-                        let is_safe_to_kill = name_lower.contains("terminator")
-                            || name_lower.contains("node")
-                            || name_lower.contains("bun");
-
-                        if is_safe_to_kill {
-                            tracing::info!(
-                                "Found '{}' (PID {}) on port {}, attempting to kill...",
-                                process_name, pid, port
-                            );
-                            if let Err(kill_err) = Self::kill_process(pid).await {
-                                tracing::warn!("Failed to kill process {}: {}", pid, kill_err);
-                            } else {
-                                tracing::info!("Successfully killed '{}' (PID {}), waiting for port to be released...", process_name, pid);
-                                tokio::time::sleep(Duration::from_secs(1)).await;
-                            }
+                    // Try to find and kill existing terminator process
+                    if let Some(pid) = Self::find_process_on_port(port).await {
+                        tracing::info!(
+                            "Found process {} on port {}, attempting to kill...",
+                            pid,
+                            port
+                        );
+                        if let Err(kill_err) = Self::kill_process(pid).await {
+                            tracing::warn!("Failed to kill process {}: {}", pid, kill_err);
                         } else {
-                            tracing::warn!(
-                                "Port {} is held by unexpected process '{}' (PID {}). \
-                                Not killing automatically. Please close it manually or restart your machine.",
-                                port, process_name, pid
-                            );
+                            tracing::info!("Successfully killed process {}, waiting for port to be released...", pid);
+                            tokio::time::sleep(Duration::from_secs(1)).await;
                         }
                     }
 
@@ -676,8 +664,7 @@ impl ExtensionBridge {
         })
     }
 
-    /// Find process holding a port and return (PID, process_name)
-    async fn find_process_on_port(port: u16) -> Option<(u32, String)> {
+    async fn find_process_on_port(port: u16) -> Option<u32> {
         use tokio::process::Command;
 
         // Use netstat to find the process
@@ -696,21 +683,17 @@ impl ExtensionBridge {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if let Some(pid_str) = parts.last() {
                 if let Ok(pid) = pid_str.parse::<u32>() {
-                    // Get process name for this PID
-                    let process_name = Self::get_process_name(pid).await.unwrap_or_default();
-                    tracing::info!(
-                        "Found process on port {}: PID={}, name='{}'",
-                        port, pid, process_name
-                    );
-                    return Some((pid, process_name));
+                    // Verify it's a terminator process
+                    if Self::is_terminator_process(pid).await {
+                        return Some(pid);
+                    }
                 }
             }
         }
         None
     }
 
-    /// Get process name by PID
-    async fn get_process_name(pid: u32) -> Option<String> {
+    async fn is_terminator_process(pid: u32) -> bool {
         use tokio::process::Command;
 
         let output = Command::new("wmic")
@@ -723,17 +706,14 @@ impl ExtensionBridge {
             ])
             .output()
             .await
-            .ok()?;
+            .ok();
 
-        let output_str = String::from_utf8_lossy(&output.stdout);
-        // Parse: "Name\nprocess.exe\n"
-        for line in output_str.lines().skip(1) {
-            let name = line.trim();
-            if !name.is_empty() {
-                return Some(name.to_string());
-            }
+        if let Some(output) = output {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            output_str.contains("terminator-mcp-agent")
+        } else {
+            false
         }
-        None
     }
 
     /// Find any terminator-mcp-agent process in our parent chain
