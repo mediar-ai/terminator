@@ -33,5 +33,5 @@
     "test": "jest"
   },
   "types": "dist/index.d.ts",
-  "version": "0.24.2"
+  "version": "0.24.3"
 }
