@@ -27,10 +27,29 @@ export interface WorkflowContext<
 > {
     /** Workflow output data - set this to return data to MCP/CLI */
     data: Record<string, any>;
-    /** Shared state between steps - use `return { state: {...} }` to update */
+    /** Shared state between steps - use `return { state: {...} }` or `setState()` to update */
     state: TState;
     /** Workflow input variables - typed from Zod schema */
     variables: TInput;
+    /**
+     * Update workflow state with partial updates (React-style setState).
+     * Supports both object updates and functional updates.
+     *
+     * @example
+     * ```typescript
+     * // Object update - merges with existing state
+     * context.setState({ count: 1, name: 'John' });
+     *
+     * // Functional update - receives previous state
+     * context.setState(prev => ({ count: prev.count + 1 }));
+     *
+     * // Both forms merge updates (don't replace entire state)
+     * context.setState({ newField: 'value' }); // keeps existing fields
+     * ```
+     */
+    setState: (
+        update: Partial<TState> | ((prev: TState) => Partial<TState>),
+    ) => void;
 }
 
 /**
@@ -806,3 +825,4 @@ export function isWorkflowSuccess(value: any): value is WorkflowSuccessMarker {
         value && typeof value === "object" && value.__workflowSuccess === true
     );
 }
+
