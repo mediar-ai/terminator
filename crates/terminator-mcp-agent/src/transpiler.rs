@@ -788,7 +788,17 @@ mod tests {
         let result = transpile(bad_ts, TranspileTarget::Browser).await;
 
         assert!(result.is_err());
-        // If transpiler is not actually working (esbuild not installed), skip        if let Err(ref e) = result {            if e.kind == TranspileErrorKind::MissingTool {                eprintln!("Skipping - transpiler tool not actually available: {}", e.message);                return;            }        }
+
+        // If transpiler is not actually working (esbuild not installed), skip
+        if let Err(ref e) = result {
+            if e.kind == TranspileErrorKind::MissingTool {
+                eprintln!(
+                    "Skipping - transpiler tool not actually available: {}",
+                    e.message
+                );
+                return;
+            }
+        }
 
         if let Err(e) = result {
             // Should have a recovery action of FixCode for code errors
