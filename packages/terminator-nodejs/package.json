@@ -38,8 +38,8 @@
     }
   },
   "optionalDependencies": {
-    "@mediar-ai/terminator-win32-arm64-msvc": "0.24.5",
-    "@mediar-ai/terminator-win32-x64-msvc": "0.24.5"
+    "@mediar-ai/terminator-win32-arm64-msvc": "0.24.6",
+    "@mediar-ai/terminator-win32-x64-msvc": "0.24.6"
   },
   "repository": {
     "type": "git",
@@ -57,5 +57,5 @@
     "test-hook": "powershell.exe -ExecutionPolicy Bypass -File \"../../.git/hooks/pre-push.ps1\""
   },
   "types": "wrapper.d.ts",
-  "version": "0.24.5"
+  "version": "0.24.6"
 }
