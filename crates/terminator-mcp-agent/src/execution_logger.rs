@@ -1991,7 +1991,7 @@ mod tests {
     #[test]
     fn test_strip_screenshot_base64() {
         let value = json!({
-            "status": "success",
+            "status": "executed_without_error",
             "screenshot": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
             "other_data": "keep this"
         });
@@ -2075,7 +2075,7 @@ mod tests {
             "process": "chrome",
             "selector": "role:Button|name:OK"
         });
-        let result = json!({"status": "success"});
+        let result = json!({"status": "executed_without_error"});
         let ts = generate_typescript_snippet("click_element", &args, Ok(&result));
 
         // Should NOT contain boilerplate (desktop is pre-injected in engine mode)
@@ -2102,7 +2102,7 @@ mod tests {
 
     #[test]
     fn test_all_snippets_comprehensive() {
-        let result = json!({"status": "success"});
+        let result = json!({"status": "executed_without_error"});
         let ok_result: Result<&serde_json::Value, &str> = Ok(&result);
 
         // 1. click_element - selector mode with all params
