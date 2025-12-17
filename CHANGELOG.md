@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.6] - 2025-12-17
+
+### Fixed
+- Workflow: Handle undefined context in restoredState
+
+### Changed
+- CLI: Add state.json to init gitignore template
+
 ## [0.24.5] - 2025-12-17
 
 ### Added
