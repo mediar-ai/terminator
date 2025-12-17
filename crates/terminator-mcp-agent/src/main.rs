@@ -28,6 +28,7 @@ use std::{
 };
 use sysinfo::{ProcessesToUpdate, System};
 use terminator_mcp_agent::cancellation::RequestManager;
+use terminator_mcp_agent::child_process;
 use terminator_mcp_agent::server::{self, check_terminator_source};
 use terminator_mcp_agent::utils::init_logging;
 use tower_http::cors::CorsLayer;
@@ -436,6 +437,8 @@ async fn main() -> Result<()> {
 
             tokio::signal::ctrl_c().await?;
             ct.cancel();
+            // Kill any running child processes (bun/node workflow executors)
+            child_process::kill_all();
             tracing::info!("Shutting down SSE server");
         }
         TransportMode::Http => {
@@ -735,12 +738,17 @@ async fn main() -> Result<()> {
                     tokio::signal::ctrl_c().await.ok();
                     info!("Received shutdown signal, cancelling active requests...");
                     app_state.request_manager.cancel_all().await;
+                    // Kill any running child processes (bun/node workflow executors)
+                    child_process::kill_all();
                 })
                 .await?;
 
             tracing::info!("Shutting down HTTP server");
         }
     }
+
+    // Kill any remaining child processes (safety net)
+    child_process::kill_all();
 
     // Shutdown telemetry before exiting
     terminator_mcp_agent::telemetry::shutdown_telemetry();

@@ -7,6 +7,7 @@ use std::process::Command;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::{debug, error, info, warn, Instrument};
 
+use crate::child_process;
 use crate::event_pipe::{create_event_channel, try_parse_event, EventPipeServer};
 use crate::execution_logger::CapturedLogEntry;
 use crate::log_pipe::{create_log_channel, forward_log_to_tracing, LogPipeServer};
@@ -602,12 +603,24 @@ impl TypeScriptWorkflow {
             info!("Set MCP_LOG_PIPE={}", log_pipe_name);
         }
 
+        // Pass parent PID so child can monitor for orphan detection
+        let parent_pid = std::process::id();
+        cmd.env("MCP_PARENT_PID", parent_pid.to_string());
+        debug!("Set MCP_PARENT_PID={}", parent_pid);
+
         let mut child = cmd.spawn().map_err(|e| {
             McpError::internal_error(
                 format!("Failed to execute workflow: {e}"),
                 Some(json!({"error": e.to_string()})),
             )
         })?;
+
+        // Register child process for cleanup on MCP shutdown
+        let child_pid = child.id();
+        if let Some(pid) = child_pid {
+            child_process::register(pid, execution_id.map(|s| s.to_string()));
+            debug!("Registered child process PID {} for cleanup tracking", pid);
+        }
 
         // Take stderr and spawn a task to stream logs through tracing AND capture them
         // execution_id is passed as a structured field for OpenTelemetry/ClickHouse filtering
@@ -793,6 +806,12 @@ impl TypeScriptWorkflow {
                 Some(json!({"error": e.to_string()})),
             )
         })?;
+
+        // Unregister child process now that it has completed
+        if let Some(pid) = child_pid {
+            child_process::unregister(pid);
+            debug!("Unregistered child process PID {} (completed)", pid);
+        }
 
         if !output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1094,6 +1113,30 @@ const drainLogPipe = () => new Promise((resolve) => {{
 // Cleanup on exit (fallback, but drain should be called explicitly)
 process.on('exit', () => {{ if (logPipe) try {{ logPipe.end(); }} catch(e) {{}} }});
 
+// Parent PID monitoring - exit if MCP parent process dies
+// This prevents dangling bun/node processes when MCP is stopped or crashes
+const parentPid = process.env.MCP_PARENT_PID ? parseInt(process.env.MCP_PARENT_PID, 10) : null;
+let parentCheckInterval = null;
+
+if (parentPid && !isNaN(parentPid)) {{
+    const checkParentAlive = () => {{
+        try {{
+            // Signal 0 doesn't actually send a signal - it just checks if process exists
+            process.kill(parentPid, 0);
+        }} catch (e) {{
+            // Parent process is gone - cleanup and exit
+            console.error(`[orphan-detection] Parent process (PID ${{parentPid}}) terminated, exiting workflow`);
+            if (parentCheckInterval) clearInterval(parentCheckInterval);
+            if (logPipe) try {{ logPipe.end(); }} catch(e) {{}}
+            process.exit(1);
+        }}
+    }};
+    // Check every second
+    parentCheckInterval = setInterval(checkParentAlive, 1000);
+    // Don't let this interval keep the process alive if everything else is done
+    if (parentCheckInterval.unref) parentCheckInterval.unref();
+}}
+
 // Set environment to suppress workflow output if supported
 process.env.WORKFLOW_SILENT = 'true';
 process.env.CI = 'true';
@@ -1112,6 +1155,7 @@ try {{
             steps: workflow.steps || []
         }};
         originalLog(JSON.stringify({{ metadata }}, null, 2));
+        if (parentCheckInterval) clearInterval(parentCheckInterval);
         await drainLogPipe();
         process.exit(0);
     }}
@@ -1152,7 +1196,8 @@ try {{
         state: result.state || {{ context: {{ data: result.data }} }}
     }}, null, 2));
 
-    // Drain log pipe before exit to ensure all logs are captured
+    // Cleanup and drain log pipe before exit
+    if (parentCheckInterval) clearInterval(parentCheckInterval);
     await drainLogPipe();
     process.exit(result.status === 'success' ? 0 : 1);
 }} catch (error) {{
@@ -1165,7 +1210,8 @@ try {{
         }},
         state: {{}}
     }}, null, 2));
-    // Drain log pipe before exit to ensure all logs are captured
+    // Cleanup and drain log pipe before exit
+    if (parentCheckInterval) clearInterval(parentCheckInterval);
     await drainLogPipe();
     process.exit(1);
 }}
