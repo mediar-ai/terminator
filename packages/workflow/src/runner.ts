@@ -35,7 +35,7 @@ export class WorkflowRunner {
     // Initialize or restore state
     if (options.restoredState) {
       // Rehydrate context with setState method (lost during serialization)
-      const restored = options.restoredState.context;
+      const restored = options.restoredState.context || {};
       const context: WorkflowContext = {
         data: restored.data || {},
         state: restored.state || {},
