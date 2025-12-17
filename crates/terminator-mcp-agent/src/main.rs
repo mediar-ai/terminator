@@ -457,20 +457,24 @@ async fn main() -> Result<()> {
                         let log_capture = log_capture.clone();
 
                         // Block on async to get or create the singleton DesktopWrapper
-                        futures::executor::block_on(async move {
-                            let mut wrapper_guard = desktop_wrapper.write().await;
-                            if wrapper_guard.is_none() {
-                                tracing::info!("Creating singleton DesktopWrapper for HTTP mode");
-                                match server::DesktopWrapper::new_with_log_capture(log_capture) {
-                                    Ok(wrapper) => {
-                                        *wrapper_guard = Some(wrapper.clone());
-                                        Ok(wrapper)
+                        // Use block_in_place to safely block within tokio runtime (fixes crashes with multiple MCP clients)
+                        tracing::debug!("MCP service factory called - using block_in_place for tokio safety");
+                        tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async move {
+                                let mut wrapper_guard = desktop_wrapper.write().await;
+                                if wrapper_guard.is_none() {
+                                    tracing::info!("Creating singleton DesktopWrapper for HTTP mode");
+                                    match server::DesktopWrapper::new_with_log_capture(log_capture) {
+                                        Ok(wrapper) => {
+                                            *wrapper_guard = Some(wrapper.clone());
+                                            Ok(wrapper)
+                                        }
+                                        Err(e) => Err(std::io::Error::other(e.to_string())),
                                     }
-                                    Err(e) => Err(std::io::Error::other(e.to_string())),
+                                } else {
+                                    Ok(wrapper_guard.as_ref().unwrap().clone())
                                 }
-                            } else {
-                                Ok(wrapper_guard.as_ref().unwrap().clone())
-                            }
+                            })
                         })
                     }
                 },
