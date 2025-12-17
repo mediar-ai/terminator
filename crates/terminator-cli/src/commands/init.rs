@@ -42,7 +42,8 @@ impl InitCommand {
         self.create_package_json(project_path)?;
         self.create_tsconfig(project_path)?;
         self.create_main_workflow(project_path)?;
-        self.create_example_step(project_path)?;
+        self.create_step_one(project_path)?;
+        self.create_step_two(project_path)?;
         self.create_gitignore(project_path)?;
 
         println!("  {} Created project structure", "✓".green());
@@ -119,13 +120,14 @@ impl InitCommand {
 
     fn create_main_workflow(&self, project_path: &Path) -> Result<()> {
         let workflow = r#"import { createWorkflow, z } from "@mediar-ai/workflow";
-import { exampleStep } from "./steps/01-example-step";
+import { stepOne } from "./steps/01-step-one";
+import { stepTwo } from "./steps/02-step-two";
 
 export default createWorkflow({
   // use package.json to set name, description, and version
   input: z.object({
     // Add your input variables here
-    // message: z.string().default("Hello"),
+    skipStepTwo: z.boolean().default(false),
   }).optional(),
   trigger: {
     type: 'cron',
@@ -133,12 +135,12 @@ export default createWorkflow({
     enabled: false, // Set to true to enable scheduling
   },
   steps: [
-    exampleStep,
-    // Add more steps here
+    stepOne,
+    stepTwo,
   ],
-  onSuccess: async ({ context }: { context: { data: Record<string, unknown> } }) => {
+  onSuccess: async ({ context }) => {
     // Set context.data to return results to MCP/CLI
-    context.data = { hello: "World" };
+    context.data = { completed: true, state: context.state };
   },
   onError: async ({ error }: { error: Error }) => {
     console.error("Workflow failed:", error.message);
@@ -151,19 +153,23 @@ export default createWorkflow({
         Ok(())
     }
 
-    fn create_example_step(&self, project_path: &Path) -> Result<()> {
-        let step = r#"import { createStep } from "@mediar-ai/workflow";
+    fn create_step_one(&self, project_path: &Path) -> Result<()> {
+        let step = r#"import { createStep, next } from "@mediar-ai/workflow";
 
-export const exampleStep = createStep({
-  id: "example_step",
-  name: "Example Step",
-  execute: async ({ desktop, context }) => {
-    console.log("Starting example step...");
+export const stepOne = createStep({
+  id: "step_one",
+  name: "Step One",
+  execute: async ({ desktop, input, context }) => {
+    console.log("Starting step one...");
 
     // Update state using setState (React-style)
-    context.setState({ started: true });
+    context.setState({ stepOneCompleted: true });
 
-    // Access previous state: context.state.someValue
+    // Conditional navigation: skip step two if input says so
+    if (input?.skipStepTwo) {
+      console.log("Skipping step two as requested");
+      return next("final_step"); // Jump to a different step by ID
+    }
 
     // Example: Open an application
     // desktop.openApplication("notepad");
@@ -173,19 +179,38 @@ export const exampleStep = createStep({
     // const btn = await desktop.locator("role:Button && name:OK").first(2000);
     // await btn.click();
 
-    // Example: Type text
-    // await desktop.type("Hello World!");
-
-    console.log("Example step completed!");
-
-    // Functional setState with previous state
-    context.setState(prev => ({ ...prev, completed: true }));
+    console.log("Step one completed, continuing to step two...");
   },
 });
 "#;
 
-        fs::write(project_path.join("src/steps/01-example-step.ts"), step)
-            .context("Failed to create src/steps/01-example-step.ts")?;
+        fs::write(project_path.join("src/steps/01-step-one.ts"), step)
+            .context("Failed to create src/steps/01-step-one.ts")?;
+        Ok(())
+    }
+
+    fn create_step_two(&self, project_path: &Path) -> Result<()> {
+        let step = r#"import { createStep } from "@mediar-ai/workflow";
+
+export const stepTwo = createStep({
+  id: "step_two",
+  name: "Step Two",
+  execute: async ({ context }) => {
+    console.log("Starting step two...");
+
+    // Access state from previous step
+    console.log("Step one completed:", context.state.stepOneCompleted);
+
+    // Update state
+    context.setState(prev => ({ ...prev, stepTwoCompleted: true }));
+
+    console.log("Step two completed!");
+  },
+});
+"#;
+
+        fs::write(project_path.join("src/steps/02-step-two.ts"), step)
+            .context("Failed to create src/steps/02-step-two.ts")?;
         Ok(())
     }
 
