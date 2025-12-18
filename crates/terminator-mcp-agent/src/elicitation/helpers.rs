@@ -30,7 +30,10 @@ where
     T: ElicitationSafe + serde::de::DeserializeOwned + Send + 'static,
 {
     if !peer.supports_elicitation() {
-        tracing::debug!("[elicitation] Client does not support elicitation: {}", message);
+        tracing::debug!(
+            "[elicitation] Client does not support elicitation: {}",
+            message
+        );
         return default;
     }
 
@@ -77,7 +80,10 @@ where
     T: ElicitationSafe + serde::de::DeserializeOwned + Send + 'static,
 {
     if !peer.supports_elicitation() {
-        tracing::debug!("[elicitation] Client does not support elicitation: {}", message);
+        tracing::debug!(
+            "[elicitation] Client does not support elicitation: {}",
+            message
+        );
         return None;
     }
 
