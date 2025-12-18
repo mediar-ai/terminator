@@ -1457,9 +1457,13 @@ impl Desktop {
     /// desktop.stop_execution();
     /// ```
     pub fn stop_execution(&self) {
-        info!("🛑 Stop execution requested - cancelling all operations");
+        info!("[STOP-DEBUG] Desktop::stop_execution called - cancelling all operations");
         if let Ok(token) = self.cancellation_token.read() {
+            info!("[STOP-DEBUG] Calling cancellation_token.cancel()");
             token.cancel();
+            info!("[STOP-DEBUG] cancellation_token.cancel() completed");
+        } else {
+            info!("[STOP-DEBUG] WARNING: Could not acquire cancellation_token lock");
         }
     }
 
