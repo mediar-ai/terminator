@@ -2328,6 +2328,13 @@ impl DesktopWrapper {
             "execute_sequence completed"
         );
 
+        // Get predicted execution log path (will be written by call_tool after this returns)
+        let execution_log_path = execution_logger::get_predicted_log_path(
+            args.workflow_id.as_deref(),
+            args.start_from_step.as_deref(),
+            "execute_sequence",
+        );
+
         let mut summary = json!({
             "action": "execute_ts_workflow",
             "status": final_status,
@@ -2339,6 +2346,7 @@ impl DesktopWrapper {
             "used_fallback": used_fallback,
             "results": results,
             "env": execution_context_map.get("env").cloned().unwrap_or_else(|| json!({})),
+            "execution_log_path": execution_log_path,
         });
 
         // Support both 'output_parser' (legacy) and 'output' (simplified)
