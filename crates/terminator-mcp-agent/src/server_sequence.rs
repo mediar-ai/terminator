@@ -2328,8 +2328,8 @@ impl DesktopWrapper {
             "execute_sequence completed"
         );
 
-        // Get predicted execution log path (will be written by call_tool after this returns)
-        let execution_log_path = execution_logger::get_predicted_log_path(
+        // Get predicted execution log paths (will be written by call_tool after this returns)
+        let log_paths = execution_logger::get_predicted_log_paths(
             args.workflow_id.as_deref(),
             args.start_from_step.as_deref(),
             "execute_sequence",
@@ -2346,7 +2346,8 @@ impl DesktopWrapper {
             "used_fallback": used_fallback,
             "results": results,
             "env": execution_context_map.get("env").cloned().unwrap_or_else(|| json!({})),
-            "execution_log_path": execution_log_path,
+            "execution_log_path": log_paths.json_path,
+            "typescript_snippet_path": log_paths.ts_path,
         });
 
         // Support both 'output_parser' (legacy) and 'output' (simplified)
@@ -2907,8 +2908,8 @@ impl DesktopWrapper {
                 .await?;
             }
 
-            // Get predicted execution log path (will be written by call_tool after this returns)
-            let execution_log_path = execution_logger::get_predicted_log_path(
+            // Get predicted execution log paths (will be written by call_tool after this returns)
+            let log_paths = execution_logger::get_predicted_log_paths(
                 args.workflow_id.as_deref(),
                 args.start_from_step.as_deref(),
                 "execute_sequence",
@@ -2923,7 +2924,8 @@ impl DesktopWrapper {
                 "state": result.result.state,
                 "last_step_id": result.result.result.last_step_id,
                 "last_step_index": result.result.result.last_step_index,
-                "execution_log_path": execution_log_path,
+                "execution_log_path": log_paths.json_path,
+                "typescript_snippet_path": log_paths.ts_path,
             });
 
             // If there's data from context.data, add it as parsed_output for CLI compatibility
