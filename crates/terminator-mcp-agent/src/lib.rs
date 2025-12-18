@@ -1,6 +1,7 @@
 pub mod cancellation;
 pub mod child_process;
 pub mod duration_parser;
+pub mod elicitation;
 pub mod event_pipe;
 pub mod execution_logger;
 pub mod expression_eval;

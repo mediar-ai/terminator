@@ -36,7 +36,7 @@ uuid = { version = "1.0", features = ["v4"] }
 [dev-dependencies]
 terminator = { workspace = true }
 terminator-mcp-agent = { path = "../terminator-mcp-agent" }
-rmcp = { version = "0.6.3", features = ["server"] }         # For MCP types
+rmcp = { version = "0.9", features = ["server"] }         # For MCP types
 tempfile = "3.0"
 criterion = "0.5"                                           # For benchmarking
 sysinfo = { workspace = true }                              # For CPU monitoring

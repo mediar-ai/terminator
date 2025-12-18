@@ -29,14 +29,17 @@ tracing-subscriber = { workspace = true }
 tracing-appender = { workspace = true }
 time = { workspace = true }
 dirs = { workspace = true }
-rmcp = { version = "0.6.3", features = [
+rmcp = { version = "0.9", features = [
     "server",
     "client",
+    "elicitation",
+    "schemars",
     "transport-sse-server",
     "transport-io",
     "transport-streamable-http-server",
     "transport-child-process",
 ] }
+schemars = "1.0"
 futures = "0.3"
 image = { version = "0.25.1", features = ["png"] }
 base64 = "0.22.1"
