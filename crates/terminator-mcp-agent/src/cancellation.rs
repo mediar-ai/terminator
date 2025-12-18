@@ -125,10 +125,16 @@ impl RequestManager {
     /// Cancel all active requests
     pub async fn cancel_all(&self) {
         let requests = self.active_requests.read().await;
+        let count = requests.len();
+        info!(
+            "[STOP-DEBUG] cancel_all: found {} active requests to cancel",
+            count
+        );
         for (id, context) in requests.iter() {
-            info!("Cancelling request {} during shutdown", id);
+            info!("[STOP-DEBUG] Cancelling request: {}", id);
             context.cancel();
         }
+        info!("[STOP-DEBUG] cancel_all: cancelled {} requests", count);
     }
 
     /// Get a request context by ID
