@@ -1,3 +1,4 @@
+use crate::execution_logger;
 use crate::helpers::substitute_variables;
 use crate::output_parser;
 use crate::server::extract_content_json;
@@ -2898,6 +2899,13 @@ impl DesktopWrapper {
                 .await?;
             }
 
+            // Get predicted execution log path (will be written by call_tool after this returns)
+            let execution_log_path = execution_logger::get_predicted_log_path(
+                args.workflow_id.as_deref(),
+                args.start_from_step.as_deref(),
+                "execute_sequence",
+            );
+
             // Return result
             let mut output = json!({
                 "status": result.result.result.status,
@@ -2907,6 +2915,7 @@ impl DesktopWrapper {
                 "state": result.result.state,
                 "last_step_id": result.result.result.last_step_id,
                 "last_step_index": result.result.result.last_step_index,
+                "execution_log_path": execution_log_path,
             });
 
             // If there's data from context.data, add it as parsed_output for CLI compatibility
