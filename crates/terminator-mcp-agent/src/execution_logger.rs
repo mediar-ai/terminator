@@ -139,15 +139,27 @@ pub fn is_enabled() -> bool {
     LOGGING_ENABLED.load(Ordering::Relaxed)
 }
 
-/// Get the predicted execution log path for a tool call
-/// This allows tools to include the log path in their response before logging happens
-pub fn get_predicted_log_path(
+/// Predicted paths for execution log files
+#[derive(Debug, Clone)]
+pub struct PredictedLogPaths {
+    /// Path to the JSON execution log
+    pub json_path: String,
+    /// Path to the TypeScript snippet file
+    pub ts_path: String,
+}
+
+/// Get the predicted execution log paths for a tool call
+/// This allows tools to include the log paths in their response before logging happens
+pub fn get_predicted_log_paths(
     workflow_id: Option<&str>,
     step_id: Option<&str>,
     tool_name: &str,
-) -> String {
+) -> PredictedLogPaths {
     if !is_enabled() {
-        return String::new();
+        return PredictedLogPaths {
+            json_path: String::new(),
+            ts_path: String::new(),
+        };
     }
     let timestamp = Local::now();
     let file_prefix = generate_file_prefix(&timestamp, workflow_id, step_id, tool_name);
@@ -155,9 +167,26 @@ pub fn get_predicted_log_path(
         Some(wf_id) => get_workflow_executions_dir(wf_id),
         None => get_executions_dir(),
     };
-    dir.join(format!("{}.json", file_prefix))
-        .to_string_lossy()
-        .to_string()
+    PredictedLogPaths {
+        json_path: dir
+            .join(format!("{}.json", file_prefix))
+            .to_string_lossy()
+            .to_string(),
+        ts_path: dir
+            .join(format!("{}.ts", file_prefix))
+            .to_string_lossy()
+            .to_string(),
+    }
+}
+
+/// Get the predicted execution log path for a tool call (legacy, returns only JSON path)
+/// This allows tools to include the log path in their response before logging happens
+pub fn get_predicted_log_path(
+    workflow_id: Option<&str>,
+    step_id: Option<&str>,
+    tool_name: &str,
+) -> String {
+    get_predicted_log_paths(workflow_id, step_id, tool_name).json_path
 }
 
 /// Generate file prefix: YYYYMMDD_HHMMSS_workflowId_stepId_toolName
