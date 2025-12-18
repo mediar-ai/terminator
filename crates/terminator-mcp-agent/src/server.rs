@@ -8133,24 +8133,44 @@ console.info = function(...args) {
         description = "Stops all currently executing workflows/tools by cancelling active requests. Use this when the user clicks a stop button or wants to abort execution."
     )]
     async fn stop_execution(&self) -> Result<CallToolResult, McpError> {
-        info!("🛑 Stop execution requested - cancelling all active requests");
+        let start = std::time::Instant::now();
+        info!("[STOP-DEBUG] stop_execution tool called");
+
+        // Get counts before cancellation
+        let before_count = self.request_manager.active_count().await;
+        info!(
+            "[STOP-DEBUG] Active requests BEFORE cancel_all: {}",
+            before_count
+        );
 
         // Cancel all active requests using the request manager
+        info!("[STOP-DEBUG] Calling request_manager.cancel_all()...");
         self.request_manager.cancel_all().await;
+        info!(
+            "[STOP-DEBUG] request_manager.cancel_all() completed in {:?}",
+            start.elapsed()
+        );
 
         // Also cancel Desktop operations (triggers inner cancellation checks in gemini_computer_use)
+        info!("[STOP-DEBUG] Calling desktop.stop_execution()...");
         self.desktop.stop_execution();
+        info!("[STOP-DEBUG] desktop.stop_execution() completed");
 
         let active_count = self.request_manager.active_count().await;
         info!(
-            "✅ Cancelled all active requests. Active count: {}",
+            "[STOP-DEBUG] stop_execution completed in {:?}. Active count: {} -> {}",
+            start.elapsed(),
+            before_count,
             active_count
         );
 
         let result_json = json!({
             "action": "stop_execution",
             "status": "executed_without_error",
-            "message": "All active requests have been cancelled",
+            "message": format!("Cancelled {} active requests", before_count),
+            "active_before": before_count,
+            "active_after": active_count,
+            "elapsed_ms": start.elapsed().as_millis(),
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
 
