@@ -17,6 +17,7 @@ use crate::ScreenshotResult;
 use crate::{AutomationError, Selector, UIElement};
 use image::DynamicImage;
 use image::{ImageBuffer, Rgba};
+use std::panic;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
@@ -110,9 +111,18 @@ fn calculate_search_depth(
 pub fn get_process_name_by_pid(pid: i32) -> Result<String, AutomationError> {
     unsafe {
         // Create a snapshot of all processes
-        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).map_err(|e| {
-            AutomationError::PlatformError(format!("Failed to create process snapshot: {e}"))
-        })?;
+        let snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
+            Ok(h) => h,
+            Err(e) => {
+                warn!(
+                    "[CRASH_DEBUG] CreateToolhelp32Snapshot failed for PID {}: {:?}",
+                    pid, e
+                );
+                return Err(AutomationError::PlatformError(format!(
+                    "Failed to create process snapshot: {e}"
+                )));
+            }
+        };
 
         if snapshot.is_invalid() {
             return Err(AutomationError::PlatformError(
@@ -1341,14 +1351,19 @@ impl AccessibilityEngine for WindowsEngine {
                     .collect())
             }
             Selector::Process(process_name) => {
-                debug!("searching elements by process name: {}", process_name);
+                info!(
+                    "[CRASH_DEBUG] Selector::Process started for: {}",
+                    process_name
+                );
 
                 // Get root element
                 let root_ele = self.get_root_element_with_retry().map_err(|e| {
+                    warn!("[CRASH_DEBUG] get_root_element_with_retry failed: {:?}", e);
                     AutomationError::PlatformError(format!(
                         "Failed to get root element for process selector: {e:?}"
                     ))
                 })?;
+                info!("[CRASH_DEBUG] Got root element successfully");
 
                 // Create condition to find Window or Pane elements
                 let condition_win = self
@@ -1390,39 +1405,67 @@ impl AccessibilityEngine for WindowsEngine {
                     })?;
 
                 // Find all windows/panes
+                info!("[CRASH_DEBUG] Calling find_all for windows/panes");
                 let elements = root_ele
                     .find_all(TreeScope::Children, &condition)
                     .map_err(|e| {
+                        warn!("[CRASH_DEBUG] find_all failed: {}", e);
                         AutomationError::ElementNotFound(format!(
                             "Failed to find windows for process selector: {e}"
                         ))
                     })?;
+                info!(
+                    "[CRASH_DEBUG] find_all returned {} elements",
+                    elements.len()
+                );
 
                 // Filter elements by process name
                 let expected_lower = process_name.to_lowercase();
+                let mut processed_count = 0;
                 let filtered_elements: Vec<UIElement> = elements
                     .into_iter()
                     .filter_map(|ele| {
+                        processed_count += 1;
                         if let Ok(pid) = ele.get_process_id() {
-                            if let Ok(elem_process_name) = get_process_name_by_pid(pid as i32) {
-                                let elem_process_lower = elem_process_name.to_lowercase();
-                                // Support both "chrome" and "chrome.exe" matching
-                                // get_process_name_by_pid strips .exe, so "chrome" matches "chrome.exe"
-                                if elem_process_lower == expected_lower
-                                    || elem_process_lower.starts_with(&expected_lower)
-                                    || expected_lower.starts_with(&elem_process_lower)
-                                {
-                                    let arc_ele = ThreadSafeWinUIElement(Arc::new(ele));
-                                    return Some(UIElement::new(Box::new(WindowsUIElement {
-                                        element: arc_ele,
-                                        engine: None,
-                                    })));
+                            // Log every 10th element to avoid spam
+                            if processed_count % 10 == 1 {
+                                debug!("[CRASH_DEBUG] Processing element {}, PID {}", processed_count, pid);
+                            }
+                            // Wrap in catch_unwind to detect panics
+                            let process_result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+                                get_process_name_by_pid(pid as i32)
+                            }));
+                            let elem_process_name = match process_result {
+                                Ok(Ok(name)) => name,
+                                Ok(Err(_)) => return None, // Normal error, skip this element
+                                Err(panic_info) => {
+                                    error!("[CRASH_DEBUG] PANIC in get_process_name_by_pid for PID {}: {:?}", pid, panic_info);
+                                    return None;
                                 }
+                            };
+                            let elem_process_lower = elem_process_name.to_lowercase();
+                            // Support both "chrome" and "chrome.exe" matching
+                            // get_process_name_by_pid strips .exe, so "chrome" matches "chrome.exe"
+                            if elem_process_lower == expected_lower
+                                || elem_process_lower.starts_with(&expected_lower)
+                                || expected_lower.starts_with(&elem_process_lower)
+                            {
+                                let arc_ele = ThreadSafeWinUIElement(Arc::new(ele));
+                                return Some(UIElement::new(Box::new(WindowsUIElement {
+                                    element: arc_ele,
+                                    engine: None,
+                                })));
                             }
                         }
                         None
                     })
                     .collect();
+
+                info!(
+                    "[CRASH_DEBUG] Filtering complete, processed {} elements, found {} matches",
+                    processed_count,
+                    filtered_elements.len()
+                );
 
                 if filtered_elements.is_empty() {
                     return Err(AutomationError::ElementNotFound(format!(
@@ -1430,8 +1473,8 @@ impl AccessibilityEngine for WindowsEngine {
                     )));
                 }
 
-                debug!(
-                    "found {} elements for process: {}",
+                info!(
+                    "[CRASH_DEBUG] Selector::Process completed: found {} elements for process: {}",
                     filtered_elements.len(),
                     process_name
                 );
