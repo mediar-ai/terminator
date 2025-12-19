@@ -1261,6 +1261,7 @@ fn generate_navigate_browser_snippet(args: &Value) -> String {
 /// Generate get_window_tree snippet
 fn generate_get_window_tree_snippet(args: &Value) -> String {
     let process = args.get("process").and_then(|v| v.as_str()).unwrap_or("");
+    let title = args.get("title").and_then(|v| v.as_str());
     let include_gemini = args
         .get("include_gemini_vision")
         .and_then(|v| v.as_bool())
@@ -1283,6 +1284,10 @@ fn generate_get_window_tree_snippet(args: &Value) -> String {
     let include_detailed_attributes = args
         .get("include_detailed_attributes")
         .and_then(|v| v.as_bool());
+    let show_overlay = args.get("show_overlay").and_then(|v| v.as_str());
+    let browser_dom_max_elements = args
+        .get("browser_dom_max_elements")
+        .and_then(|v| v.as_u64());
 
     // Build config options
     let mut config_parts = vec!["propertyMode: \"Fast\"".to_string()];
@@ -1318,19 +1323,33 @@ fn generate_get_window_tree_snippet(args: &Value) -> String {
     if let Some(detailed) = include_detailed_attributes {
         config_parts.push(format!("includeDetailedAttributes: {}", detailed));
     }
+    if let Some(overlay) = show_overlay {
+        if !overlay.is_empty() {
+            config_parts.push(format!("showOverlay: \"{}\"", overlay));
+        }
+    }
+    if let Some(max_elements) = browser_dom_max_elements {
+        config_parts.push(format!("browserDomMaxElements: {}", max_elements));
+    }
 
     let config = format!("{{ {} }}", config_parts.join(", "));
+
+    // Build title filter if specified
+    let title_arg = title
+        .filter(|t| !t.is_empty())
+        .map(|t| format!("\"{}\"", t))
+        .unwrap_or_else(|| "null".to_string());
 
     // Use async method when vision options are present
     if include_gemini || include_omniparser || include_ocr || include_browser_dom {
         format!(
-            "const result = await desktop.getWindowTreeResultAsync(\"{}\", null, {});\nconsole.log(result.formatted);",
-            process, config
+            "const result = await desktop.getWindowTreeResultAsync(\"{}\", {}, {});\nconsole.log(result.formatted);",
+            process, title_arg, config
         )
     } else {
         format!(
-            "const result = desktop.getWindowTreeResult(\"{}\", null, {});\nconsole.log(result.formatted);",
-            process, config
+            "const result = desktop.getWindowTreeResult(\"{}\", {}, {});\nconsole.log(result.formatted);",
+            process, title_arg, config
         )
     }
 }
