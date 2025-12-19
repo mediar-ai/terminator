@@ -73,18 +73,65 @@ pub use platforms::windows::window_manager::{
 /// The parent Window/Pane element, or None if not found
 pub fn find_parent_window(element: &UIElement) -> Option<UIElement> {
     let mut current = element.clone();
+    let start_role = current.role();
+    let start_name = current.name().unwrap_or_default();
+
+    tracing::debug!(
+        "find_parent_window: starting from element role='{}' name='{}'",
+        start_role,
+        start_name
+    );
+
     // Limit iterations to prevent infinite loops in malformed trees
-    for _ in 0..100 {
+    for depth in 0..100 {
         let role = current.role();
+        let name = current.name().unwrap_or_default();
+
         if role == "Window" || role == "Pane" {
+            tracing::debug!(
+                "find_parent_window: found window at depth {} - role='{}' name='{}'",
+                depth,
+                role,
+                name
+            );
             return Some(current);
         }
+
         match current.parent() {
-            Ok(Some(parent)) => current = parent,
-            _ => return None,
+            Ok(Some(parent)) => {
+                tracing::trace!(
+                    "find_parent_window: depth {} role='{}' -> moving to parent",
+                    depth,
+                    role
+                );
+                current = parent;
+            }
+            Ok(None) => {
+                tracing::debug!(
+                    "find_parent_window: reached root at depth {} (role='{}' name='{}') without finding window",
+                    depth,
+                    role,
+                    name
+                );
+                return None;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "find_parent_window: parent() failed at depth {} (role='{}' name='{}'): {}",
+                    depth,
+                    role,
+                    name,
+                    e
+                );
+                return None;
+            }
         }
     }
-    tracing::warn!("find_parent_window: hit iteration limit without finding window");
+    tracing::warn!(
+        "find_parent_window: hit iteration limit without finding window (started from role='{}' name='{}')",
+        start_role,
+        start_name
+    );
     None
 }
 
