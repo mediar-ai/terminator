@@ -550,6 +550,11 @@ fn parse_transpilation_error(output: &str, original_script: &str, _tool: &str) -
     let mut error_message = String::new();
     let mut is_type_error = false;
 
+    // Pre-compile regexes outside the loop
+    let esbuild_re = regex::Regex::new(r"\.ts:(\d+):(\d+):\s*error:\s*(.+)").ok();
+    let bun_location_re = regex::Regex::new(r"at\s+.*\.ts:(\d+):(\d+)").ok();
+    let typescript_re = regex::Regex::new(r"TS(\d+):\s*(.+)").ok();
+
     for line in output.lines() {
         let line_trimmed = line.trim();
 
@@ -558,10 +563,7 @@ fn parse_transpilation_error(output: &str, original_script: &str, _tool: &str) -
         }
 
         // esbuild format: "file.ts:5:10: error: message"
-        if let Some(captures) = regex::Regex::new(r"\.ts:(\d+):(\d+):\s*error:\s*(.+)")
-            .ok()
-            .and_then(|re| re.captures(line_trimmed))
-        {
+        if let Some(captures) = esbuild_re.as_ref().and_then(|re| re.captures(line_trimmed)) {
             line_num = captures.get(1).and_then(|m| m.as_str().parse().ok());
             col_num = captures.get(2).and_then(|m| m.as_str().parse().ok());
             if let Some(msg) = captures.get(3) {
@@ -578,8 +580,8 @@ fn parse_transpilation_error(output: &str, original_script: &str, _tool: &str) -
                 .to_string();
         }
         // Bun location format: "at file.ts:5:10"
-        else if let Some(captures) = regex::Regex::new(r"at\s+.*\.ts:(\d+):(\d+)")
-            .ok()
+        else if let Some(captures) = bun_location_re
+            .as_ref()
             .and_then(|re| re.captures(line_trimmed))
         {
             line_num = captures.get(1).and_then(|m| m.as_str().parse().ok());
@@ -589,8 +591,8 @@ fn parse_transpilation_error(output: &str, original_script: &str, _tool: &str) -
             }
         }
         // TypeScript-style error: "TS2304: Cannot find name 'foo'"
-        else if let Some(captures) = regex::Regex::new(r"TS(\d+):\s*(.+)")
-            .ok()
+        else if let Some(captures) = typescript_re
+            .as_ref()
             .and_then(|re| re.captures(line_trimmed))
         {
             is_type_error = true;

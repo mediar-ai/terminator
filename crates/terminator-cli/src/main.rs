@@ -388,8 +388,7 @@ fn sync_cargo_versions() -> Result<(), Box<dyn std::error::Error>> {
         "terminator-rs =",
     ];
 
-    for i in 0..lines.len() {
-        let line = &lines[i];
+    for line in &mut lines {
         let trimmed_line = line.trim();
 
         if trimmed_line.starts_with('[') {
@@ -406,7 +405,7 @@ fn sync_cargo_versions() -> Result<(), Box<dyn std::error::Error>> {
                         if let Some(end_quote_offset) = line_clone[version_start..].find('"') {
                             let range = version_start..(version_start + end_quote_offset);
                             if &line_clone[range.clone()] != workspace_version.as_str() {
-                                lines[i].replace_range(range, &workspace_version);
+                                line.replace_range(range, &workspace_version);
                                 let crate_name = crate_prefix.trim_end_matches(" =");
                                 println!("✅ Updated '{crate_name}' to {workspace_version}");
                                 updated_count += 1;

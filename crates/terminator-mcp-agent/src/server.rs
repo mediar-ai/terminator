@@ -805,6 +805,8 @@ impl DesktopWrapper {
             clustered_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             #[cfg(target_os = "windows")]
             inspect_overlay_handle: Arc::new(std::sync::Mutex::new(None)),
+            current_mode: Arc::new(Mutex::new(None)),
+            blocked_tools: Arc::new(Mutex::new(std::collections::HashSet::new())),
         })
     }
 
@@ -4739,9 +4741,9 @@ DATA PASSING:
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         let final_status = if verified_success {
-            "success"
+            "executed_without_error"
         } else {
-            "success_unverified"
+            "executed_without_error_unverified"
         };
 
         let mut result_json = json!({
@@ -8210,7 +8212,7 @@ console.info = function(...args) {
         let _ = self.window_manager.restore_all_windows().await;
         self.window_manager.clear_captured_state().await;
 
-        span.set_status(result.status == "success", None);
+        span.set_status(result.status == "executed_without_error", None);
         span.end();
 
         // Build history summary for response (convert steps to simpler format)
@@ -9994,6 +9996,31 @@ impl ServerHandler for DesktopWrapper {
             .as_ref()
             .map(|a| serde_json::Value::Object(a.clone()))
             .unwrap_or(serde_json::Value::Null);
+
+        // Check if tool is blocked in current mode
+        {
+            let mode_guard = self.current_mode.lock().await;
+            if let Some(ref mode) = *mode_guard {
+                if mode == "ask" {
+                    let blocked_guard = self.blocked_tools.lock().await;
+                    if blocked_guard.contains(&tool_name) {
+                        tracing::info!("[call_tool] Blocked tool '{}' in Ask mode", tool_name);
+                        return Err(McpError::invalid_request(
+                            format!(
+                                "Tool '{}' is blocked in Ask mode. Ask user to switch to Act mode to execute this action.",
+                                tool_name
+                            ),
+                            Some(serde_json::json!({
+                                "code": -32002,
+                                "tool": tool_name,
+                                "mode": "ask",
+                                "action": "switch_to_act_mode"
+                            })),
+                        ));
+                    }
+                }
+            }
+        }
 
         // Reset cancellation state before starting a new tool call (except for stop_execution itself)
         // This clears any previous stop_execution() so new operations can run

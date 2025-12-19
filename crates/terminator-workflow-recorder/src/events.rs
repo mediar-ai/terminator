@@ -252,7 +252,11 @@ pub struct DragDropEvent {
     pub end_position: Position,
 
     /// The UI element being dragged (source)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_ui_element"
+    )]
     pub source_element: Option<UIElement>,
 
     /// The type of data being dragged
@@ -384,6 +388,7 @@ pub struct ClickEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrowserClickEvent {
     /// UI automation element info (Windows UI tree)
+    #[serde(default, deserialize_with = "deserialize_optional_ui_element")]
     pub ui_element: Option<UIElement>,
 
     /// DOM element information from browser

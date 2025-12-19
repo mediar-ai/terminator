@@ -137,7 +137,7 @@ export class WorkflowRunner {
           this.state.lastStepId = step.config.id;
           this.state.lastStepIndex = i;
           return {
-            status: 'success',
+            status: 'executed_without_error',
             lastStepId: this.state.lastStepId,
             lastStepIndex: this.state.lastStepIndex,
           };
@@ -185,7 +185,7 @@ export class WorkflowRunner {
 
         // Save step result
         this.state.stepResults[step.config.id] = {
-          status: 'success',
+          status: 'executed_without_error',
           result,
         };
         this.state.lastStepId = step.config.id;
@@ -197,7 +197,7 @@ export class WorkflowRunner {
 
         // Save step error
         this.state.stepResults[step.config.id] = {
-          status: 'error',
+          status: 'executed_with_error',
           error: error.message,
         };
         this.state.lastStepId = step.config.id;
@@ -205,7 +205,7 @@ export class WorkflowRunner {
 
         // Return error result
         return {
-          status: 'error',
+          status: 'executed_with_error',
           lastStepId: this.state.lastStepId,
           lastStepIndex: this.state.lastStepIndex,
           error: error.message,
@@ -214,7 +214,7 @@ export class WorkflowRunner {
     }
 
     return {
-      status: 'success',
+      status: 'executed_without_error',
       lastStepId: this.state.lastStepId,
       lastStepIndex: this.state.lastStepIndex,
     };

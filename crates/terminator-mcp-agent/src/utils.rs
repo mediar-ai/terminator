@@ -402,6 +402,13 @@ pub struct DesktopWrapper {
     #[cfg(target_os = "windows")]
     #[serde(skip)]
     pub inspect_overlay_handle: Arc<Mutex<Option<terminator::InspectOverlayHandle>>>,
+    /// Current mode: "ask" (read-only) or "act" (full access)
+    /// Set via POST /mode endpoint from desktop app
+    #[serde(skip)]
+    pub current_mode: Arc<TokioMutex<Option<String>>>,
+    /// Tools blocked in current mode (passed from desktop app)
+    #[serde(skip)]
+    pub blocked_tools: Arc<TokioMutex<std::collections::HashSet<String>>>,
 }
 
 impl Default for DesktopWrapper {

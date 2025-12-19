@@ -1,3 +1,4 @@
+use crate::execution_logger;
 use crate::helpers::substitute_variables;
 use crate::output_parser;
 use crate::server::extract_content_json;
@@ -1667,8 +1668,8 @@ impl DesktopWrapper {
                         }
 
                         // Update step span status and end it
-                        // Support both 'status' field and 'success' field
-                        let success = result["status"] == "success"
+                        // Check for executed_without_error status or legacy success boolean
+                        let success = result["status"] == "executed_without_error"
                             || result["success"] == true
                             || (result["status"].is_null() && result["success"] != false);
                         step_span.set_status(
@@ -1701,7 +1702,7 @@ impl DesktopWrapper {
                         // Merge env updates from engine/script-based steps into the internal context
                         if (tool_name_normalized == "execute_browser_script"
                             || tool_name_normalized == "run_command")
-                            && final_result["status"] == "success"
+                            && final_result["status"] == "executed_without_error"
                         {
                             // Helper to merge updates into the env context map
                             let mut merge_env_obj = |update_val: &serde_json::Value| {
@@ -1931,8 +1932,8 @@ impl DesktopWrapper {
                                 .ok(); // Don't fail the workflow if state save fails
                             }
                         }
-                        // Check for success using both 'status' and 'success' fields
-                        if result["status"] == "success"
+                        // Check for executed_without_error status or legacy success boolean
+                        if result["status"] == "executed_without_error"
                             || result["success"] == true
                             || (result["status"].is_null() && result["success"] != false)
                         {
@@ -2055,8 +2056,8 @@ impl DesktopWrapper {
                                 }
                             }
 
-                            // Check for failure using both 'status' and 'success' fields
-                            let tool_failed = !(result["status"] == "success"
+                            // Check for failure - not executed_without_error and not legacy success boolean
+                            let tool_failed = !(result["status"] == "executed_without_error"
                                 || result["success"] == true
                                 || (result["status"].is_null() && result["success"] != false));
                             if tool_failed {
@@ -2083,12 +2084,12 @@ impl DesktopWrapper {
                         }
 
                         let group_status = if group_had_errors {
-                            "partial_success"
+                            "executed_with_partial_errors"
                         } else {
-                            "success"
+                            "executed_without_error"
                         };
 
-                        if group_status != "success" {
+                        if group_status != "executed_without_error" {
                             sequence_had_errors = true;
                             step_error_occurred = true;
                         }
@@ -2131,7 +2132,11 @@ impl DesktopWrapper {
 
             // Decide next index based on success or fallback
             let step_succeeded = !step_error_occurred;
-            let step_status_str = if step_succeeded { "success" } else { "failed" };
+            let step_status_str = if step_succeeded {
+                "executed_without_error"
+            } else {
+                "executed_with_error"
+            };
             if let Some(tool_name) = original_step.and_then(|s| s.tool_name.as_ref()) {
                 info!(
                     "Step {} END tool='{}' id='{}' status={}",
@@ -2307,13 +2312,13 @@ impl DesktopWrapper {
 
         let total_duration = (chrono::Utc::now() - start_time).num_milliseconds();
 
-        // Determine final status - simple success or failure, or cancelled
+        // Determine final status - executed_without_error, executed_with_error, or cancelled
         let final_status = if cancelled_by_user {
             "cancelled"
         } else if !sequence_had_errors {
-            "success"
+            "executed_without_error"
         } else {
-            "failed"
+            "executed_with_error"
         };
         info!(
             log_source = %log_source,
@@ -2327,6 +2332,13 @@ impl DesktopWrapper {
             "execute_sequence completed"
         );
 
+        // Get predicted execution log paths (will be written by call_tool after this returns)
+        let log_paths = execution_logger::get_predicted_log_paths(
+            args.workflow_id.as_deref(),
+            args.start_from_step.as_deref(),
+            "execute_sequence",
+        );
+
         let mut summary = json!({
             "action": "execute_ts_workflow",
             "status": final_status,
@@ -2338,6 +2350,8 @@ impl DesktopWrapper {
             "used_fallback": used_fallback,
             "results": results,
             "env": execution_context_map.get("env").cloned().unwrap_or_else(|| json!({})),
+            "execution_log_path": log_paths.json_path,
+            "typescript_snippet_path": log_paths.ts_path,
         });
 
         // Support both 'output_parser' (legacy) and 'output' (simplified)
@@ -2398,7 +2412,7 @@ impl DesktopWrapper {
                 }
             }
         }
-        if final_status != "success" {
+        if final_status != "executed_without_error" {
             // Capture minimal structured debug info so failures are not opaque
             let debug_info = json!({
                 "final_status": final_status,
@@ -2417,7 +2431,7 @@ impl DesktopWrapper {
         let contents = vec![Content::json(summary.clone())?];
 
         // End workflow span with appropriate status
-        let span_success = matches!(final_status, "success");
+        let span_success = matches!(final_status, "executed_without_error");
         let span_message = if span_success {
             "Workflow completed successfully"
         } else {
@@ -2898,6 +2912,13 @@ impl DesktopWrapper {
                 .await?;
             }
 
+            // Get predicted execution log paths (will be written by call_tool after this returns)
+            let log_paths = execution_logger::get_predicted_log_paths(
+                args.workflow_id.as_deref(),
+                args.start_from_step.as_deref(),
+                "execute_sequence",
+            );
+
             // Return result
             let mut output = json!({
                 "status": result.result.result.status,
@@ -2907,6 +2928,8 @@ impl DesktopWrapper {
                 "state": result.result.state,
                 "last_step_id": result.result.result.last_step_id,
                 "last_step_index": result.result.result.last_step_index,
+                "execution_log_path": log_paths.json_path,
+                "typescript_snippet_path": log_paths.ts_path,
             });
 
             // If there's data from context.data, add it as parsed_output for CLI compatibility
@@ -2987,7 +3010,7 @@ impl DesktopWrapper {
 
             Ok(CallToolResult {
                 content: contents,
-                is_error: Some(result.result.result.status != "success"),
+                is_error: Some(result.result.result.status != "executed_without_error"),
                 meta: None,
                 structured_content: None,
             })

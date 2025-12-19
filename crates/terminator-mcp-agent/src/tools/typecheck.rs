@@ -101,14 +101,14 @@ fn get_error_context(workflow_path: &Path, error: &TypeError) -> Option<String> 
     let end = (error_idx + 4).min(lines.len());
 
     let mut context_lines = Vec::new();
-    for i in start..end {
+    for (i, line) in lines.iter().enumerate().take(end).skip(start) {
         let line_num = i + 1;
         let marker = if line_num == error.line as usize {
             " -> "
         } else {
             "    "
         };
-        context_lines.push(format!("{}{:>4}: {}", marker, line_num, lines[i]));
+        context_lines.push(format!("{}{:>4}: {}", marker, line_num, line));
     }
 
     Some(context_lines.join("\n"))
@@ -253,7 +253,7 @@ mod tests {
         let test_file = src_dir.join("test.ts");
         let mut file = fs::File::create(&test_file).unwrap();
         writeln!(file, "import {{ foo }} from 'bar';").unwrap();
-        writeln!(file, "").unwrap();
+        writeln!(file).unwrap();
         writeln!(file, "export function test() {{").unwrap();
         writeln!(file, "  const x: string = 123;").unwrap();
         writeln!(file, "  return x;").unwrap();

@@ -293,6 +293,24 @@ pub trait AccessibilityEngine: Send + Sync {
         config: TreeBuildConfig,
     ) -> Result<UINode, AutomationError>;
 
+    /// Build UI tree directly from a UIElement (no PID-based window search needed)
+    ///
+    /// This is more efficient when you already have a reference to the target element,
+    /// as it avoids enumerating all desktop windows which can fail during transient
+    /// UI Automation states.
+    ///
+    /// # Arguments
+    /// * `element` - The UIElement to build tree from (should be a window/pane element)
+    /// * `config` - Configuration for tree building performance and completeness
+    ///
+    /// # Returns
+    /// Complete UI tree starting from the provided element
+    fn get_tree_from_element(
+        &self,
+        element: &UIElement,
+        config: TreeBuildConfig,
+    ) -> Result<UINode, AutomationError>;
+
     /// Enable downcasting to concrete engine types
     fn as_any(&self) -> &dyn std::any::Any;
 }

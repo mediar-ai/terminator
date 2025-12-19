@@ -139,6 +139,56 @@ pub fn is_enabled() -> bool {
     LOGGING_ENABLED.load(Ordering::Relaxed)
 }
 
+/// Predicted paths for execution log files
+#[derive(Debug, Clone)]
+pub struct PredictedLogPaths {
+    /// Path to the JSON execution log
+    pub json_path: String,
+    /// Path to the TypeScript snippet file
+    pub ts_path: String,
+}
+
+/// Get the predicted execution log paths for a tool call
+/// This allows tools to include the log paths in their response before logging happens
+pub fn get_predicted_log_paths(
+    workflow_id: Option<&str>,
+    step_id: Option<&str>,
+    tool_name: &str,
+) -> PredictedLogPaths {
+    if !is_enabled() {
+        return PredictedLogPaths {
+            json_path: String::new(),
+            ts_path: String::new(),
+        };
+    }
+    let timestamp = Local::now();
+    let file_prefix = generate_file_prefix(&timestamp, workflow_id, step_id, tool_name);
+    let dir = match workflow_id {
+        Some(wf_id) => get_workflow_executions_dir(wf_id),
+        None => get_executions_dir(),
+    };
+    PredictedLogPaths {
+        json_path: dir
+            .join(format!("{}.json", file_prefix))
+            .to_string_lossy()
+            .to_string(),
+        ts_path: dir
+            .join(format!("{}.ts", file_prefix))
+            .to_string_lossy()
+            .to_string(),
+    }
+}
+
+/// Get the predicted execution log path for a tool call (legacy, returns only JSON path)
+/// This allows tools to include the log path in their response before logging happens
+pub fn get_predicted_log_path(
+    workflow_id: Option<&str>,
+    step_id: Option<&str>,
+    tool_name: &str,
+) -> String {
+    get_predicted_log_paths(workflow_id, step_id, tool_name).json_path
+}
+
 /// Generate file prefix: YYYYMMDD_HHMMSS_workflowId_stepId_toolName
 fn generate_file_prefix(
     timestamp: &chrono::DateTime<Local>,
@@ -238,7 +288,12 @@ pub fn log_response(ctx: ExecutionContext, result: Result<&Value, &str>, duratio
         tool_name: ctx.tool_name.clone(),
         request: ctx.request,
         response: ExecutionResponse {
-            status: if result.is_ok() { "success" } else { "error" }.to_string(),
+            status: if result.is_ok() {
+                "executed_without_error"
+            } else {
+                "executed_with_error"
+            }
+            .to_string(),
             duration_ms,
             result: clean_result,
             error: result.err().map(String::from),
@@ -338,7 +393,12 @@ pub fn log_response_with_logs(
         tool_name: ctx.tool_name.clone(),
         request: ctx.request,
         response: ExecutionResponse {
-            status: if result.is_ok() { "success" } else { "error" }.to_string(),
+            status: if result.is_ok() {
+                "executed_without_error"
+            } else {
+                "executed_with_error"
+            }
+            .to_string(),
             duration_ms,
             result: clean_result,
             error: result.err().map(String::from),
@@ -647,6 +707,9 @@ pub fn generate_typescript_snippet(
             "const apps = desktop.getApplications();".to_string()
         }
         "execute_browser_script" => generate_execute_browser_script_snippet(args),
+        "stop_highlighting" => generate_stop_highlighting_snippet(args),
+        "stop_execution" => "desktop.stopExecution();".to_string(),
+        "gemini_computer_use" => generate_gemini_computer_use_snippet(args),
         _ => {
             // Comment out ALL lines of the JSON to avoid syntax errors
             let args_json = serde_json::to_string_pretty(args).unwrap_or_default();
@@ -661,6 +724,53 @@ pub fn generate_typescript_snippet(
             )
         }
     };
+
+    // Add verification code for action tools (skip for read-only tools)
+    let action_tools = [
+        "click_element",
+        "type_into_element",
+        "press_key",
+        "press_key_global",
+        "scroll_element",
+        "select_option",
+        "set_value",
+        "set_selected",
+        "invoke_element",
+        "activate_element",
+        "navigate_browser",
+        "open_application",
+    ];
+    if action_tools.contains(&clean_tool) {
+        let verification_code = generate_verification_code(args);
+        if !verification_code.is_empty() {
+            snippet.push_str(&verification_code);
+        }
+    }
+
+    // Wrap in retry loop if retries is specified
+    if let Some(retries) = args.get("retries").and_then(|v| v.as_u64()) {
+        if retries > 0 {
+            let indented_snippet = snippet
+                .lines()
+                .map(|line| format!("    {}", line))
+                .collect::<Vec<_>>()
+                .join("\n");
+            snippet = format!(
+                r#"// Retry up to {} times on failure
+for (let attempt = 0; attempt <= {}; attempt++) {{
+  try {{
+{}
+    break; // Success, exit retry loop
+  }} catch (error) {{
+    if (attempt === {}) throw error; // Last attempt, rethrow
+    console.log(`Attempt ${{attempt + 1}} failed, retrying...`);
+    await sleep(500); // Brief delay before retry
+  }}
+}}"#,
+                retries, retries, indented_snippet, retries
+            );
+        }
+    }
 
     // Add delay if specified - must come BEFORE any "return __stepResult;"
     if delay_ms > 0 {
@@ -737,6 +847,57 @@ fn build_fallback_locator_string(args: &Value, fallback_selector: &str) -> Strin
     format!("\"{}\"", locator)
 }
 
+/// Generate verification code if verify_element_exists or verify_element_not_exists is specified
+fn generate_verification_code(args: &Value) -> String {
+    let mut verification_code = String::new();
+
+    let verify_exists = args
+        .get("verify_element_exists")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let verify_not_exists = args
+        .get("verify_element_not_exists")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let verify_timeout = args
+        .get("verify_timeout_ms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(2000);
+
+    // Get process from various sources (process, browser for navigate_browser, app_name for open_application)
+    let process = args
+        .get("process")
+        .or_else(|| args.get("browser"))
+        .or_else(|| args.get("app_name"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    // Build locator - if process is empty, just use the selector directly
+    let build_locator = |selector: &str| -> String {
+        if process.is_empty() {
+            format!("\"{}\"", selector)
+        } else {
+            format!("\"process:{} >> {}\"", process, selector)
+        }
+    };
+
+    if !verify_exists.is_empty() {
+        verification_code.push_str(&format!(
+            "\n// Verify element exists after action\nawait desktop.locator({}).waitFor({{ timeout: {} }});",
+            build_locator(verify_exists), verify_timeout
+        ));
+    }
+
+    if !verify_not_exists.is_empty() {
+        verification_code.push_str(&format!(
+            "\n// Verify element does NOT exist after action\nawait desktop.locator({}).waitFor({{ state: \"hidden\", timeout: {} }});",
+            build_locator(verify_not_exists), verify_timeout
+        ));
+    }
+
+    verification_code
+}
+
 /// Build ActionOptions object from MCP params (maps to SDK camelCase)
 fn build_action_options(args: &Value) -> String {
     let mut opts = Vec::new();
@@ -787,6 +948,61 @@ fn build_action_options(args: &Value) -> String {
     }
 }
 
+/// Build ClickOptions object from MCP params (extends ActionOptions with restore_cursor)
+fn build_click_options(args: &Value, restore_cursor: bool) -> String {
+    let mut opts = Vec::new();
+
+    // highlightBeforeAction
+    if let Some(true) = args
+        .get("highlight_before_action")
+        .and_then(|v| v.as_bool())
+    {
+        opts.push("highlightBeforeAction: true".to_string());
+    }
+
+    // clickPosition
+    if let Some(pos) = args.get("click_position") {
+        let x = pos.get("x_percentage").and_then(|v| v.as_u64());
+        let y = pos.get("y_percentage").and_then(|v| v.as_u64());
+        if let (Some(x), Some(y)) = (x, y) {
+            if x != 50 || y != 50 {
+                opts.push(format!(
+                    "clickPosition: {{ xPercentage: {}, yPercentage: {} }}",
+                    x, y
+                ));
+            }
+        }
+    }
+
+    // clickType (only if not default "left")
+    if let Some(ct) = args.get("click_type").and_then(|v| v.as_str()) {
+        if ct != "left" {
+            let sdk_type = match ct {
+                "double" => "Double",
+                "right" => "Right",
+                _ => "Left",
+            };
+            opts.push(format!("clickType: \"{}\"", sdk_type));
+        }
+    }
+
+    // uiDiffBeforeAfter
+    if let Some(true) = args.get("ui_diff_before_after").and_then(|v| v.as_bool()) {
+        opts.push("uiDiffBeforeAfter: true".to_string());
+    }
+
+    // restoreCursor (default true, only include if false)
+    if !restore_cursor {
+        opts.push("restoreCursor: false".to_string());
+    }
+
+    if opts.is_empty() {
+        String::new()
+    } else {
+        format!("{{ {} }}", opts.join(", "))
+    }
+}
+
 /// Build TypeTextOptions object from MCP params
 fn build_type_text_options(args: &Value, clear_before_typing: bool) -> String {
     let mut opts = vec![format!("clearBeforeTyping: {}", clear_before_typing)];
@@ -807,6 +1023,16 @@ fn build_type_text_options(args: &Value, clear_before_typing: bool) -> String {
     // tryClickBefore (default true, only include if false)
     if let Some(false) = args.get("try_click_before").and_then(|v| v.as_bool()) {
         opts.push("tryClickBefore: false".to_string());
+    }
+
+    // restoreFocus (default false, only include if true)
+    if let Some(true) = args.get("restore_focus").and_then(|v| v.as_bool()) {
+        opts.push("restoreFocus: true".to_string());
+    }
+
+    // uiDiffBeforeAfter
+    if let Some(true) = args.get("ui_diff_before_after").and_then(|v| v.as_bool()) {
+        opts.push("uiDiffBeforeAfter: true".to_string());
     }
 
     format!("{{ {} }}", opts.join(", "))
@@ -833,9 +1059,34 @@ fn generate_click_snippet(args: &Value) -> String {
 
     if let Some(index) = args.get("index").and_then(|v| v.as_u64()) {
         // Index mode (from get_window_tree)
+        let vision_type = args
+            .get("vision_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("ui_tree");
+        let process = args.get("process").and_then(|v| v.as_str()).unwrap_or("");
+        let click_type = args
+            .get("click_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("left");
+
+        // Map vision_type to SDK method
+        let (tree_method, click_method) = match vision_type {
+            "ocr" => ("getOcrTree", "clickOcrItem"),
+            "omniparser" => ("getOmniparserTree", "clickOmniparserItem"),
+            "gemini" | "vision" => ("getVisionTree", "clickVisionItem"),
+            "dom" => ("getBrowserDom", "clickDomItem"),
+            _ => ("getWindowTree", "clickTreeItem"),
+        };
+
+        let click_opts = match click_type {
+            "double" => ", { clickType: \"Double\" }",
+            "right" => ", { clickType: \"Right\" }",
+            _ => "",
+        };
+
         return format!(
-            "// Index-based click: item #{}\n// Use locator from get_window_tree result",
-            index
+            "// Index-based click using {} tree\nconst tree = await desktop.{}(\"{}\");\nawait desktop.{}(tree, {}{}); // item #{}",
+            vision_type, tree_method, process, click_method, index, click_opts, index
         );
     }
 
@@ -845,9 +1096,36 @@ fn generate_click_snippet(args: &Value) -> String {
         .get("timeout_ms")
         .and_then(|v| v.as_u64())
         .unwrap_or(5000);
+    let restore_cursor = args
+        .get("restore_cursor")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
 
     // Build ActionOptions from MCP params
-    let options = build_action_options(args);
+    let options = build_click_options(args, restore_cursor);
+
+    // Check for alternative_selectors - generate Promise.race if present
+    if let Some(alternatives) = args.get("alternative_selectors").and_then(|v| v.as_str()) {
+        if !alternatives.is_empty() {
+            let process = args.get("process").and_then(|v| v.as_str()).unwrap_or("");
+            let alt_selectors: Vec<&str> = alternatives.split(',').map(|s| s.trim()).collect();
+            let mut race_parts = vec![format!("desktop.locator({}).first({})", locator, timeout)];
+            for alt in alt_selectors {
+                if !alt.is_empty() {
+                    race_parts.push(format!(
+                        "desktop.locator(\"process:{} >> {}\").first({})",
+                        process, alt, timeout
+                    ));
+                }
+            }
+            return format!(
+                "// Racing {} selectors in parallel\nconst element = await Promise.race([\n  {}\n]);\nawait element.click({});",
+                race_parts.len(),
+                race_parts.join(",\n  "),
+                options
+            );
+        }
+    }
 
     // Check for fallback_selectors - generate try/catch if present
     if let Some(fallback) = args.get("fallback_selectors").and_then(|v| v.as_str()) {
@@ -943,7 +1221,34 @@ fn generate_press_key_snippet(args: &Value) -> String {
         .get("timeout_ms")
         .and_then(|v| v.as_u64())
         .unwrap_or(5000);
-    let options = build_action_options(args);
+
+    // Build options including action options and press_key specific options
+    let mut opts = Vec::new();
+
+    // Action options
+    if let Some(true) = args
+        .get("highlight_before_action")
+        .and_then(|v| v.as_bool())
+    {
+        opts.push("highlightBeforeAction: true".to_string());
+    }
+    if let Some(true) = args.get("ui_diff_before_after").and_then(|v| v.as_bool()) {
+        opts.push("uiDiffBeforeAfter: true".to_string());
+    }
+
+    // Press key specific options (default true, only include if false)
+    if let Some(false) = args.get("try_focus_before").and_then(|v| v.as_bool()) {
+        opts.push("tryFocusBefore: false".to_string());
+    }
+    if let Some(false) = args.get("try_click_before").and_then(|v| v.as_bool()) {
+        opts.push("tryClickBefore: false".to_string());
+    }
+
+    let options = if opts.is_empty() {
+        String::new()
+    } else {
+        format!("{{ {} }}", opts.join(", "))
+    };
 
     format!(
         "const element = await desktop.locator({}).first({});\nawait element.pressKey(\"{}\"{});",
@@ -999,6 +1304,7 @@ fn generate_navigate_browser_snippet(args: &Value) -> String {
 /// Generate get_window_tree snippet
 fn generate_get_window_tree_snippet(args: &Value) -> String {
     let process = args.get("process").and_then(|v| v.as_str()).unwrap_or("");
+    let title = args.get("title").and_then(|v| v.as_str());
     let include_gemini = args
         .get("include_gemini_vision")
         .and_then(|v| v.as_bool())
@@ -1016,6 +1322,15 @@ fn generate_get_window_tree_snippet(args: &Value) -> String {
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let tree_output_format = args.get("tree_output_format").and_then(|v| v.as_str());
+    let tree_max_depth = args.get("tree_max_depth").and_then(|v| v.as_u64());
+    let tree_from_selector = args.get("tree_from_selector").and_then(|v| v.as_str());
+    let include_detailed_attributes = args
+        .get("include_detailed_attributes")
+        .and_then(|v| v.as_bool());
+    let show_overlay = args.get("show_overlay").and_then(|v| v.as_str());
+    let browser_dom_max_elements = args
+        .get("browser_dom_max_elements")
+        .and_then(|v| v.as_u64());
 
     // Build config options
     let mut config_parts = vec!["propertyMode: \"Fast\"".to_string()];
@@ -1040,19 +1355,44 @@ fn generate_get_window_tree_snippet(args: &Value) -> String {
         };
         config_parts.push(format!("treeOutputFormat: {}", format_value));
     }
+    if let Some(depth) = tree_max_depth {
+        config_parts.push(format!("maxDepth: {}", depth));
+    }
+    if let Some(selector) = tree_from_selector {
+        if !selector.is_empty() {
+            config_parts.push(format!("treeFromSelector: \"{}\"", selector));
+        }
+    }
+    if let Some(detailed) = include_detailed_attributes {
+        config_parts.push(format!("includeDetailedAttributes: {}", detailed));
+    }
+    if let Some(overlay) = show_overlay {
+        if !overlay.is_empty() {
+            config_parts.push(format!("showOverlay: \"{}\"", overlay));
+        }
+    }
+    if let Some(max_elements) = browser_dom_max_elements {
+        config_parts.push(format!("browserDomMaxElements: {}", max_elements));
+    }
 
     let config = format!("{{ {} }}", config_parts.join(", "));
+
+    // Build title filter if specified
+    let title_arg = title
+        .filter(|t| !t.is_empty())
+        .map(|t| format!("\"{}\"", t))
+        .unwrap_or_else(|| "null".to_string());
 
     // Use async method when vision options are present
     if include_gemini || include_omniparser || include_ocr || include_browser_dom {
         format!(
-            "const result = await desktop.getWindowTreeResultAsync(\"{}\", null, {});\nconsole.log(result.formatted);",
-            process, config
+            "const result = await desktop.getWindowTreeResultAsync(\"{}\", {}, {});\nconsole.log(result.formatted);",
+            process, title_arg, config
         )
     } else {
         format!(
-            "const result = desktop.getWindowTreeResult(\"{}\", null, {});\nconsole.log(result.formatted);",
-            process, config
+            "const result = desktop.getWindowTreeResult(\"{}\", {}, {});\nconsole.log(result.formatted);",
+            process, title_arg, config
         )
     }
 }
@@ -1061,6 +1401,7 @@ fn generate_get_window_tree_snippet(args: &Value) -> String {
 fn generate_capture_screenshot_snippet(args: &Value) -> String {
     let process = args.get("process").and_then(|v| v.as_str()).unwrap_or("");
     let selector = args.get("selector").and_then(|v| v.as_str());
+    let window_selector = args.get("window_selector").and_then(|v| v.as_str());
     let entire_monitor = args
         .get("entire_monitor")
         .and_then(|v| v.as_bool())
@@ -1081,16 +1422,22 @@ fn generate_capture_screenshot_snippet(args: &Value) -> String {
         }
     }
 
+    // Build window selector arg if specified
+    let window_arg = window_selector
+        .filter(|ws| !ws.is_empty())
+        .map(|ws| format!("\"{}\"", ws))
+        .unwrap_or_else(|| "null".to_string());
+
     // Window or monitor screenshot via desktop method
     if entire_monitor {
         format!(
-            "const screenshot = await desktop.captureScreenshot(\"{}\", null, true, {});",
-            process, timeout
+            "const screenshot = await desktop.captureScreenshot(\"{}\", {}, true, {});",
+            process, window_arg, timeout
         )
     } else {
         format!(
-            "const screenshot = await desktop.captureScreenshot(\"{}\", null, false, {});",
-            process, timeout
+            "const screenshot = await desktop.captureScreenshot(\"{}\", {}, false, {});",
+            process, window_arg, timeout
         )
     }
 }
@@ -1425,6 +1772,33 @@ fn looks_like_javascript_code(code: &str) -> bool {
 fn generate_run_command_snippet(args: &Value) -> String {
     let run = args.get("run").and_then(|v| v.as_str()).unwrap_or("");
     let engine = args.get("engine").and_then(|v| v.as_str());
+    let shell = args.get("shell").and_then(|v| v.as_str());
+    let working_directory = args.get("working_directory").and_then(|v| v.as_str());
+    let script_file = args.get("script_file").and_then(|v| v.as_str());
+    let env = args.get("env");
+
+    // If script_file is provided, generate file-loading code
+    if let Some(file) = script_file {
+        if !file.is_empty() {
+            let escaped_file = file.replace('\\', "\\\\");
+            let mut code = format!(
+                "const fs = require('fs');\nconst scriptContent = fs.readFileSync(\"{}\", 'utf8');",
+                escaped_file
+            );
+            // Add env variables if provided
+            if let Some(env_obj) = env.and_then(|v| v.as_object()) {
+                for (key, value) in env_obj {
+                    let val_str = match value {
+                        serde_json::Value::String(s) => format!("\"{}\"", s.replace('"', "\\\"")),
+                        _ => value.to_string(),
+                    };
+                    code.push_str(&format!("\nconst {} = {};", key, val_str));
+                }
+            }
+            code.push_str("\neval(scriptContent);");
+            return code;
+        }
+    }
 
     // Determine if this is shell code:
     // 1. Explicit engine set to shell/bash/cmd/powershell
@@ -1442,16 +1816,29 @@ fn generate_run_command_snippet(args: &Value) -> String {
         || run.contains("fs.readFileSync")
         || run.contains("fs.writeFileSync");
 
-    // Shell command mode - wrap in desktop.runCommand() but NO var transformations
-    // (shell scripts don't use env.xxx or outputs.xxx - they use $ENV_VAR)
+    // Shell command mode - wrap in desktop.run() with shell and working_directory
     if is_shell && !needs_node_runtime {
         let escaped_run = run
             .replace('\\', "\\\\")
             .replace('`', "\\`")
             .replace('$', "\\$");
+
+        // Build desktop.run() call with optional shell and working_directory
+        let shell_arg = shell.map(|s| format!(", \"{}\"", s)).unwrap_or_default();
+        let wd_arg = if let Some(wd) = working_directory {
+            let wd_escaped = wd.replace('\\', "\\\\");
+            if shell.is_some() {
+                format!(", \"{}\"", wd_escaped)
+            } else {
+                format!(", null, \"{}\"", wd_escaped)
+            }
+        } else {
+            String::new()
+        };
+
         return format!(
-            "const result = await desktop.runCommand(`{}`);\nreturn result;",
-            escaped_run
+            "const result = await desktop.run(`{}`{}{});\nreturn result;",
+            escaped_run, shell_arg, wd_arg
         );
     }
 
@@ -1529,9 +1916,21 @@ fn generate_mouse_drag_snippet(args: &Value) -> String {
         .get("timeout_ms")
         .and_then(|v| v.as_u64())
         .unwrap_or(5000);
+    let options = build_action_options(args);
+
     format!(
-        "const element = await desktop.locator({}).first({});\nelement.mouseDrag({}, {}, {}, {});",
-        locator, timeout, start_x, start_y, end_x, end_y
+        "const element = await desktop.locator({}).first({});\nelement.mouseDrag({}, {}, {}, {}{});",
+        locator,
+        timeout,
+        start_x,
+        start_y,
+        end_x,
+        end_y,
+        if options.is_empty() {
+            String::new()
+        } else {
+            format!(", {}", options)
+        }
     )
 }
 
@@ -1649,10 +2048,39 @@ fn generate_highlight_snippet(args: &Value) -> String {
         .unwrap_or(5000);
     let color = args.get("color").and_then(|v| v.as_u64());
     let duration = args.get("duration_ms").and_then(|v| v.as_u64());
+    let text = args.get("text").and_then(|v| v.as_str());
+    let text_position = args.get("text_position").and_then(|v| v.as_str());
+    let font_size = args.get("font_size").and_then(|v| v.as_u64());
+    let font_bold = args.get("font_bold").and_then(|v| v.as_bool());
+    let font_color = args.get("font_color").and_then(|v| v.as_u64());
 
-    if color.is_some() || duration.is_some() {
+    // Build options object if any text options are specified
+    let mut opts = Vec::new();
+    if let Some(t) = text {
+        opts.push(format!("text: \"{}\"", t.replace('"', "\\\"")));
+    }
+    if let Some(pos) = text_position {
+        opts.push(format!("textPosition: \"{}\"", pos));
+    }
+    if let Some(size) = font_size {
+        opts.push(format!("fontSize: {}", size));
+    }
+    if let Some(bold) = font_bold {
+        opts.push(format!("fontBold: {}", bold));
+    }
+    if let Some(fc) = font_color {
+        opts.push(format!("fontColor: {}", fc));
+    }
+
+    let options_str = if opts.is_empty() {
+        String::new()
+    } else {
+        format!(", {{ {} }}", opts.join(", "))
+    };
+
+    if color.is_some() || duration.is_some() || !opts.is_empty() {
         format!(
-            "const element = await desktop.locator({}).first({});\nelement.highlight({}, {});",
+            "const element = await desktop.locator({}).first({});\nelement.highlight({}, {}{});",
             locator,
             timeout,
             color
@@ -1660,7 +2088,8 @@ fn generate_highlight_snippet(args: &Value) -> String {
                 .unwrap_or("undefined".to_string()),
             duration
                 .map(|d| d.to_string())
-                .unwrap_or("undefined".to_string())
+                .unwrap_or("undefined".to_string()),
+            options_str
         )
     } else {
         format!(
@@ -1877,6 +2306,41 @@ fn extract_iife_body(script: &str) -> String {
 
     // Not an IIFE - return as-is (will be wrapped in async function)
     trimmed.to_string()
+}
+
+/// Generate stop_highlighting snippet
+fn generate_stop_highlighting_snippet(args: &Value) -> String {
+    // Check if a specific highlight_id is provided
+    if let Some(id) = args.get("highlight_id").and_then(|v| v.as_str()) {
+        if !id.is_empty() {
+            return format!(
+                "// Stop specific highlight: {}\ndesktop.stopHighlighting();",
+                id
+            );
+        }
+    }
+    "desktop.stopHighlighting();".to_string()
+}
+
+/// Generate gemini_computer_use snippet
+fn generate_gemini_computer_use_snippet(args: &Value) -> String {
+    let process = args
+        .get("process")
+        .and_then(|v| v.as_str())
+        .unwrap_or("chrome");
+    let goal = args.get("goal").and_then(|v| v.as_str()).unwrap_or("");
+    let max_steps = args.get("max_steps").and_then(|v| v.as_u64()).unwrap_or(20);
+
+    // Escape goal string for JavaScript
+    let escaped_goal = goal
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n");
+
+    format!(
+        r#"const result = await desktop.geminiComputerUse("{}", "{}", {});"#,
+        process, escaped_goal, max_steps
+    )
 }
 
 /// Clean up execution logs older than RETENTION_DAYS in a single directory
