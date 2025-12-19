@@ -10004,10 +10004,7 @@ impl ServerHandler for DesktopWrapper {
                 if mode == "ask" {
                     let blocked_guard = self.blocked_tools.lock().await;
                     if blocked_guard.contains(&tool_name) {
-                        tracing::info!(
-                            "[call_tool] Blocked tool '{}' in Ask mode",
-                            tool_name
-                        );
+                        tracing::info!("[call_tool] Blocked tool '{}' in Ask mode", tool_name);
                         return Err(McpError::invalid_request(
                             format!(
                                 "Tool '{}' is blocked in Ask mode. Ask user to switch to Act mode to execute this action.",
