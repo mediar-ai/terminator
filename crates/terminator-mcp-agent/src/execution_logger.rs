@@ -288,7 +288,12 @@ pub fn log_response(ctx: ExecutionContext, result: Result<&Value, &str>, duratio
         tool_name: ctx.tool_name.clone(),
         request: ctx.request,
         response: ExecutionResponse {
-            status: if result.is_ok() { "executed_without_error" } else { "executed_with_error" }.to_string(),
+            status: if result.is_ok() {
+                "executed_without_error"
+            } else {
+                "executed_with_error"
+            }
+            .to_string(),
             duration_ms,
             result: clean_result,
             error: result.err().map(String::from),
@@ -388,7 +393,12 @@ pub fn log_response_with_logs(
         tool_name: ctx.tool_name.clone(),
         request: ctx.request,
         response: ExecutionResponse {
-            status: if result.is_ok() { "executed_without_error" } else { "executed_with_error" }.to_string(),
+            status: if result.is_ok() {
+                "executed_without_error"
+            } else {
+                "executed_with_error"
+            }
+            .to_string(),
             duration_ms,
             result: clean_result,
             error: result.err().map(String::from),
@@ -1638,15 +1648,13 @@ fn generate_run_command_snippet(args: &Value) -> String {
             .replace('$', "\\$");
 
         // Build desktop.run() call with optional shell and working_directory
-        let shell_arg = shell
-            .map(|s| format!(", \"{}\"", s))
-            .unwrap_or_default();
-        let wd_arg = if working_directory.is_some() {
-            let wd = working_directory.unwrap().replace('\\', "\\\\");
+        let shell_arg = shell.map(|s| format!(", \"{}\"", s)).unwrap_or_default();
+        let wd_arg = if let Some(wd) = working_directory {
+            let wd_escaped = wd.replace('\\', "\\\\");
             if shell.is_some() {
-                format!(", \"{}\"", wd)
+                format!(", \"{}\"", wd_escaped)
             } else {
-                format!(", null, \"{}\"", wd)
+                format!(", null, \"{}\"", wd_escaped)
             }
         } else {
             String::new()
@@ -2087,7 +2095,10 @@ fn generate_stop_highlighting_snippet(args: &Value) -> String {
     // Check if a specific highlight_id is provided
     if let Some(id) = args.get("highlight_id").and_then(|v| v.as_str()) {
         if !id.is_empty() {
-            return format!("// Stop specific highlight: {}\ndesktop.stopHighlighting();", id);
+            return format!(
+                "// Stop specific highlight: {}\ndesktop.stopHighlighting();",
+                id
+            );
         }
     }
     "desktop.stopHighlighting();".to_string()
@@ -2099,14 +2110,8 @@ fn generate_gemini_computer_use_snippet(args: &Value) -> String {
         .get("process")
         .and_then(|v| v.as_str())
         .unwrap_or("chrome");
-    let goal = args
-        .get("goal")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let max_steps = args
-        .get("max_steps")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(20);
+    let goal = args.get("goal").and_then(|v| v.as_str()).unwrap_or("");
+    let max_steps = args.get("max_steps").and_then(|v| v.as_u64()).unwrap_or(20);
 
     // Escape goal string for JavaScript
     let escaped_goal = goal
