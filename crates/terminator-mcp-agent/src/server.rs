@@ -9449,20 +9449,6 @@ impl DesktopWrapper {
         #[cfg(not(target_os = "windows"))]
         let saved_focus: Option<()> = None;
 
-        // CURSOR RESTORATION: Save cursor state BEFORE any operations if restore_cursor is requested
-        // Only needed for click operations that move the mouse
-        #[cfg(target_os = "windows")]
-        let saved_cursor = if window_mgmt_opts.restore_cursor.unwrap_or(false) {
-            tracing::debug!(
-                "[CURSOR_RESTORE] dispatch_tool: saving cursor state BEFORE tool execution"
-            );
-            Some(terminator::platforms::windows::save_cursor_state())
-        } else {
-            None
-        };
-        #[cfg(not(target_os = "windows"))]
-        let saved_cursor: Option<()> = None;
-
         // Perform window management if needed
         if let Some(ref process) = process_name {
             let _ = self
@@ -10038,15 +10024,6 @@ impl DesktopWrapper {
             terminator::platforms::windows::restore_focus_state(state);
         }
 
-        // CURSOR RESTORATION: Restore cursor state after tool execution if we saved it
-        #[cfg(target_os = "windows")]
-        if let Some(state) = saved_cursor {
-            tracing::debug!(
-                "[CURSOR_RESTORE] dispatch_tool: restoring cursor state after tool execution"
-            );
-            terminator::platforms::windows::restore_cursor_state(state);
-        }
-
         result
     }
 }
@@ -10140,17 +10117,6 @@ impl ServerHandler for DesktopWrapper {
         #[cfg(not(target_os = "windows"))]
         let saved_focus: Option<()> = None;
 
-        // CURSOR RESTORATION: Save cursor state BEFORE tool execution if restore_cursor is requested
-        #[cfg(target_os = "windows")]
-        let saved_cursor = if window_mgmt_opts.restore_cursor.unwrap_or(false) {
-            tracing::debug!("[CURSOR_RESTORE] call_tool: saving cursor state BEFORE tool execution");
-            Some(terminator::platforms::windows::save_cursor_state())
-        } else {
-            None
-        };
-        #[cfg(not(target_os = "windows"))]
-        let saved_cursor: Option<()> = None;
-
         // Execute the tool via router
         let tcc = ToolCallContext::new(self, request, context);
         let result = self.tool_router.call(tcc).await;
@@ -10162,15 +10128,6 @@ impl ServerHandler for DesktopWrapper {
                 "[FOCUS_RESTORE] call_tool: restoring focus state after tool execution"
             );
             terminator::platforms::windows::restore_focus_state(state);
-        }
-
-        // CURSOR RESTORATION: Restore cursor state after tool execution if we saved it
-        #[cfg(target_os = "windows")]
-        if let Some(state) = saved_cursor {
-            tracing::debug!(
-                "[CURSOR_RESTORE] call_tool: restoring cursor state after tool execution"
-            );
-            terminator::platforms::windows::restore_cursor_state(state);
         }
 
         // Get stderr logs from TypeScript workflow execution (if any)
