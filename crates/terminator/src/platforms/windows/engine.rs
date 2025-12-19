@@ -3994,6 +3994,61 @@ impl AccessibilityEngine for WindowsEngine {
         Ok(result)
     }
 
+    fn get_tree_from_element(
+        &self,
+        element: &UIElement,
+        config: crate::platforms::TreeBuildConfig,
+    ) -> Result<crate::UINode, AutomationError> {
+        info!(
+            "Building UI tree directly from element (role: {})",
+            element.role()
+        );
+
+        // Get PID from element for application name lookup
+        let pid = element.process_id().ok();
+
+        // Get application name from process using sysinfo
+        let application_name = pid.and_then(|p| {
+            use sysinfo::{ProcessesToUpdate, System};
+            let mut system = System::new();
+            system.refresh_processes(ProcessesToUpdate::All, true);
+            system
+                .process(sysinfo::Pid::from_u32(p))
+                .map(|proc| proc.name().to_string_lossy().to_string())
+        });
+
+        // Use configured tree building approach
+        let mut context = TreeBuildingContext {
+            config: TreeBuildingConfig {
+                timeout_per_operation_ms: config.timeout_per_operation_ms.unwrap_or(50),
+                yield_every_n_elements: config.yield_every_n_elements.unwrap_or(50),
+                batch_size: config.batch_size.unwrap_or(50),
+                max_depth: config.max_depth.or(Some(500)),
+            },
+            property_mode: config.property_mode.clone(),
+            elements_processed: 0,
+            max_depth_reached: 0,
+            cache_hits: 0,
+            fallback_calls: 0,
+            errors_encountered: 0,
+            application_name,
+            include_all_bounds: config.include_all_bounds,
+        };
+
+        let result = build_ui_node_tree_configurable(element, 0, &mut context, vec![])?;
+
+        info!(
+            "Tree building from element completed. Stats: elements={}, depth={}, cache_hits={}, fallbacks={}, errors={}",
+            context.elements_processed,
+            context.max_depth_reached,
+            context.cache_hits,
+            context.fallback_calls,
+            context.errors_encountered
+        );
+
+        Ok(result)
+    }
+
     fn press_key(&self, key: &str) -> Result<(), AutomationError> {
         // Use global keyboard simulation directly (works without focused element)
         use uiautomation::inputs::Keyboard;
