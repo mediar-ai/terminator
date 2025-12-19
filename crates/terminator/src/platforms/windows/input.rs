@@ -162,12 +162,6 @@ pub struct FocusState {
 unsafe impl Send for FocusState {}
 unsafe impl Sync for FocusState {}
 
-/// Cursor state for mouse position restoration (separate from keyboard focus)
-#[derive(Debug, Clone, Copy)]
-pub struct CursorState {
-    pub mouse_pos: POINT,
-}
-
 /// Save the current focus state including focused element and caret position.
 ///
 /// Returns None if focus state cannot be saved (e.g., no focused element).
@@ -279,28 +273,5 @@ pub fn restore_focus_state(state: FocusState) {
             element_name,
             state.caret_range.is_some()
         );
-    }
-}
-
-/// Save the current cursor (mouse) position.
-pub fn save_cursor_state() -> CursorState {
-    let mut mouse_pos = POINT { x: 0, y: 0 };
-    unsafe {
-        let _ = GetCursorPos(&mut mouse_pos);
-    }
-    info!("[CURSOR_RESTORE] Saved cursor position: ({}, {})", mouse_pos.x, mouse_pos.y);
-    CursorState { mouse_pos }
-}
-
-/// Restore a previously saved cursor (mouse) position.
-pub fn restore_cursor_state(state: CursorState) {
-    unsafe {
-        match SetCursorPos(state.mouse_pos.x, state.mouse_pos.y) {
-            Ok(_) => info!(
-                "[CURSOR_RESTORE] SetCursorPos({}, {}) succeeded",
-                state.mouse_pos.x, state.mouse_pos.y
-            ),
-            Err(e) => info!("[CURSOR_RESTORE] SetCursorPos failed: {:?}", e),
-        }
     }
 }
