@@ -2132,7 +2132,11 @@ impl DesktopWrapper {
 
             // Decide next index based on success or fallback
             let step_succeeded = !step_error_occurred;
-            let step_status_str = if step_succeeded { "executed_without_error" } else { "executed_with_error" };
+            let step_status_str = if step_succeeded {
+                "executed_without_error"
+            } else {
+                "executed_with_error"
+            };
             if let Some(tool_name) = original_step.and_then(|s| s.tool_name.as_ref()) {
                 info!(
                     "Step {} END tool='{}' id='{}' status={}",
