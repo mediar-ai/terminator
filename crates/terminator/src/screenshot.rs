@@ -212,10 +212,12 @@ impl ScreenshotResult {
         let scale = ((w as f32 / 1000.0) * 21.0).clamp(20.0, 100.0) / 21.0;
         let scale_i = |v: i32| -> i32 { (v as f32 * scale).round() as i32 };
 
-        // Colors in BGRA format (Windows screenshot format)
-        let red_bgra: [u8; 4] = [40, 40, 220, 255]; // Bright red fill (BGR)
-        let dark_bgra: [u8; 4] = [0, 0, 80, 255]; // Dark red outline (BGR)
-        let white_bgra: [u8; 4] = [255, 255, 255, 255]; // White outer outline
+        // Colors - xcap returns BGRA on Windows, but save converts to RGBA
+        // So we write in BGRA: [B, G, R, A]
+        // Pure red in BGRA = [0, 0, 255, 255]
+        let red_color: [u8; 4] = [0, 0, 255, 255]; // Pure red (BGRA)
+        let dark_color: [u8; 4] = [0, 0, 139, 255]; // Dark red outline (BGRA)
+        let white_color: [u8; 4] = [255, 255, 255, 255]; // White outer outline
 
         // Classic arrow cursor shape - 21 pixels tall at scale 1.0
         // Each row: (y_offset, x_start, x_end) - x_end is exclusive
@@ -266,7 +268,7 @@ impl ScreenshotResult {
                 let x_base_end = x + scale_i(x_end) + outline_px;
 
                 for px in x_base_start..x_base_end {
-                    set_pixel(&mut self.image_data, px, py, w, white_bgra);
+                    set_pixel(&mut self.image_data, px, py, w, white_color);
                 }
             }
         }
@@ -289,7 +291,7 @@ impl ScreenshotResult {
                         || dy == 0
                         || dy == 20;
 
-                    let color = if is_outline { dark_bgra } else { red_bgra };
+                    let color = if is_outline { dark_color } else { red_color };
                     set_pixel(&mut self.image_data, px, py, w, color);
                 }
             }
