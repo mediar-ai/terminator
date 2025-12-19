@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.8] - 2025-12-19
+
+### Changed
+- MCP: Install `@mediar-ai/workflow` and `@mediar-ai/kv` packages alongside terminator
+
+
 ## [0.24.7] - 2025-12-19
 
 ### Added
