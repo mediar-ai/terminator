@@ -747,6 +747,31 @@ pub fn generate_typescript_snippet(
         }
     }
 
+    // Wrap in retry loop if retries is specified
+    if let Some(retries) = args.get("retries").and_then(|v| v.as_u64()) {
+        if retries > 0 {
+            let indented_snippet = snippet
+                .lines()
+                .map(|line| format!("    {}", line))
+                .collect::<Vec<_>>()
+                .join("\n");
+            snippet = format!(
+                r#"// Retry up to {} times on failure
+for (let attempt = 0; attempt <= {}; attempt++) {{
+  try {{
+{}
+    break; // Success, exit retry loop
+  }} catch (error) {{
+    if (attempt === {}) throw error; // Last attempt, rethrow
+    console.log(`Attempt ${{attempt + 1}} failed, retrying...`);
+    await sleep(500); // Brief delay before retry
+  }}
+}}"#,
+                retries, retries, indented_snippet, retries
+            );
+        }
+    }
+
     // Add delay if specified - must come BEFORE any "return __stepResult;"
     if delay_ms > 0 {
         let sleep_code = format!("await sleep({});", delay_ms);
@@ -907,6 +932,61 @@ fn build_action_options(args: &Value) -> String {
     }
 }
 
+/// Build ClickOptions object from MCP params (extends ActionOptions with restore_cursor)
+fn build_click_options(args: &Value, restore_cursor: bool) -> String {
+    let mut opts = Vec::new();
+
+    // highlightBeforeAction
+    if let Some(true) = args
+        .get("highlight_before_action")
+        .and_then(|v| v.as_bool())
+    {
+        opts.push("highlightBeforeAction: true".to_string());
+    }
+
+    // clickPosition
+    if let Some(pos) = args.get("click_position") {
+        let x = pos.get("x_percentage").and_then(|v| v.as_u64());
+        let y = pos.get("y_percentage").and_then(|v| v.as_u64());
+        if let (Some(x), Some(y)) = (x, y) {
+            if x != 50 || y != 50 {
+                opts.push(format!(
+                    "clickPosition: {{ xPercentage: {}, yPercentage: {} }}",
+                    x, y
+                ));
+            }
+        }
+    }
+
+    // clickType (only if not default "left")
+    if let Some(ct) = args.get("click_type").and_then(|v| v.as_str()) {
+        if ct != "left" {
+            let sdk_type = match ct {
+                "double" => "Double",
+                "right" => "Right",
+                _ => "Left",
+            };
+            opts.push(format!("clickType: \"{}\"", sdk_type));
+        }
+    }
+
+    // uiDiffBeforeAfter
+    if let Some(true) = args.get("ui_diff_before_after").and_then(|v| v.as_bool()) {
+        opts.push("uiDiffBeforeAfter: true".to_string());
+    }
+
+    // restoreCursor (default true, only include if false)
+    if !restore_cursor {
+        opts.push("restoreCursor: false".to_string());
+    }
+
+    if opts.is_empty() {
+        String::new()
+    } else {
+        format!("{{ {} }}", opts.join(", "))
+    }
+}
+
 /// Build TypeTextOptions object from MCP params
 fn build_type_text_options(args: &Value, clear_before_typing: bool) -> String {
     let mut opts = vec![format!("clearBeforeTyping: {}", clear_before_typing)];
@@ -1000,9 +1080,36 @@ fn generate_click_snippet(args: &Value) -> String {
         .get("timeout_ms")
         .and_then(|v| v.as_u64())
         .unwrap_or(5000);
+    let restore_cursor = args
+        .get("restore_cursor")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
 
     // Build ActionOptions from MCP params
-    let options = build_action_options(args);
+    let options = build_click_options(args, restore_cursor);
+
+    // Check for alternative_selectors - generate Promise.race if present
+    if let Some(alternatives) = args.get("alternative_selectors").and_then(|v| v.as_str()) {
+        if !alternatives.is_empty() {
+            let process = args.get("process").and_then(|v| v.as_str()).unwrap_or("");
+            let alt_selectors: Vec<&str> = alternatives.split(',').map(|s| s.trim()).collect();
+            let mut race_parts = vec![format!("desktop.locator({}).first({})", locator, timeout)];
+            for alt in alt_selectors {
+                if !alt.is_empty() {
+                    race_parts.push(format!(
+                        "desktop.locator(\"process:{} >> {}\").first({})",
+                        process, alt, timeout
+                    ));
+                }
+            }
+            return format!(
+                "// Racing {} selectors in parallel\nconst element = await Promise.race([\n  {}\n]);\nawait element.click({});",
+                race_parts.len(),
+                race_parts.join(",\n  "),
+                options
+            );
+        }
+    }
 
     // Check for fallback_selectors - generate try/catch if present
     if let Some(fallback) = args.get("fallback_selectors").and_then(|v| v.as_str()) {
