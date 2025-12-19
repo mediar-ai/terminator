@@ -863,19 +863,35 @@ fn generate_verification_code(args: &Value) -> String {
         .get("verify_timeout_ms")
         .and_then(|v| v.as_u64())
         .unwrap_or(2000);
-    let process = args.get("process").and_then(|v| v.as_str()).unwrap_or("");
+
+    // Get process from various sources (process, browser for navigate_browser, app_name for open_application)
+    let process = args
+        .get("process")
+        .or_else(|| args.get("browser"))
+        .or_else(|| args.get("app_name"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    // Build locator - if process is empty, just use the selector directly
+    let build_locator = |selector: &str| -> String {
+        if process.is_empty() {
+            format!("\"{}\"", selector)
+        } else {
+            format!("\"process:{} >> {}\"", process, selector)
+        }
+    };
 
     if !verify_exists.is_empty() {
         verification_code.push_str(&format!(
-            "\n// Verify element exists after action\nawait desktop.locator(\"process:{} >> {}\").waitFor({{ timeout: {} }});",
-            process, verify_exists, verify_timeout
+            "\n// Verify element exists after action\nawait desktop.locator({}).waitFor({{ timeout: {} }});",
+            build_locator(verify_exists), verify_timeout
         ));
     }
 
     if !verify_not_exists.is_empty() {
         verification_code.push_str(&format!(
-            "\n// Verify element does NOT exist after action\nawait desktop.locator(\"process:{} >> {}\").waitFor({{ state: \"hidden\", timeout: {} }});",
-            process, verify_not_exists, verify_timeout
+            "\n// Verify element does NOT exist after action\nawait desktop.locator({}).waitFor({{ state: \"hidden\", timeout: {} }});",
+            build_locator(verify_not_exists), verify_timeout
         ));
     }
 
@@ -1205,7 +1221,34 @@ fn generate_press_key_snippet(args: &Value) -> String {
         .get("timeout_ms")
         .and_then(|v| v.as_u64())
         .unwrap_or(5000);
-    let options = build_action_options(args);
+
+    // Build options including action options and press_key specific options
+    let mut opts = Vec::new();
+
+    // Action options
+    if let Some(true) = args
+        .get("highlight_before_action")
+        .and_then(|v| v.as_bool())
+    {
+        opts.push("highlightBeforeAction: true".to_string());
+    }
+    if let Some(true) = args.get("ui_diff_before_after").and_then(|v| v.as_bool()) {
+        opts.push("uiDiffBeforeAfter: true".to_string());
+    }
+
+    // Press key specific options (default true, only include if false)
+    if let Some(false) = args.get("try_focus_before").and_then(|v| v.as_bool()) {
+        opts.push("tryFocusBefore: false".to_string());
+    }
+    if let Some(false) = args.get("try_click_before").and_then(|v| v.as_bool()) {
+        opts.push("tryClickBefore: false".to_string());
+    }
+
+    let options = if opts.is_empty() {
+        String::new()
+    } else {
+        format!("{{ {} }}", opts.join(", "))
+    };
 
     format!(
         "const element = await desktop.locator({}).first({});\nawait element.pressKey(\"{}\"{});",
@@ -1873,9 +1916,21 @@ fn generate_mouse_drag_snippet(args: &Value) -> String {
         .get("timeout_ms")
         .and_then(|v| v.as_u64())
         .unwrap_or(5000);
+    let options = build_action_options(args);
+
     format!(
-        "const element = await desktop.locator({}).first({});\nelement.mouseDrag({}, {}, {}, {});",
-        locator, timeout, start_x, start_y, end_x, end_y
+        "const element = await desktop.locator({}).first({});\nelement.mouseDrag({}, {}, {}, {}{});",
+        locator,
+        timeout,
+        start_x,
+        start_y,
+        end_x,
+        end_y,
+        if options.is_empty() {
+            String::new()
+        } else {
+            format!(", {}", options)
+        }
     )
 }
 
@@ -1993,10 +2048,39 @@ fn generate_highlight_snippet(args: &Value) -> String {
         .unwrap_or(5000);
     let color = args.get("color").and_then(|v| v.as_u64());
     let duration = args.get("duration_ms").and_then(|v| v.as_u64());
+    let text = args.get("text").and_then(|v| v.as_str());
+    let text_position = args.get("text_position").and_then(|v| v.as_str());
+    let font_size = args.get("font_size").and_then(|v| v.as_u64());
+    let font_bold = args.get("font_bold").and_then(|v| v.as_bool());
+    let font_color = args.get("font_color").and_then(|v| v.as_u64());
 
-    if color.is_some() || duration.is_some() {
+    // Build options object if any text options are specified
+    let mut opts = Vec::new();
+    if let Some(t) = text {
+        opts.push(format!("text: \"{}\"", t.replace('"', "\\\"")));
+    }
+    if let Some(pos) = text_position {
+        opts.push(format!("textPosition: \"{}\"", pos));
+    }
+    if let Some(size) = font_size {
+        opts.push(format!("fontSize: {}", size));
+    }
+    if let Some(bold) = font_bold {
+        opts.push(format!("fontBold: {}", bold));
+    }
+    if let Some(fc) = font_color {
+        opts.push(format!("fontColor: {}", fc));
+    }
+
+    let options_str = if opts.is_empty() {
+        String::new()
+    } else {
+        format!(", {{ {} }}", opts.join(", "))
+    };
+
+    if color.is_some() || duration.is_some() || !opts.is_empty() {
         format!(
-            "const element = await desktop.locator({}).first({});\nelement.highlight({}, {});",
+            "const element = await desktop.locator({}).first({});\nelement.highlight({}, {}{});",
             locator,
             timeout,
             color
@@ -2004,7 +2088,8 @@ fn generate_highlight_snippet(args: &Value) -> String {
                 .unwrap_or("undefined".to_string()),
             duration
                 .map(|d| d.to_string())
-                .unwrap_or("undefined".to_string())
+                .unwrap_or("undefined".to_string()),
+            options_str
         )
     } else {
         format!(
