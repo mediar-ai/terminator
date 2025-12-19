@@ -1358,6 +1358,7 @@ fn generate_get_window_tree_snippet(args: &Value) -> String {
 fn generate_capture_screenshot_snippet(args: &Value) -> String {
     let process = args.get("process").and_then(|v| v.as_str()).unwrap_or("");
     let selector = args.get("selector").and_then(|v| v.as_str());
+    let window_selector = args.get("window_selector").and_then(|v| v.as_str());
     let entire_monitor = args
         .get("entire_monitor")
         .and_then(|v| v.as_bool())
@@ -1378,16 +1379,22 @@ fn generate_capture_screenshot_snippet(args: &Value) -> String {
         }
     }
 
+    // Build window selector arg if specified
+    let window_arg = window_selector
+        .filter(|ws| !ws.is_empty())
+        .map(|ws| format!("\"{}\"", ws))
+        .unwrap_or_else(|| "null".to_string());
+
     // Window or monitor screenshot via desktop method
     if entire_monitor {
         format!(
-            "const screenshot = await desktop.captureScreenshot(\"{}\", null, true, {});",
-            process, timeout
+            "const screenshot = await desktop.captureScreenshot(\"{}\", {}, true, {});",
+            process, window_arg, timeout
         )
     } else {
         format!(
-            "const screenshot = await desktop.captureScreenshot(\"{}\", null, false, {});",
-            process, timeout
+            "const screenshot = await desktop.captureScreenshot(\"{}\", {}, false, {});",
+            process, window_arg, timeout
         )
     }
 }
