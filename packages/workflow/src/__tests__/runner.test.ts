@@ -3,7 +3,9 @@
  */
 
 import { WorkflowRunner } from "../runner";
-import type { Workflow } from "../types";
+import { createStep } from "../step";
+import { createWorkflow } from "../workflow";
+import { z } from "zod";
 
 // Mock Desktop
 const mockDesktop = {
@@ -13,15 +15,16 @@ const mockDesktop = {
 } as any;
 
 // Simple workflow for testing
-const simpleWorkflow: Workflow = {
-  name: "Test Workflow",
+const simpleWorkflow = createWorkflow({
+  input: z.object({}),
   steps: [
-    {
-      config: { id: "step1", name: "Step 1" },
+    createStep({
+      id: "step1",
+      name: "Step 1",
       execute: async () => ({ state: { done: true } }),
-    },
+    }),
   ],
-};
+});
 
 describe("WorkflowRunner", () => {
   describe("state restoration", () => {

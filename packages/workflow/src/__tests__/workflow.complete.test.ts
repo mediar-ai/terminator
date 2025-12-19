@@ -54,7 +54,7 @@ describe("Workflow Success Tests", () => {
 
             const result = await workflow.run({}, mockDesktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(result.message).toBe("No files to process");
             expect(result.data).toEqual({
                 message: "No files to process",
@@ -90,7 +90,7 @@ describe("Workflow Success Tests", () => {
 
             const result = await workflow.run({}, mockDesktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(result.message).toBe("Early exit");
             expect(onSuccessCalled).toBe(false);
         });
@@ -119,7 +119,7 @@ describe("Workflow Success Tests", () => {
 
             const result = await workflow.run({}, mockDesktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(result.data.summary).toBe("# Summary\nNo work needed");
             expect(result.data.data.outlet).toBe("TEST");
             expect(result.data.customField).toBe("customValue");
@@ -149,7 +149,7 @@ describe("Workflow Success Tests", () => {
 
             const result = await workflow.run({}, mockDesktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(result.lastStepId).toBe("second_step");
             expect(result.lastStepIndex).toBe(1);
         });

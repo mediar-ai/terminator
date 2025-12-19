@@ -60,7 +60,7 @@ describe("Workflow Navigation Tests", () => {
 
             const result = await workflow.run({}, mockDesktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(executionOrder).toEqual(["step1", "step2", "step4"]);
             // step3 should NOT have run
             expect(executionOrder).not.toContain("step3");
@@ -99,7 +99,7 @@ describe("Workflow Navigation Tests", () => {
 
             const result = await workflow.run({}, mockDesktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(executionOrder).toEqual(["step1-0", "step1-1", "step1-2", "step2"]);
             expect(counter).toBe(3);
         });
@@ -120,7 +120,7 @@ describe("Workflow Navigation Tests", () => {
 
             const result = await workflow.run({}, mockDesktop);
 
-            expect(result.status).toBe("error");
+            expect(result.status).toBe("execution_error");
             expect(result.error?.message).toContain("nonexistent_step");
             expect(result.error?.message).toContain("not found");
         });
@@ -167,7 +167,7 @@ describe("Workflow Navigation Tests", () => {
 
             const result = await workflow.run({}, mockDesktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(executionOrder).toEqual(["check", "final"]);
         });
     });
@@ -206,7 +206,7 @@ describe("Workflow Navigation Tests", () => {
 
             const result = await workflow.run({}, mockDesktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(attempts).toBe(3);
             expect(executionOrder).toEqual([
                 "step1-attempt-1",
@@ -243,7 +243,7 @@ describe("Workflow Navigation Tests", () => {
 
             const result = await workflow.run({}, mockDesktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(counter).toBe(3);
             expect(executionOrder).toEqual(["attempt-1", "attempt-2", "attempt-3"]);
         });
@@ -294,7 +294,7 @@ describe("Workflow Navigation Tests", () => {
 
             const result = await workflow.run({}, mockDesktop);
 
-            expect(result.status).toBe("success");
+            expect(result.status).toBe("executed_without_error");
             expect(executionOrder).toEqual(["step1-1", "step1-2", "step3"]);
         });
     });

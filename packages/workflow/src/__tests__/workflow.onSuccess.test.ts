@@ -263,7 +263,7 @@ describe("Workflow onSuccess Handler", () => {
                     // Simulate async operation
                     await new Promise((r) => setTimeout(r, 10));
                     return {
-                        computed: context.state.value * 2,
+                        computed: (context.state.value as number) * 2,
                     };
                 },
             });
@@ -489,7 +489,14 @@ describe("Workflow onSuccess Handler", () => {
                         total_amount,
                         journal_posted,
                         document_number,
-                    } = context.state;
+                    } = context.state as {
+                        file_name: string;
+                        outlet_code: string;
+                        date: string;
+                        total_amount: number;
+                        journal_posted: boolean;
+                        document_number: string;
+                    };
 
                     return {
                         summary: `# SAP Journal Entry - Success
