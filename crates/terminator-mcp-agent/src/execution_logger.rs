@@ -288,7 +288,7 @@ pub fn log_response(ctx: ExecutionContext, result: Result<&Value, &str>, duratio
         tool_name: ctx.tool_name.clone(),
         request: ctx.request,
         response: ExecutionResponse {
-            status: if result.is_ok() { "success" } else { "error" }.to_string(),
+            status: if result.is_ok() { "executed_without_error" } else { "executed_with_error" }.to_string(),
             duration_ms,
             result: clean_result,
             error: result.err().map(String::from),
@@ -388,7 +388,7 @@ pub fn log_response_with_logs(
         tool_name: ctx.tool_name.clone(),
         request: ctx.request,
         response: ExecutionResponse {
-            status: if result.is_ok() { "success" } else { "error" }.to_string(),
+            status: if result.is_ok() { "executed_without_error" } else { "executed_with_error" }.to_string(),
             duration_ms,
             result: clean_result,
             error: result.err().map(String::from),
@@ -697,6 +697,9 @@ pub fn generate_typescript_snippet(
             "const apps = desktop.getApplications();".to_string()
         }
         "execute_browser_script" => generate_execute_browser_script_snippet(args),
+        "stop_highlighting" => generate_stop_highlighting_snippet(args),
+        "stop_execution" => "desktop.stopExecution();".to_string(),
+        "gemini_computer_use" => generate_gemini_computer_use_snippet(args),
         _ => {
             // Comment out ALL lines of the JSON to avoid syntax errors
             let args_json = serde_json::to_string_pretty(args).unwrap_or_default();
@@ -1927,6 +1930,44 @@ fn extract_iife_body(script: &str) -> String {
 
     // Not an IIFE - return as-is (will be wrapped in async function)
     trimmed.to_string()
+}
+
+/// Generate stop_highlighting snippet
+fn generate_stop_highlighting_snippet(args: &Value) -> String {
+    // Check if a specific highlight_id is provided
+    if let Some(id) = args.get("highlight_id").and_then(|v| v.as_str()) {
+        if !id.is_empty() {
+            return format!("// Stop specific highlight: {}\ndesktop.stopHighlighting();", id);
+        }
+    }
+    "desktop.stopHighlighting();".to_string()
+}
+
+/// Generate gemini_computer_use snippet
+fn generate_gemini_computer_use_snippet(args: &Value) -> String {
+    let process = args
+        .get("process")
+        .and_then(|v| v.as_str())
+        .unwrap_or("chrome");
+    let goal = args
+        .get("goal")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let max_steps = args
+        .get("max_steps")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(20);
+
+    // Escape goal string for JavaScript
+    let escaped_goal = goal
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n");
+
+    format!(
+        r#"const result = await desktop.geminiComputerUse("{}", "{}", {});"#,
+        process, escaped_goal, max_steps
+    )
 }
 
 /// Clean up execution logs older than RETENTION_DAYS in a single directory
