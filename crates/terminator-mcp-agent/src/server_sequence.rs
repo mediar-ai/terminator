@@ -1668,8 +1668,8 @@ impl DesktopWrapper {
                         }
 
                         // Update step span status and end it
-                        // Support both 'status' field and 'success' field
-                        let success = result["status"] == "success"
+                        // Check for executed_without_error status or legacy success boolean
+                        let success = result["status"] == "executed_without_error"
                             || result["success"] == true
                             || (result["status"].is_null() && result["success"] != false);
                         step_span.set_status(
@@ -1702,7 +1702,7 @@ impl DesktopWrapper {
                         // Merge env updates from engine/script-based steps into the internal context
                         if (tool_name_normalized == "execute_browser_script"
                             || tool_name_normalized == "run_command")
-                            && final_result["status"] == "success"
+                            && final_result["status"] == "executed_without_error"
                         {
                             // Helper to merge updates into the env context map
                             let mut merge_env_obj = |update_val: &serde_json::Value| {
@@ -1932,8 +1932,8 @@ impl DesktopWrapper {
                                 .ok(); // Don't fail the workflow if state save fails
                             }
                         }
-                        // Check for success using both 'status' and 'success' fields
-                        if result["status"] == "success"
+                        // Check for executed_without_error status or legacy success boolean
+                        if result["status"] == "executed_without_error"
                             || result["success"] == true
                             || (result["status"].is_null() && result["success"] != false)
                         {
@@ -2056,8 +2056,8 @@ impl DesktopWrapper {
                                 }
                             }
 
-                            // Check for failure using both 'status' and 'success' fields
-                            let tool_failed = !(result["status"] == "success"
+                            // Check for failure - not executed_without_error and not legacy success boolean
+                            let tool_failed = !(result["status"] == "executed_without_error"
                                 || result["success"] == true
                                 || (result["status"].is_null() && result["success"] != false));
                             if tool_failed {
@@ -2084,12 +2084,12 @@ impl DesktopWrapper {
                         }
 
                         let group_status = if group_had_errors {
-                            "partial_success"
+                            "executed_with_partial_errors"
                         } else {
-                            "success"
+                            "executed_without_error"
                         };
 
-                        if group_status != "success" {
+                        if group_status != "executed_without_error" {
                             sequence_had_errors = true;
                             step_error_occurred = true;
                         }
@@ -2132,7 +2132,7 @@ impl DesktopWrapper {
 
             // Decide next index based on success or fallback
             let step_succeeded = !step_error_occurred;
-            let step_status_str = if step_succeeded { "success" } else { "failed" };
+            let step_status_str = if step_succeeded { "executed_without_error" } else { "executed_with_error" };
             if let Some(tool_name) = original_step.and_then(|s| s.tool_name.as_ref()) {
                 info!(
                     "Step {} END tool='{}' id='{}' status={}",
@@ -2308,13 +2308,13 @@ impl DesktopWrapper {
 
         let total_duration = (chrono::Utc::now() - start_time).num_milliseconds();
 
-        // Determine final status - simple success or failure, or cancelled
+        // Determine final status - executed_without_error, executed_with_error, or cancelled
         let final_status = if cancelled_by_user {
             "cancelled"
         } else if !sequence_had_errors {
-            "success"
+            "executed_without_error"
         } else {
-            "failed"
+            "executed_with_error"
         };
         info!(
             log_source = %log_source,
@@ -2408,7 +2408,7 @@ impl DesktopWrapper {
                 }
             }
         }
-        if final_status != "success" {
+        if final_status != "executed_without_error" {
             // Capture minimal structured debug info so failures are not opaque
             let debug_info = json!({
                 "final_status": final_status,
@@ -2427,7 +2427,7 @@ impl DesktopWrapper {
         let contents = vec![Content::json(summary.clone())?];
 
         // End workflow span with appropriate status
-        let span_success = matches!(final_status, "success");
+        let span_success = matches!(final_status, "executed_without_error");
         let span_message = if span_success {
             "Workflow completed successfully"
         } else {
@@ -3006,7 +3006,7 @@ impl DesktopWrapper {
 
             Ok(CallToolResult {
                 content: contents,
-                is_error: Some(result.result.result.status != "success"),
+                is_error: Some(result.result.result.status != "executed_without_error"),
                 meta: None,
                 structured_content: None,
             })
