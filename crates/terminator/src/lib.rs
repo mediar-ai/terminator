@@ -1180,9 +1180,7 @@ impl Desktop {
         config: Option<crate::platforms::TreeBuildConfig>,
     ) -> Result<UINode, AutomationError> {
         let window = find_parent_window(element).ok_or_else(|| {
-            AutomationError::ElementNotFound(
-                "Could not find parent window for element".to_string(),
-            )
+            AutomationError::ElementNotFound("Could not find parent window for element".to_string())
         })?;
 
         tracing::info!(
