@@ -715,6 +715,28 @@ pub fn generate_typescript_snippet(
         }
     };
 
+    // Add verification code for action tools (skip for read-only tools)
+    let action_tools = [
+        "click_element",
+        "type_into_element",
+        "press_key",
+        "press_key_global",
+        "scroll_element",
+        "select_option",
+        "set_value",
+        "set_selected",
+        "invoke_element",
+        "activate_element",
+        "navigate_browser",
+        "open_application",
+    ];
+    if action_tools.contains(&clean_tool) {
+        let verification_code = generate_verification_code(args);
+        if !verification_code.is_empty() {
+            snippet.push_str(&verification_code);
+        }
+    }
+
     // Add delay if specified - must come BEFORE any "return __stepResult;"
     if delay_ms > 0 {
         let sleep_code = format!("await sleep({});", delay_ms);
@@ -788,6 +810,41 @@ fn build_fallback_locator_string(args: &Value, fallback_selector: &str) -> Strin
     }
 
     format!("\"{}\"", locator)
+}
+
+/// Generate verification code if verify_element_exists or verify_element_not_exists is specified
+fn generate_verification_code(args: &Value) -> String {
+    let mut verification_code = String::new();
+
+    let verify_exists = args
+        .get("verify_element_exists")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let verify_not_exists = args
+        .get("verify_element_not_exists")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let verify_timeout = args
+        .get("verify_timeout_ms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(2000);
+    let process = args.get("process").and_then(|v| v.as_str()).unwrap_or("");
+
+    if !verify_exists.is_empty() {
+        verification_code.push_str(&format!(
+            "\n// Verify element exists after action\nawait desktop.locator(\"process:{} >> {}\").waitFor({{ timeout: {} }});",
+            process, verify_exists, verify_timeout
+        ));
+    }
+
+    if !verify_not_exists.is_empty() {
+        verification_code.push_str(&format!(
+            "\n// Verify element does NOT exist after action\nawait desktop.locator(\"process:{} >> {}\").waitFor({{ state: \"hidden\", timeout: {} }});",
+            process, verify_not_exists, verify_timeout
+        ));
+    }
+
+    verification_code
 }
 
 /// Build ActionOptions object from MCP params (maps to SDK camelCase)
