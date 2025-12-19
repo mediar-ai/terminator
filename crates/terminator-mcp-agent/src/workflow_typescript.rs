@@ -1187,7 +1187,7 @@ try {{
     originalLog(JSON.stringify({{
         metadata,
         result: {{
-            status: result.status || 'success',
+            status: result.status || 'executed_without_error',
             message: result.message || result.error || 'Workflow completed',
             data: result.data || result.context?.data || null,
             last_step_id: result.lastStepId,
@@ -1199,13 +1199,13 @@ try {{
     // Cleanup and drain log pipe before exit
     if (parentCheckInterval) clearInterval(parentCheckInterval);
     await drainLogPipe();
-    process.exit(result.status === 'success' ? 0 : 1);
+    process.exit(result.status === 'executed_without_error' ? 0 : 1);
 }} catch (error) {{
     console.error('Workflow execution error:', error);
     originalLog(JSON.stringify({{
         metadata: {{ name: 'Error', version: '0.0.0' }},
         result: {{
-            status: 'error',
+            status: 'executed_with_error',
             error: error.message || String(error)
         }},
         state: {{}}
