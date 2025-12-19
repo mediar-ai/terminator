@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.7] - 2025-12-19
+
+### Added
+- MCP: Add `ask_user` tool for AI to request user clarification during tool execution
+- MCP: Add elicitation support for user input during tool execution (#441)
+- Desktop: Add `draw_cursor` method to ScreenshotResult and `get_cursor_position` helper
+- Desktop: Add `find_parent_window` helper and `get_tree_from_element` Desktop method
+- Desktop: Add `window_selector` support to `capture_screenshot` snippet
+- Desktop: Add title, show_overlay, browser_dom_max_elements to `get_window_tree` snippet
+- Desktop: Add retry loop and click options to TypeScript snippet generation
+- Desktop: Add verification code generation for action tools in TypeScript snippets
+- MCP: Include `execution_log_path` and `typescript_snippet_path` in execute_sequence/execute_ts_workflow output
+- HTTP: Add POST `/mode` endpoint for ask/act mode and blocked tools
+
+### Fixed
+- Desktop: Correct cursor overlay colors for BGRA format
+- Desktop: Fix verification code generation to handle empty process
+- Workflow: Clarify `execute_sequence` is for UI ops only
+- Process: Only kill safe processes (terminator/node/bun) when port is in use, warn for unexpected processes (#438, #439)
+
+### Changed
+- Workflow: Use `executed_without_error/executed_with_error` status naming convention
+- MCP: Block tools in ask mode, update status naming convention
+- Desktop: Add `restoreFocus`, `uiDiffBeforeAfter` options, improve click snippet generation
+
+## [0.24.6] - 2025-12-18
+
+### Changed
+- Version bump only (no functional changes)
+
 ## [0.24.5] - 2025-12-17
 
 ### Added
