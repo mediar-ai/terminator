@@ -61,6 +61,33 @@ pub use platforms::windows::window_manager::{
     WindowCache, WindowInfo, WindowManager, WindowPlacement,
 };
 
+/// Walk up the element tree to find the parent Window or Pane element.
+///
+/// This is useful when you have a focused element (e.g., a button inside a window)
+/// and need to find the containing window to build a UI tree from.
+///
+/// # Arguments
+/// * `element` - The UIElement to start from
+///
+/// # Returns
+/// The parent Window/Pane element, or None if not found
+pub fn find_parent_window(element: &UIElement) -> Option<UIElement> {
+    let mut current = element.clone();
+    // Limit iterations to prevent infinite loops in malformed trees
+    for _ in 0..100 {
+        let role = current.role();
+        if role == "Window" || role == "Pane" {
+            return Some(current);
+        }
+        match current.parent() {
+            Ok(Some(parent)) => current = parent,
+            _ => return None,
+        }
+    }
+    tracing::warn!("find_parent_window: hit iteration limit without finding window");
+    None
+}
+
 /// Recommend to use any of these: ["Default", "Chrome", "Firefox", "Edge", "Brave", "Opera", "Vivaldi"]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Browser {
@@ -1111,6 +1138,60 @@ impl Desktop {
     ) -> Result<UINode, AutomationError> {
         let tree_config = config.unwrap_or_default();
         self.engine.get_window_tree(pid, title, tree_config)
+    }
+
+    /// Build UI tree directly from a UIElement
+    ///
+    /// This avoids the PID-based window enumeration which can fail during
+    /// transient UI Automation states. Use when you already have a UIElement.
+    ///
+    /// # Arguments
+    /// * `element` - The UIElement to build tree from
+    /// * `config` - Optional tree building configuration
+    ///
+    /// # Returns
+    /// Complete UI tree starting from the provided element
+    #[instrument(skip(self, element, config))]
+    pub fn get_tree_from_element(
+        &self,
+        element: &UIElement,
+        config: Option<crate::platforms::TreeBuildConfig>,
+    ) -> Result<UINode, AutomationError> {
+        let tree_config = config.unwrap_or_default();
+        self.engine.get_tree_from_element(element, tree_config)
+    }
+
+    /// Find the parent window of an element and build tree from it
+    ///
+    /// Walks up the element tree to find Window/Pane, then builds the UI tree.
+    /// This is the recommended method when you have a focused element from an event,
+    /// as it avoids desktop enumeration which can fail during transient states.
+    ///
+    /// # Arguments
+    /// * `element` - The UIElement to start from (e.g., focused element)
+    /// * `config` - Optional tree building configuration
+    ///
+    /// # Returns
+    /// Complete UI tree starting from the parent window
+    #[instrument(skip(self, element, config))]
+    pub fn get_window_tree_from_element(
+        &self,
+        element: &UIElement,
+        config: Option<crate::platforms::TreeBuildConfig>,
+    ) -> Result<UINode, AutomationError> {
+        let window = find_parent_window(element).ok_or_else(|| {
+            AutomationError::ElementNotFound(
+                "Could not find parent window for element".to_string(),
+            )
+        })?;
+
+        tracing::info!(
+            "Found parent window: '{}' (role: {})",
+            window.name().unwrap_or_default(),
+            window.role()
+        );
+
+        self.get_tree_from_element(&window, config)
     }
 
     /// Get the UI tree with full result including formatting and bounds mapping
