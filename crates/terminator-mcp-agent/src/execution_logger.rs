@@ -862,6 +862,16 @@ fn build_type_text_options(args: &Value, clear_before_typing: bool) -> String {
         opts.push("tryClickBefore: false".to_string());
     }
 
+    // restoreFocus (default false, only include if true)
+    if let Some(true) = args.get("restore_focus").and_then(|v| v.as_bool()) {
+        opts.push("restoreFocus: true".to_string());
+    }
+
+    // uiDiffBeforeAfter
+    if let Some(true) = args.get("ui_diff_before_after").and_then(|v| v.as_bool()) {
+        opts.push("uiDiffBeforeAfter: true".to_string());
+    }
+
     format!("{{ {} }}", opts.join(", "))
 }
 
@@ -886,9 +896,34 @@ fn generate_click_snippet(args: &Value) -> String {
 
     if let Some(index) = args.get("index").and_then(|v| v.as_u64()) {
         // Index mode (from get_window_tree)
+        let vision_type = args
+            .get("vision_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("ui_tree");
+        let process = args.get("process").and_then(|v| v.as_str()).unwrap_or("");
+        let click_type = args
+            .get("click_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("left");
+
+        // Map vision_type to SDK method
+        let (tree_method, click_method) = match vision_type {
+            "ocr" => ("getOcrTree", "clickOcrItem"),
+            "omniparser" => ("getOmniparserTree", "clickOmniparserItem"),
+            "gemini" | "vision" => ("getVisionTree", "clickVisionItem"),
+            "dom" => ("getBrowserDom", "clickDomItem"),
+            _ => ("getWindowTree", "clickTreeItem"),
+        };
+
+        let click_opts = match click_type {
+            "double" => ", { clickType: \"Double\" }",
+            "right" => ", { clickType: \"Right\" }",
+            _ => "",
+        };
+
         return format!(
-            "// Index-based click: item #{}\n// Use locator from get_window_tree result",
-            index
+            "// Index-based click using {} tree\nconst tree = await desktop.{}(\"{}\");\nawait desktop.{}(tree, {}{}); // item #{}",
+            vision_type, tree_method, process, click_method, index, click_opts, index
         );
     }
 
@@ -1069,6 +1104,11 @@ fn generate_get_window_tree_snippet(args: &Value) -> String {
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let tree_output_format = args.get("tree_output_format").and_then(|v| v.as_str());
+    let tree_max_depth = args.get("tree_max_depth").and_then(|v| v.as_u64());
+    let tree_from_selector = args.get("tree_from_selector").and_then(|v| v.as_str());
+    let include_detailed_attributes = args
+        .get("include_detailed_attributes")
+        .and_then(|v| v.as_bool());
 
     // Build config options
     let mut config_parts = vec!["propertyMode: \"Fast\"".to_string()];
@@ -1092,6 +1132,17 @@ fn generate_get_window_tree_snippet(args: &Value) -> String {
             _ => "\"CompactYaml\"",
         };
         config_parts.push(format!("treeOutputFormat: {}", format_value));
+    }
+    if let Some(depth) = tree_max_depth {
+        config_parts.push(format!("maxDepth: {}", depth));
+    }
+    if let Some(selector) = tree_from_selector {
+        if !selector.is_empty() {
+            config_parts.push(format!("treeFromSelector: \"{}\"", selector));
+        }
+    }
+    if let Some(detailed) = include_detailed_attributes {
+        config_parts.push(format!("includeDetailedAttributes: {}", detailed));
     }
 
     let config = format!("{{ {} }}", config_parts.join(", "));
@@ -1478,6 +1529,33 @@ fn looks_like_javascript_code(code: &str) -> bool {
 fn generate_run_command_snippet(args: &Value) -> String {
     let run = args.get("run").and_then(|v| v.as_str()).unwrap_or("");
     let engine = args.get("engine").and_then(|v| v.as_str());
+    let shell = args.get("shell").and_then(|v| v.as_str());
+    let working_directory = args.get("working_directory").and_then(|v| v.as_str());
+    let script_file = args.get("script_file").and_then(|v| v.as_str());
+    let env = args.get("env");
+
+    // If script_file is provided, generate file-loading code
+    if let Some(file) = script_file {
+        if !file.is_empty() {
+            let escaped_file = file.replace('\\', "\\\\");
+            let mut code = format!(
+                "const fs = require('fs');\nconst scriptContent = fs.readFileSync(\"{}\", 'utf8');",
+                escaped_file
+            );
+            // Add env variables if provided
+            if let Some(env_obj) = env.and_then(|v| v.as_object()) {
+                for (key, value) in env_obj {
+                    let val_str = match value {
+                        serde_json::Value::String(s) => format!("\"{}\"", s.replace('"', "\\\"")),
+                        _ => value.to_string(),
+                    };
+                    code.push_str(&format!("\nconst {} = {};", key, val_str));
+                }
+            }
+            code.push_str("\neval(scriptContent);");
+            return code;
+        }
+    }
 
     // Determine if this is shell code:
     // 1. Explicit engine set to shell/bash/cmd/powershell
@@ -1495,16 +1573,31 @@ fn generate_run_command_snippet(args: &Value) -> String {
         || run.contains("fs.readFileSync")
         || run.contains("fs.writeFileSync");
 
-    // Shell command mode - wrap in desktop.runCommand() but NO var transformations
-    // (shell scripts don't use env.xxx or outputs.xxx - they use $ENV_VAR)
+    // Shell command mode - wrap in desktop.run() with shell and working_directory
     if is_shell && !needs_node_runtime {
         let escaped_run = run
             .replace('\\', "\\\\")
             .replace('`', "\\`")
             .replace('$', "\\$");
+
+        // Build desktop.run() call with optional shell and working_directory
+        let shell_arg = shell
+            .map(|s| format!(", \"{}\"", s))
+            .unwrap_or_default();
+        let wd_arg = if working_directory.is_some() {
+            let wd = working_directory.unwrap().replace('\\', "\\\\");
+            if shell.is_some() {
+                format!(", \"{}\"", wd)
+            } else {
+                format!(", null, \"{}\"", wd)
+            }
+        } else {
+            String::new()
+        };
+
         return format!(
-            "const result = await desktop.runCommand(`{}`);\nreturn result;",
-            escaped_run
+            "const result = await desktop.run(`{}`{}{});\nreturn result;",
+            escaped_run, shell_arg, wd_arg
         );
     }
 
