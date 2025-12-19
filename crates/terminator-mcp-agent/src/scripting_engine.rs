@@ -350,6 +350,8 @@ async fn ensure_terminator_js_installed(runtime: &str) -> Result<std::path::Path
         let mut args = vec![
             "install".to_string(),
             "@mediar-ai/terminator@latest".to_string(),
+            "@mediar-ai/workflow@latest".to_string(),
+            "@mediar-ai/kv@latest".to_string(),
         ];
         if let Some(pp) = platform_pkg_opt {
             args.push(format!("{pp}@latest"));
@@ -783,6 +785,8 @@ async fn ensure_terminator_js_installed(runtime: &str) -> Result<std::path::Path
                                             let args = [
                                                 "add".to_string(),
                                                 "@mediar-ai/terminator@latest".to_string(),
+            "@mediar-ai/workflow@latest".to_string(),
+            "@mediar-ai/kv@latest".to_string(),
                                                 format!("{platform_package_name}@latest"),
                                             ];
                                             tokio::process::Command::new(&installer_exe)
