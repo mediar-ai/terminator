@@ -1399,7 +1399,10 @@ pub struct ActivateElementArgs {
 pub struct ToolCall {
     #[schemars(description = "The name of the tool to be executed.")]
     pub tool_name: String,
-    #[schemars(description = "The arguments for the tool, as a JSON object.", schema_with = "json_object_schema")]
+    #[schemars(
+        description = "The arguments for the tool, as a JSON object.",
+        schema_with = "json_object_schema"
+    )]
     pub arguments: serde_json::Value,
     #[schemars(
         description = "If true, the sequence will continue even if this tool call fails. Defaults to false."
@@ -1433,7 +1436,10 @@ pub struct JumpCondition {
 pub struct SequenceStep {
     #[schemars(description = "The name of the tool to execute (for single tool steps)")]
     pub tool_name: Option<String>,
-    #[schemars(description = "The arguments for the tool (for single tool steps)", schema_with = "json_object_schema")]
+    #[schemars(
+        description = "The arguments for the tool (for single tool steps)",
+        schema_with = "json_object_schema"
+    )]
     pub arguments: Option<serde_json::Value>,
     #[schemars(description = "Continue on error flag (for single tool steps)")]
     pub continue_on_error: Option<bool>,
@@ -1599,7 +1605,10 @@ pub struct VariableDefinition {
     pub label: Option<String>,
     #[schemars(description = "A detailed description of what the variable is for.")]
     pub description: Option<String>,
-    #[schemars(description = "The default value for the variable if not provided in the inputs.", schema_with = "json_object_schema")]
+    #[schemars(
+        description = "The default value for the variable if not provided in the inputs.",
+        schema_with = "json_object_schema"
+    )]
     pub default: Option<serde_json::Value>,
     #[schemars(description = "For string types, a regex pattern for validation.")]
     pub regex: Option<String>,

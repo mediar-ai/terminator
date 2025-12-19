@@ -4853,8 +4853,12 @@ DATA PASSING:
 
         // Add choices if provided
         if let Some(choices) = &args.choices {
-            message = format!("{}\n\nOptions:\n{}", message,
-                choices.iter().enumerate()
+            message = format!(
+                "{}\n\nOptions:\n{}",
+                message,
+                choices
+                    .iter()
+                    .enumerate()
                     .map(|(i, c)| format!("{}. {}", i + 1, c))
                     .collect::<Vec<_>>()
                     .join("\n")
