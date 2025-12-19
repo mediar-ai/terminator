@@ -45,7 +45,4 @@ pub use virtual_display::{
 pub use window_manager::{WindowCache, WindowInfo, WindowManager, WindowPlacement};
 
 // Re-export input functions
-pub use input::{
-    restore_cursor_state, restore_focus_state, save_cursor_state, save_focus_state,
-    send_mouse_click, CursorState, FocusState,
-};
+pub use input::{restore_focus_state, save_focus_state, send_mouse_click, FocusState};
