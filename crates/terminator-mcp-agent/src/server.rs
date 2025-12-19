@@ -1,3 +1,4 @@
+use crate::elicitation::{try_elicit, UserResponse};
 use crate::event_pipe::{create_event_channel, WorkflowEvent};
 use crate::execution_logger;
 use crate::helpers::*;
@@ -6,10 +7,10 @@ use crate::telemetry::StepSpan;
 use crate::utils::find_and_execute_with_retry_with_fallback;
 pub use crate::utils::DesktopWrapper;
 use crate::utils::{
-    get_timeout, ActivateElementArgs, CaptureScreenshotArgs, ClickElementArgs, CopyContentArgs,
-    DelayArgs, EditFileArgs, ExecuteBrowserScriptArgs, ExecuteSequenceArgs, GeminiComputerUseArgs,
-    GetApplicationsArgs, GetWindowTreeArgs, GlobFilesArgs, GlobalKeyArgs, GrepFilesArgs,
-    HighlightElementArgs, InvokeElementArgs, MouseDragArgs, NavigateBrowserArgs,
+    get_timeout, ActivateElementArgs, AskUserArgs, CaptureScreenshotArgs, ClickElementArgs,
+    CopyContentArgs, DelayArgs, EditFileArgs, ExecuteBrowserScriptArgs, ExecuteSequenceArgs,
+    GeminiComputerUseArgs, GetApplicationsArgs, GetWindowTreeArgs, GlobFilesArgs, GlobalKeyArgs,
+    GrepFilesArgs, HighlightElementArgs, InvokeElementArgs, MouseDragArgs, NavigateBrowserArgs,
     OpenApplicationArgs, PressKeyArgs, ReadFileArgs, RunCommandArgs, ScrollElementArgs,
     SelectOptionArgs, SetSelectedArgs, SetValueArgs, StopHighlightingArgs, TypeIntoElementArgs,
     ValidateElementArgs, WaitForElementArgs, WriteFileArgs,
@@ -39,7 +40,7 @@ use tracing::{info, warn, Instrument};
 use base64::{engine::general_purpose, Engine as _};
 use image::codecs::png::PngEncoder;
 
-use rmcp::service::{Peer, RequestContext, RoleServer};
+use rmcp::service::{NotificationContext, Peer, RequestContext, RoleServer};
 
 /// Extracts JSON data from Content objects without double serialization
 pub fn extract_content_json(content: &Content) -> Result<serde_json::Value, serde_json::Error> {
@@ -807,6 +808,7 @@ impl DesktopWrapper {
             inspect_overlay_handle: Arc::new(std::sync::Mutex::new(None)),
             current_mode: Arc::new(Mutex::new(None)),
             blocked_tools: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            elicitation_peer: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -4831,6 +4833,57 @@ DATA PASSING:
             )
             .await,
         ))
+    }
+
+    #[tool(
+        description = "Ask the user a clarifying question when you need more information to proceed. Use this when uncertain about business logic, which element to interact with, or any decision that requires human judgment. The user will see a modal with your question and can provide an answer."
+    )]
+    async fn ask_user(
+        &self,
+        peer: Peer<RoleServer>,
+        Parameters(args): Parameters<AskUserArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        // Build the message to show the user
+        let mut message = args.question.clone();
+
+        // Add context if provided
+        if let Some(ctx) = &args.context {
+            message = format!("{}\n\nContext: {}", message, ctx);
+        }
+
+        // Add choices if provided
+        if let Some(choices) = &args.choices {
+            message = format!("{}\n\nOptions:\n{}", message,
+                choices.iter().enumerate()
+                    .map(|(i, c)| format!("{}. {}", i + 1, c))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+        }
+
+        tracing::info!("[ask_user] Requesting user input: {}", args.question);
+
+        // Use elicitation to get user response
+        match try_elicit::<UserResponse>(&self.elicitation_peer, &peer, &message).await {
+            Some(response) => {
+                tracing::info!("[ask_user] User responded: {}", response.answer);
+                Ok(CallToolResult::success(vec![Content::json(json!({
+                    "action": "ask_user",
+                    "status": "answered",
+                    "question": args.question,
+                    "answer": response.answer
+                }))?]))
+            }
+            None => {
+                tracing::info!("[ask_user] User declined or elicitation not supported");
+                Ok(CallToolResult::success(vec![Content::json(json!({
+                    "action": "ask_user",
+                    "status": "declined",
+                    "question": args.question,
+                    "message": "User declined to answer or elicitation is not supported by the client"
+                }))?]))
+            }
+        }
     }
 
     #[tool(
@@ -10127,5 +10180,22 @@ impl ServerHandler for DesktopWrapper {
         Ok(rmcp::model::ListToolsResult::with_all_items(
             self.tool_router.list_all(),
         ))
+    }
+
+    /// Called after a client completes initialization
+    /// We check if this client supports elicitation and store the peer if so
+    async fn on_initialized(&self, context: NotificationContext<RoleServer>) {
+        let peer = context.peer;
+        let supports = peer.supports_elicitation();
+        tracing::info!(
+            "[on_initialized] Client initialized. supports_elicitation: {}",
+            supports
+        );
+
+        if supports {
+            tracing::info!("[on_initialized] Storing elicitation-capable peer");
+            let mut guard = self.elicitation_peer.lock().await;
+            *guard = Some(peer);
+        }
     }
 }

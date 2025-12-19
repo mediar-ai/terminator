@@ -4,6 +4,8 @@
 //! while gracefully handling clients that don't support elicitation.
 
 use rmcp::service::{ElicitationSafe, Peer, RoleServer};
+use std::sync::Arc;
+use tokio::sync::Mutex as TokioMutex;
 
 /// Elicit structured data from the user with graceful fallback
 ///
@@ -55,17 +57,27 @@ where
 
 /// Try to elicit data, returning None if not supported or declined
 ///
-/// Similar to `elicit_with_fallback` but returns `Option<T>` instead of
-/// requiring a default value. Useful when you want to know whether the
-/// user actually provided input.
+/// This function attempts to use a stored elicitation-capable peer first.
+/// This is necessary because tool calls may come from a peer (like Claude Code/ACP)
+/// that doesn't support elicitation, while another connected peer (like mediar-app)
+/// does support it.
+///
+/// # Arguments
+/// * `stored_peer` - Optional reference to a stored peer that supports elicitation
+/// * `calling_peer` - The peer that invoked the tool (may not support elicitation)
+/// * `message` - The message to display to the user
 ///
 /// # Example
 /// ```ignore
 /// use terminator_mcp_agent::elicitation::{try_elicit, ActionConfirmation};
 ///
-/// async fn dangerous_operation(peer: &Peer<RoleServer>) -> Result<(), Error> {
+/// async fn dangerous_operation(
+///     stored_peer: &Arc<TokioMutex<Option<Peer<RoleServer>>>>,
+///     calling_peer: &Peer<RoleServer>,
+/// ) -> Result<(), Error> {
 ///     if let Some(confirm) = try_elicit::<ActionConfirmation>(
-///         peer,
+///         stored_peer,
+///         calling_peer,
 ///         "This will delete all files. Are you sure?",
 ///     ).await {
 ///         if confirm.confirmed {
@@ -75,29 +87,72 @@ where
 ///     Ok(())
 /// }
 /// ```
-pub async fn try_elicit<T>(peer: &Peer<RoleServer>, message: &str) -> Option<T>
+pub async fn try_elicit<T>(
+    stored_peer: &Arc<TokioMutex<Option<Peer<RoleServer>>>>,
+    calling_peer: &Peer<RoleServer>,
+    message: &str,
+) -> Option<T>
 where
     T: ElicitationSafe + serde::de::DeserializeOwned + Send + 'static,
 {
-    if !peer.supports_elicitation() {
-        tracing::debug!(
-            "[elicitation] Client does not support elicitation: {}",
+    // First, try to use the stored elicitation-capable peer
+    let peer_to_use: Option<Peer<RoleServer>> = {
+        let guard = stored_peer.lock().await;
+        if let Some(ref stored) = *guard {
+            if stored.supports_elicitation() {
+                tracing::info!(
+                    "[elicitation] Using stored elicitation-capable peer for: {}",
+                    message
+                );
+                Some(stored.clone())
+            } else {
+                tracing::info!(
+                    "[elicitation] Stored peer doesn't support elicitation, trying calling peer"
+                );
+                None
+            }
+        } else {
+            tracing::info!("[elicitation] No stored peer, trying calling peer");
+            None
+        }
+    };
+
+    // Determine which peer to use
+    let peer = if let Some(ref p) = peer_to_use {
+        p
+    } else {
+        // Fall back to calling peer
+        let supports = calling_peer.supports_elicitation();
+        tracing::info!(
+            "[elicitation] Calling peer supports_elicitation() = {}, message: {}",
+            supports,
             message
         );
-        return None;
-    }
+        if !supports {
+            tracing::info!("[elicitation] No elicitation-capable peer available");
+            return None;
+        }
+        calling_peer
+    };
 
-    match peer.elicit::<T>(message).await {
+    tracing::info!("[elicitation] Attempting elicitation...");
+    let result = peer.elicit::<T>(message).await;
+    tracing::info!(
+        "[elicitation] peer.elicit() returned: {:?}",
+        result.as_ref().map(|r| r.is_some())
+    );
+
+    match result {
         Ok(Some(data)) => {
             tracing::info!("[elicitation] User provided data for: {}", message);
             Some(data)
         }
         Ok(None) => {
-            tracing::debug!("[elicitation] User declined/cancelled: {}", message);
+            tracing::info!("[elicitation] User declined/cancelled: {}", message);
             None
         }
         Err(e) => {
-            tracing::debug!("[elicitation] Error: {} ({})", message, e);
+            tracing::info!("[elicitation] Error calling peer.elicit(): {:?}", e);
             None
         }
     }

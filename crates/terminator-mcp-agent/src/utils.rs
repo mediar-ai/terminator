@@ -2,6 +2,7 @@ use crate::cancellation::RequestManager;
 use crate::mcp_types::{FontStyle, TextPosition, TreeOutputFormat};
 use crate::tool_logging::{LogCapture, LogCaptureLayer};
 use anyhow::Result;
+use rmcp::service::{Peer, RoleServer};
 use rmcp::{schemars, schemars::JsonSchema};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -14,6 +15,15 @@ use terminator::{AutomationError, Desktop, UIElement};
 use tokio::sync::Mutex as TokioMutex;
 use tracing::{warn, Instrument, Level};
 use tracing_subscriber::{util::SubscriberInitExt, EnvFilter, Layer};
+
+/// Custom schema generator for serde_json::Value fields.
+/// Generates a proper `{"type": "object"}` schema instead of the permissive "any" schema.
+fn json_object_schema(_gen: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({
+        "type": "object",
+        "additionalProperties": true
+    })
+}
 
 // ===== Composition Base Types for Reducing Duplication =====
 
@@ -409,6 +419,11 @@ pub struct DesktopWrapper {
     /// Tools blocked in current mode (passed from desktop app)
     #[serde(skip)]
     pub blocked_tools: Arc<TokioMutex<std::collections::HashSet<String>>>,
+    /// Stores a peer that supports elicitation capability
+    /// This is captured when a client with elicitation capability connects
+    /// Used to show UI prompts to the user even when tool calls come from a different peer
+    #[serde(skip)]
+    pub elicitation_peer: Arc<TokioMutex<Option<Peer<RoleServer>>>>,
 }
 
 impl Default for DesktopWrapper {
@@ -942,7 +957,8 @@ pub struct RunCommandArgs {
     )]
     pub script_file: Option<String>,
     #[schemars(
-        description = "Optional environment variables to inject into the script (only works with 'engine' mode). Variables are automatically available as proper JavaScript/Python types - JSON strings are parsed into objects/arrays. Variables can be accessed directly without 'env.' prefix."
+        description = "Optional environment variables to inject into the script (only works with 'engine' mode). Variables are automatically available as proper JavaScript/Python types - JSON strings are parsed into objects/arrays. Variables can be accessed directly without 'env.' prefix.",
+        schema_with = "json_object_schema"
     )]
     pub env: Option<serde_json::Value>,
     #[schemars(
@@ -969,6 +985,23 @@ pub struct RunCommandArgs {
         description = "Timeout in milliseconds for shell command execution (ignored when 'engine' is used). Defaults to 120000 (2 minutes). Set to 0 for no timeout."
     )]
     pub timeout_ms: Option<u64>,
+}
+
+/// Arguments for the ask_user tool - allows AI to request clarification from the user
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct AskUserArgs {
+    #[schemars(
+        description = "The question or message to show the user. Be specific about what you need clarification on."
+    )]
+    pub question: String,
+    #[schemars(
+        description = "Optional list of choices for the user to select from. Use this for simple single-choice questions like 'Which button should I click?' with options ['The blue Submit button', 'The gray Cancel button']."
+    )]
+    pub choices: Option<Vec<String>>,
+    #[schemars(
+        description = "Optional context about why you're asking this question. Helps the user understand what information you need."
+    )]
+    pub context: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -1181,6 +1214,7 @@ pub struct NavigateBrowserArgs {
 pub struct ExecuteBrowserScriptArgs {
     pub script: Option<String>,
     pub script_file: Option<String>,
+    #[schemars(schema_with = "json_object_schema")]
     pub env: Option<serde_json::Value>,
     #[schemars(
         description = "Include browser console output (console.log, console.error, console.warn, console.info) in response. Defaults to false. When enabled, automatically intercepts console methods and returns captured logs alongside the script result. Original console methods still output to DevTools."
@@ -1365,7 +1399,7 @@ pub struct ActivateElementArgs {
 pub struct ToolCall {
     #[schemars(description = "The name of the tool to be executed.")]
     pub tool_name: String,
-    #[schemars(description = "The arguments for the tool, as a JSON object.")]
+    #[schemars(description = "The arguments for the tool, as a JSON object.", schema_with = "json_object_schema")]
     pub arguments: serde_json::Value,
     #[schemars(
         description = "If true, the sequence will continue even if this tool call fails. Defaults to false."
@@ -1399,7 +1433,7 @@ pub struct JumpCondition {
 pub struct SequenceStep {
     #[schemars(description = "The name of the tool to execute (for single tool steps)")]
     pub tool_name: Option<String>,
-    #[schemars(description = "The arguments for the tool (for single tool steps)")]
+    #[schemars(description = "The arguments for the tool (for single tool steps)", schema_with = "json_object_schema")]
     pub arguments: Option<serde_json::Value>,
     #[schemars(description = "Continue on error flag (for single tool steps)")]
     pub continue_on_error: Option<bool>,
@@ -1466,11 +1500,13 @@ pub struct ExecuteSequenceArgs {
     )]
     pub variables: Option<HashMap<String, VariableDefinition>>,
     #[schemars(
-        description = "A key-value map of the actual input values for the variables defined in the schema. **Must be an object**, not a string."
+        description = "A key-value map of the actual input values for the variables defined in the schema. **Must be an object**, not a string.",
+        schema_with = "json_object_schema"
     )]
     pub inputs: Option<serde_json::Value>,
     #[schemars(
-        description = "A key-value map of static UI element selectors for the workflow. **Must be an object with string values**, not a string. Example: {\"button\": \"role:Button|name:Submit\", \"field\": \"role:Edit|name:Email\"}"
+        description = "A key-value map of static UI element selectors for the workflow. **Must be an object with string values**, not a string. Example: {\"button\": \"role:Button|name:Submit\", \"field\": \"role:Edit|name:Email\"}",
+        schema_with = "json_object_schema"
     )]
     pub selectors: Option<serde_json::Value>,
     #[schemars(description = "Whether to stop the entire sequence on first error (default: true)")]
@@ -1480,13 +1516,15 @@ pub struct ExecuteSequenceArgs {
     )]
     pub include_detailed_results: Option<bool>,
     #[schemars(
-        description = "An optional, structured parser to process the final tool output and extract structured data."
+        description = "An optional, structured parser to process the final tool output and extract structured data.",
+        schema_with = "json_object_schema"
     )]
     pub output_parser: Option<serde_json::Value>,
 
     // Simplified aliases for common parameters (keeping originals for backward compatibility)
     #[schemars(
-        description = "Simplified alias for 'output_parser'. Processes the final tool output and extracts structured data. Supports JavaScript code or file path."
+        description = "Simplified alias for 'output_parser'. Processes the final tool output and extracts structured data. Supports JavaScript code or file path.",
+        schema_with = "json_object_schema"
     )]
     pub output: Option<serde_json::Value>,
 
@@ -1561,7 +1599,7 @@ pub struct VariableDefinition {
     pub label: Option<String>,
     #[schemars(description = "A detailed description of what the variable is for.")]
     pub description: Option<String>,
-    #[schemars(description = "The default value for the variable if not provided in the inputs.")]
+    #[schemars(description = "The default value for the variable if not provided in the inputs.", schema_with = "json_object_schema")]
     pub default: Option<serde_json::Value>,
     #[schemars(description = "For string types, a regex pattern for validation.")]
     pub regex: Option<String>,

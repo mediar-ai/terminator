@@ -42,7 +42,7 @@ mod tests;
 // Re-export schemas
 pub use schemas::{
     ActionConfirmation, ElementDisambiguation, ElementTypeHint, ErrorRecoveryAction,
-    ErrorRecoveryChoice, SelectorRefinement, WorkflowContext,
+    ErrorRecoveryChoice, SelectorRefinement, UserResponse, WorkflowContext,
 };
 
 // Re-export helpers

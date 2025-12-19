@@ -117,9 +117,20 @@ pub enum ElementTypeHint {
     Other,
 }
 
+/// Simple user response for the ask_user tool
+/// Used when AI needs to ask clarifying questions
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[schemars(description = "Your response to the AI's question")]
+pub struct UserResponse {
+    /// Your answer or response
+    #[schemars(description = "Your answer to the question")]
+    pub answer: String,
+}
+
 // Mark types as safe for elicitation (generates proper JSON schemas)
 elicit_safe!(WorkflowContext);
 elicit_safe!(ElementDisambiguation);
 elicit_safe!(ErrorRecoveryChoice);
 elicit_safe!(ActionConfirmation);
 elicit_safe!(SelectorRefinement);
+elicit_safe!(UserResponse);
