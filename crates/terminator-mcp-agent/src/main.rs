@@ -5,7 +5,7 @@ use axum::{
     extract::State,
     http::{Method, Request, StatusCode},
     response::IntoResponse,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use chrono::{DateTime, Utc};
@@ -544,6 +544,67 @@ async fn main() -> Result<()> {
                 (code, Json(body))
             }
 
+            // Request body for POST /mode endpoint
+            #[derive(serde::Deserialize)]
+            struct SetModeRequest {
+                mode: String, // "ask" or "act"
+                #[serde(default)]
+                blocked_tools: Vec<String>, // Tools to block in this mode
+            }
+
+            // Handler for POST /mode - sets the current mode and blocked tools list
+            async fn set_mode_handler(
+                State(state): State<AppState>,
+                Json(payload): Json<SetModeRequest>,
+            ) -> impl IntoResponse {
+                tracing::info!(
+                    "[set_mode] Setting mode='{}' with {} blocked tools",
+                    payload.mode,
+                    payload.blocked_tools.len()
+                );
+
+                if let Some(ref wrapper) = *state.desktop_wrapper.read().await {
+                    // Set current mode
+                    {
+                        let mut mode_guard = wrapper.current_mode.lock().await;
+                        *mode_guard = Some(payload.mode.clone());
+                    }
+
+                    // Set blocked tools
+                    {
+                        let mut blocked_guard = wrapper.blocked_tools.lock().await;
+                        blocked_guard.clear();
+                        for tool in &payload.blocked_tools {
+                            blocked_guard.insert(tool.clone());
+                        }
+                    }
+
+                    tracing::debug!(
+                        "[set_mode] Mode set successfully: mode={}, blocked_tools={:?}",
+                        payload.mode,
+                        payload.blocked_tools
+                    );
+
+                    (
+                        StatusCode::OK,
+                        Json(serde_json::json!({
+                            "success": true,
+                            "mode": payload.mode,
+                            "blockedToolsCount": payload.blocked_tools.len()
+                        })),
+                    )
+                } else {
+                    tracing::error!("[set_mode] Desktop wrapper not available");
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({
+                            "success": false,
+                            "error": "Desktop wrapper not available"
+                        })),
+                    )
+                }
+            }
+
             // Authentication middleware - validates Bearer token if auth is enabled
             async fn auth_middleware(
                 State(state): State<AppState>,
@@ -713,6 +774,7 @@ async fn main() -> Result<()> {
                 .route("/health", get(health_check))
                 .route("/ready", get(readiness_check))
                 .route("/status", get(status_handler))
+                .route("/mode", post(set_mode_handler))
                 .nest("/mcp", mcp_router)
                 .with_state(app_state.clone());
 
@@ -731,6 +793,7 @@ async fn main() -> Result<()> {
             info!("  MCP client endpoint: http://{addr}/mcp");
             info!("  Status endpoint: http://{addr}/status");
             info!("  Health check: http://{addr}/health");
+            info!("  Mode control: POST http://{addr}/mode");
             info!("Press Ctrl+C to stop");
 
             axum::serve(tcp_listener, router)
