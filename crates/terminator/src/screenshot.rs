@@ -166,6 +166,144 @@ impl ScreenshotResult {
         let new_height = (self.height as f32 * scale).round() as u32;
         (new_width, new_height)
     }
+
+    /// Draw a cursor arrow on the screenshot at the specified position.
+    ///
+    /// The cursor is drawn as a red arrow with white outline, scaled based on image size.
+    /// Position should be in image coordinates (not screen coordinates).
+    ///
+    /// # Arguments
+    /// * `x` - X position in image coordinates
+    /// * `y` - Y position in image coordinates
+    ///
+    /// # Example
+    /// ```ignore
+    /// let mut screenshot = element.capture()?;
+    /// // Translate screen coords to image coords
+    /// let img_x = cursor_screen_x - window_origin_x;
+    /// let img_y = cursor_screen_y - window_origin_y;
+    /// screenshot.draw_cursor(img_x, img_y);
+    /// ```
+    pub fn draw_cursor(&mut self, x: i32, y: i32) {
+        let w = self.width as i32;
+        let h = self.height as i32;
+
+        // Check if cursor is within bounds
+        if x < 0 || y < 0 || x >= w || y >= h {
+            return;
+        }
+
+        // Scale cursor based on image size (base: 21px for 1000px width)
+        // Min 20px, max 100px
+        let scale = ((w as f32 / 1000.0) * 21.0).clamp(20.0, 100.0) / 21.0;
+        let scale_i = |v: i32| -> i32 { (v as f32 * scale).round() as i32 };
+
+        // Colors in BGRA format (Windows screenshot format)
+        let red_bgra: [u8; 4] = [40, 40, 220, 255]; // Bright red fill (BGR)
+        let dark_bgra: [u8; 4] = [0, 0, 80, 255]; // Dark red outline (BGR)
+        let white_bgra: [u8; 4] = [255, 255, 255, 255]; // White outer outline
+
+        // Classic arrow cursor shape - 21 pixels tall at scale 1.0
+        // Each row: (y_offset, x_start, x_end) - x_end is exclusive
+        let cursor_shape: &[(i32, i32, i32)] = &[
+            (0, 0, 1), // tip
+            (1, 0, 2),
+            (2, 0, 3),
+            (3, 0, 4),
+            (4, 0, 5),
+            (5, 0, 6),
+            (6, 0, 7),
+            (7, 0, 8),
+            (8, 0, 9),
+            (9, 0, 10),
+            (10, 0, 11),
+            (11, 0, 12),
+            (12, 0, 6), // notch starts
+            (13, 0, 5),
+            (14, 0, 4),
+            (15, 0, 3),
+            (16, 0, 2),
+            (17, 5, 7), // tail part
+            (18, 6, 8),
+            (19, 7, 9),
+            (20, 8, 10),
+        ];
+
+        // Outline thickness (scaled)
+        let outline_px = scale_i(2).max(2);
+
+        // Helper to set pixel in BGRA format
+        let set_pixel = |data: &mut [u8], px: i32, py: i32, w: i32, color: [u8; 4]| {
+            if px >= 0 && px < w && py >= 0 && py < h {
+                let idx = ((py * w + px) * 4) as usize;
+                if idx + 3 < data.len() {
+                    data[idx..idx + 4].copy_from_slice(&color);
+                }
+            }
+        };
+
+        // First pass: draw white outer outline (expanded shape)
+        for &(dy, x_start, x_end) in cursor_shape {
+            let y_base = y + scale_i(dy) - outline_px;
+            let y_next = y + scale_i(dy + 1) + outline_px;
+
+            for py in y_base..y_next {
+                let x_base_start = x + scale_i(x_start) - outline_px;
+                let x_base_end = x + scale_i(x_end) + outline_px;
+
+                for px in x_base_start..x_base_end {
+                    set_pixel(&mut self.image_data, px, py, w, white_bgra);
+                }
+            }
+        }
+
+        // Second pass: draw dark outline and red fill
+        for &(dy, x_start, x_end) in cursor_shape {
+            let y_base = y + scale_i(dy);
+            let y_next = y + scale_i(dy + 1);
+
+            for py in y_base..y_next {
+                let x_base_start = x + scale_i(x_start);
+                let x_base_end = x + scale_i(x_end);
+
+                for px in x_base_start..x_base_end {
+                    // Dark outline on edges
+                    let is_outline = px < x_base_start + outline_px
+                        || px >= x_base_end - outline_px
+                        || py < y_base + outline_px
+                        || py >= y_next - outline_px
+                        || dy == 0
+                        || dy == 20;
+
+                    let color = if is_outline { dark_bgra } else { red_bgra };
+                    set_pixel(&mut self.image_data, px, py, w, color);
+                }
+            }
+        }
+    }
+}
+
+/// Get the current mouse cursor position on screen.
+/// Returns (x, y) in screen coordinates, or None if unable to get position.
+#[cfg(windows)]
+pub fn get_cursor_position() -> Option<(i32, i32)> {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+    let mut point = POINT { x: 0, y: 0 };
+    unsafe {
+        if GetCursorPos(&mut point).is_ok() {
+            Some((point.x, point.y))
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(not(windows))]
+pub fn get_cursor_position() -> Option<(i32, i32)> {
+    // Not implemented for non-Windows platforms yet
+    None
 }
 
 /// Error type for screenshot operations
