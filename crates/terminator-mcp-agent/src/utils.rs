@@ -69,9 +69,14 @@ pub struct WindowManagementOptions {
     pub bring_to_front: Option<bool>,
 
     #[schemars(
-        description = "Whether to restore focus and caret position after tool execution. When true, saves the currently focused element and caret position before window management, then restores them after the tool completes. Defaults to false."
+        description = "Whether to restore keyboard focus and caret position after tool execution. When true, saves the currently focused element and caret position before window management, then restores them after the tool completes. Defaults to true."
     )]
     pub restore_focus: Option<bool>,
+
+    #[schemars(
+        description = "Whether to restore mouse cursor position after tool execution. Only needed for click operations that move the mouse. Defaults to false."
+    )]
+    pub restore_cursor: Option<bool>,
 }
 
 /// Tree options for action tools that modify UI - captures diff before/after
