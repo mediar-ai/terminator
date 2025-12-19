@@ -32,7 +32,9 @@ pub mod computer_use;
 pub use element::{OcrElement, SerializableUIElement, UIElement, UIElementAttributes};
 pub use errors::AutomationError;
 pub use locator::Locator;
-pub use screenshot::{ScreenshotError, ScreenshotResult, DEFAULT_MAX_DIMENSION};
+pub use screenshot::{
+    get_cursor_position, ScreenshotError, ScreenshotResult, DEFAULT_MAX_DIMENSION,
+};
 pub use selector::Selector;
 pub use tokio_util::sync::CancellationToken;
 pub use tree_formatter::{
