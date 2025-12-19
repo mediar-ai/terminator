@@ -190,8 +190,22 @@ impl ScreenshotResult {
 
         // Check if cursor is within bounds
         if x < 0 || y < 0 || x >= w || y >= h {
+            tracing::info!(
+                "[draw_cursor] OUT OF BOUNDS: ({}, {}) not in {}x{}",
+                x,
+                y,
+                w,
+                h
+            );
             return;
         }
+        tracing::info!(
+            "[draw_cursor] Drawing RED cursor at ({}, {}) on {}x{} image",
+            x,
+            y,
+            w,
+            h
+        );
 
         // Scale cursor based on image size (base: 21px for 1000px width)
         // Min 20px, max 100px
