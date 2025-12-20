@@ -16,6 +16,16 @@ use tokio::sync::Mutex as TokioMutex;
 use tracing::{warn, Instrument, Level};
 use tracing_subscriber::{util::SubscriberInitExt, EnvFilter, Layer};
 
+/// Per-client mode state for ask/act mode enforcement
+/// Only applies to "claude-code" client; "mediar-app" (UI) is never blocked
+#[derive(Debug, Clone, Default)]
+pub struct ClientModeState {
+    /// Current mode: "ask" (read-only) or "act" (full access)
+    pub mode: String,
+    /// Tools blocked in this mode
+    pub blocked_tools: std::collections::HashSet<String>,
+}
+
 /// Custom schema generator for serde_json::Value fields.
 /// Generates a proper `{"type": "object"}` schema instead of the permissive "any" schema.
 fn json_object_schema(_gen: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
@@ -412,13 +422,10 @@ pub struct DesktopWrapper {
     #[cfg(target_os = "windows")]
     #[serde(skip)]
     pub inspect_overlay_handle: Arc<Mutex<Option<terminator::InspectOverlayHandle>>>,
-    /// Current mode: "ask" (read-only) or "act" (full access)
-    /// Set via POST /mode endpoint from desktop app
+    /// Per-client mode states: HashMap<client_name, ClientModeState>
+    /// Only "claude-code" client has mode enforced; "mediar-app" (UI) is never blocked
     #[serde(skip)]
-    pub current_mode: Arc<TokioMutex<Option<String>>>,
-    /// Tools blocked in current mode (passed from desktop app)
-    #[serde(skip)]
-    pub blocked_tools: Arc<TokioMutex<std::collections::HashSet<String>>>,
+    pub client_modes: Arc<TokioMutex<HashMap<String, ClientModeState>>>,
     /// Stores a peer that supports elicitation capability
     /// This is captured when a client with elicitation capability connects
     /// Used to show UI prompts to the user even when tool calls come from a different peer
