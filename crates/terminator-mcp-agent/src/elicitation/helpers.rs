@@ -166,3 +166,71 @@ where
 pub fn supports_elicitation(peer: &Peer<RoleServer>) -> bool {
     peer.supports_elicitation()
 }
+
+/// Try to elicit data with a custom schema, returning the raw JSON value
+///
+/// This variant allows passing a custom ElicitationSchema instead of deriving it from a type.
+/// Useful when the schema needs to be built dynamically (e.g., enum with runtime choices).
+///
+/// Returns `Some(serde_json::Value)` if user provided data, `None` if declined or not supported.
+pub async fn try_elicit_raw(
+    stored_peer: &Arc<TokioMutex<Option<Peer<RoleServer>>>>,
+    calling_peer: &Peer<RoleServer>,
+    message: &str,
+    schema: rmcp::model::ElicitationSchema,
+) -> Option<serde_json::Value> {
+    use rmcp::model::{CreateElicitationRequestParam, ElicitationAction};
+
+    // First, try to use the stored elicitation-capable peer
+    let peer_to_use: Option<Peer<RoleServer>> = {
+        let guard = stored_peer.lock().await;
+        if let Some(ref stored) = *guard {
+            if stored.supports_elicitation() {
+                tracing::info!(
+                    "[elicitation] Using stored elicitation-capable peer for raw elicit: {}",
+                    message
+                );
+                Some(stored.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+
+    // Determine which peer to use
+    let peer = if let Some(ref p) = peer_to_use {
+        p
+    } else {
+        if !calling_peer.supports_elicitation() {
+            tracing::info!("[elicitation] No elicitation-capable peer available for raw elicit");
+            return None;
+        }
+        calling_peer
+    };
+
+    tracing::info!("[elicitation] Attempting raw elicitation with custom schema...");
+
+    let request_param = CreateElicitationRequestParam {
+        message: message.to_string(),
+        requested_schema: schema,
+    };
+
+    match peer.create_elicitation(request_param).await {
+        Ok(result) => match result.action {
+            ElicitationAction::Accept => {
+                tracing::info!("[elicitation] User accepted raw elicitation: {}", message);
+                result.content
+            }
+            ElicitationAction::Decline | ElicitationAction::Cancel => {
+                tracing::info!("[elicitation] User declined/cancelled raw elicitation: {}", message);
+                None
+            }
+        },
+        Err(e) => {
+            tracing::info!("[elicitation] Error in raw elicitation: {:?}", e);
+            None
+        }
+    }
+}
