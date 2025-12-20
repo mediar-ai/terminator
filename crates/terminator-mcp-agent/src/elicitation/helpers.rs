@@ -224,7 +224,10 @@ pub async fn try_elicit_raw(
                 result.content
             }
             ElicitationAction::Decline | ElicitationAction::Cancel => {
-                tracing::info!("[elicitation] User declined/cancelled raw elicitation: {}", message);
+                tracing::info!(
+                    "[elicitation] User declined/cancelled raw elicitation: {}",
+                    message
+                );
                 None
             }
         },
