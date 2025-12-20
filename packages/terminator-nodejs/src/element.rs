@@ -451,6 +451,14 @@ impl Element {
         let _ = self.inner.activate_window();
         let result = self.inner.right_click().map_err(map_error);
 
+        // Capture screenshots if requested
+        let _screenshots = capture_element_screenshots(
+            &self.inner,
+            opts.include_window_screenshot.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(false),
+            "rightClick",
+        );
+
         // FOCUS RESTORATION: Restore focus state after action if we saved it
         #[cfg(target_os = "windows")]
         if let Some(state) = saved_focus {
@@ -483,6 +491,14 @@ impl Element {
         }
         let _ = self.inner.activate_window();
         let result = self.inner.hover().map_err(map_error);
+
+        // Capture screenshots if requested
+        let _screenshots = capture_element_screenshots(
+            &self.inner,
+            opts.include_window_screenshot.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(false),
+            "hover",
+        );
 
         // FOCUS RESTORATION: Restore focus state after action if we saved it
         #[cfg(target_os = "windows")]
@@ -852,6 +868,7 @@ impl Element {
     /// @param {number} startY - Starting Y coordinate.
     /// @param {number} endX - Ending X coordinate.
     /// @param {number} endY - Ending Y coordinate.
+    /// @param {ActionOptions} [options] - Optional action options.
     #[napi]
     pub fn mouse_drag(
         &self,
@@ -859,10 +876,28 @@ impl Element {
         start_y: f64,
         end_x: f64,
         end_y: f64,
+        options: Option<ActionOptions>,
     ) -> napi::Result<()> {
-        self.inner
+        let opts = options.unwrap_or_default();
+
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("mouse_drag");
+        }
+
+        let result = self
+            .inner
             .mouse_drag(start_x, start_y, end_x, end_y)
-            .map_err(map_error)
+            .map_err(map_error);
+
+        // Capture screenshots if requested
+        let _screenshots = capture_element_screenshots(
+            &self.inner,
+            opts.include_window_screenshot.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(false),
+            "mouseDrag",
+        );
+
+        result
     }
 
     /// Press and hold mouse at coordinates.
@@ -884,9 +919,27 @@ impl Element {
     }
 
     /// Release mouse button.
+    ///
+    /// @param {ActionOptions} [options] - Optional action options.
     #[napi]
-    pub fn mouse_release(&self) -> napi::Result<()> {
-        self.inner.mouse_release().map_err(map_error)
+    pub fn mouse_release(&self, options: Option<ActionOptions>) -> napi::Result<()> {
+        let opts = options.unwrap_or_default();
+
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("mouse_release");
+        }
+
+        let result = self.inner.mouse_release().map_err(map_error);
+
+        // Capture screenshots if requested
+        let _screenshots = capture_element_screenshots(
+            &self.inner,
+            opts.include_window_screenshot.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(false),
+            "mouseRelease",
+        );
+
+        result
     }
 
     /// Create a locator from this element.
@@ -1084,6 +1137,14 @@ impl Element {
         }
         let result = self.inner.select_option(&option_name).map_err(map_error);
 
+        // Capture screenshots if requested
+        let _screenshots = capture_element_screenshots(
+            &self.inner,
+            opts.include_window_screenshot.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(false),
+            "selectOption",
+        );
+
         // FOCUS RESTORATION: Restore focus state after action if we saved it
         #[cfg(target_os = "windows")]
         if let Some(state) = saved_focus {
@@ -1114,10 +1175,27 @@ impl Element {
     /// It only performs an action if the control is not already in the desired state.
     ///
     /// @param {boolean} state - The desired toggle state.
+    /// @param {ActionOptions} [options] - Optional action options.
     /// @returns {void}
     #[napi]
-    pub fn set_toggled(&self, state: bool) -> napi::Result<()> {
-        self.inner.set_toggled(state).map_err(map_error)
+    pub fn set_toggled(&self, state: bool, options: Option<ActionOptions>) -> napi::Result<()> {
+        let opts = options.unwrap_or_default();
+
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("set_toggled");
+        }
+
+        let result = self.inner.set_toggled(state).map_err(map_error);
+
+        // Capture screenshots if requested
+        let _screenshots = capture_element_screenshots(
+            &self.inner,
+            opts.include_window_screenshot.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(false),
+            "setToggled",
+        );
+
+        result
     }
 
     /// Checks if an element is selected (e.g., list item, tree node, tab).
@@ -1153,6 +1231,14 @@ impl Element {
         }
         let result = self.inner.set_selected(state).map_err(map_error);
 
+        // Capture screenshots if requested
+        let _screenshots = capture_element_screenshots(
+            &self.inner,
+            opts.include_window_screenshot.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(false),
+            "setSelected",
+        );
+
         // FOCUS RESTORATION: Restore focus state after action if we saved it
         #[cfg(target_os = "windows")]
         if let Some(state) = saved_focus {
@@ -1174,10 +1260,27 @@ impl Element {
     /// Sets the value of a range-based control like a slider.
     ///
     /// @param {number} value - The value to set.
+    /// @param {ActionOptions} [options] - Optional action options.
     /// @returns {void}
     #[napi]
-    pub fn set_range_value(&self, value: f64) -> napi::Result<()> {
-        self.inner.set_range_value(value).map_err(map_error)
+    pub fn set_range_value(&self, value: f64, options: Option<ActionOptions>) -> napi::Result<()> {
+        let opts = options.unwrap_or_default();
+
+        if opts.highlight_before_action.unwrap_or(false) {
+            let _ = self.inner.highlight_before_action("set_range_value");
+        }
+
+        let result = self.inner.set_range_value(value).map_err(map_error);
+
+        // Capture screenshots if requested
+        let _screenshots = capture_element_screenshots(
+            &self.inner,
+            opts.include_window_screenshot.unwrap_or(true),
+            opts.include_monitor_screenshots.unwrap_or(false),
+            "setRangeValue",
+        );
+
+        result
     }
 
     /// Gets the value attribute of an element (text inputs, combo boxes, etc.).

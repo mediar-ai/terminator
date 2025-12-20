@@ -1,4 +1,4 @@
-use crate::elicitation::{try_elicit, UserResponse};
+use crate::elicitation::try_elicit_raw;
 use crate::event_pipe::{create_event_channel, WorkflowEvent};
 use crate::execution_logger;
 use crate::helpers::*;
@@ -20,7 +20,8 @@ use image::{ExtendedColorType, ImageBuffer, ImageEncoder, Rgba};
 use regex::Regex;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
-    CallToolResult, Content, Implementation, ProtocolVersion, ServerCapabilities, ServerInfo,
+    CallToolResult, Content, ElicitationSchema, EnumSchema, Implementation, PrimitiveSchema,
+    ProtocolVersion, ServerCapabilities, ServerInfo, StringSchema,
 };
 use rmcp::tool_router;
 use rmcp::{tool, ErrorData as McpError, ServerHandler};
@@ -806,8 +807,7 @@ impl DesktopWrapper {
             clustered_bounds: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             #[cfg(target_os = "windows")]
             inspect_overlay_handle: Arc::new(std::sync::Mutex::new(None)),
-            current_mode: Arc::new(Mutex::new(None)),
-            blocked_tools: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            client_modes: Arc::new(Mutex::new(std::collections::HashMap::new())),
             elicitation_peer: Arc::new(Mutex::new(None)),
         })
     }
@@ -4836,13 +4836,15 @@ DATA PASSING:
     }
 
     #[tool(
-        description = "Ask the user a clarifying question when you need more information to proceed. Use this when uncertain about business logic, which element to interact with, or any decision that requires human judgment. The user will see a modal with your question and can provide an answer."
+        description = "Ask the user a clarifying question when you need more information to proceed. Use this when uncertain about business logic, which element to interact with, or any decision that requires human judgment. The user will see a prompt with your question and can provide an answer. When choices are provided, clickable buttons are shown."
     )]
     async fn ask_user(
         &self,
         peer: Peer<RoleServer>,
         Parameters(args): Parameters<AskUserArgs>,
     ) -> Result<CallToolResult, McpError> {
+        use std::collections::BTreeMap;
+
         // Build the message to show the user
         let mut message = args.question.clone();
 
@@ -4851,31 +4853,49 @@ DATA PASSING:
             message = format!("{}\n\nContext: {}", message, ctx);
         }
 
-        // Add choices if provided
-        if let Some(choices) = &args.choices {
-            message = format!(
-                "{}\n\nOptions:\n{}",
-                message,
-                choices
-                    .iter()
-                    .enumerate()
-                    .map(|(i, c)| format!("{}. {}", i + 1, c))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            );
-        }
-
         tracing::info!("[ask_user] Requesting user input: {}", args.question);
 
-        // Use elicitation to get user response
-        match try_elicit::<UserResponse>(&self.elicitation_peer, &peer, &message).await {
+        // Build schema dynamically based on whether choices are provided
+        let schema = if let Some(choices) = &args.choices {
+            // Enum schema for clickable choices
+            tracing::info!(
+                "[ask_user] Building enum schema with {} choices",
+                choices.len()
+            );
+            let mut properties = BTreeMap::new();
+            properties.insert(
+                "answer".to_string(),
+                PrimitiveSchema::Enum(EnumSchema::new(choices.clone())),
+            );
+            ElicitationSchema::new(properties)
+        } else {
+            // String schema for free-form input
+            tracing::info!("[ask_user] Building string schema for free-form input");
+            let mut properties = BTreeMap::new();
+            properties.insert(
+                "answer".to_string(),
+                PrimitiveSchema::String(
+                    StringSchema::new().description("Your answer to the question"),
+                ),
+            );
+            ElicitationSchema::new(properties)
+        };
+
+        // Use raw elicitation with custom schema
+        match try_elicit_raw(&self.elicitation_peer, &peer, &message, schema).await {
             Some(response) => {
-                tracing::info!("[ask_user] User responded: {}", response.answer);
+                // Extract answer from response JSON
+                let answer = response
+                    .get("answer")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                tracing::info!("[ask_user] User responded: {}", answer);
                 Ok(CallToolResult::success(vec![Content::json(json!({
                     "action": "ask_user",
                     "status": "answered",
                     "question": args.question,
-                    "answer": response.answer
+                    "answer": answer
                 }))?]))
             }
             None => {
@@ -10054,29 +10074,40 @@ impl ServerHandler for DesktopWrapper {
             .map(|a| serde_json::Value::Object(a.clone()))
             .unwrap_or(serde_json::Value::Null);
 
-        // Check if tool is blocked in current mode
+        // Check if tool is blocked for this specific client (per-client mode)
+        // Only "claude-code" clients have mode enforced; "mediar-app" (UI) is never blocked
         {
-            let mode_guard = self.current_mode.lock().await;
-            if let Some(ref mode) = *mode_guard {
-                if mode == "ask" {
-                    let blocked_guard = self.blocked_tools.lock().await;
-                    if blocked_guard.contains(&tool_name) {
-                        tracing::info!("[call_tool] Blocked tool '{}' in Ask mode", tool_name);
-                        return Err(McpError::invalid_request(
-                            format!(
-                                "Tool '{}' is blocked in Ask mode. Ask user to switch to Act mode to execute this action.",
-                                tool_name
-                            ),
-                            Some(serde_json::json!({
-                                "code": -32002,
-                                "tool": tool_name,
-                                "mode": "ask",
-                                "action": "switch_to_act_mode"
-                            })),
-                        ));
-                    }
+            // Get client name from peer info
+            let client_name = context
+                .peer
+                .peer_info()
+                .map(|info| info.client_info.name.to_string())
+                .unwrap_or_default();
+
+            let modes_guard = self.client_modes.lock().await;
+            if let Some(client_state) = modes_guard.get(&client_name) {
+                if client_state.mode == "ask" && client_state.blocked_tools.contains(&tool_name) {
+                    tracing::info!(
+                        "[call_tool] Blocked tool '{}' for client '{}' in Ask mode",
+                        tool_name,
+                        client_name
+                    );
+                    return Err(McpError::invalid_request(
+                        format!(
+                            "Tool '{}' is blocked in Ask mode. Ask user to switch to Act mode to execute this action.",
+                            tool_name
+                        ),
+                        Some(serde_json::json!({
+                            "code": -32002,
+                            "tool": tool_name,
+                            "mode": "ask",
+                            "client": client_name,
+                            "action": "switch_to_act_mode"
+                        })),
+                    ));
                 }
             }
+            // If no mode is set for this client (e.g., "mediar-app"), allow all tools
         }
 
         // Reset cancellation state before starting a new tool call (except for stop_execution itself)
@@ -10191,10 +10222,21 @@ impl ServerHandler for DesktopWrapper {
     async fn on_initialized(&self, context: NotificationContext<RoleServer>) {
         let peer = context.peer;
         let supports = peer.supports_elicitation();
-        tracing::info!(
-            "[on_initialized] Client initialized. supports_elicitation: {}",
-            supports
-        );
+
+        // Log client info to identify different clients (claude-code vs mediar-app)
+        if let Some(info) = peer.peer_info() {
+            tracing::info!(
+                "[on_initialized] Client: name='{}', version='{}', supports_elicitation={}",
+                info.client_info.name,
+                info.client_info.version,
+                supports
+            );
+        } else {
+            tracing::info!(
+                "[on_initialized] Client initialized (no peer_info). supports_elicitation: {}",
+                supports
+            );
+        }
 
         if supports {
             tracing::info!("[on_initialized] Storing elicitation-capable peer");

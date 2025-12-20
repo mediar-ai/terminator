@@ -46,7 +46,7 @@ pub use schemas::{
 };
 
 // Re-export helpers
-pub use helpers::{elicit_with_fallback, supports_elicitation, try_elicit};
+pub use helpers::{elicit_with_fallback, supports_elicitation, try_elicit, try_elicit_raw};
 
 // Re-export the elicit_safe macro
 pub use rmcp::elicit_safe;

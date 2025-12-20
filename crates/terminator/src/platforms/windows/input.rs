@@ -155,7 +155,6 @@ pub struct FocusState {
     automation: IUIAutomation,
     focused_element: IUIAutomationElement,
     caret_range: Option<IUIAutomationTextRange>,
-    mouse_pos: POINT,
 }
 
 // SAFETY: COM objects in MTA mode can be accessed from any thread in the apartment.
@@ -163,7 +162,7 @@ pub struct FocusState {
 unsafe impl Send for FocusState {}
 unsafe impl Sync for FocusState {}
 
-/// Save the current focus state including focused element, caret position, and mouse cursor.
+/// Save the current focus state including focused element and caret position.
 ///
 /// Returns None if focus state cannot be saved (e.g., no focused element).
 /// Caret position is only saved if the focused element supports TextPattern2.
@@ -180,10 +179,6 @@ pub fn save_focus_state() -> Option<FocusState> {
                     return None;
                 }
             };
-
-        // Save mouse position
-        let mut mouse_pos = POINT { x: 0, y: 0 };
-        let _ = GetCursorPos(&mut mouse_pos);
 
         // Get focused element
         let focused_element = match automation.GetFocusedElement() {
@@ -224,11 +219,9 @@ pub fn save_focus_state() -> Option<FocusState> {
         };
 
         info!(
-            "[FOCUS_RESTORE] Saved: element='{}' class='{}' mouse=({}, {}), has_caret={}",
+            "[FOCUS_RESTORE] Saved: element='{}' class='{}' has_caret={}",
             element_name,
             element_class,
-            mouse_pos.x,
-            mouse_pos.y,
             caret_range.is_some()
         );
 
@@ -236,14 +229,13 @@ pub fn save_focus_state() -> Option<FocusState> {
             automation,
             focused_element,
             caret_range,
-            mouse_pos,
         })
     }
 }
 
 /// Restore a previously saved focus state.
 ///
-/// Restores focus to the saved element, caret position (if available), and mouse cursor.
+/// Restores focus to the saved element and caret position (if available).
 /// Silently fails if restoration is not possible (element no longer valid, etc.).
 pub fn restore_focus_state(state: FocusState) {
     unsafe {
@@ -276,20 +268,9 @@ pub fn restore_focus_state(state: FocusState) {
             }
         }
 
-        // Restore mouse cursor position
-        match SetCursorPos(state.mouse_pos.x, state.mouse_pos.y) {
-            Ok(_) => info!(
-                "[FOCUS_RESTORE] SetCursorPos({}, {}) succeeded",
-                state.mouse_pos.x, state.mouse_pos.y
-            ),
-            Err(e) => info!("[FOCUS_RESTORE] SetCursorPos failed: {:?}", e),
-        }
-
         info!(
-            "[FOCUS_RESTORE] Restoration complete: element='{}' mouse=({}, {}), had_caret={}",
+            "[FOCUS_RESTORE] Restoration complete: element='{}' had_caret={}",
             element_name,
-            state.mouse_pos.x,
-            state.mouse_pos.y,
             state.caret_range.is_some()
         );
     }
