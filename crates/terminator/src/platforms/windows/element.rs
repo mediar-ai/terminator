@@ -1,5 +1,6 @@
 //! Windows UI Element implementation
 
+use super::action_overlay::ActionOverlayGuard;
 use super::input::{restore_focus_state, save_focus_state};
 use super::types::{FontStyle, HighlightHandle, TextPosition, ThreadSafeWinUIElement};
 use super::utils::{create_ui_automation_with_com_init, generate_element_id};
@@ -597,6 +598,10 @@ impl UIElementImpl for WindowsUIElement {
 
     fn click(&self) -> Result<ClickResult, AutomationError> {
         let click_start = std::time::Instant::now();
+
+        // Show action overlay (auto-hides on drop)
+        let element_info = self.get_element_description();
+        let _overlay_guard = ActionOverlayGuard::new("Clicking", Some(&element_info));
 
         // PHASE 1: PRE-ACTION VALIDATION
         tracing::info!("Phase 1: Validating element is clickable");
