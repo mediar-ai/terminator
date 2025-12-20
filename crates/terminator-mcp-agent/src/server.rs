@@ -1,4 +1,4 @@
-use crate::elicitation::{try_elicit, UserResponse};
+use crate::elicitation::try_elicit_raw;
 use crate::event_pipe::{create_event_channel, WorkflowEvent};
 use crate::execution_logger;
 use crate::helpers::*;
@@ -21,6 +21,7 @@ use regex::Regex;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
     CallToolResult, Content, Implementation, ProtocolVersion, ServerCapabilities, ServerInfo,
+    ElicitationSchema, PrimitiveSchema, EnumSchema, StringSchema,
 };
 use rmcp::tool_router;
 use rmcp::{tool, ErrorData as McpError, ServerHandler};
@@ -4835,13 +4836,15 @@ DATA PASSING:
     }
 
     #[tool(
-        description = "Ask the user a clarifying question when you need more information to proceed. Use this when uncertain about business logic, which element to interact with, or any decision that requires human judgment. The user will see a modal with your question and can provide an answer."
+        description = "Ask the user a clarifying question when you need more information to proceed. Use this when uncertain about business logic, which element to interact with, or any decision that requires human judgment. The user will see a prompt with your question and can provide an answer. When choices are provided, clickable buttons are shown."
     )]
     async fn ask_user(
         &self,
         peer: Peer<RoleServer>,
         Parameters(args): Parameters<AskUserArgs>,
     ) -> Result<CallToolResult, McpError> {
+        use std::collections::BTreeMap;
+
         // Build the message to show the user
         let mut message = args.question.clone();
 
@@ -4850,31 +4853,44 @@ DATA PASSING:
             message = format!("{}\n\nContext: {}", message, ctx);
         }
 
-        // Add choices if provided
-        if let Some(choices) = &args.choices {
-            message = format!(
-                "{}\n\nOptions:\n{}",
-                message,
-                choices
-                    .iter()
-                    .enumerate()
-                    .map(|(i, c)| format!("{}. {}", i + 1, c))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            );
-        }
-
         tracing::info!("[ask_user] Requesting user input: {}", args.question);
 
-        // Use elicitation to get user response
-        match try_elicit::<UserResponse>(&self.elicitation_peer, &peer, &message).await {
+        // Build schema dynamically based on whether choices are provided
+        let schema = if let Some(choices) = &args.choices {
+            // Enum schema for clickable choices
+            tracing::info!("[ask_user] Building enum schema with {} choices", choices.len());
+            let mut properties = BTreeMap::new();
+            properties.insert(
+                "answer".to_string(),
+                PrimitiveSchema::Enum(EnumSchema::new(choices.clone())),
+            );
+            ElicitationSchema::new(properties)
+        } else {
+            // String schema for free-form input
+            tracing::info!("[ask_user] Building string schema for free-form input");
+            let mut properties = BTreeMap::new();
+            properties.insert(
+                "answer".to_string(),
+                PrimitiveSchema::String(StringSchema::new().description("Your answer to the question")),
+            );
+            ElicitationSchema::new(properties)
+        };
+
+        // Use raw elicitation with custom schema
+        match try_elicit_raw(&self.elicitation_peer, &peer, &message, schema).await {
             Some(response) => {
-                tracing::info!("[ask_user] User responded: {}", response.answer);
+                // Extract answer from response JSON
+                let answer = response
+                    .get("answer")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                tracing::info!("[ask_user] User responded: {}", answer);
                 Ok(CallToolResult::success(vec![Content::json(json!({
                     "action": "ask_user",
                     "status": "answered",
                     "question": args.question,
-                    "answer": response.answer
+                    "answer": answer
                 }))?]))
             }
             None => {
