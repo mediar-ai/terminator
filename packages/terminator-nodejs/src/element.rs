@@ -884,7 +884,8 @@ impl Element {
             let _ = self.inner.highlight_before_action("mouse_drag");
         }
 
-        let result = self.inner
+        let result = self
+            .inner
             .mouse_drag(start_x, start_y, end_x, end_y)
             .map_err(map_error);
 
