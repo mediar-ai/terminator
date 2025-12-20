@@ -3,6 +3,7 @@
 //! This module provides Windows-specific UI automation functionality using
 //! the Windows UI Automation API through the uiautomation crate.
 
+pub mod action_overlay;
 pub mod applications;
 pub mod element;
 pub mod engine;
@@ -34,6 +35,12 @@ pub use highlighting::{set_recording_mode, stop_all_highlights};
 pub use inspect_overlay::{
     hide_inspect_overlay, show_inspect_overlay, InspectElement, InspectOverlayHandle,
     OverlayDisplayMode,
+};
+
+// Re-export action overlay functions
+pub use action_overlay::{
+    hide_action_overlay, is_action_overlay_enabled, set_action_overlay_enabled,
+    show_action_overlay, update_action_overlay_message, ActionOverlayGuard,
 };
 
 // Re-export virtual display support
