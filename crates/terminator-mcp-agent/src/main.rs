@@ -547,40 +547,45 @@ async fn main() -> Result<()> {
             // Request body for POST /mode endpoint
             #[derive(serde::Deserialize)]
             struct SetModeRequest {
+                /// Client name to set mode for (e.g., "claude-code")
+                /// Defaults to "claude-code" for backward compatibility
+                #[serde(default = "default_client_name")]
+                client_name: String,
                 mode: String, // "ask" or "act"
                 #[serde(default)]
                 blocked_tools: Vec<String>, // Tools to block in this mode
             }
 
-            // Handler for POST /mode - sets the current mode and blocked tools list
+            fn default_client_name() -> String {
+                "claude-code".to_string()
+            }
+
+            // Handler for POST /mode - sets the mode and blocked tools for a specific client
             async fn set_mode_handler(
                 State(state): State<AppState>,
                 Json(payload): Json<SetModeRequest>,
             ) -> impl IntoResponse {
                 tracing::info!(
-                    "[set_mode] Setting mode='{}' with {} blocked tools",
+                    "[set_mode] Setting mode='{}' for client='{}' with {} blocked tools",
                     payload.mode,
+                    payload.client_name,
                     payload.blocked_tools.len()
                 );
 
                 if let Some(ref wrapper) = *state.desktop_wrapper.read().await {
-                    // Set current mode
+                    // Set per-client mode
                     {
-                        let mut mode_guard = wrapper.current_mode.lock().await;
-                        *mode_guard = Some(payload.mode.clone());
-                    }
-
-                    // Set blocked tools
-                    {
-                        let mut blocked_guard = wrapper.blocked_tools.lock().await;
-                        blocked_guard.clear();
-                        for tool in &payload.blocked_tools {
-                            blocked_guard.insert(tool.clone());
-                        }
+                        let mut modes_guard = wrapper.client_modes.lock().await;
+                        let state = terminator_mcp_agent::utils::ClientModeState {
+                            mode: payload.mode.clone(),
+                            blocked_tools: payload.blocked_tools.iter().cloned().collect(),
+                        };
+                        modes_guard.insert(payload.client_name.clone(), state);
                     }
 
                     tracing::debug!(
-                        "[set_mode] Mode set successfully: mode={}, blocked_tools={:?}",
+                        "[set_mode] Mode set successfully: client={}, mode={}, blocked_tools={:?}",
+                        payload.client_name,
                         payload.mode,
                         payload.blocked_tools
                     );
@@ -589,6 +594,7 @@ async fn main() -> Result<()> {
                         StatusCode::OK,
                         Json(serde_json::json!({
                             "success": true,
+                            "clientName": payload.client_name,
                             "mode": payload.mode,
                             "blockedToolsCount": payload.blocked_tools.len()
                         })),
