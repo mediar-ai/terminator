@@ -201,6 +201,8 @@ impl Desktop {
     /// @param {number} [yPercentage=50] - Y position within bounds as percentage (0-100). Defaults to 50 (center).
     /// @param {ClickType} [clickType='left'] - Type of click: 'left', 'double', or 'right'.
     /// @param {boolean} [restoreCursor=true] - If true, restore cursor to original position after clicking.
+    /// @param {string} [process] - Process name for window screenshot capture. If provided, enables window screenshots.
+    /// @param {boolean} [includeWindowScreenshot=true] - Whether to capture window screenshot (requires process).
     /// @param {boolean} [includeMonitorScreenshots=false] - Whether to capture monitor screenshots after clicking.
     /// @returns {ClickResult} Result with clicked coordinates and method details.
     #[napi]
@@ -215,6 +217,8 @@ impl Desktop {
         y_percentage: Option<u8>,
         click_type: Option<ClickType>,
         restore_cursor: Option<bool>,
+        process: Option<String>,
+        include_window_screenshot: Option<bool>,
         include_monitor_screenshots: Option<bool>,
     ) -> napi::Result<ClickResult> {
         let bounds = (x, y, width, height);
@@ -227,16 +231,22 @@ impl Desktop {
         let click_type = click_type.unwrap_or(ClickType::Left);
         let restore_cursor = restore_cursor.unwrap_or(true);
 
-        let result = self.inner
+        let result = self
+            .inner
             .click_at_bounds(bounds, click_position, click_type.into(), restore_cursor)
             .map(ClickResult::from)
             .map_err(map_error);
 
-        // Capture screenshots if requested (no PID context, only monitors work)
+        // Get PID from process name if provided
+        let pid = process
+            .as_ref()
+            .and_then(|p| find_pid_for_process(&self.inner, p).ok());
+
+        // Capture screenshots if requested
         let _screenshots = capture_screenshots(
             &self.inner,
-            None,
-            false, // No window screenshot without PID
+            pid,
+            include_window_screenshot.unwrap_or(true) && pid.is_some(),
             include_monitor_screenshots.unwrap_or(false),
             "clickAtBounds",
         );
@@ -255,6 +265,8 @@ impl Desktop {
     /// @param {number} [yPercentage=50] - Y position within bounds as percentage (0-100).
     /// @param {ClickType} [clickType='Left'] - Type of click: 'Left', 'Double', or 'Right'.
     /// @param {boolean} [restoreCursor=true] - If true, restore cursor to original position after clicking.
+    /// @param {string} [process] - Process name for window screenshot capture. If provided, enables window screenshots.
+    /// @param {boolean} [includeWindowScreenshot=true] - Whether to capture window screenshot (requires process).
     /// @param {boolean} [includeMonitorScreenshots=false] - Whether to capture monitor screenshots after clicking.
     /// @returns {ClickResult} Result with clicked coordinates, element info, and method details.
     #[napi]
@@ -267,6 +279,8 @@ impl Desktop {
         y_percentage: Option<u8>,
         click_type: Option<ClickType>,
         restore_cursor: Option<bool>,
+        process: Option<String>,
+        include_window_screenshot: Option<bool>,
         include_monitor_screenshots: Option<bool>,
     ) -> napi::Result<ClickResult> {
         let vision_type = vision_type.unwrap_or(VisionType::UiTree);
@@ -279,7 +293,8 @@ impl Desktop {
         let click_type = click_type.unwrap_or(ClickType::Left);
         let restore_cursor = restore_cursor.unwrap_or(true);
 
-        let result = self.inner
+        let result = self
+            .inner
             .click_by_index(
                 index,
                 vision_type.into(),
@@ -290,11 +305,16 @@ impl Desktop {
             .map(ClickResult::from)
             .map_err(map_error);
 
-        // Capture screenshots if requested (no PID context, only monitors work)
+        // Get PID from process name if provided
+        let pid = process
+            .as_ref()
+            .and_then(|p| find_pid_for_process(&self.inner, p).ok());
+
+        // Capture screenshots if requested
         let _screenshots = capture_screenshots(
             &self.inner,
-            None,
-            false, // No window screenshot without PID
+            pid,
+            include_window_screenshot.unwrap_or(true) && pid.is_some(),
             include_monitor_screenshots.unwrap_or(false),
             "clickByIndex",
         );
@@ -1658,20 +1678,29 @@ impl Desktop {
     /// Open a file with its default application.
     ///
     /// @param {string} filePath - Path to the file to open.
+    /// @param {string} [process] - Process name for window screenshot capture. If provided, enables window screenshots.
+    /// @param {boolean} [includeWindowScreenshot=true] - Whether to capture window screenshot (requires process).
     /// @param {boolean} [includeMonitorScreenshots=false] - Whether to capture monitor screenshots after opening.
     #[napi]
     pub fn open_file(
         &self,
         file_path: String,
+        process: Option<String>,
+        include_window_screenshot: Option<bool>,
         include_monitor_screenshots: Option<bool>,
     ) -> napi::Result<()> {
         let result = self.inner.open_file(&file_path).map_err(map_error);
 
-        // Capture screenshots if requested (no PID context, only monitors work)
+        // Get PID from process name if provided
+        let pid = process
+            .as_ref()
+            .and_then(|p| find_pid_for_process(&self.inner, p).ok());
+
+        // Capture screenshots if requested
         let _screenshots = capture_screenshots(
             &self.inner,
-            None,
-            false, // No window screenshot without PID
+            pid,
+            include_window_screenshot.unwrap_or(true) && pid.is_some(),
             include_monitor_screenshots.unwrap_or(false),
             "openFile",
         );
@@ -2358,20 +2387,29 @@ impl Desktop {
     /// (async) Press a key globally.
     ///
     /// @param {string} key - The key to press (e.g., "Enter", "Ctrl+C", "F1").
+    /// @param {string} [process] - Process name for window screenshot capture. If provided, enables window screenshots.
+    /// @param {boolean} [includeWindowScreenshot=true] - Whether to capture window screenshot (requires process).
     /// @param {boolean} [includeMonitorScreenshots=false] - Whether to capture monitor screenshots after key press.
     #[napi]
     pub async fn press_key(
         &self,
         key: String,
+        process: Option<String>,
+        include_window_screenshot: Option<bool>,
         include_monitor_screenshots: Option<bool>,
     ) -> napi::Result<()> {
         let result = self.inner.press_key(&key).await.map_err(map_error);
 
-        // Capture screenshots if requested (no PID context, only monitors work)
+        // Get PID from process name if provided
+        let pid = process
+            .as_ref()
+            .and_then(|p| find_pid_for_process(&self.inner, p).ok());
+
+        // Capture screenshots if requested
         let _screenshots = capture_screenshots(
             &self.inner,
-            None,
-            false, // No window screenshot without PID
+            pid,
+            include_window_screenshot.unwrap_or(true) && pid.is_some(),
             include_monitor_screenshots.unwrap_or(false),
             "pressKey",
         );
