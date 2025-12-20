@@ -20,8 +20,8 @@ use image::{ExtendedColorType, ImageBuffer, ImageEncoder, Rgba};
 use regex::Regex;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
-    CallToolResult, Content, Implementation, ProtocolVersion, ServerCapabilities, ServerInfo,
-    ElicitationSchema, PrimitiveSchema, EnumSchema, StringSchema,
+    CallToolResult, Content, ElicitationSchema, EnumSchema, Implementation, PrimitiveSchema,
+    ProtocolVersion, ServerCapabilities, ServerInfo, StringSchema,
 };
 use rmcp::tool_router;
 use rmcp::{tool, ErrorData as McpError, ServerHandler};
@@ -4858,7 +4858,10 @@ DATA PASSING:
         // Build schema dynamically based on whether choices are provided
         let schema = if let Some(choices) = &args.choices {
             // Enum schema for clickable choices
-            tracing::info!("[ask_user] Building enum schema with {} choices", choices.len());
+            tracing::info!(
+                "[ask_user] Building enum schema with {} choices",
+                choices.len()
+            );
             let mut properties = BTreeMap::new();
             properties.insert(
                 "answer".to_string(),
@@ -4871,7 +4874,9 @@ DATA PASSING:
             let mut properties = BTreeMap::new();
             properties.insert(
                 "answer".to_string(),
-                PrimitiveSchema::String(StringSchema::new().description("Your answer to the question")),
+                PrimitiveSchema::String(
+                    StringSchema::new().description("Your answer to the question"),
+                ),
             );
             ElicitationSchema::new(properties)
         };
