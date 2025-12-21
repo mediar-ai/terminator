@@ -447,6 +447,24 @@ npx -y terminator-mcp-agent
 
 The virtual display manager creates a memory-based display context that satisfies Windows UI Automation requirements, enabling terminator to enumerate and interact with UI elements as if a physical display were present.
 
+### Action Overlay
+
+The action overlay is a semi-transparent full-screen overlay that displays the current action being performed (e.g., "Clicking", "Typing"). This provides visual feedback during automation and is enabled by default.
+
+**Disable the Overlay**:
+
+Set `TERMINATOR_ACTION_OVERLAY=0` (or `false`, `off`) to disable:
+
+```bash
+# Disable action overlay
+export TERMINATOR_ACTION_OVERLAY=0
+
+# Or in PowerShell (permanent, requires app restart)
+[Environment]::SetEnvironmentVariable("TERMINATOR_ACTION_OVERLAY", "0", "User")
+```
+
+**Note**: Environment variables set with `SetEnvironmentVariable(..., "User")` only take effect for processes started AFTER the variable is set. You may need to restart your MCP client (e.g., Claude Code) for changes to take effect.
+
 ### Performance Optimization
 
 **Large UI Trees**:
