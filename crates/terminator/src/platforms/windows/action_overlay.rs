@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::*;
@@ -24,8 +24,28 @@ const OVERLAY_CLASS_NAME: PCWSTR = windows::core::w!("TerminatorActionOverlay");
 // Minimum time between overlay state changes (prevent flashing)
 const OVERLAY_CHANGE_COOLDOWN_MS: u64 = 100;
 
-// Global enable/disable flag (default: enabled)
+// Minimum time overlay must be visible (prevents instant show/hide)
+const MINIMUM_DISPLAY_MS: u64 = 300;
+
+// Time to wait after spawning thread to ensure window is visible
+const WINDOW_CREATION_DELAY_MS: u64 = 50;
+
+// Global enable/disable flag (default: enabled, can be disabled via TERMINATOR_ACTION_OVERLAY=0)
 static ACTION_OVERLAY_ENABLED: AtomicBool = AtomicBool::new(true);
+
+// Check env var on first access
+static OVERLAY_ENV_CHECKED: once_cell::sync::Lazy<()> = once_cell::sync::Lazy::new(|| {
+    if let Ok(val) = std::env::var("TERMINATOR_ACTION_OVERLAY") {
+        if val == "0" || val.eq_ignore_ascii_case("false") || val.eq_ignore_ascii_case("off") {
+            ACTION_OVERLAY_ENABLED.store(false, Ordering::SeqCst);
+            tracing::info!("Action overlay disabled via TERMINATOR_ACTION_OVERLAY env var");
+        }
+    }
+});
+
+// Track when overlay was shown for minimum display time enforcement
+static OVERLAY_SHOWN_AT: once_cell::sync::Lazy<Mutex<Option<Instant>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(None));
 
 // Global overlay state using std::sync (not tokio) for use in Win32 callbacks
 static OVERLAY_STATE: once_cell::sync::Lazy<RwLock<OverlayState>> =
@@ -73,6 +93,10 @@ pub fn is_action_overlay_enabled() -> bool {
 /// Returns immediately - overlay is shown asynchronously.
 /// If overlay is disabled or cooldown is active, this is a no-op.
 pub fn show_action_overlay(message: impl Into<String>, sub_message: Option<String>) {
+    // Trigger env var check on first call
+    #[allow(clippy::let_unit_value)]
+    let _check = &*OVERLAY_ENV_CHECKED;
+
     if !ACTION_OVERLAY_ENABLED.load(Ordering::SeqCst) {
         debug!("Action overlay disabled, skipping show");
         return;
@@ -102,6 +126,11 @@ pub fn show_action_overlay(message: impl Into<String>, sub_message: Option<Strin
         *last_change = Some(Instant::now());
     }
 
+    // Record when overlay was shown for minimum display time
+    if let Ok(mut shown_at) = OVERLAY_SHOWN_AT.lock() {
+        *shown_at = Some(Instant::now());
+    }
+
     // Update state
     if let Ok(mut state) = OVERLAY_STATE.write() {
         state.message = message.clone();
@@ -115,10 +144,33 @@ pub fn show_action_overlay(message: impl Into<String>, sub_message: Option<Strin
             error!("Failed to create action overlay: {}", e);
         }
     });
+
+    // Wait a bit to ensure window is created and visible before returning
+    thread::sleep(Duration::from_millis(WINDOW_CREATION_DELAY_MS));
+    debug!(
+        "action_overlay show complete (waited {}ms for window)",
+        WINDOW_CREATION_DELAY_MS
+    );
 }
 
 /// Hide the action overlay
 pub fn hide_action_overlay() {
+    // Enforce minimum display time
+    if let Ok(mut shown_at) = OVERLAY_SHOWN_AT.lock() {
+        if let Some(shown) = shown_at.take() {
+            let elapsed = shown.elapsed();
+            let min_display = Duration::from_millis(MINIMUM_DISPLAY_MS);
+            if elapsed < min_display {
+                let wait_time = min_display - elapsed;
+                debug!(
+                    "action_overlay waiting {}ms to meet minimum display time",
+                    wait_time.as_millis()
+                );
+                thread::sleep(wait_time);
+            }
+        }
+    }
+
     info!("action_overlay hide");
 
     // Get handle and update state atomically
@@ -156,10 +208,7 @@ pub fn hide_action_overlay() {
 pub fn update_action_overlay_message(message: impl Into<String>, sub_message: Option<String>) {
     let message = message.into();
 
-    let is_visible = OVERLAY_STATE
-        .read()
-        .map(|s| s.is_visible)
-        .unwrap_or(false);
+    let is_visible = OVERLAY_STATE.read().map(|s| s.is_visible).unwrap_or(false);
 
     if !is_visible {
         // If not visible, show it with the new message
@@ -183,7 +232,7 @@ pub fn update_action_overlay_message(message: impl Into<String>, sub_message: Op
         unsafe {
             let hwnd = HWND(h as *mut _);
             if IsWindow(Some(hwnd)).as_bool() {
-                let _ = InvalidateRect(Some(hwnd), None, TRUE);
+                let _ = InvalidateRect(Some(hwnd), None, true);
             }
         }
     }
@@ -482,7 +531,7 @@ unsafe extern "system" fn overlay_window_proc(
             SelectObject(hdc, old_font);
             let _ = DeleteObject(font.into());
 
-            EndPaint(hwnd, &ps);
+            let _ = EndPaint(hwnd, &ps);
             LRESULT(0)
         }
         WM_CLOSE => {
