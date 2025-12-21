@@ -247,6 +247,134 @@ pub fn highlight(
     })
 }
 
+/// Highlight a rectangular area by bounds directly (no element required).
+/// Useful for index-based or coordinate-based clicks where we have bounds but no element.
+///
+/// # Arguments
+/// * `x` - Left edge of the highlight area
+/// * `y` - Top edge of the highlight area  
+/// * `width` - Width of the highlight area
+/// * `height` - Height of the highlight area
+/// * `color` - Optional BGR color (default: green 0x00FF00)
+/// * `duration` - Optional duration (default: 500ms)
+/// * `text` - Optional text label to display
+/// * `text_position` - Position for text label
+/// * `font_style` - Font styling for text
+#[allow(clippy::too_many_arguments)]
+pub fn highlight_bounds(
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    color: Option<u32>,
+    duration: Option<Duration>,
+    text: Option<&str>,
+    text_position: Option<TextPosition>,
+    font_style: Option<FontStyle>,
+) -> Result<HighlightHandle, AutomationError> {
+    // Validate coordinates
+    if width <= 0 || height <= 0 {
+        return Err(AutomationError::PlatformError(format!(
+            "Invalid dimensions for highlight_bounds: width={width}, height={height}"
+        )));
+    }
+
+    debug!(
+        "highlight_bounds: x={}, y={}, width={}, height={}",
+        x, y, width, height
+    );
+
+    const DEFAULT_GREEN_COLOR: u32 = 0x00FF00; // Green in BGR format
+    let highlight_color = color.unwrap_or(DEFAULT_GREEN_COLOR);
+
+    // Prepare text overlay data
+    let text_data = text.map(|t| {
+        let display_text = if t.len() > 30 {
+            format!("{}...", &t[..27])
+        } else {
+            t.to_string()
+        };
+        let fs = font_style.clone().unwrap_or_default();
+        let position = text_position.unwrap_or(TextPosition::Top);
+        (display_text, fs, position)
+    });
+
+    // Create atomic bool for controlling the highlight thread
+    let should_close = Arc::new(AtomicBool::new(false));
+    let should_close_clone = should_close.clone();
+
+    // Spawn a thread to handle the highlighting
+    let handle = thread::spawn(move || {
+        let start_time = Instant::now();
+        let duration = duration.unwrap_or(Duration::from_millis(500)); // Default 500ms for action highlight
+
+        let mut overlay_x = x;
+        let mut overlay_y = y;
+        let mut overlay_w = width;
+        let mut overlay_h = height;
+        let mut border_offset_x = 0;
+        let mut border_offset_y = 0;
+        let mut text_rect: Option<(i32, i32, i32, i32)> = None;
+
+        if let Some((_, ref fs, pos)) = text_data {
+            let (tw, th) = if fs.size > 0 {
+                (width.clamp(200, 600), (fs.size as i32 + 22).max(40))
+            } else {
+                (width.max(200), 50)
+            };
+            let (tx_abs, ty_abs) = match pos {
+                TextPosition::Top => (x, y - th - 10),
+                TextPosition::TopRight => (x + width + 15, y - th - 10),
+                TextPosition::Right => (x + width + 15, y + height / 2 - th / 2),
+                TextPosition::BottomRight => (x + width + 15, y + height + 15),
+                TextPosition::Bottom => (x, y + height + 15),
+                TextPosition::BottomLeft => (x - tw - 15, y + height + 15),
+                TextPosition::Left => (x - tw - 15, y + height / 2 - th / 2),
+                TextPosition::TopLeft => (x - tw - 15, y - th - 10),
+                TextPosition::Inside => (x + 15, y + 15),
+            };
+            let right = (x + width).max(tx_abs + tw);
+            let bottom = (y + height).max(ty_abs + th);
+            overlay_x = overlay_x.min(tx_abs);
+            overlay_y = overlay_y.min(ty_abs);
+            overlay_w = right - overlay_x;
+            overlay_h = bottom - overlay_y;
+            border_offset_x = x - overlay_x;
+            border_offset_y = y - overlay_y;
+            text_rect = Some((tx_abs - overlay_x, ty_abs - overlay_y, tw, th));
+        }
+
+        if let Err(e) = create_and_show_overlay(
+            overlay_x,
+            overlay_y,
+            overlay_w,
+            overlay_h,
+            border_offset_x,
+            border_offset_y,
+            width,
+            height,
+            highlight_color,
+            text_data
+                .as_ref()
+                .map(|(t, fs, _)| (t.as_str(), fs.clone())),
+            text_rect,
+        ) {
+            error!("Failed to create overlay highlight for bounds: {}", e);
+        }
+
+        while start_time.elapsed() < duration && !should_close_clone.load(Ordering::Relaxed) {
+            thread::sleep(Duration::from_millis(50));
+        }
+
+        cleanup_overlay_window();
+    });
+
+    Ok(HighlightHandle {
+        should_close,
+        handle: Some(handle),
+    })
+}
+
 // Thread-local storage for the last created overlay window to destroy later
 thread_local! {
     static LAST_CREATED_OVERLAY: std::cell::RefCell<Option<HWND>> = const { std::cell::RefCell::new(None) };
