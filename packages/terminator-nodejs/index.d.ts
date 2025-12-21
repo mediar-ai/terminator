@@ -604,9 +604,12 @@ export declare class Desktop {
    * @param {number} [yPercentage=50] - Y position within bounds as percentage (0-100). Defaults to 50 (center).
    * @param {ClickType} [clickType='left'] - Type of click: 'left', 'double', or 'right'.
    * @param {boolean} [restoreCursor=true] - If true, restore cursor to original position after clicking.
+   * @param {string} [process] - Process name for window screenshot capture. If provided, enables window screenshots.
+   * @param {boolean} [includeWindowScreenshot=true] - Whether to capture window screenshot (requires process).
+   * @param {boolean} [includeMonitorScreenshots=false] - Whether to capture monitor screenshots after clicking.
    * @returns {ClickResult} Result with clicked coordinates and method details.
    */
-  clickAtBounds(x: number, y: number, width: number, height: number, xPercentage?: number | undefined | null, yPercentage?: number | undefined | null, clickType?: ClickType | undefined | null, restoreCursor?: boolean | undefined | null): ClickResult
+  clickAtBounds(x: number, y: number, width: number, height: number, xPercentage?: number | undefined | null, yPercentage?: number | undefined | null, clickType?: ClickType | undefined | null, restoreCursor?: boolean | undefined | null, process?: string | undefined | null, includeWindowScreenshot?: boolean | undefined | null, includeMonitorScreenshots?: boolean | undefined | null): ClickResult
   /**
    * Click on an element by its index from the last tree/vision query.
    *
@@ -619,9 +622,12 @@ export declare class Desktop {
    * @param {number} [yPercentage=50] - Y position within bounds as percentage (0-100).
    * @param {ClickType} [clickType='Left'] - Type of click: 'Left', 'Double', or 'Right'.
    * @param {boolean} [restoreCursor=true] - If true, restore cursor to original position after clicking.
+   * @param {string} [process] - Process name for window screenshot capture. If provided, enables window screenshots.
+   * @param {boolean} [includeWindowScreenshot=true] - Whether to capture window screenshot (requires process).
+   * @param {boolean} [includeMonitorScreenshots=false] - Whether to capture monitor screenshots after clicking.
    * @returns {ClickResult} Result with clicked coordinates, element info, and method details.
    */
-  clickByIndex(index: number, visionType?: VisionType | undefined | null, xPercentage?: number | undefined | null, yPercentage?: number | undefined | null, clickType?: ClickType | undefined | null, restoreCursor?: boolean | undefined | null): ClickResult
+  clickByIndex(index: number, visionType?: VisionType | undefined | null, xPercentage?: number | undefined | null, yPercentage?: number | undefined | null, clickType?: ClickType | undefined | null, restoreCursor?: boolean | undefined | null, process?: string | undefined | null, includeWindowScreenshot?: boolean | undefined | null, includeMonitorScreenshots?: boolean | undefined | null): ClickResult
   /**
    * (async) Run a shell command.
    *
@@ -770,8 +776,11 @@ export declare class Desktop {
    * Open a file with its default application.
    *
    * @param {string} filePath - Path to the file to open.
+   * @param {string} [process] - Process name for window screenshot capture. If provided, enables window screenshots.
+   * @param {boolean} [includeWindowScreenshot=true] - Whether to capture window screenshot (requires process).
+   * @param {boolean} [includeMonitorScreenshots=false] - Whether to capture monitor screenshots after opening.
    */
-  openFile(filePath: string): void
+  openFile(filePath: string, process?: string | undefined | null, includeWindowScreenshot?: boolean | undefined | null, includeMonitorScreenshots?: boolean | undefined | null): void
   /**
    * Activate a browser window by title.
    *
@@ -949,8 +958,11 @@ export declare class Desktop {
    * (async) Press a key globally.
    *
    * @param {string} key - The key to press (e.g., "Enter", "Ctrl+C", "F1").
+   * @param {string} [process] - Process name for window screenshot capture. If provided, enables window screenshots.
+   * @param {boolean} [includeWindowScreenshot=true] - Whether to capture window screenshot (requires process).
+   * @param {boolean} [includeMonitorScreenshots=false] - Whether to capture monitor screenshots after key press.
    */
-  pressKey(key: string): Promise<void>
+  pressKey(key: string, process?: string | undefined | null, includeWindowScreenshot?: boolean | undefined | null, includeMonitorScreenshots?: boolean | undefined | null): Promise<void>
   /**
    * (async) Execute JavaScript in a browser tab.
    * Finds the browser window by process name and executes the script.
@@ -1236,8 +1248,9 @@ export declare class Element {
    * @param {number} startY - Starting Y coordinate.
    * @param {number} endX - Ending X coordinate.
    * @param {number} endY - Ending Y coordinate.
+   * @param {ActionOptions} [options] - Optional action options.
    */
-  mouseDrag(startX: number, startY: number, endX: number, endY: number): void
+  mouseDrag(startX: number, startY: number, endX: number, endY: number, options?: ActionOptions | undefined | null): void
   /**
    * Press and hold mouse at coordinates.
    *
@@ -1252,8 +1265,12 @@ export declare class Element {
    * @param {number} y - Y coordinate.
    */
   mouseMove(x: number, y: number): void
-  /** Release mouse button. */
-  mouseRelease(): void
+  /**
+   * Release mouse button.
+   *
+   * @param {ActionOptions} [options] - Optional action options.
+   */
+  mouseRelease(options?: ActionOptions | undefined | null): void
   /**
    * Create a locator from this element.
    * Accepts either a selector string or a Selector object.
@@ -1356,9 +1373,10 @@ export declare class Element {
    * It only performs an action if the control is not already in the desired state.
    *
    * @param {boolean} state - The desired toggle state.
+   * @param {ActionOptions} [options] - Optional action options.
    * @returns {void}
    */
-  setToggled(state: boolean): void
+  setToggled(state: boolean, options?: ActionOptions | undefined | null): void
   /**
    * Checks if an element is selected (e.g., list item, tree node, tab).
    *
@@ -1384,9 +1402,10 @@ export declare class Element {
    * Sets the value of a range-based control like a slider.
    *
    * @param {number} value - The value to set.
+   * @param {ActionOptions} [options] - Optional action options.
    * @returns {void}
    */
-  setRangeValue(value: number): void
+  setRangeValue(value: number, options?: ActionOptions | undefined | null): void
   /**
    * Gets the value attribute of an element (text inputs, combo boxes, etc.).
    *
