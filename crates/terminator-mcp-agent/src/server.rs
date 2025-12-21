@@ -2241,6 +2241,7 @@ impl DesktopWrapper {
 
                     // Execute the typing action with state tracking
                     // NOTE: restore_focus=false - MCP handles restoration after find_and_execute
+                    // NOTE: Overlay is handled by element.type_text_with_state_and_focus_restore
                     if should_clear {
                         if let Err(clear_error) = element.set_value("") {
                             warn!(
@@ -2479,6 +2480,33 @@ Click types: 'left' (default), 'double', 'right'. Use ui_diff_before_after:true 
                 span.set_attribute("click_y", y.to_string());
                 tracing::info!("[click_element] Coordinate mode: ({}, {})", x, y);
 
+                // Highlight before click if enabled (coordinate mode - small box around click point)
+                if args.highlight.highlight_before_action {
+                    const HIGHLIGHT_SIZE: i32 = 24;
+                    let highlight_x = (x as i32) - HIGHLIGHT_SIZE / 2;
+                    let highlight_y = (y as i32) - HIGHLIGHT_SIZE / 2;
+                    tracing::info!(
+                        "HIGHLIGHT_BEFORE_CLICK (coordinate mode) point=({}, {})",
+                        x,
+                        y
+                    );
+                    let _ = terminator::highlight_bounds(
+                        highlight_x,
+                        highlight_y,
+                        HIGHLIGHT_SIZE,
+                        HIGHLIGHT_SIZE,
+                        Some(0x00FF00), // Green
+                        Some(std::time::Duration::from_millis(500)),
+                        Some(&format!("({}, {})", x as i32, y as i32)),
+                        Some(terminator::TextPosition::Top),
+                        Some(terminator::FontStyle {
+                            size: 12,
+                            bold: true,
+                            color: 0xFFFFFF,
+                        }),
+                    );
+                }
+
                 match self.desktop.click_at_coordinates_with_type(
                     x,
                     y,
@@ -2663,6 +2691,33 @@ Click types: 'left' (default), 'double', 'right'. Use ui_diff_before_after:true 
                 let click_y = bounds.1 + bounds.3 / 2.0;
                 span.set_attribute("label", item_label.clone());
 
+                // Highlight before click if enabled (index mode)
+                if args.highlight.highlight_before_action {
+                    tracing::info!(
+                        "HIGHLIGHT_BEFORE_CLICK (index mode) bounds=({}, {}, {}, {}) label={}",
+                        bounds.0,
+                        bounds.1,
+                        bounds.2,
+                        bounds.3,
+                        item_label
+                    );
+                    let _ = terminator::highlight_bounds(
+                        bounds.0 as i32,
+                        bounds.1 as i32,
+                        bounds.2 as i32,
+                        bounds.3 as i32,
+                        Some(0x00FF00), // Green
+                        Some(std::time::Duration::from_millis(500)),
+                        Some(&item_label),
+                        Some(terminator::TextPosition::Top),
+                        Some(terminator::FontStyle {
+                            size: 12,
+                            bold: true,
+                            color: 0xFFFFFF,
+                        }),
+                    );
+                }
+
                 match self.desktop.click_at_coordinates_with_type(
                     click_x,
                     click_y,
@@ -2757,7 +2812,19 @@ Click types: 'left' (default), 'double', 'right'. Use ui_diff_before_after:true 
                             if highlight_before {
                                 let _ = element.highlight_before_action("click");
                             }
-                            match element.bounds() {
+                            // Show action overlay
+                            let element_desc = element.name().unwrap_or_default();
+                            let element_role = element.role();
+                            let overlay_info = if element_desc.is_empty() {
+                                element_role.clone()
+                            } else if element_desc.len() > 50 {
+                                format!("'{}...' {}", &element_desc[..47], element_role)
+                            } else {
+                                format!("'{}' {}", element_desc, element_role)
+                            };
+                            terminator::show_action_overlay("Clicking", Some(overlay_info));
+
+                            let result = match element.bounds() {
                                 Ok(bounds) => {
                                     let x = bounds.0
                                         + (bounds.2 * click_position.x_percentage as f64 / 100.0);
@@ -2807,7 +2874,9 @@ Click types: 'left' (default), 'double', 'right'. Use ui_diff_before_after:true 
                                     );
                                     element.click()
                                 }
-                            }
+                            };
+                            terminator::hide_action_overlay();
+                            result
                         }
                     }
                 };
