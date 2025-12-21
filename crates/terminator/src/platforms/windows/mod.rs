@@ -29,7 +29,7 @@ pub use utils::{convert_uiautomation_element_to_terminator, generate_element_id}
 pub use applications::{get_process_name_by_pid, is_browser_process, KNOWN_BROWSER_PROCESS_NAMES};
 
 // Re-export highlighting control functions
-pub use highlighting::{set_recording_mode, stop_all_highlights};
+pub use highlighting::{highlight_bounds, set_recording_mode, stop_all_highlights};
 
 // Re-export inspect overlay functions
 pub use inspect_overlay::{
