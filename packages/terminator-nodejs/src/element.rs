@@ -259,7 +259,8 @@ impl Element {
     #[napi]
     pub async fn click(&self, options: Option<ActionOptions>) -> napi::Result<ClickResult> {
         let opts = options.unwrap_or_default();
-        let restore_focus = opts.restore_focus.unwrap_or(true);
+        // Default false: clicking means user wants focus on clicked element
+        let restore_focus = opts.restore_focus.unwrap_or(false);
 
         // FOCUS RESTORATION: Save focus state BEFORE any window operations
         #[cfg(target_os = "windows")]
@@ -387,7 +388,8 @@ impl Element {
     #[napi]
     pub fn double_click(&self, options: Option<ActionOptions>) -> napi::Result<ClickResult> {
         let opts = options.unwrap_or_default();
-        let restore_focus = opts.restore_focus.unwrap_or(true);
+        // Default false: clicking means user wants focus on clicked element
+        let restore_focus = opts.restore_focus.unwrap_or(false);
 
         // FOCUS RESTORATION: Save focus state BEFORE any window operations
         #[cfg(target_os = "windows")]
@@ -434,7 +436,8 @@ impl Element {
     #[napi]
     pub fn right_click(&self, options: Option<ActionOptions>) -> napi::Result<()> {
         let opts = options.unwrap_or_default();
-        let restore_focus = opts.restore_focus.unwrap_or(true);
+        // Default false: clicking means user wants focus on clicked element
+        let restore_focus = opts.restore_focus.unwrap_or(false);
 
         // FOCUS RESTORATION: Save focus state BEFORE any window operations
         #[cfg(target_os = "windows")]
@@ -475,7 +478,8 @@ impl Element {
     #[napi]
     pub fn hover(&self, options: Option<ActionOptions>) -> napi::Result<()> {
         let opts = options.unwrap_or_default();
-        let restore_focus = opts.restore_focus.unwrap_or(true);
+        // Default false: hover shouldn't steal focus
+        let restore_focus = opts.restore_focus.unwrap_or(false);
 
         // FOCUS RESTORATION: Save focus state BEFORE any window operations
         #[cfg(target_os = "windows")]
@@ -736,7 +740,8 @@ impl Element {
     #[napi]
     pub fn invoke(&self, options: Option<ActionOptions>) -> napi::Result<ActionResult> {
         let opts = options.unwrap_or_default();
-        let restore_focus = opts.restore_focus.unwrap_or(true);
+        // Default false: invoking is like clicking
+        let restore_focus = opts.restore_focus.unwrap_or(false);
 
         // FOCUS RESTORATION: Save focus state BEFORE any window operations
         #[cfg(target_os = "windows")]
