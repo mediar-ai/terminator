@@ -180,10 +180,10 @@ pub enum VisionType {
 #[cfg(target_os = "windows")]
 pub use platforms::windows::{
     convert_uiautomation_element_to_terminator, get_process_name_by_pid, hide_action_overlay,
-    hide_inspect_overlay, is_action_overlay_enabled, is_browser_process, set_action_overlay_enabled,
-    set_recording_mode, show_action_overlay, show_inspect_overlay, stop_all_highlights,
-    update_action_overlay_message, ActionOverlayGuard, InspectElement, InspectOverlayHandle,
-    KNOWN_BROWSER_PROCESS_NAMES,
+    hide_inspect_overlay, highlight_bounds, is_action_overlay_enabled, is_browser_process,
+    set_action_overlay_enabled, set_recording_mode, show_action_overlay, show_inspect_overlay,
+    stop_all_highlights, update_action_overlay_message, ActionOverlayGuard, InspectElement,
+    InspectOverlayHandle, KNOWN_BROWSER_PROCESS_NAMES,
 };
 
 // Define a new struct to hold click result information - move to module level
