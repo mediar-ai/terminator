@@ -9526,13 +9526,26 @@ impl DesktopWrapper {
 
         // FOCUS RESTORATION: Save focus state BEFORE any window operations if restore_focus is requested
         // Window management (bring_to_front, SetForegroundWindow) steals focus, so we must save first
+        // Default: true for typing tools (restore caret), false for click tools (user wants focus there)
         #[cfg(target_os = "windows")]
-        let saved_focus = if window_mgmt_opts.restore_focus.unwrap_or(true) {
+        let restore_focus_default = matches!(
+            tool_name,
+            "type_into_element" | "press_key" | "send_keys" | "scroll_element" | "select_option" | "set_selected"
+        );
+        #[cfg(target_os = "windows")]
+        let saved_focus = if window_mgmt_opts.restore_focus.unwrap_or(restore_focus_default) {
             tracing::debug!(
-                "[FOCUS_RESTORE] dispatch_tool: saving focus state BEFORE window management"
+                "[FOCUS_RESTORE] dispatch_tool: saving focus state BEFORE window management (tool={}, default={})",
+                tool_name,
+                restore_focus_default
             );
             terminator::platforms::windows::save_focus_state()
         } else {
+            tracing::debug!(
+                "[FOCUS_RESTORE] dispatch_tool: skipping focus save (tool={}, default={})",
+                tool_name,
+                restore_focus_default
+            );
             None
         };
         #[cfg(not(target_os = "windows"))]
@@ -10204,14 +10217,29 @@ impl ServerHandler for DesktopWrapper {
 
         // FOCUS RESTORATION: Extract restore_focus from arguments and save focus state BEFORE tool execution
         // Each tool's window management (bring_to_front, activate_window) steals focus
+        // Default: true for typing tools (restore caret), false for click tools (user wants focus there)
         let window_mgmt_opts: crate::utils::WindowManagementOptions =
             serde_json::from_value(arguments.clone()).unwrap_or_default();
 
         #[cfg(target_os = "windows")]
-        let saved_focus = if window_mgmt_opts.restore_focus.unwrap_or(true) {
-            tracing::debug!("[FOCUS_RESTORE] call_tool: saving focus state BEFORE tool execution");
+        let restore_focus_default = matches!(
+            tool_name.as_str(),
+            "type_into_element" | "press_key" | "send_keys" | "scroll_element" | "select_option" | "set_selected"
+        );
+        #[cfg(target_os = "windows")]
+        let saved_focus = if window_mgmt_opts.restore_focus.unwrap_or(restore_focus_default) {
+            tracing::debug!(
+                "[FOCUS_RESTORE] call_tool: saving focus state BEFORE tool execution (tool={}, default={})",
+                tool_name,
+                restore_focus_default
+            );
             terminator::platforms::windows::save_focus_state()
         } else {
+            tracing::debug!(
+                "[FOCUS_RESTORE] call_tool: skipping focus save (tool={}, default={})",
+                tool_name,
+                restore_focus_default
+            );
             None
         };
         #[cfg(not(target_os = "windows"))]
