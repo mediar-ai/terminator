@@ -9,6 +9,9 @@ use tracing::{debug, info, instrument, warn};
 
 use super::{ClickResult, Locator};
 
+#[cfg(target_os = "windows")]
+use crate::{hide_action_overlay, show_action_overlay};
+
 /// Response structure for exploration result
 #[derive(Debug, Default)]
 pub struct ExploredElementDetail {
@@ -910,22 +913,51 @@ impl UIElement {
         self.inner.bounds()
     }
 
+    /// Build overlay info string from element name and role
+    #[cfg(target_os = "windows")]
+    fn overlay_info(&self) -> String {
+        let name = self.name().unwrap_or_default();
+        let role = self.role();
+        if name.is_empty() {
+            role
+        } else if name.len() > 50 {
+            format!("'{}...' {}", &name[..47], role)
+        } else {
+            format!("'{}' {}", name, role)
+        }
+    }
+
     /// Click on this element
     #[instrument(level = "debug", skip(self))]
     pub fn click(&self) -> Result<ClickResult, AutomationError> {
-        self.inner.click()
+        #[cfg(target_os = "windows")]
+        show_action_overlay("Clicking", Some(self.overlay_info()));
+        let result = self.inner.click();
+        #[cfg(target_os = "windows")]
+        hide_action_overlay();
+        result
     }
 
     /// Double-click on this element
     #[instrument(level = "debug", skip(self))]
     pub fn double_click(&self) -> Result<ClickResult, AutomationError> {
-        self.inner.double_click()
+        #[cfg(target_os = "windows")]
+        show_action_overlay("Double-clicking", Some(self.overlay_info()));
+        let result = self.inner.double_click();
+        #[cfg(target_os = "windows")]
+        hide_action_overlay();
+        result
     }
 
     /// Right-click on this element
     #[instrument(level = "debug", skip(self))]
     pub fn right_click(&self) -> Result<(), AutomationError> {
-        self.inner.right_click()
+        #[cfg(target_os = "windows")]
+        show_action_overlay("Right-clicking", Some(self.overlay_info()));
+        let result = self.inner.right_click();
+        #[cfg(target_os = "windows")]
+        hide_action_overlay();
+        result
     }
 
     /// Click at a specific position within the element bounds
@@ -937,7 +969,12 @@ impl UIElement {
         y_pct: u8,
         click_type: crate::ClickType,
     ) -> Result<ClickResult, AutomationError> {
-        self.inner.click_at_position(x_pct, y_pct, click_type)
+        #[cfg(target_os = "windows")]
+        show_action_overlay("Clicking", Some(self.overlay_info()));
+        let result = self.inner.click_at_position(x_pct, y_pct, click_type);
+        #[cfg(target_os = "windows")]
+        hide_action_overlay();
+        result
     }
 
     /// Hover over this element
@@ -953,19 +990,34 @@ impl UIElement {
     /// Invoke this element
     #[instrument(level = "debug", skip(self))]
     pub fn invoke(&self) -> Result<(), AutomationError> {
-        self.inner.invoke()
+        #[cfg(target_os = "windows")]
+        show_action_overlay("Invoking", Some(self.overlay_info()));
+        let result = self.inner.invoke();
+        #[cfg(target_os = "windows")]
+        hide_action_overlay();
+        result
     }
 
     /// Invoke this element with state tracking
     #[instrument(level = "debug", skip(self))]
     pub fn invoke_with_state(&self) -> Result<crate::ActionResult, AutomationError> {
-        self.inner.invoke_with_state()
+        #[cfg(target_os = "windows")]
+        show_action_overlay("Invoking", Some(self.overlay_info()));
+        let result = self.inner.invoke_with_state();
+        #[cfg(target_os = "windows")]
+        hide_action_overlay();
+        result
     }
 
     /// Type text into this element
     pub fn type_text(&self, text: &str, use_clipboard: bool) -> Result<(), AutomationError> {
+        #[cfg(target_os = "windows")]
+        show_action_overlay("Typing", Some(self.overlay_info()));
         // Default: try both focus and click, no focus restore
-        self.inner.type_text(text, use_clipboard, true, true, false)
+        let result = self.inner.type_text(text, use_clipboard, true, true, false);
+        #[cfg(target_os = "windows")]
+        hide_action_overlay();
+        result
     }
 
     /// Type text with state tracking
@@ -975,9 +1027,15 @@ impl UIElement {
         text: &str,
         use_clipboard: bool,
     ) -> Result<crate::ActionResult, AutomationError> {
+        #[cfg(target_os = "windows")]
+        show_action_overlay("Typing", Some(self.overlay_info()));
         // Default: try both focus and click
-        self.inner
-            .type_text_with_state(text, use_clipboard, true, true)
+        let result = self
+            .inner
+            .type_text_with_state(text, use_clipboard, true, true);
+        #[cfg(target_os = "windows")]
+        hide_action_overlay();
+        result
     }
 
     /// Type text with state tracking and custom focus/click behavior
@@ -1008,14 +1066,22 @@ impl UIElement {
         try_click_before: bool,
         restore_focus: bool,
     ) -> Result<crate::ActionResult, AutomationError> {
+        #[cfg(target_os = "windows")]
+        show_action_overlay("Typing", Some(self.overlay_info()));
+
         // Call the underlying type_text with restore_focus
-        self.inner.type_text(
+        let type_result = self.inner.type_text(
             text,
             use_clipboard,
             try_focus_before,
             try_click_before,
             restore_focus,
-        )?;
+        );
+
+        #[cfg(target_os = "windows")]
+        hide_action_overlay();
+
+        type_result?;
 
         // Auto-verify by reading the value back
         let verification = match self.inner.get_value() {
@@ -1056,15 +1122,31 @@ impl UIElement {
 
     /// Press a key while this element is focused
     pub fn press_key(&self, key: &str) -> Result<(), AutomationError> {
+        #[cfg(target_os = "windows")]
+        show_action_overlay(
+            "Pressing key",
+            Some(format!("{} on {}", key, self.overlay_info())),
+        );
         // Default: try both focus and click, no focus restore
-        self.inner.press_key(key, true, true, false)
+        let result = self.inner.press_key(key, true, true, false);
+        #[cfg(target_os = "windows")]
+        hide_action_overlay();
+        result
     }
 
     /// Press a key with state tracking
     #[instrument(level = "debug", skip(self))]
     pub fn press_key_with_state(&self, key: &str) -> Result<crate::ActionResult, AutomationError> {
+        #[cfg(target_os = "windows")]
+        show_action_overlay(
+            "Pressing key",
+            Some(format!("{} on {}", key, self.overlay_info())),
+        );
         // Default: try both focus and click
-        self.inner.press_key_with_state(key, true, true)
+        let result = self.inner.press_key_with_state(key, true, true);
+        #[cfg(target_os = "windows")]
+        hide_action_overlay();
+        result
     }
 
     /// Press a key with state tracking and custom focus/click behavior
@@ -1075,8 +1157,17 @@ impl UIElement {
         try_focus_before: bool,
         try_click_before: bool,
     ) -> Result<crate::ActionResult, AutomationError> {
-        self.inner
-            .press_key_with_state(key, try_focus_before, try_click_before)
+        #[cfg(target_os = "windows")]
+        show_action_overlay(
+            "Pressing key",
+            Some(format!("{} on {}", key, self.overlay_info())),
+        );
+        let result = self
+            .inner
+            .press_key_with_state(key, try_focus_before, try_click_before);
+        #[cfg(target_os = "windows")]
+        hide_action_overlay();
+        result
     }
 
     /// Get text content of this element
