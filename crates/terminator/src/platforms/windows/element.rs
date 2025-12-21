@@ -225,6 +225,24 @@ impl WindowsUIElement {
         }
     }
 
+    /// Get a human-readable description of this element for overlay display
+    fn get_element_description(&self) -> String {
+        let role = self
+            .element
+            .0
+            .get_localized_control_type()
+            .unwrap_or_default();
+        let name = self.element.0.get_name().unwrap_or_default();
+
+        if name.is_empty() {
+            role
+        } else if name.len() > 50 {
+            format!("'{}...' {}", &name[..47], role)
+        } else {
+            format!("'{}' {}", name, role)
+        }
+    }
+
     /// Capture current element state for tracking changes
     fn capture_state(&self) -> ElementState {
         ElementState {
@@ -655,6 +673,9 @@ impl UIElementImpl for WindowsUIElement {
     }
 
     fn double_click(&self) -> Result<ClickResult, AutomationError> {
+        let element_info = self.get_element_description();
+        let _overlay_guard = ActionOverlayGuard::new("Double-clicking", Some(&element_info));
+
         self.element.0.try_focus();
         let point = self
             .element
@@ -676,6 +697,9 @@ impl UIElementImpl for WindowsUIElement {
     }
 
     fn right_click(&self) -> Result<(), AutomationError> {
+        let element_info = self.get_element_description();
+        let _overlay_guard = ActionOverlayGuard::new("Right-clicking", Some(&element_info));
+
         self.element.0.try_focus();
         let point = self
             .element
@@ -699,6 +723,14 @@ impl UIElementImpl for WindowsUIElement {
         click_type: crate::ClickType,
     ) -> Result<ClickResult, AutomationError> {
         let click_start = std::time::Instant::now();
+
+        let element_info = self.get_element_description();
+        let action_name = match click_type {
+            crate::ClickType::Left => "Clicking",
+            crate::ClickType::Double => "Double-clicking",
+            crate::ClickType::Right => "Right-clicking",
+        };
+        let _overlay_guard = ActionOverlayGuard::new(action_name, Some(&element_info));
 
         // Validate element is clickable
         self.validate_clickable()?;
@@ -755,6 +787,9 @@ impl UIElementImpl for WindowsUIElement {
     }
 
     fn invoke(&self) -> Result<(), AutomationError> {
+        let element_info = self.get_element_description();
+        let _overlay_guard = ActionOverlayGuard::new("Invoking", Some(&element_info));
+
         let invoke_pat = self
             .element
             .0
@@ -1065,6 +1100,9 @@ impl UIElementImpl for WindowsUIElement {
         try_click_before: bool,
         restore_focus: bool,
     ) -> Result<(), AutomationError> {
+        let element_info = self.get_element_description();
+        let _overlay_guard = ActionOverlayGuard::new("Typing", Some(&element_info));
+
         // Save focus state before typing if restore is requested
         let saved_focus = if restore_focus {
             save_focus_state()
@@ -1149,6 +1187,9 @@ impl UIElementImpl for WindowsUIElement {
         try_click_before: bool,
         restore_focus: bool,
     ) -> Result<(), AutomationError> {
+        let element_info = self.get_element_description();
+        let _overlay_guard = ActionOverlayGuard::new("Pressing key", Some(&element_info));
+
         // Save focus state before pressing key if restore is requested
         let saved_focus = if restore_focus {
             save_focus_state()
@@ -1288,6 +1329,9 @@ impl UIElementImpl for WindowsUIElement {
     }
 
     fn set_value(&self, value: &str) -> Result<(), AutomationError> {
+        let element_info = self.get_element_description();
+        let _overlay_guard = ActionOverlayGuard::new("Setting value", Some(&element_info));
+
         debug!(
             "setting value: {:#?} to ui element {:#?}",
             &value, &self.element.0
@@ -1476,6 +1520,9 @@ impl UIElementImpl for WindowsUIElement {
 
     #[allow(clippy::arc_with_non_send_sync)]
     fn scroll(&self, direction: &str, amount: f64) -> Result<(), AutomationError> {
+        let element_info = self.get_element_description();
+        let _overlay_guard = ActionOverlayGuard::new("Scrolling", Some(&element_info));
+
         // 1. Find a scrollable parent (or self)
         let mut scrollable_element: Option<uiautomation::UIElement> = None;
         let mut current_element_arc = self.element.0.clone();
@@ -2658,6 +2705,10 @@ impl UIElementImpl for WindowsUIElement {
     }
 
     fn set_selected(&self, state: bool) -> Result<(), AutomationError> {
+        let element_info = self.get_element_description();
+        let action = if state { "Selecting" } else { "Deselecting" };
+        let _overlay_guard = ActionOverlayGuard::new(action, Some(&element_info));
+
         // First, try SelectionItemPattern, which is the primary meaning of "selected".
         if let Ok(selection_item_pattern) = self
             .element
