@@ -9530,10 +9530,18 @@ impl DesktopWrapper {
         #[cfg(target_os = "windows")]
         let restore_focus_default = matches!(
             tool_name,
-            "type_into_element" | "press_key" | "send_keys" | "scroll_element" | "select_option" | "set_selected"
+            "type_into_element"
+                | "press_key"
+                | "send_keys"
+                | "scroll_element"
+                | "select_option"
+                | "set_selected"
         );
         #[cfg(target_os = "windows")]
-        let saved_focus = if window_mgmt_opts.restore_focus.unwrap_or(restore_focus_default) {
+        let saved_focus = if window_mgmt_opts
+            .restore_focus
+            .unwrap_or(restore_focus_default)
+        {
             tracing::debug!(
                 "[FOCUS_RESTORE] dispatch_tool: saving focus state BEFORE window management (tool={}, default={})",
                 tool_name,
@@ -10224,10 +10232,18 @@ impl ServerHandler for DesktopWrapper {
         #[cfg(target_os = "windows")]
         let restore_focus_default = matches!(
             tool_name.as_str(),
-            "type_into_element" | "press_key" | "send_keys" | "scroll_element" | "select_option" | "set_selected"
+            "type_into_element"
+                | "press_key"
+                | "send_keys"
+                | "scroll_element"
+                | "select_option"
+                | "set_selected"
         );
         #[cfg(target_os = "windows")]
-        let saved_focus = if window_mgmt_opts.restore_focus.unwrap_or(restore_focus_default) {
+        let saved_focus = if window_mgmt_opts
+            .restore_focus
+            .unwrap_or(restore_focus_default)
+        {
             tracing::debug!(
                 "[FOCUS_RESTORE] call_tool: saving focus state BEFORE tool execution (tool={}, default={})",
                 tool_name,
