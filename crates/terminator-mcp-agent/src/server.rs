@@ -4960,6 +4960,29 @@ DATA PASSING:
                     .unwrap_or("")
                     .to_string();
                 tracing::info!("[ask_user] User responded: {}", answer);
+
+                // SIDE EFFECT: Check if user confirmed mode switch to Act mode
+                // This follows MCP elicitation pattern where server-side actions happen
+                // DURING tool execution, BEFORE returning result
+                let answer_lower = answer.to_lowercase();
+                if answer_lower.contains("switch to act")
+                    || answer_lower.contains("yes, switch")
+                    || (answer_lower.contains("yes") && answer_lower.contains("act"))
+                {
+                    tracing::info!("[ask_user] Detected mode switch request, switching all clients to Act mode");
+                    let mut modes_guard = self.client_modes.lock().await;
+                    // Switch all clients to act mode with no blocked tools
+                    for (client_name, client_state) in modes_guard.iter_mut() {
+                        tracing::info!(
+                            "[ask_user] Switching client '{}' from '{}' to 'act' mode",
+                            client_name,
+                            client_state.mode
+                        );
+                        client_state.mode = "act".to_string();
+                        client_state.blocked_tools.clear();
+                    }
+                }
+
                 Ok(CallToolResult::success(vec![Content::json(json!({
                     "action": "ask_user",
                     "status": "answered",
