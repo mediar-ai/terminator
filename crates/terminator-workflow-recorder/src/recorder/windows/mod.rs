@@ -21,6 +21,14 @@ use std::{
 // Debug counter for tracking concurrent UIA traversals
 static UIA_TRAVERSAL_COUNT: AtomicUsize = AtomicUsize::new(0);
 static UIA_TRAVERSAL_TOTAL: AtomicUsize = AtomicUsize::new(0);
+
+// Storage for pending click capture: element captured on mouse down, used on mouse up
+// This ensures reliable element capture (on down when UI is stable) while emitting
+// Click event after action completes (on up), so modals don't block the click action.
+use once_cell::sync::Lazy;
+static PENDING_CLICK_CAPTURE: Lazy<Mutex<Option<structs::PendingClickCapture>>> =
+    Lazy::new(|| Mutex::new(None));
+
 use terminator::{convert_uiautomation_element_to_terminator, UIElement};
 
 use tokio::runtime::Runtime;
@@ -2553,8 +2561,11 @@ impl WindowsRecorder {
             }
         }
 
-        // Generate Click event on Mouse Down (when element is reliably captured)
-        // This ensures we have the correct UI element before UI state changes
+        // Capture element and prepare Click event on Mouse Down (when element is reliably captured)
+        // The event will be stored and emitted on Mouse Up, so modals don't block the click action
+        let mut pending_click_event: Option<ClickEvent> = None;
+        let mut pending_browser_click_event: Option<BrowserClickEvent> = None;
+
         if let Some(ref element) = ui_element {
             if button == MouseButton::Left {
                 let element_role = element.role().to_lowercase();
@@ -2715,15 +2726,8 @@ impl WindowsRecorder {
                             )),
                         };
 
-                        debug!("🌐 Emitting BrowserClickEvent with DOM information");
-                        if let Err(e) = ctx
-                            .event_tx
-                            .send(WorkflowEvent::BrowserClick(browser_click_event))
-                        {
-                            error!("❌ Failed to send BrowserClick event: {} - Event DROPPED! Channel may be full or lagging.", e);
-                        } else {
-                            debug!("✅ Browser click event sent successfully with DOM data");
-                        }
+                        debug!("🌐 Storing BrowserClickEvent for emission on mouse up");
+                        pending_browser_click_event = Some(browser_click_event);
                     }
 
                     // Get page URL if this is a browser click
@@ -2761,23 +2765,17 @@ impl WindowsRecorder {
                         )),
                     };
 
-                    if let Err(e) = ctx.event_tx.send(WorkflowEvent::Click(click_event.clone())) {
-                        error!(
-                            "❌ Failed to send Click event for '{}' (role: '{}'): {} - Event DROPPED! Channel may be full or lagging.",
-                            click_event.element_text, click_event.element_role, e
-                        );
-                    } else {
-                        debug!(
-                            "✅ Click event sent successfully for '{}'",
-                            click_event.element_text
-                        );
-                    }
+                    debug!(
+                        "🖱️ Storing Click event for '{}' - will emit on mouse up",
+                        click_event.element_text
+                    );
+                    pending_click_event = Some(click_event);
                 }
             }
         } else if button == MouseButton::Left {
-            // UI element capture failed, but we should still emit a Click event
+            // UI element capture failed, but we should still prepare a Click event
             debug!(
-                "⚠️ Mouse down without UI element at position ({}, {}) - still emitting Click event",
+                "⚠️ Mouse down without UI element at position ({}, {}) - preparing Click event for mouse up",
                 ctx.position.x, ctx.position.y
             );
 
@@ -2798,13 +2796,19 @@ impl WindowsRecorder {
                 },
             };
 
-            if let Err(e) = ctx.event_tx.send(WorkflowEvent::Click(click_event)) {
-                error!(
-                    "❌ Failed to send Click event (no UI element): {} - Event DROPPED! Channel may be full or lagging.",
-                    e
-                );
-            } else {
-                debug!("✅ Click event sent successfully (no UI element captured)");
+            debug!("🖱️ Storing Click event (no UI element) - will emit on mouse up");
+            pending_click_event = Some(click_event);
+        }
+
+        // Store pending click events for emission on mouse up
+        if pending_click_event.is_some() || pending_browser_click_event.is_some() {
+            if let Ok(mut pending) = PENDING_CLICK_CAPTURE.lock() {
+                *pending = Some(PendingClickCapture {
+                    click_event: pending_click_event,
+                    browser_click_event: pending_browser_click_event,
+                    timestamp: Instant::now(),
+                });
+                debug!("📦 Stored pending click capture for mouse up emission");
             }
         }
 
@@ -2831,8 +2835,41 @@ impl WindowsRecorder {
 
     /// Handles a button release request from the input listener thread.
     fn handle_button_release_request(button: MouseButton, ctx: &ButtonPressContext) {
-        // Send Mouse Up event unfiltered to avoid it being dropped by processing delay
-        // Note: Click events are now generated on Mouse Down for better element capture reliability
+        // Emit pending Click events that were captured on mouse down
+        // This ensures the click action completes before we emit events that might trigger modals
+        if button == MouseButton::Left {
+            if let Ok(mut pending) = PENDING_CLICK_CAPTURE.lock() {
+                if let Some(capture) = pending.take() {
+                    // Check staleness - discard if older than 5 seconds (e.g., long press or drag)
+                    let age_ms = capture.timestamp.elapsed().as_millis();
+                    if age_ms > 5000 {
+                        debug!("🗑️ Discarding stale pending click capture ({}ms old)", age_ms);
+                    } else {
+                        debug!("📤 Emitting pending click events on mouse up ({}ms after capture)", age_ms);
+
+                        // Emit BrowserClick first if present
+                        if let Some(browser_click_event) = capture.browser_click_event {
+                            if let Err(e) = ctx.event_tx.send(WorkflowEvent::BrowserClick(browser_click_event)) {
+                                error!("❌ Failed to send BrowserClick event on mouse up: {}", e);
+                            } else {
+                                debug!("✅ BrowserClick event sent on mouse up");
+                            }
+                        }
+
+                        // Emit Click event if present
+                        if let Some(click_event) = capture.click_event {
+                            if let Err(e) = ctx.event_tx.send(WorkflowEvent::Click(click_event.clone())) {
+                                error!("❌ Failed to send Click event on mouse up: {}", e);
+                            } else {
+                                debug!("✅ Click event sent on mouse up for '{}'", click_event.element_text);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Send Mouse Up event unfiltered
         let mouse_event = MouseEvent {
             event_type: MouseEventType::Up,
             button,
