@@ -158,21 +158,18 @@ export default createWorkflow({
     fn create_step_one(&self, project_path: &Path) -> Result<()> {
         let step = r#"import { createStep, next, success } from "@mediar-ai/workflow";
 
-/**
- * Step One: Open Application and Login
- *
- * BUSINESS CONTEXT:
- * This step launches the target application and performs initial setup.
- * It handles cases where work is already done (skips execution).
- *
- * WHY THIS EXISTS:
- * Users need automated login to avoid manual repetitive work.
- * The alreadyDone check prevents duplicate processing.
- */
 export const stepOne = createStep({
   id: "step_one",
   name: "Open Application and Login",
   execute: async ({ desktop, input, context }) => {
+    // BUSINESS CONTEXT:
+    // This step launches the target application and performs initial setup.
+    // It handles cases where work is already done (skips execution).
+    //
+    // WHY THIS EXISTS:
+    // Users need automated login to avoid manual repetitive work.
+    // The alreadyDone check prevents duplicate processing.
+
     // Skip if already processed (e.g., invoice already submitted today)
     if (input?.alreadyDone) {
       return success({
@@ -211,24 +208,21 @@ export const stepOne = createStep({
     fn create_step_two(&self, project_path: &Path) -> Result<()> {
         let step = r#"import { createStep } from "@mediar-ai/workflow";
 
-/**
- * Step Two: Process Data and Submit
- *
- * BUSINESS CONTEXT:
- * This step performs the main business action after login.
- * It uses data from step one to complete the workflow.
- *
- * WHY THIS EXISTS:
- * The actual work happens here - filling forms, clicking buttons,
- * extracting data, or submitting information.
- *
- * DEPENDENCIES:
- * - Requires stepOneCompleted=true from previous step
- */
 export const stepTwo = createStep({
   id: "step_two",
   name: "Process Data and Submit",
   execute: async ({ desktop, context }) => {
+    // BUSINESS CONTEXT:
+    // This step performs the main business action after login.
+    // It uses data from step one to complete the workflow.
+    //
+    // WHY THIS EXISTS:
+    // The actual work happens here - filling forms, clicking buttons,
+    // extracting data, or submitting information.
+    //
+    // DEPENDENCIES:
+    // - Requires stepOneCompleted=true from previous step
+
     // Verify previous step completed successfully
     if (!context.state.stepOneCompleted) {
       throw new Error("Step one must complete before step two");
