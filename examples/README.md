@@ -20,8 +20,6 @@ This directory contains example scripts demonstrating various capabilities of th
 | macOS Calculator | `macos_calculator.py` | Demonstrates automation of Calculator on macOS |
 | **Python - Web Automation** | | |
 | Gmail Automation | `gmail_automation.py` | Automates common tasks within the Gmail web interface |
-| **TypeScript Workflows** | | |
-| Simple Notepad Workflow | `simple_notepad_workflow/` | Complete TypeScript workflow example |
 | **Project Examples** | | |
 | PDF to Form | `pdf-to-form/` | Converts PDF data into web forms using Terminator |
 | reCAPTCHA Resolver | `recaptcha-resolver/` | Automated reCAPTCHA solving |
@@ -37,7 +35,6 @@ This directory contains example scripts demonstrating various capabilities of th
 | macOS Calculator | ✗ | ✗ | ✓ |
 | Web Automation | ✓ | ✓ | ✓ |
 | Monitor/Screenshot | ✓ | ✓ | ✓ |
-| TypeScript Workflows | ✓ | ✓ | ✓ |
 
 ## Troubleshooting
 
