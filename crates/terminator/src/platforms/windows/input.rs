@@ -9,7 +9,9 @@ use std::time::Duration;
 use tracing::info;
 use windows::core::BOOL;
 use windows::Win32::Foundation::POINT;
-use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED};
+use windows::Win32::System::Com::{
+    CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
+};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern2,
     IUIAutomationTextRange, UIA_TextPattern2Id,
