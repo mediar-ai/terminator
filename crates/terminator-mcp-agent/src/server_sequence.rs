@@ -345,6 +345,7 @@ impl DesktopWrapper {
         &self,
         peer: Peer<RoleServer>,
         request_context: RequestContext<RoleServer>,
+        client_progress_token: Option<ProgressToken>,
         args: ExecuteSequenceArgs,
     ) -> Result<CallToolResult, McpError> {
         // Register this execution with the request manager
@@ -370,7 +371,7 @@ impl DesktopWrapper {
         );
 
         tokio::select! {
-            result = self.execute_sequence_inner(peer, request_context, args, request_id.clone()).instrument(tracing_span) => {
+            result = self.execute_sequence_inner(peer, client_progress_token.clone(), request_context, args, request_id.clone()).instrument(tracing_span) => {
                 // Unregister when done
                 self.request_manager.unregister(&request_id).await;
                 result
@@ -389,6 +390,7 @@ impl DesktopWrapper {
     async fn execute_sequence_inner(
         &self,
         peer: Peer<RoleServer>,
+        client_progress_token: Option<ProgressToken>,
         request_context: RequestContext<RoleServer>,
         args: ExecuteSequenceArgs,
         execution_id: String,
@@ -409,7 +411,7 @@ impl DesktopWrapper {
         if let Some(url) = args.url.clone() {
             info!("Delegating to TypeScript workflow executor");
             return self
-                .execute_typescript_workflow(&url, args, execution_id, peer)
+                .execute_typescript_workflow(&url, args, execution_id, peer, client_progress_token)
                 .await;
         }
 
@@ -2426,6 +2428,7 @@ impl DesktopWrapper {
         args: ExecuteSequenceArgs,
         execution_id: String,
         peer: Peer<RoleServer>,
+        client_progress_token: Option<ProgressToken>,
     ) -> Result<CallToolResult, McpError> {
         // Extract trace context for distributed tracing
         let trace_id_val = args.trace_id.clone().unwrap_or_default();
@@ -2469,10 +2472,11 @@ impl DesktopWrapper {
             // Create event channel for streaming workflow events to MCP client
             let (event_tx, mut event_rx) = mpsc::unbounded_channel::<WorkflowEvent>();
 
-            // Generate a progress token for this workflow execution
-            let progress_token = ProgressToken(NumberOrString::String(
+            // Use client's progress token if provided, otherwise generate one
+            info!("client_progress_token received: {:?}", client_progress_token);
+            let progress_token = client_progress_token.unwrap_or_else(|| ProgressToken(NumberOrString::String(
                 format!("workflow-{}", execution_id_val).into(),
-            ));
+            )));
 
             // Shared storage for collecting screenshots from events with metadata
             // (index, timestamp, annotation, element, base64)

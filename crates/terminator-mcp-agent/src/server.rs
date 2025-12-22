@@ -39,6 +39,7 @@ use tracing::{info, warn, Instrument};
 
 // New imports for image encoding
 use base64::{engine::general_purpose, Engine as _};
+use image::codecs::jpeg::JpegEncoder;
 use image::codecs::png::PngEncoder;
 
 use rmcp::service::{NotificationContext, Peer, RequestContext, RoleServer};
@@ -6912,24 +6913,30 @@ DATA PASSING:
             (original_width, original_height, rgba_data, false)
         };
 
-        // Encode to PNG with maximum compression
-        let mut png_data = Vec::new();
-        let encoder = PngEncoder::new(Cursor::new(&mut png_data));
+        // Convert RGBA to RGB for JPEG (JPEG doesn't support alpha channel)
+        let rgb_data: Vec<u8> = final_rgba_data
+            .chunks_exact(4)
+            .flat_map(|rgba| [rgba[0], rgba[1], rgba[2]]) // Drop alpha channel
+            .collect();
+
+        // Encode to JPEG with quality 85 (good balance of quality vs size, ~80% smaller than PNG)
+        let mut jpeg_data = Vec::new();
+        let encoder = JpegEncoder::new_with_quality(Cursor::new(&mut jpeg_data), 85);
         encoder
             .write_image(
-                &final_rgba_data,
+                &rgb_data,
                 final_width,
                 final_height,
-                ExtendedColorType::Rgba8,
+                ExtendedColorType::Rgb8,
             )
             .map_err(|e| {
                 McpError::internal_error(
-                    "Failed to encode screenshot to PNG",
+                    "Failed to encode screenshot to JPEG",
                     Some(json!({ "reason": e.to_string() })),
                 )
             })?;
 
-        let base64_image = general_purpose::STANDARD.encode(&png_data);
+        let base64_image = general_purpose::STANDARD.encode(&jpeg_data);
 
         span.set_status(true, None);
         span.end();
@@ -6942,7 +6949,7 @@ DATA PASSING:
             "target": element_info,
             "selector_used": successful_selector,
             "selectors_tried": get_selectors_tried_all(&args.selector.build_full_selector(), args.selector.build_alternative_selectors().as_deref(), args.selector.build_fallback_selectors().as_deref()),
-            "image_format": "png",
+            "image_format": "jpeg",
             "original_size": {
                 "width": original_width,
                 "height": original_height,
@@ -6952,8 +6959,8 @@ DATA PASSING:
             "final_size": {
                 "width": final_width,
                 "height": final_height,
-                "bytes": png_data.len(),
-                "mb": (png_data.len() as f64 / 1024.0 / 1024.0)
+                "bytes": jpeg_data.len(),
+                "mb": (jpeg_data.len() as f64 / 1024.0 / 1024.0)
             },
             "resized": was_resized,
             "max_dimension_applied": max_dim,
@@ -6963,7 +6970,7 @@ DATA PASSING:
 
         let contents = vec![
             Content::json(metadata)?,
-            Content::image(base64_image, "image/png".to_string()),
+            Content::image(base64_image, "image/jpeg".to_string()),
         ];
         let contents = append_monitor_screenshots_if_enabled(
             &self.desktop,
@@ -7283,8 +7290,9 @@ DATA PASSING:
         request_context: RequestContext<RoleServer>,
         Parameters(args): Parameters<ExecuteSequenceArgs>,
     ) -> Result<CallToolResult, McpError> {
+        let client_progress_token = request_context.meta.get_progress_token();
         return self
-            .execute_sequence_impl(peer, request_context, args)
+            .execute_sequence_impl(peer, request_context, client_progress_token, args)
             .await;
     }
 
@@ -9907,7 +9915,8 @@ impl DesktopWrapper {
                 // Use Box::pin to handle async recursion (dispatch_tool -> execute_sequence_impl -> ... -> dispatch_tool)
                 match serde_json::from_value::<ExecuteSequenceArgs>(arguments.clone()) {
                     Ok(args) => {
-                        Box::pin(self.execute_sequence_impl(peer, request_context, args)).await
+                        let client_progress_token = request_context.meta.get_progress_token();
+                        Box::pin(self.execute_sequence_impl(peer, request_context, client_progress_token, args)).await
                     }
                     Err(e) => Err(McpError::invalid_params(
                         "Invalid arguments for execute_sequence",

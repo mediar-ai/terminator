@@ -41,7 +41,7 @@ rmcp = { version = "0.9", features = [
 ] }
 schemars = "1.0"
 futures = "0.3"
-image = { version = "0.25.1", features = ["png"] }
+image = { version = "0.25.1", features = ["png", "jpeg"] }
 base64 = "0.22.1"
 clap = { version = "4.5", features = ["derive", "env"] }
 axum = "0.8"
