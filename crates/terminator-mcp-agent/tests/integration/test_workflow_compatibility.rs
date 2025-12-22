@@ -1,5 +1,5 @@
 // Integration tests for workflow backward and forward compatibility
-// Tests YAML workflows, TypeScript workflows, state caching, start/stop functionality
+// Tests TypeScript workflows, state caching, start/stop functionality
 
 use serde_json::json;
 use std::fs;
@@ -13,13 +13,6 @@ mod workflow_compatibility_tests {
     // ========================================================================
     // Test Fixtures
     // ========================================================================
-
-    /// Create a temporary YAML workflow file
-    fn create_yaml_workflow(temp_dir: &TempDir, name: &str, content: &str) -> PathBuf {
-        let workflow_path = temp_dir.path().join(format!("{}.yml", name));
-        fs::write(&workflow_path, content).expect("Failed to write YAML workflow");
-        workflow_path
-    }
 
     /// Create a temporary TypeScript workflow project
     fn create_ts_workflow(temp_dir: &TempDir, name: &str) -> PathBuf {
@@ -93,235 +86,6 @@ export default createWorkflow({
             .expect("Failed to write workflow.ts");
 
         project_dir
-    }
-
-    // ========================================================================
-    // YAML Backward Compatibility Tests
-    // ========================================================================
-
-    #[tokio::test]
-    async fn test_yaml_basic_execution() {
-        let temp_dir = TempDir::new().unwrap();
-        let workflow = create_yaml_workflow(
-            &temp_dir,
-            "basic",
-            r#"
-steps:
-  - id: step1
-    name: Echo Hello
-    tool_name: run_command
-    arguments:
-      run: echo "Hello from YAML"
-"#,
-        );
-
-        let result = execute_sequence(json!({
-            "url": format!("file://{}", workflow.display()),
-        }))
-        .await;
-
-        assert!(result.is_ok(), "YAML workflow execution failed");
-        let output = result.unwrap();
-        assert_eq!(output["status"], "success");
-    }
-
-    #[tokio::test]
-    async fn test_yaml_multiple_steps() {
-        let temp_dir = TempDir::new().unwrap();
-        let workflow = create_yaml_workflow(
-            &temp_dir,
-            "multiple",
-            r#"
-steps:
-  - id: step1
-    name: Step 1
-    tool_name: run_command
-    arguments:
-      run: echo "Step 1"
-
-  - id: step2
-    name: Step 2
-    tool_name: run_command
-    arguments:
-      run: echo "Step 2"
-
-  - id: step3
-    name: Step 3
-    tool_name: run_command
-    arguments:
-      run: echo "Step 3"
-"#,
-        );
-
-        let result = execute_sequence(json!({
-            "url": format!("file://{}", workflow.display()),
-        }))
-        .await;
-
-        assert!(result.is_ok());
-        let output = result.unwrap();
-        assert_eq!(output["status"], "success");
-    }
-
-    #[tokio::test]
-    async fn test_yaml_with_variables() {
-        let temp_dir = TempDir::new().unwrap();
-        let workflow = create_yaml_workflow(
-            &temp_dir,
-            "variables",
-            r#"
-variables:
-  userName:
-    type: string
-    label: User Name
-    default: World
-
-steps:
-  - id: greet
-    name: Greet User
-    tool_name: run_command
-    arguments:
-      run: echo "Hello {{userName}}"
-"#,
-        );
-
-        let result = execute_sequence(json!({
-            "url": format!("file://{}", workflow.display()),
-            "inputs": {
-                "userName": "TestUser"
-            }
-        }))
-        .await;
-
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_yaml_start_from_step() {
-        let temp_dir = TempDir::new().unwrap();
-        let workflow = create_yaml_workflow(
-            &temp_dir,
-            "start_from",
-            r#"
-steps:
-  - id: step1
-    name: Step 1
-    tool_name: run_command
-    arguments:
-      run: echo "Step 1"
-
-  - id: step2
-    name: Step 2
-    tool_name: run_command
-    arguments:
-      run: echo "Step 2"
-
-  - id: step3
-    name: Step 3
-    tool_name: run_command
-    arguments:
-      run: echo "Step 3"
-"#,
-        );
-
-        // Create fake state file
-        let state_dir = temp_dir.path().join(".mediar").join("workflows").join("start_from");
-        fs::create_dir_all(&state_dir).unwrap();
-        let state_file = state_dir.join("state.json");
-        fs::write(
-            &state_file,
-            json!({
-                "last_step_id": "step1",
-                "last_step_index": 0,
-                "env": {
-                    "step1_result": { "output": "Step 1" },
-                    "step1_status": "success"
-                }
-            })
-            .to_string(),
-        )
-        .unwrap();
-
-        let result = execute_sequence(json!({
-            "url": format!("file://{}", workflow.display()),
-            "start_from_step": "step2"
-        }))
-        .await;
-
-        assert!(result.is_ok());
-        // Should skip step1, execute step2 and step3
-    }
-
-    #[tokio::test]
-    async fn test_yaml_end_at_step() {
-        let temp_dir = TempDir::new().unwrap();
-        let workflow = create_yaml_workflow(
-            &temp_dir,
-            "end_at",
-            r#"
-steps:
-  - id: step1
-    name: Step 1
-    tool_name: run_command
-    arguments:
-      run: echo "Step 1"
-
-  - id: step2
-    name: Step 2
-    tool_name: run_command
-    arguments:
-      run: echo "Step 2"
-
-  - id: step3
-    name: Step 3
-    tool_name: run_command
-    arguments:
-      run: echo "Step 3"
-"#,
-        );
-
-        let result = execute_sequence(json!({
-            "url": format!("file://{}", workflow.display()),
-            "end_at_step": "step2"
-        }))
-        .await;
-
-        assert!(result.is_ok());
-        // Should execute step1 and step2, skip step3
-    }
-
-    #[tokio::test]
-    async fn test_yaml_state_persistence() {
-        let temp_dir = TempDir::new().unwrap();
-        let workflow = create_yaml_workflow(
-            &temp_dir,
-            "persistence",
-            r#"
-steps:
-  - id: step1
-    name: Step 1
-    tool_name: run_command
-    arguments:
-      run: echo "Step 1"
-"#,
-        );
-
-        let result = execute_sequence(json!({
-            "url": format!("file://{}", workflow.display()),
-        }))
-        .await;
-
-        assert!(result.is_ok());
-
-        // Check state file was created
-        let state_file = temp_dir.path().join(".mediar/workflows/persistence/state.json");
-        assert!(state_file.exists(), "State file should exist");
-
-        let state_content = fs::read_to_string(&state_file).unwrap();
-        let state: serde_json::Value = serde_json::from_str(&state_content).unwrap();
-
-        assert_eq!(state["last_step_id"], "step1");
-        assert!(state["env"].is_object());
     }
 
     // ========================================================================
@@ -477,85 +241,7 @@ steps:
         assert_eq!(output["metadata"]["steps"][0]["name"], "Step 1");
     }
 
-    // ========================================================================
-    // Cross-Format Compatibility Tests
-    // ========================================================================
-
-    #[tokio::test]
-    async fn test_yaml_then_ts_workflow() {
-        let temp_dir = TempDir::new().unwrap();
-
-        // Execute YAML workflow
-        let yaml_workflow = create_yaml_workflow(
-            &temp_dir,
-            "yaml_first",
-            r#"
-steps:
-  - id: yaml_step
-    name: YAML Step
-    tool_name: run_command
-    arguments:
-      run: echo "YAML"
-"#,
-        );
-
-        let result1 = execute_sequence(json!({
-            "url": format!("file://{}", yaml_workflow.display()),
-        }))
-        .await;
-
-        assert!(result1.is_ok());
-
-        // Execute TS workflow
-        let ts_project = create_ts_workflow(&temp_dir, "ts_second");
-        install_dependencies(&ts_project).await;
-
-        let result2 = execute_sequence(json!({
-            "url": format!("file://{}", ts_project.display()),
-            "inputs": { "testInput": "test" }
-        }))
-        .await;
-
-        assert!(result2.is_ok());
-        // Both should work independently
-    }
-
-    #[tokio::test]
-    async fn test_format_detection_yaml_file() {
-        let temp_dir = TempDir::new().unwrap();
-        let workflow = create_yaml_workflow(&temp_dir, "detect_yaml", "steps: []");
-
-        let format = detect_workflow_format(&format!("file://{}", workflow.display()))
-            .await
-            .unwrap();
-
-        assert!(matches!(format, WorkflowFormat::Yaml));
-    }
-
-    #[tokio::test]
-    async fn test_format_detection_ts_file() {
-        let temp_dir = TempDir::new().unwrap();
-        let ts_file = temp_dir.path().join("workflow.ts");
-        fs::write(&ts_file, "export default {};").unwrap();
-
-        let format = detect_workflow_format(&format!("file://{}", ts_file.display()))
-            .await
-            .unwrap();
-
-        assert!(matches!(format, WorkflowFormat::TypeScript));
-    }
-
-    #[tokio::test]
-    async fn test_format_detection_ts_project() {
-        let temp_dir = TempDir::new().unwrap();
-        let project_dir = create_ts_workflow(&temp_dir, "detect_ts_project");
-
-        let format = detect_workflow_format(&format!("file://{}", project_dir.display()))
-            .await
-            .unwrap();
-
-        assert!(matches!(format, WorkflowFormat::TypeScript));
-    }
+    // Cross-Format Compatibility Tests section removed - YAML support removed
 
     // ========================================================================
     // Runtime Detection Tests
@@ -607,27 +293,7 @@ steps:
     // Error Handling Tests
     // ========================================================================
 
-    #[tokio::test]
-    async fn test_yaml_invalid_step() {
-        let temp_dir = TempDir::new().unwrap();
-        let workflow = create_yaml_workflow(
-            &temp_dir,
-            "invalid",
-            r#"
-steps:
-  - id: bad_step
-    tool_name: nonexistent_tool
-    arguments: {}
-"#,
-        );
-
-        let result = execute_sequence(json!({
-            "url": format!("file://{}", workflow.display()),
-        }))
-        .await;
-
-        assert!(result.is_err());
-    }
+    // test_yaml_invalid_step removed - YAML support removed
 
     #[tokio::test]
     async fn test_ts_workflow_error_handling() {
@@ -668,29 +334,7 @@ export default createWorkflow({
         assert!(result.is_err());
     }
 
-    #[tokio::test]
-    async fn test_missing_start_step() {
-        let temp_dir = TempDir::new().unwrap();
-        let workflow = create_yaml_workflow(
-            &temp_dir,
-            "missing_start",
-            r#"
-steps:
-  - id: step1
-    tool_name: run_command
-    arguments:
-      run: echo "Step 1"
-"#,
-        );
-
-        let result = execute_sequence(json!({
-            "url": format!("file://{}", workflow.display()),
-            "start_from_step": "nonexistent_step"
-        }))
-        .await;
-
-        assert!(result.is_err());
-    }
+    // test_missing_start_step removed - YAML support removed
 
     // ========================================================================
     // Helper Functions
