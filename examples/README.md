@@ -20,15 +20,6 @@ This directory contains example scripts demonstrating various capabilities of th
 | macOS Calculator | `macos_calculator.py` | Demonstrates automation of Calculator on macOS |
 | **Python - Web Automation** | | |
 | Gmail Automation | `gmail_automation.py` | Automates common tasks within the Gmail web interface |
-| **YAML Workflows** | | |
-| I-94 Automation | `i94_automation.yml` | Declarative workflow for U.S. I-94 travel form |
-| Browser DOM Extraction | `browser_dom_extraction.yml` | Extract data from browser DOM |
-| Comprehensive UI Test | `comprehensive_ui_test.yml` | Full UI automation test suite |
-| Simple Browser Test | `simple_browser_test.yml` | Basic browser automation workflow |
-| GitHub Actions Commands | `github_actions_style_commands.yml` | GitHub Actions-style command syntax |
-| Website Search Parser | `website_search_parser.yml` | Parse and extract website search results |
-| Web Monitor with Skip | `web_monitor_with_skip.yml` | Monitor web pages with skip conditions |
-| Enable Trailing Cursor | `enable_trailing_cursor.yml` | Enable trailing cursor accessibility feature |
 | **TypeScript Workflows** | | |
 | Simple Notepad Workflow | `simple_notepad_workflow/` | Complete TypeScript workflow example |
 | **Project Examples** | | |
@@ -46,7 +37,6 @@ This directory contains example scripts demonstrating various capabilities of th
 | macOS Calculator | ✗ | ✗ | ✓ |
 | Web Automation | ✓ | ✓ | ✓ |
 | Monitor/Screenshot | ✓ | ✓ | ✓ |
-| YAML Workflows | ✓ | ✓ | ✓ |
 | TypeScript Workflows | ✓ | ✓ | ✓ |
 
 ## Troubleshooting
