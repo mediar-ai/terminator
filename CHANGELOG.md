@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.10] - 2025-12-22
+
+### Changed
+- Workflow: Emit step lifecycle events automatically
+
+### Performance
+- MCP: Switch screenshots from PNG to JPEG for ~80% size reduction
+
+## [0.24.9] - 2025-12-22
+
+### Fixed
+- Core: Detect clicks on browser chrome (tabs/address bar) and skip DOM capture
+- Core: Initialize COM before UIA calls in focus save/restore
+
 ## [0.24.8] - 2025-12-19
 
 ### Changed
