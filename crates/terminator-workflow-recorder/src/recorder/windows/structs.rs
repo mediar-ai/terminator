@@ -1,7 +1,6 @@
 use crate::events::EventMetadata;
 use rdev::Key;
 use std::time::Instant;
-use sysinfo::{Pid, ProcessesToUpdate, System};
 use terminator::UIElement;
 use tracing::{error, info};
 
@@ -241,13 +240,10 @@ impl TextInputTracker {
     }
 
     /// Get process name from a UI element's process ID
+    /// Uses fast native Windows API instead of slow sysinfo
     fn get_process_name_from_element(element: &UIElement) -> Option<String> {
-        let process_id = element.process_id().ok()?;
-        let mut system = System::new();
-        system.refresh_processes(ProcessesToUpdate::All, true);
-        system
-            .process(Pid::from_u32(process_id))
-            .map(|p| p.name().to_string_lossy().to_string())
+        // Use UIElement.process_name() which uses fast native API on Windows
+        element.process_name().ok()
     }
 
     fn get_element_text_value_safe(element: &UIElement) -> Option<String> {
