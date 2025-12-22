@@ -1,7 +1,7 @@
 //! Screenshot Logging for Terminator
 //!
-//! Saves screenshots to %LOCALAPPDATA%\terminator\executions\ (Windows)
-//! or ~/.local/share/terminator/executions/ (Linux/macOS).
+//! Saves screenshots to %LOCALAPPDATA%\mediar\workflows\{workflow_id}\executions\ (when workflow_id is set)
+//! or %LOCALAPPDATA%\mediar\executions\ (standalone SDK usage).
 //! Used by both MCP agent and SDK bindings.
 
 use crate::ScreenshotResult;
@@ -9,18 +9,26 @@ use chrono::Local;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 /// Whether screenshot logging is enabled (can be disabled via env var)
 static LOGGING_ENABLED: AtomicBool = AtomicBool::new(true);
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 /// Get the executions directory path
+/// Uses TERMINATOR_WORKFLOW_ID env var to determine workflow-specific folder
 pub fn get_executions_dir() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("terminator")
-        .join("executions")
+    let base = dirs::data_local_dir().unwrap_or_else(std::env::temp_dir);
+    match std::env::var("TERMINATOR_WORKFLOW_ID") {
+        Ok(wf_id) => {
+            debug!("[screenshot_logger] Using workflow folder: {}", wf_id);
+            base.join("mediar")
+                .join("workflows")
+                .join(wf_id)
+                .join("executions")
+        }
+        Err(_) => base.join("mediar").join("executions"),
+    }
 }
 
 /// Initialize screenshot logging (create dir, check env var)
