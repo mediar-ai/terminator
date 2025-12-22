@@ -124,6 +124,16 @@ impl BrowserContextRecorder {
     const viewportX = screenX - window.screenX;
     const viewportY = screenY - window.screenY - browserChromeHeight;
 
+    // Check if click is outside web content viewport (browser chrome area: tabs, address bar, etc.)
+    // elementFromPoint clips negative coords to 0, returning wrong element - we must reject early
+    if (viewportX < 0 || viewportY < 0 || viewportX > window.innerWidth || viewportY > window.innerHeight) {{
+        return JSON.stringify({{
+            error: 'Click outside viewport (browser chrome)',
+            is_browser_chrome: true,
+            debug: {{ viewportX, viewportY, innerWidth: window.innerWidth, innerHeight: window.innerHeight }}
+        }});
+    }}
+
     // Get element at viewport coordinates
     const element = document.elementFromPoint(viewportX, viewportY);
     if (!element) {{
@@ -329,7 +339,13 @@ impl BrowserContextRecorder {
                     Err(e) => {
                         // Check if it's an error response
                         if let Ok(error_obj) = serde_json::from_str::<serde_json::Value>(&result) {
-                            if let Some(error) = error_obj.get("error") {
+                            if error_obj
+                                .get("is_browser_chrome")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false)
+                            {
+                                info!("[DOM] Click on browser chrome (tabs/address bar) - skipping DOM capture, will use UIA");
+                            } else if let Some(error) = error_obj.get("error") {
                                 warn!("DOM capture error: {}", error);
                             }
                         } else {
