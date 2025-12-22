@@ -5175,6 +5175,7 @@ dependencies = [
  "futures",
  "log",
  "notify",
+ "once_cell",
  "rand 0.8.5",
  "rdev",
  "rmcp",
