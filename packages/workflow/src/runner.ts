@@ -1,4 +1,5 @@
 import { Workflow, WorkflowContext, Logger, ConsoleLogger, isWorkflowSuccess, isNextStep } from './types';
+import { emit } from './events';
 import { Desktop } from '@mediar-ai/terminator';
 
 export interface WorkflowRunnerOptions {
@@ -103,6 +104,9 @@ export class WorkflowRunner {
       const step = steps[i];
 
       this.logger.info(`\n[${i + 1}/${steps.length}] ${step.config.name}`);
+      const totalSteps = steps.length;
+      const stepStartTime = Date.now();
+      emit.stepStarted(step.config.id, step.config.name, i, totalSteps);
 
       try {
         // Check if step has condition
@@ -184,6 +188,7 @@ export class WorkflowRunner {
         }
 
         // Save step result
+        emit.stepCompleted(step.config.id, step.config.name, Date.now() - stepStartTime, i, totalSteps);
         this.state.stepResults[step.config.id] = {
           status: 'executed_without_error',
           result,
@@ -194,6 +199,7 @@ export class WorkflowRunner {
 
       } catch (error: any) {
         this.logger.error(`❌ Step failed: ${error.message}`);
+        emit.stepFailed(step.config.id, step.config.name, error.message, Date.now() - stepStartTime);
 
         // Save step error
         this.state.stepResults[step.config.id] = {
