@@ -46,20 +46,24 @@ mod scripts_base_path_tests {
     }
 
     #[test]
-    fn test_workflow_yaml_with_scripts_base_path() {
-        // Test parsing YAML workflow with scripts_base_path
-        let yaml_content = r#"
-name: Test Workflow
-description: Test workflow with scripts_base_path
-scripts_base_path: "/mnt/shared/scripts"
-steps:
-  - tool_name: run_command
-    arguments:
-      engine: javascript
-      script_file: helper.js
-"#;
+    fn test_workflow_json_with_scripts_base_path() {
+        // Test parsing JSON workflow with scripts_base_path
+        let json_content = serde_json::json!({
+            "name": "Test Workflow",
+            "description": "Test workflow with scripts_base_path",
+            "scripts_base_path": "/mnt/shared/scripts",
+            "steps": [
+                {
+                    "tool_name": "run_command",
+                    "arguments": {
+                        "engine": "javascript",
+                        "script_file": "helper.js"
+                    }
+                }
+            ]
+        });
 
-        let parsed: ExecuteSequenceArgs = serde_yaml::from_str(yaml_content).unwrap();
+        let parsed: ExecuteSequenceArgs = serde_json::from_value(json_content).unwrap();
         assert_eq!(
             parsed.scripts_base_path,
             Some("/mnt/shared/scripts".to_string())
@@ -68,19 +72,23 @@ steps:
     }
 
     #[test]
-    fn test_workflow_yaml_without_scripts_base_path() {
-        // Test backward compatibility - YAML without scripts_base_path should still work
-        let yaml_content = r#"
-name: Legacy Workflow
-description: Test workflow without scripts_base_path
-steps:
-  - tool_name: run_command
-    arguments:
-      engine: javascript
-      script_file: test.js
-"#;
+    fn test_workflow_json_without_scripts_base_path() {
+        // Test backward compatibility - JSON without scripts_base_path should still work
+        let json_content = serde_json::json!({
+            "name": "Legacy Workflow",
+            "description": "Test workflow without scripts_base_path",
+            "steps": [
+                {
+                    "tool_name": "run_command",
+                    "arguments": {
+                        "engine": "javascript",
+                        "script_file": "test.js"
+                    }
+                }
+            ]
+        });
 
-        let parsed: ExecuteSequenceArgs = serde_yaml::from_str(yaml_content).unwrap();
+        let parsed: ExecuteSequenceArgs = serde_json::from_value(json_content).unwrap();
         assert_eq!(parsed.scripts_base_path, None);
         assert!(parsed.steps.is_some());
     }
@@ -254,21 +262,28 @@ mod integration_tests {
     #[test]
     fn test_backward_compatibility_no_regression() {
         // Ensure old workflows without scripts_base_path continue to work
-        let legacy_workflow = r#"
-steps:
-  - tool_name: run_command
-    arguments:
-      engine: javascript
-      script_file: local_script.js
-variables:
-  api_key:
-    type: string
-    label: API Key
-inputs:
-  api_key: "test-key-123"
-"#;
+        let legacy_workflow = serde_json::json!({
+            "steps": [
+                {
+                    "tool_name": "run_command",
+                    "arguments": {
+                        "engine": "javascript",
+                        "script_file": "local_script.js"
+                    }
+                }
+            ],
+            "variables": {
+                "api_key": {
+                    "type": "string",
+                    "label": "API Key"
+                }
+            },
+            "inputs": {
+                "api_key": "test-key-123"
+            }
+        });
 
-        let parsed: ExecuteSequenceArgs = serde_yaml::from_str(legacy_workflow).unwrap();
+        let parsed: ExecuteSequenceArgs = serde_json::from_value(legacy_workflow).unwrap();
 
         // Should parse successfully without scripts_base_path
         assert!(parsed.scripts_base_path.is_none());
