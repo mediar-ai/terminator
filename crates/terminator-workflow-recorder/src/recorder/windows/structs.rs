@@ -553,6 +553,19 @@ pub fn key_to_u32(key: &Key) -> u32 {
     }
 }
 
+/// Stores click events constructed on mouse down, to be emitted on mouse up.
+/// This allows reliable element capture (on down when UI is stable) while emitting
+/// Click event after action completes (on up), so modals don't block the click action.
+#[derive(Debug, Clone)]
+pub struct PendingClickCapture {
+    /// The Click event to emit (always present for left clicks)
+    pub click_event: Option<crate::events::ClickEvent>,
+    /// The BrowserClick event to emit (only for browser clicks with DOM info)
+    pub browser_click_event: Option<crate::events::BrowserClickEvent>,
+    /// When the mouse down occurred (for staleness check)
+    pub timestamp: Instant,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
