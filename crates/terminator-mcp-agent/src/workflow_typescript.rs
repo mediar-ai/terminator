@@ -611,10 +611,10 @@ impl TypeScriptWorkflow {
         cmd.env("MCP_PARENT_PID", parent_pid.to_string());
         debug!("Set MCP_PARENT_PID={}", parent_pid);
 
-        // Pass workflow_id so SDK can store screenshots in workflow folder
-        if let Some(wf_id) = workflow_id {
-            cmd.env("TERMINATOR_WORKFLOW_ID", wf_id);
-            debug!("Set TERMINATOR_WORKFLOW_ID={}", wf_id);
+        // Pass workflow folder name so SDK can store screenshots in workflow folder
+        if let Some(folder) = workflow_id {
+            cmd.env("TERMINATOR_WORKFLOW_ID", folder);
+            debug!("Set TERMINATOR_WORKFLOW_ID={} (folder name)", folder);
         }
 
         let mut child = cmd.spawn().map_err(|e| {
