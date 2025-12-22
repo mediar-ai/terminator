@@ -917,3 +917,47 @@ impl From<terminator::ComputerUseResult> for ComputerUseResult {
         }
     }
 }
+
+/// Result of closing a browser tab
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct CloseTabResult {
+    pub closed: bool,
+    pub tab: ClosedTabInfo,
+}
+
+/// Information about a closed tab
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct ClosedTabInfo {
+    pub id: i32,
+    pub url: Option<String>,
+    pub title: Option<String>,
+    pub window_id: Option<i32>,
+}
+
+impl From<terminator::extension_bridge::CloseTabResult> for CloseTabResult {
+    fn from(result: terminator::extension_bridge::CloseTabResult) -> Self {
+        CloseTabResult {
+            closed: result.closed,
+            tab: ClosedTabInfo {
+                id: result.tab.id,
+                url: result.tab.url,
+                title: result.tab.title,
+                window_id: result.tab.window_id,
+            },
+        }
+    }
+}
+
+/// Options for closing a browser tab
+#[napi(object)]
+#[derive(Debug, Clone, Default)]
+pub struct CloseTabOptions {
+    /// Specific Chrome tab ID to close
+    pub tab_id: Option<i32>,
+    /// URL to match (partial match supported)
+    pub url: Option<String>,
+    /// Title to match (case-insensitive partial match)
+    pub title: Option<String>,
+}

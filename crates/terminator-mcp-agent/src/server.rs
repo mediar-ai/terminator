@@ -9916,7 +9916,13 @@ impl DesktopWrapper {
                 match serde_json::from_value::<ExecuteSequenceArgs>(arguments.clone()) {
                     Ok(args) => {
                         let client_progress_token = request_context.meta.get_progress_token();
-                        Box::pin(self.execute_sequence_impl(peer, request_context, client_progress_token, args)).await
+                        Box::pin(self.execute_sequence_impl(
+                            peer,
+                            request_context,
+                            client_progress_token,
+                            args,
+                        ))
+                        .await
                     }
                     Err(e) => Err(McpError::invalid_params(
                         "Invalid arguments for execute_sequence",

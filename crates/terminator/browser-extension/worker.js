@@ -217,6 +217,15 @@ function connect() {
       } catch (err) {
         safeSend({ id, ok: false, error: String(err && (err.message || err)) });
       }
+    } else if (msg.action === "close_tab") {
+      // Close a specific browser tab safely
+      const { id, tabId: requestedTabId, url: targetUrl, title: targetTitle } = msg;
+      try {
+        const result = await closeTab(requestedTabId, targetUrl, targetTitle);
+        safeSend({ id, ok: true, result });
+      } catch (err) {
+        safeSend({ id, ok: false, error: String(err && (err.message || err)) });
+      }
     }
   };
 }
@@ -1448,6 +1457,75 @@ async function captureElementAtPoint(tabId, x, y, captureId) {
     log(`Failed to capture DOM element at (${x}, ${y}):`, err);
     throw err;
   }
+}
+
+// Close a browser tab safely with multiple identification options
+async function closeTab(requestedTabId, targetUrl, targetTitle) {
+  log(`closeTab called: tabId=${requestedTabId}, url=${targetUrl}, title=${targetTitle}`);
+
+  let tabToClose = null;
+
+  // 1. Try to find tab by ID first
+  if (requestedTabId != null && typeof requestedTabId === "number") {
+    try {
+      tabToClose = await chrome.tabs.get(requestedTabId);
+      log(`Found tab by ID: ${tabToClose.id}`);
+    } catch (e) {
+      log(`Tab ID ${requestedTabId} not found: ${e.message}`);
+    }
+  }
+
+  // 2. Try to find tab by URL
+  if (!tabToClose && targetUrl) {
+    const tabs = await chrome.tabs.query({});
+    tabToClose = tabs.find(t => t.url === targetUrl || t.url?.includes(targetUrl));
+    if (tabToClose) log(`Found tab by URL: id=${tabToClose.id}`);
+  }
+
+  // 3. Try to find tab by title
+  if (!tabToClose && targetTitle) {
+    const tabs = await chrome.tabs.query({});
+    tabToClose = tabs.find(t => t.title?.toLowerCase().includes(targetTitle.toLowerCase()));
+    if (tabToClose) log(`Found tab by title: id=${tabToClose.id}`);
+  }
+
+  // 4. Fall back to active tab
+  if (!tabToClose) {
+    const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (activeTab) {
+      tabToClose = activeTab;
+      log(`Using active tab: id=${tabToClose.id}`);
+    }
+  }
+
+  if (!tabToClose) throw new Error("No tab found to close");
+
+  // Safety: don't close extension pages
+  if (tabToClose.url?.startsWith("chrome://") ||
+      tabToClose.url?.startsWith("chrome-extension://") ||
+      tabToClose.url?.startsWith("edge://") ||
+      tabToClose.url?.startsWith("about:")) {
+    throw new Error(`Cannot close protected page: ${tabToClose.url}`);
+  }
+
+  // Clean up debugger state
+  if (attachedTabs.has(tabToClose.id)) {
+    try { await debuggerDetach(tabToClose.id); } catch (e) {}
+    attachedTabs.delete(tabToClose.id);
+    enabledTabs.delete(tabToClose.id);
+  }
+
+  const closedTabInfo = {
+    id: tabToClose.id,
+    url: tabToClose.url,
+    title: tabToClose.title,
+    windowId: tabToClose.windowId,
+  };
+
+  await chrome.tabs.remove(tabToClose.id);
+  log(`Closed tab: id=${closedTabInfo.id}, url=${closedTabInfo.url}`);
+
+  return { closed: true, tab: closedTabInfo };
 }
 
 connect();
