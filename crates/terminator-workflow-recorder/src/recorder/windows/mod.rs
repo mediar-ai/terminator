@@ -2843,13 +2843,22 @@ impl WindowsRecorder {
                     // Check staleness - discard if older than 5 seconds (e.g., long press or drag)
                     let age_ms = capture.timestamp.elapsed().as_millis();
                     if age_ms > 5000 {
-                        debug!("🗑️ Discarding stale pending click capture ({}ms old)", age_ms);
+                        debug!(
+                            "🗑️ Discarding stale pending click capture ({}ms old)",
+                            age_ms
+                        );
                     } else {
-                        debug!("📤 Emitting pending click events on mouse up ({}ms after capture)", age_ms);
+                        debug!(
+                            "📤 Emitting pending click events on mouse up ({}ms after capture)",
+                            age_ms
+                        );
 
                         // Emit BrowserClick first if present
                         if let Some(browser_click_event) = capture.browser_click_event {
-                            if let Err(e) = ctx.event_tx.send(WorkflowEvent::BrowserClick(browser_click_event)) {
+                            if let Err(e) = ctx
+                                .event_tx
+                                .send(WorkflowEvent::BrowserClick(browser_click_event))
+                            {
                                 error!("❌ Failed to send BrowserClick event on mouse up: {}", e);
                             } else {
                                 debug!("✅ BrowserClick event sent on mouse up");
@@ -2858,10 +2867,15 @@ impl WindowsRecorder {
 
                         // Emit Click event if present
                         if let Some(click_event) = capture.click_event {
-                            if let Err(e) = ctx.event_tx.send(WorkflowEvent::Click(click_event.clone())) {
+                            if let Err(e) =
+                                ctx.event_tx.send(WorkflowEvent::Click(click_event.clone()))
+                            {
                                 error!("❌ Failed to send Click event on mouse up: {}", e);
                             } else {
-                                debug!("✅ Click event sent on mouse up for '{}'", click_event.element_text);
+                                debug!(
+                                    "✅ Click event sent on mouse up for '{}'",
+                                    click_event.element_text
+                                );
                             }
                         }
                     }
