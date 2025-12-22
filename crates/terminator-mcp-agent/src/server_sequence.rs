@@ -6,7 +6,6 @@ use crate::telemetry::{StepSpan, WorkflowSpan};
 use crate::utils::{
     DesktopWrapper, ExecuteSequenceArgs, SequenceItem, ToolCall, ToolGroup, VariableDefinition,
 };
-use crate::workflow_format::{detect_workflow_format, WorkflowFormat};
 use crate::workflow_typescript::{TypeScriptWorkflow, WorkflowEvent};
 use rmcp::model::{
     CallToolResult, Content, LoggingLevel, LoggingMessageNotificationParam, NumberOrString,
@@ -384,7 +383,7 @@ impl DesktopWrapper {
         &self,
         peer: Peer<RoleServer>,
         request_context: RequestContext<RoleServer>,
-        mut args: ExecuteSequenceArgs,
+        args: ExecuteSequenceArgs,
         execution_id: String,
     ) -> Result<CallToolResult, McpError> {
         // Set the in_sequence flag for the duration of this function
@@ -399,255 +398,17 @@ impl DesktopWrapper {
             ));
         }
 
-        // Detect workflow format if URL is provided
-        if let Some(url) = &args.url {
-            let format = detect_workflow_format(url);
-
-            match format {
-                WorkflowFormat::TypeScript => {
-                    // Execute TypeScript workflow with MCP notification streaming
-                    let url_clone = url.clone();
-                    return self
-                        .execute_typescript_workflow(&url_clone, args, execution_id, peer)
-                        .await;
-                }
-                WorkflowFormat::Yaml => {
-                    // Continue with existing YAML workflow logic
-                    info!("Detected YAML workflow format");
-                }
-            }
+        // If URL is provided, delegate to TypeScript workflow executor
+        if let Some(url) = args.url.clone() {
+            info!("Delegating to TypeScript workflow executor");
+            return self
+                .execute_typescript_workflow(&url, args, execution_id, peer)
+                .await;
         }
 
-        // Handle URL fetching if provided (YAML workflow path)
-        if let Some(url) = &args.url {
-            info!("Fetching workflow from URL: {}", url);
-
-            let workflow_content = if url.starts_with("file://") {
-                // Handle local file URLs
-                let file_path = url.strip_prefix("file://").unwrap_or(url);
-                // Handle Windows file:/// URLs (strip leading / before drive letter like /C:)
-                let file_path = if file_path.starts_with('/')
-                    && file_path.len() > 2
-                    && file_path.chars().nth(2) == Some(':')
-                {
-                    &file_path[1..]
-                } else {
-                    file_path
-                };
-                info!("Reading file from path: {}", file_path);
-
-                // Store the workflow directory for relative path resolution
-                let workflow_path = Path::new(file_path);
-                if let Some(parent_dir) = workflow_path.parent() {
-                    let mut workflow_dir_guard = self.current_workflow_dir.lock().await;
-                    *workflow_dir_guard = Some(parent_dir.to_path_buf());
-                    info!("Stored workflow directory: {:?}", parent_dir);
-                }
-
-                let content = std::fs::read_to_string(file_path).map_err(|e| {
-                    McpError::invalid_params(
-                        format!("Failed to read local workflow file: {e}"),
-                        Some(json!({"url": url, "error": e.to_string()})),
-                    )
-                })?;
-                info!("File content length: {}", content.len());
-                content
-            } else if url.starts_with("http://") || url.starts_with("https://") {
-                // Handle HTTP/HTTPS URLs
-                let response = reqwest::get(url).await.map_err(|e| {
-                    McpError::invalid_params(
-                        format!("Failed to fetch workflow from URL: {e}"),
-                        Some(json!({"url": url, "error": e.to_string()})),
-                    )
-                })?;
-
-                if !response.status().is_success() {
-                    return Err(McpError::invalid_params(
-                        format!("HTTP error fetching workflow: {}", response.status()),
-                        Some(json!({"url": url, "status": response.status().as_u16()})),
-                    ));
-                }
-
-                response.text().await.map_err(|e| {
-                    McpError::invalid_params(
-                        format!("Failed to read response text: {e}"),
-                        Some(json!({"url": url, "error": e.to_string()})),
-                    )
-                })?
-            } else {
-                return Err(McpError::invalid_params(
-                    "URL must start with http://, https://, or file://".to_string(),
-                    Some(json!({"url": url})),
-                ));
-            };
-
-            // Debug: Log the raw YAML content
-            debug!(
-                "Raw YAML content (first 500 chars): {}",
-                workflow_content.chars().take(500).collect::<String>()
-            );
-
-            // Parse the fetched YAML workflow
-            // First check if it's wrapped in execute_sequence structure
-            let remote_workflow: ExecuteSequenceArgs = if workflow_content
-                .contains("tool_name: execute_sequence")
-            {
-                // This workflow is wrapped in execute_sequence structure
-                // Parse as a generic Value first to extract the arguments
-                match serde_yaml::from_str::<serde_json::Value>(&workflow_content) {
-                    Ok(yaml_value) => {
-                        if yaml_value.get("tool_name").and_then(|v| v.as_str())
-                            == Some("execute_sequence")
-                        {
-                            // Extract the arguments field
-                            if let Some(arguments) = yaml_value.get("arguments") {
-                                match serde_json::from_value::<ExecuteSequenceArgs>(
-                                    arguments.clone(),
-                                ) {
-                                    Ok(wf) => {
-                                        info!(
-                                            "Successfully parsed wrapped YAML. Steps count: {}",
-                                            wf.steps.as_ref().map(|s| s.len()).unwrap_or(0)
-                                        );
-                                        wf
-                                    }
-                                    Err(e) => {
-                                        tracing::error!(
-                                            "Failed to parse arguments from wrapped YAML: {}",
-                                            e
-                                        );
-                                        return Err(McpError::invalid_params(
-                                            format!("Failed to parse workflow arguments: {e}"),
-                                            Some(json!({"url": url, "error": e.to_string()})),
-                                        ));
-                                    }
-                                }
-                            } else {
-                                return Err(McpError::invalid_params(
-                                    "Workflow has execute_sequence but no arguments field"
-                                        .to_string(),
-                                    Some(json!({"url": url})),
-                                ));
-                            }
-                        } else {
-                            // Try parsing as regular ExecuteSequenceArgs
-                            match serde_json::from_value::<ExecuteSequenceArgs>(yaml_value) {
-                                Ok(wf) => {
-                                    info!(
-                                        "Successfully parsed YAML. Steps count: {}",
-                                        wf.steps.as_ref().map(|s| s.len()).unwrap_or(0)
-                                    );
-                                    wf
-                                }
-                                Err(e) => {
-                                    tracing::error!("Failed to parse YAML: {}", e);
-                                    return Err(McpError::invalid_params(
-                                        format!("Failed to parse workflow YAML: {e}"),
-                                        Some(json!({"url": url, "error": e.to_string()})),
-                                    ));
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to parse YAML as Value: {}", e);
-                        return Err(McpError::invalid_params(
-                            format!("Failed to parse YAML: {e}"),
-                            Some(json!({"url": url, "error": e.to_string()})),
-                        ));
-                    }
-                }
-            } else {
-                // Standard format without execute_sequence wrapper
-                match serde_yaml::from_str::<ExecuteSequenceArgs>(&workflow_content) {
-                    Ok(wf) => {
-                        info!(
-                            "Successfully parsed YAML. Steps count: {}",
-                            wf.steps.as_ref().map(|s| s.len()).unwrap_or(0)
-                        );
-                        wf
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to parse YAML: {}", e);
-                        return Err(McpError::invalid_params(
-                            format!("Failed to parse remote workflow YAML: {e}"),
-                            Some(
-                                json!({"url": url, "error": e.to_string(), "content_preview": workflow_content.chars().take(200).collect::<String>()}),
-                            ),
-                        ));
-                    }
-                }
-            };
-
-            // Debug: Log what we got from the remote workflow
-            info!(
-                "Remote workflow parsed - steps present: {}, steps count: {}",
-                remote_workflow.steps.is_some(),
-                remote_workflow.steps.as_ref().map(|s| s.len()).unwrap_or(0)
-            );
-
-            // Merge remote workflow with local overrides
-            // Only use remote steps if local steps are empty or None
-            if args.steps.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
-                args.steps = remote_workflow.steps;
-            }
-            // Also merge troubleshooting steps if not provided locally
-            if args
-                .troubleshooting
-                .as_ref()
-                .map(|t| t.is_empty())
-                .unwrap_or(true)
-            {
-                args.troubleshooting = remote_workflow.troubleshooting;
-            }
-            if args.variables.is_none() {
-                args.variables = remote_workflow.variables;
-            }
-            if args.selectors.is_none() {
-                args.selectors = remote_workflow.selectors;
-            }
-            // Merge inputs: local inputs (from CLI) override remote inputs (from workflow file)
-            if args.inputs.is_none() && remote_workflow.inputs.is_some() {
-                args.inputs = remote_workflow.inputs;
-            } else if args.inputs.is_some() && remote_workflow.inputs.is_some() {
-                // If both exist, merge them with local taking precedence
-                if let (Some(local_inputs), Some(remote_inputs)) =
-                    (&args.inputs, &remote_workflow.inputs)
-                {
-                    if let (Some(local_obj), Some(remote_obj)) =
-                        (local_inputs.as_object(), remote_inputs.as_object())
-                    {
-                        let mut merged = remote_obj.clone();
-                        merged.extend(local_obj.clone());
-                        args.inputs = Some(serde_json::Value::Object(merged));
-                    }
-                }
-            }
-
-            info!(
-                "After merge - args.steps present: {}, count: {}, inputs present: {}",
-                args.steps.is_some(),
-                args.steps.as_ref().map(|s| s.len()).unwrap_or(0),
-                args.inputs.is_some()
-            );
-
-            info!(
-                "Successfully loaded workflow from URL with {} steps",
-                args.steps.as_ref().map(|s| s.len()).unwrap_or(0)
-            );
-
-            // Also merge scripts_base_path if not provided locally
-            if args.scripts_base_path.is_none() {
-                args.scripts_base_path = remote_workflow.scripts_base_path;
-            }
-            // Also merge output_parser and output if not provided locally
-            if args.output_parser.is_none() {
-                args.output_parser = remote_workflow.output_parser;
-            }
-            if args.output.is_none() {
-                args.output = remote_workflow.output;
-            }
-        }
+        // No URL provided - continue with inline step execution
+        // This path is used when MCP clients pass steps directly (e.g., Claude batching UI operations)
+        info!("No URL provided - executing inline steps");
 
         // Set the scripts_base_path for file resolution in run_command and execute_browser_script
         if let Some(scripts_base_path) = &args.scripts_base_path {
@@ -922,9 +683,8 @@ impl DesktopWrapper {
         // Add workflow source metadata
         if let Some(url) = &args.url {
             workflow_span.set_attribute("workflow.url", url.clone());
-            // Detect and set workflow format
-            let format = detect_workflow_format(url);
-            workflow_span.set_attribute("workflow.format", format!("{format:?}").to_lowercase());
+            // All workflows are now TypeScript
+            workflow_span.set_attribute("workflow.format", "typescript".to_string());
         } else {
             workflow_span.set_attribute("workflow.format", "inline".to_string());
         }
@@ -2891,6 +2651,7 @@ impl DesktopWrapper {
                     restored_state,
                     Some(&execution_id_val),
                     Some(event_tx),
+                    args.workflow_id.as_deref(),
                 )
                 .await?;
 
