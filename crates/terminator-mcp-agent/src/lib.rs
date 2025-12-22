@@ -22,7 +22,6 @@ pub mod transpiler;
 pub mod tree_formatter;
 pub mod utils;
 pub mod vision;
-pub mod workflow_format;
 pub mod workflow_typescript;
 
 // Re-export ui_tree_diff from terminator crate (single source of truth)
