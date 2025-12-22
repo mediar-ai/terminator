@@ -714,180 +714,128 @@ impl ExtensionBridge {
         None
     }
 
-    /// Get process name by PID
+    /// Get process name by PID using sysinfo (replaces deprecated wmic)
     async fn get_process_name(pid: u32) -> Option<String> {
-        use tokio::process::Command;
+        use sysinfo::{Pid, ProcessesToUpdate, System};
 
-        let output = Command::new("wmic")
-            .args([
-                "process",
-                "where",
-                &format!("ProcessID={pid}"),
-                "get",
-                "Name",
-            ])
-            .output()
-            .await
-            .ok()?;
-
-        let output_str = String::from_utf8_lossy(&output.stdout);
-        // Parse: "Name\nprocess.exe\n"
-        for line in output_str.lines().skip(1) {
-            let name = line.trim();
-            if !name.is_empty() {
-                return Some(name.to_string());
-            }
-        }
-        None
+        let mut system = System::new();
+        system.refresh_processes(ProcessesToUpdate::All, true);
+        system
+            .process(Pid::from_u32(pid))
+            .map(|p| p.name().to_string_lossy().to_string())
     }
 
-    /// Find any terminator-mcp-agent process in our parent chain
+    /// Find any terminator-mcp-agent or mediar process in our parent chain
     /// Returns the PID if found, None otherwise
+    /// Uses sysinfo crate instead of deprecated wmic command
     async fn find_terminator_ancestor() -> Option<u32> {
-        use tokio::process::Command;
+        use sysinfo::{Pid, ProcessesToUpdate, System};
 
         // Get current process ID
         let current_pid = std::process::id();
 
+        // Initialize sysinfo and refresh process list
+        let mut system = System::new();
+        system.refresh_processes(ProcessesToUpdate::All, true);
+
         // Traverse the parent chain
         let mut checking_pid = current_pid;
-        eprintln!("[SUBPROCESS DEBUG] Starting parent chain traversal from PID {current_pid}");
-        tracing::info!("Starting parent chain traversal from PID {current_pid}");
+        tracing::info!("[sysinfo] Starting parent chain traversal from PID {current_pid}");
+
         for iteration in 0..10 {
-            eprintln!("[SUBPROCESS DEBUG] Iteration {iteration}: checking PID {checking_pid}");
-            tracing::debug!("Iteration {iteration}: checking PID {checking_pid}");
-            // Limit depth to prevent infinite loops
-            // Get parent PID using wmic
-            let output = Command::new("wmic")
-                .args([
-                    "process",
-                    "where",
-                    &format!("ProcessID={checking_pid}"),
-                    "get",
-                    "ParentProcessId,Name",
-                ])
-                .output()
-                .await
-                .ok()?;
+            tracing::debug!("[sysinfo] Iteration {iteration}: checking PID {checking_pid}");
 
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            // Parse output like:
-            // Name                          ParentProcessId
-            // bun.exe                       12345
-            //
-            // OR:
-            // ParentProcessId  Name
-            // 12345            bun.exe
+            // Get process info from sysinfo
+            let process = system.process(Pid::from_u32(checking_pid))?;
+            let process_name = process.name().to_string_lossy().to_lowercase();
 
-            let lines: Vec<&str> = output_str
-                .lines()
-                .filter(|l| !l.trim().is_empty())
-                .collect();
-            if lines.len() >= 2 {
-                // Skip header line, process data line
-                let data_line = lines[1].trim();
-                let parts: Vec<&str> = data_line.split_whitespace().collect();
+            tracing::debug!("[sysinfo] PID {checking_pid} name: {process_name}");
 
-                // Try to find ParentProcessId (should be a number)
-                let mut parent_pid_opt = None;
-                let has_terminator = data_line.to_lowercase().contains("terminator-mcp-agent");
-
-                for part in &parts {
-                    if let Ok(pid) = part.parse::<u32>() {
-                        parent_pid_opt = Some(pid);
-                        break;
-                    }
-                }
-
-                if let Some(parent_pid) = parent_pid_opt {
-                    if parent_pid == 0 || parent_pid == checking_pid {
-                        // Reached root or circular reference
-                        break;
-                    }
-
-                    // Check if current process is terminator-mcp-agent
-                    if has_terminator {
-                        tracing::info!(
-                            "Found terminator-mcp-agent ancestor at PID {} (current_pid={}, checking_pid={})",
-                            checking_pid,
-                            current_pid,
-                            checking_pid
-                        );
-                        return Some(checking_pid);
-                    }
-
-                    checking_pid = parent_pid;
-                    continue;
-                }
+            // Check if current process is terminator-mcp-agent or mediar
+            // (mediar.exe also hosts the extension bridge)
+            if process_name.contains("terminator-mcp-agent") || process_name.contains("mediar") {
+                tracing::info!(
+                    "[sysinfo] Found bridge host '{}' at PID {} (current_pid={}, iteration={})",
+                    process_name,
+                    checking_pid,
+                    current_pid,
+                    iteration
+                );
+                return Some(checking_pid);
             }
-            break;
+
+            // Get parent PID
+            let parent_pid = process.parent()?;
+            let parent_pid_u32 = parent_pid.as_u32();
+
+            if parent_pid_u32 == 0 || parent_pid_u32 == checking_pid {
+                // Reached root or circular reference
+                tracing::debug!("[sysinfo] Reached root process, stopping traversal");
+                break;
+            }
+
+            checking_pid = parent_pid_u32;
         }
 
+        tracing::debug!("[sysinfo] No bridge host found in parent chain");
         None
     }
 
     /// Check if the given PID is our parent process or an ancestor
+    /// Uses sysinfo instead of deprecated wmic command
     #[allow(dead_code)]
     async fn is_parent_or_ancestor_process(target_pid: u32) -> bool {
-        use tokio::process::Command;
+        use sysinfo::{Pid, ProcessesToUpdate, System};
 
         // Get current process ID
         let current_pid = std::process::id();
 
+        // Initialize sysinfo and refresh process list
+        let mut system = System::new();
+        system.refresh_processes(ProcessesToUpdate::All, true);
+
         // Traverse the parent chain
         let mut checking_pid = current_pid;
         for _ in 0..10 {
-            // Limit depth to prevent infinite loops
-            // Get parent PID using wmic
-            let output = Command::new("wmic")
-                .args([
-                    "process",
-                    "where",
-                    &format!("ProcessID={checking_pid}"),
-                    "get",
-                    "ParentProcessId",
-                ])
-                .output()
-                .await
-                .ok();
+            // Get process info from sysinfo
+            let Some(process) = system.process(Pid::from_u32(checking_pid)) else {
+                break;
+            };
 
-            if let Some(output) = output {
-                let output_str = String::from_utf8_lossy(&output.stdout);
-                // Parse the parent PID from output like:
-                // ParentProcessId
-                // 12345
-                let lines: Vec<&str> = output_str.lines().collect();
-                if lines.len() >= 2 {
-                    if let Ok(parent_pid) = lines[1].trim().parse::<u32>() {
-                        if parent_pid == target_pid {
-                            tracing::debug!(
-                                "Found target PID {} in parent chain (current_pid={}, checking_pid={})",
-                                target_pid,
-                                current_pid,
-                                checking_pid
-                            );
-                            return true;
-                        }
-                        if parent_pid == 0 || parent_pid == checking_pid {
-                            // Reached root or circular reference
-                            break;
-                        }
-                        checking_pid = parent_pid;
-                        continue;
-                    }
-                }
+            // Get parent PID
+            let Some(parent_pid) = process.parent() else {
+                break;
+            };
+            let parent_pid_u32 = parent_pid.as_u32();
+
+            if parent_pid_u32 == target_pid {
+                tracing::debug!(
+                    "[sysinfo] Found target PID {} in parent chain (current_pid={}, checking_pid={})",
+                    target_pid,
+                    current_pid,
+                    checking_pid
+                );
+                return true;
             }
-            break;
+
+            if parent_pid_u32 == 0 || parent_pid_u32 == checking_pid {
+                // Reached root or circular reference
+                break;
+            }
+
+            checking_pid = parent_pid_u32;
         }
 
         false
     }
 
+    /// Kill a process by PID using taskkill (more reliable than deprecated wmic)
     async fn kill_process(pid: u32) -> Result<(), ExtensionBridgeError> {
         use tokio::process::Command;
 
-        let output = Command::new("wmic")
-            .args(["process", "where", &format!("ProcessID={pid}"), "delete"])
+        // Use taskkill which is available on all Windows versions
+        let output = Command::new("taskkill")
+            .args(["/F", "/PID", &pid.to_string()])
             .output()
             .await
             .map_err(|e| ExtensionBridgeError::ProcessKillError(e.to_string()))?;
