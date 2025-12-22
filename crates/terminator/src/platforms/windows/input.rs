@@ -9,7 +9,7 @@ use std::time::Duration;
 use tracing::info;
 use windows::core::BOOL;
 use windows::Win32::Foundation::POINT;
-use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
+use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern2,
     IUIAutomationTextRange, UIA_TextPattern2Id,
@@ -170,6 +170,14 @@ pub fn save_focus_state() -> Option<FocusState> {
     unsafe {
         info!("[FOCUS_RESTORE] save_focus_state() called");
 
+        // Initialize COM for this thread (required for UIA)
+        let hr = CoInitializeEx(None, COINIT_MULTITHREADED);
+        if hr.is_err() && hr.0 != 0x80010106u32 as i32 {
+            // 0x80010106 = RPC_E_CHANGED_MODE (already initialized) - that's OK
+            info!("[FOCUS_RESTORE] COM init failed: {:?}", hr);
+            return None;
+        }
+
         // Create UI Automation instance
         let automation: IUIAutomation =
             match CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) {
@@ -240,6 +248,13 @@ pub fn save_focus_state() -> Option<FocusState> {
 pub fn restore_focus_state(state: FocusState) {
     unsafe {
         info!("[FOCUS_RESTORE] restore_focus_state() called");
+
+        // Initialize COM for this thread (required for UIA)
+        let hr = CoInitializeEx(None, COINIT_MULTITHREADED);
+        if hr.is_err() && hr.0 != 0x80010106u32 as i32 {
+            info!("[FOCUS_RESTORE] COM init failed in restore: {:?}", hr);
+            return;
+        }
 
         // Get element info for logging
         let element_name = state
