@@ -21,7 +21,6 @@ use std::{
 // Debug counter for tracking concurrent UIA traversals
 static UIA_TRAVERSAL_COUNT: AtomicUsize = AtomicUsize::new(0);
 static UIA_TRAVERSAL_TOTAL: AtomicUsize = AtomicUsize::new(0);
-use sysinfo::{Pid, ProcessesToUpdate, System};
 use terminator::{convert_uiautomation_element_to_terminator, UIElement};
 
 use tokio::runtime::Runtime;
@@ -125,13 +124,10 @@ impl WindowsRecorder {
     }
 
     /// Get process name from a UI element's process ID
+    /// Uses fast native Windows API instead of slow sysinfo
     fn get_process_name_from_element(element: &UIElement) -> Option<String> {
-        let process_id = element.process_id().ok()?;
-        let mut system = System::new();
-        system.refresh_processes(ProcessesToUpdate::All, true);
-        system
-            .process(Pid::from_u32(process_id))
-            .map(|p| p.name().to_string_lossy().to_string())
+        // Use UIElement.process_name() which uses fast native API on Windows
+        element.process_name().ok()
     }
 
     /// Collect text content from only direct children (no recursion for deepest element approach)
@@ -342,19 +338,13 @@ impl WindowsRecorder {
                             None
                         };
 
-                        // Get process name for current and target process (do this BEFORE any conditional blocks)
-                        let mut system = System::new();
-                        system.refresh_processes(ProcessesToUpdate::All, true);
-
+                        // Get process name for current and target process using fast native API
                         let from_process_name = current.as_ref().and_then(|s| {
-                            system
-                                .process(Pid::from_u32(s.process_id))
-                                .map(|p| p.name().to_string_lossy().to_string())
+                            terminator::get_process_name_by_pid(s.process_id as i32).ok()
                         });
 
-                        let to_process_name = system
-                            .process(Pid::from_u32(process_id))
-                            .map(|p| p.name().to_string_lossy().to_string());
+                        let to_process_name =
+                            terminator::get_process_name_by_pid(process_id as i32).ok();
 
                         // Only emit if we have meaningful dwell time or this is first app
                         if dwell_time.is_some() || current.is_none() {
