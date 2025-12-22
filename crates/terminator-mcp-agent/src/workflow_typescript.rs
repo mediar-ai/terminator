@@ -315,6 +315,7 @@ impl TypeScriptWorkflow {
             restored_state,
             execution_id,
             None,
+            None,
         )
         .await
     }
@@ -323,6 +324,7 @@ impl TypeScriptWorkflow {
     ///
     /// When `event_sender` is provided, workflow events emitted via `emit.*()` in TypeScript
     /// are parsed from stderr and sent through the channel in real-time.
+    #[allow(clippy::too_many_arguments)]
     pub async fn execute_with_events(
         &self,
         inputs: Value,
@@ -331,6 +333,7 @@ impl TypeScriptWorkflow {
         restored_state: Option<Value>,
         execution_id: Option<&str>,
         event_sender: Option<EventSender>,
+        workflow_id: Option<&str>,
     ) -> Result<TypeScriptWorkflowExecutionResult, McpError> {
         use std::env;
 
@@ -607,6 +610,12 @@ impl TypeScriptWorkflow {
         let parent_pid = std::process::id();
         cmd.env("MCP_PARENT_PID", parent_pid.to_string());
         debug!("Set MCP_PARENT_PID={}", parent_pid);
+
+        // Pass workflow_id so SDK can store screenshots in workflow folder
+        if let Some(wf_id) = workflow_id {
+            cmd.env("TERMINATOR_WORKFLOW_ID", wf_id);
+            debug!("Set TERMINATOR_WORKFLOW_ID={}", wf_id);
+        }
 
         let mut child = cmd.spawn().map_err(|e| {
             McpError::internal_error(
