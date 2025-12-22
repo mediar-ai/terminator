@@ -45,6 +45,34 @@ impl SequenceGuard {
     }
 }
 
+/// Extract workflow folder name from URL
+/// e.g., file:///C:/Users/matt/.../workflows/github-demo/src/terminator.ts -> "github-demo"
+fn extract_workflow_folder_from_url(url: &str) -> Option<String> {
+    // Strip file:// prefix and handle both forward and back slashes
+    let path = url
+        .strip_prefix("file:///")
+        .or_else(|| url.strip_prefix("file://"))?;
+
+    // Normalize path separators
+    let normalized = path.replace('\\', "/");
+
+    // Find "workflows/" and extract the next path component
+    if let Some(idx) = normalized.find("/workflows/") {
+        let after_workflows = &normalized[idx + "/workflows/".len()..];
+        // Get the folder name (up to next /)
+        let folder = after_workflows.split('/').next()?;
+        if !folder.is_empty() {
+            debug!(
+                "[extract_workflow_folder] Extracted folder '{}' from URL",
+                folder
+            );
+            return Some(folder.to_string());
+        }
+    }
+
+    None
+}
+
 /// Helper function to recursively validate a value against a variable definition
 fn validate_variable_value(
     variable_name: &str,
@@ -159,45 +187,24 @@ impl DesktopWrapper {
     // Get the state file path for a workflow
     // Uses OS-standard data directories:
     //   Windows: %LOCALAPPDATA%\mediar\workflows\<workflow_id>\state.json
-    //   macOS: ~/Library/Application Support/mediar/workflows/<workflow_id>/state.json
-    //   Linux: ~/.local/share/mediar/workflows/<workflow_id>/state.json
-    // Priority: workflow_id > URL hash (for backward compatibility)
+    //   macOS: ~/Library/Application Support/mediar/workflows/<folder>/state.json
+    //   Linux: ~/.local/share/mediar/workflows/<folder>/state.json
+    // Priority: Extract folder from URL (matches actual workflow folder)
     async fn get_state_file_path(
-        workflow_id: Option<&str>,
+        _workflow_id: Option<&str>, // Kept for backward compat, but unused
         workflow_url: Option<&str>,
     ) -> Option<PathBuf> {
         let data_dir = dirs::data_local_dir()?;
 
-        // Priority 1: Use workflow_id if provided (cleaner, no hashing needed)
-        if let Some(id) = workflow_id {
-            debug!("Using workflow_id for state file: {}", id);
-            let state_file = data_dir
-                .join("mediar")
-                .join("workflows")
-                .join(id)
-                .join("state.json");
-            return Some(state_file);
-        }
-
-        // Priority 2: Fallback to URL hash for backward compatibility
+        // Extract folder name from URL (e.g., "github-demo" from file:///...workflows/github-demo/src/...)
         if let Some(url) = workflow_url {
-            if let Some(file_path) = url.strip_prefix("file://") {
-                debug!("Using URL hash for state file: {}", url);
-                // Create a stable hash of the workflow file path
-                let workflow_hash = {
-                    use std::collections::hash_map::DefaultHasher;
-                    use std::hash::{Hash, Hasher};
-                    let mut hasher = DefaultHasher::new();
-                    file_path.hash(&mut hasher);
-                    format!("{:x}", hasher.finish())
-                };
-
+            if let Some(folder) = extract_workflow_folder_from_url(url) {
+                debug!("Using folder '{}' for state file", folder);
                 let state_file = data_dir
                     .join("mediar")
                     .join("workflows")
-                    .join(workflow_hash)
+                    .join(&folder)
                     .join("state.json");
-
                 return Some(state_file);
             }
         }
@@ -1336,7 +1343,12 @@ impl DesktopWrapper {
                                 total_steps,
                                 last_executed_process.clone(),
                             )
-                            .with_workflow_context(args.workflow_id.clone(), step_id.clone()),
+                            .with_workflow_context(
+                                args.url
+                                    .as_deref()
+                                    .and_then(extract_workflow_folder_from_url),
+                                step_id.clone(),
+                            ),
                         );
 
                         let (result, error_occurred) = self
@@ -1784,7 +1796,9 @@ impl DesktopWrapper {
                                     last_executed_process.clone(),
                                 )
                                 .with_workflow_context(
-                                    args.workflow_id.clone(),
+                                    args.url
+                                        .as_deref()
+                                        .and_then(extract_workflow_folder_from_url),
                                     step_id_for_ctx.clone(),
                                 ),
                             );
@@ -2093,8 +2107,13 @@ impl DesktopWrapper {
         );
 
         // Get predicted execution log paths (will be written by call_tool after this returns)
+        // Use folder name extracted from URL for consistent file paths
+        let workflow_folder = args
+            .url
+            .as_deref()
+            .and_then(extract_workflow_folder_from_url);
         let log_paths = execution_logger::get_predicted_log_paths(
-            args.workflow_id.as_deref(),
+            workflow_folder.as_deref(),
             args.start_from_step.as_deref(),
             "execute_sequence",
         );
@@ -2643,6 +2662,8 @@ impl DesktopWrapper {
             });
 
             // Execute workflow with event streaming
+            // Extract folder from URL for SDK screenshot storage
+            let workflow_folder = extract_workflow_folder_from_url(url);
             let result = ts_workflow
                 .execute_with_events(
                     args.inputs.unwrap_or(json!({})),
@@ -2651,7 +2672,7 @@ impl DesktopWrapper {
                     restored_state,
                     Some(&execution_id_val),
                     Some(event_tx),
-                    args.workflow_id.as_deref(),
+                    workflow_folder.as_deref(),
                 )
                 .await?;
 
@@ -2674,8 +2695,10 @@ impl DesktopWrapper {
             }
 
             // Get predicted execution log paths (will be written by call_tool after this returns)
+            // Use folder name extracted from URL for consistent file paths
+            let workflow_folder = extract_workflow_folder_from_url(url);
             let log_paths = execution_logger::get_predicted_log_paths(
-                args.workflow_id.as_deref(),
+                workflow_folder.as_deref(),
                 args.start_from_step.as_deref(),
                 "execute_sequence",
             );
