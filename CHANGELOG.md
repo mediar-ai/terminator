@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.12] - 2025-12-23
+
+### Fixed
+- Workflow: Send 1-based step indices in emit calls
+- Test: Update get_executions_dir test for mediar path
+
 ## [0.24.11] - 2025-12-22
 
 ### Added
