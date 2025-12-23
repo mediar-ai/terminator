@@ -5,8 +5,8 @@
 //! - Terminator browser extension installed and enabled
 
 use std::time::Duration;
-use terminator::{Browser, Desktop};
 use terminator::extension_bridge::ExtensionBridge;
+use terminator::{Browser, Desktop};
 use tracing::info;
 
 /// Test closing a tab by URL
@@ -21,7 +21,7 @@ async fn test_close_tab_by_url() {
     // Initialize the bridge FIRST so extension can connect
     info!("Initializing extension bridge...");
     let bridge = ExtensionBridge::global().await;
-    
+
     // Wait for extension to connect (it should auto-reconnect)
     info!("Waiting for extension to connect...");
     for i in 0..20 {
@@ -31,7 +31,7 @@ async fn test_close_tab_by_url() {
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
-    
+
     if !bridge.is_client_connected().await {
         panic!("Extension did not connect within 10 seconds - is it installed in Chrome?");
     }
@@ -63,8 +63,14 @@ async fn test_close_tab_by_url() {
             info!("Successfully closed tab: {:?}", closed_info);
             assert!(closed_info.closed, "Tab should be marked as closed");
             assert!(
-                closed_info.tab.url.as_ref().map(|u| u.contains("example.com")).unwrap_or(false),
-                "Closed tab URL should contain example.com, got: {:?}", closed_info.tab.url
+                closed_info
+                    .tab
+                    .url
+                    .as_ref()
+                    .map(|u| u.contains("example.com"))
+                    .unwrap_or(false),
+                "Closed tab URL should contain example.com, got: {:?}",
+                closed_info.tab.url
             );
         }
         None => {
@@ -75,7 +81,7 @@ async fn test_close_tab_by_url() {
 
 /// Test closing active tab
 #[tokio::test]
-#[ignore = "requires browser with extension installed"]  
+#[ignore = "requires browser with extension installed"]
 async fn test_close_active_tab() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter("debug")
@@ -83,13 +89,15 @@ async fn test_close_active_tab() {
         .try_init();
 
     let bridge = ExtensionBridge::global().await;
-    
+
     // Wait for extension
     for _ in 0..20 {
-        if bridge.is_client_connected().await { break; }
+        if bridge.is_client_connected().await {
+            break;
+        }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
-    
+
     if !bridge.is_client_connected().await {
         panic!("Extension not connected");
     }
