@@ -320,7 +320,7 @@ function createWorkflowInstance<TInput = any>(
                     );
                     const totalSteps = steps.length;
                     stepStartTime = Date.now();
-                    emit.stepStarted(step.config.id, step.config.name, currentIndex, totalSteps);
+                    emit.stepStarted(step.config.id, step.config.name, currentIndex + 1, totalSteps);
 
                     const stepResult = await step.run({
                         desktop: desktopInstance,
@@ -366,7 +366,7 @@ function createWorkflowInstance<TInput = any>(
                     }
 
                     // Track last completed step for state persistence
-                    emit.stepCompleted(step.config.id, step.config.name, Date.now() - stepStartTime, currentIndex, totalSteps);
+                    emit.stepCompleted(step.config.id, step.config.name, Date.now() - stepStartTime, currentIndex + 1, totalSteps);
                     lastStepId = step.config.id;
                     lastStepIndex = currentIndex;
 

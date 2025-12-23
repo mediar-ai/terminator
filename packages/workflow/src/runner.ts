@@ -106,7 +106,7 @@ export class WorkflowRunner {
       this.logger.info(`\n[${i + 1}/${steps.length}] ${step.config.name}`);
       const totalSteps = steps.length;
       const stepStartTime = Date.now();
-      emit.stepStarted(step.config.id, step.config.name, i, totalSteps);
+      emit.stepStarted(step.config.id, step.config.name, i + 1, totalSteps);
 
       try {
         // Check if step has condition
@@ -188,7 +188,7 @@ export class WorkflowRunner {
         }
 
         // Save step result
-        emit.stepCompleted(step.config.id, step.config.name, Date.now() - stepStartTime, i, totalSteps);
+        emit.stepCompleted(step.config.id, step.config.name, Date.now() - stepStartTime, i + 1, totalSteps);
         this.state.stepResults[step.config.id] = {
           status: 'executed_without_error',
           result,
