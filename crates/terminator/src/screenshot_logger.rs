@@ -196,7 +196,7 @@ mod tests {
     #[test]
     fn test_get_executions_dir() {
         let dir = get_executions_dir();
-        assert!(dir.to_string_lossy().contains("terminator"));
+        assert!(dir.to_string_lossy().contains("mediar"));
         assert!(dir.to_string_lossy().contains("executions"));
     }
 }
