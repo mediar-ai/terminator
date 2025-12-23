@@ -17,6 +17,7 @@ import type {
 } from "./types";
 import { ConsoleLogger, isWorkflowSuccess, isNextStep } from "./types";
 import { createWorkflowRunner } from "./runner";
+import { emit } from "./events";
 
 /**
  * Workflow builder that accumulates state types
@@ -284,6 +285,8 @@ function createWorkflowInstance<TInput = any>(
             // Max iterations to prevent infinite loops
             const MAX_ITERATIONS = 1000;
             let iterations = 0;
+            let stepStartTime = 0;
+            let currentStep: Step | undefined;
 
             try {
                 // Execute steps with support for branching via 'next' pointer
@@ -295,6 +298,7 @@ function createWorkflowInstance<TInput = any>(
                 ) {
                     iterations++;
                     const step = steps[currentIndex];
+                    currentStep = step;
 
                     // Check condition
                     if (step.config.condition) {
@@ -314,6 +318,9 @@ function createWorkflowInstance<TInput = any>(
                     log.info(
                         `[${currentIndex + 1}/${steps.length}] ${step.config.name}`,
                     );
+                    const totalSteps = steps.length;
+                    stepStartTime = Date.now();
+                    emit.stepStarted(step.config.id, step.config.name, currentIndex, totalSteps);
 
                     const stepResult = await step.run({
                         desktop: desktopInstance,
@@ -359,6 +366,7 @@ function createWorkflowInstance<TInput = any>(
                     }
 
                     // Track last completed step for state persistence
+                    emit.stepCompleted(step.config.id, step.config.name, Date.now() - stepStartTime, currentIndex, totalSteps);
                     lastStepId = step.config.id;
                     lastStepIndex = currentIndex;
 
@@ -435,6 +443,10 @@ function createWorkflowInstance<TInput = any>(
                 };
             } catch (error: any) {
 
+                // Emit step failed event
+                if (currentStep) {
+                    emit.stepFailed(currentStep.config.id, currentStep.config.name, error.message, Date.now() - stepStartTime);
+                }
                 const duration = Date.now() - startTime;
 
                 log.info("");
