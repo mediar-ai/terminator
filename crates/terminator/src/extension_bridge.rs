@@ -56,6 +56,36 @@ struct GetHealthRequest {
     action: String,
 }
 
+#[derive(Debug, Serialize)]
+struct CloseTabRequest {
+    id: String,
+    action: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "tabId")]
+    tab_id: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
+}
+
+/// Result of closing a browser tab
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CloseTabResult {
+    pub closed: bool,
+    pub tab: ClosedTabInfo,
+}
+
+/// Information about a closed tab
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClosedTabInfo {
+    pub id: i32,
+    pub url: Option<String>,
+    pub title: Option<String>,
+    #[serde(rename = "windowId")]
+    pub window_id: Option<i32>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 enum BridgeIncoming {
@@ -1005,6 +1035,87 @@ impl ExtensionBridge {
             }
         }
     }
+
+    /// Close a browser tab safely
+    ///
+    /// Identification priority:
+    /// 1. tab_id - if provided, close that specific tab
+    /// 2. url - find tab by URL match
+    /// 3. title - find tab by title match  
+    /// 4. active tab - fallback to currently active tab
+    ///
+    /// Returns info about the closed tab for verification
+    pub async fn close_tab(
+        &self,
+        tab_id: Option<i32>,
+        url: Option<&str>,
+        title: Option<&str>,
+        timeout: Duration,
+    ) -> Result<Option<CloseTabResult>, AutomationError> {
+        // Check for connected clients
+        if !self.is_client_connected().await {
+            tracing::warn!("ExtensionBridge: no clients connected for close_tab");
+            return Ok(None);
+        }
+
+        let id = Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel::<BridgeResult>();
+        self.pending.lock().await.insert(id.clone(), tx);
+
+        let req = CloseTabRequest {
+            id: id.clone(),
+            action: "close_tab".into(),
+            tab_id,
+            url: url.map(|s| s.to_string()),
+            title: title.map(|s| s.to_string()),
+        };
+        let payload = serde_json::to_string(&req)
+            .map_err(|e| AutomationError::PlatformError(format!("bridge serialize: {e}")))?;
+
+        // Send to most recent client
+        let mut ok = false;
+        {
+            let mut clients = self.clients.lock().await;
+            clients.retain(|c| !c.sender.is_closed());
+
+            tracing::info!(clients = clients.len(), "Sending close_tab to extension");
+
+            if let Some(c) = clients.last() {
+                ok = c.sender.send(Message::Text(payload)).is_ok();
+            }
+        }
+        if !ok {
+            self.pending.lock().await.remove(&id);
+            tracing::warn!("ExtensionBridge: failed to send close_tab - no active clients");
+            return Ok(None);
+        }
+
+        let res = tokio::time::timeout(timeout, rx).await;
+        match res {
+            Ok(Ok(Ok(val))) => {
+                // Parse the result into CloseTabResult
+                match serde_json::from_value::<CloseTabResult>(val) {
+                    Ok(result) => Ok(Some(result)),
+                    Err(e) => {
+                        tracing::warn!("Failed to parse close_tab result: {}", e);
+                        Ok(None)
+                    }
+                }
+            }
+            Ok(Ok(Err(err))) => Err(AutomationError::PlatformError(format!(
+                "close_tab error: {err}"
+            ))),
+            Ok(Err(_canceled)) => {
+                tracing::warn!("ExtensionBridge: close_tab oneshot canceled");
+                Ok(None)
+            }
+            Err(_elapsed) => {
+                let _ = self.pending.lock().await.remove(&id);
+                tracing::warn!("ExtensionBridge: close_tab timed out (id={})", id);
+                Ok(None)
+            }
+        }
+    }
 }
 
 pub async fn try_eval_via_extension(
@@ -1037,4 +1148,18 @@ pub async fn try_eval_via_extension(
         return new_bridge.eval_in_active_tab(code, timeout).await;
     }
     bridge.eval_in_active_tab(code, timeout).await
+}
+
+pub async fn try_close_tab(
+    tab_id: Option<i32>,
+    url: Option<&str>,
+    title: Option<&str>,
+    timeout: Duration,
+) -> Result<Option<CloseTabResult>, AutomationError> {
+    let bridge = ExtensionBridge::global().await;
+    if bridge._server_task.is_finished() {
+        tracing::error!("Extension bridge server task is not running for close_tab");
+        return Ok(None);
+    }
+    bridge.close_tab(tab_id, url, title, timeout).await
 }

@@ -2444,6 +2444,49 @@ impl Desktop {
             .map_err(map_error)
     }
 
+    /// (async) Close a browser tab safely.
+    ///
+    /// This method can identify the tab to close by:
+    /// - tabId: Close a specific tab by its Chrome tab ID
+    /// - url: Find and close a tab matching this URL (partial match supported)
+    /// - title: Find and close a tab matching this title (case-insensitive partial match)
+    /// - If none provided, closes the currently active tab
+    ///
+    /// Returns information about the closed tab for verification.
+    /// Returns null if no browser extension is connected or tab couldn't be found.
+    ///
+    /// Safety:
+    /// - Will NOT close protected browser pages (chrome://, edge://, about:, etc.)
+    /// - Returns the closed tab's URL/title so you can verify the correct tab was closed
+    ///
+    /// @param {number} [tabId] - Specific Chrome tab ID to close.
+    /// @param {string} [url] - URL to match (partial match supported).
+    /// @param {string} [title] - Title to match (case-insensitive partial match).
+    /// @returns {Promise<CloseTabResult | null>} Info about closed tab, or null if no extension/tab found.
+    ///
+    /// @example
+    /// // Close by URL
+    /// const result = await desktop.closeTab({ url: "example.com" });
+    ///
+    /// @example
+    /// // Close by title
+    /// const result = await desktop.closeTab({ title: "My Page" });
+    ///
+    /// @example
+    /// // Close active tab
+    /// const result = await desktop.closeTab();
+    #[napi]
+    pub async fn close_tab(
+        &self,
+        options: Option<crate::types::CloseTabOptions>,
+    ) -> napi::Result<Option<crate::types::CloseTabResult>> {
+        let opts = options.unwrap_or_default();
+        self.inner
+            .close_tab(opts.tab_id, opts.url.as_deref(), opts.title.as_deref())
+            .await
+            .map(|opt| opt.map(crate::types::CloseTabResult::from))
+            .map_err(map_error)
+    }
     /// (async) Delay execution for a specified number of milliseconds.
     /// Useful for waiting between actions to ensure UI stability.
     ///

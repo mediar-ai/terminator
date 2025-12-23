@@ -2473,10 +2473,15 @@ impl DesktopWrapper {
             let (event_tx, mut event_rx) = mpsc::unbounded_channel::<WorkflowEvent>();
 
             // Use client's progress token if provided, otherwise generate one
-            info!("client_progress_token received: {:?}", client_progress_token);
-            let progress_token = client_progress_token.unwrap_or_else(|| ProgressToken(NumberOrString::String(
-                format!("workflow-{}", execution_id_val).into(),
-            )));
+            info!(
+                "client_progress_token received: {:?}",
+                client_progress_token
+            );
+            let progress_token = client_progress_token.unwrap_or_else(|| {
+                ProgressToken(NumberOrString::String(
+                    format!("workflow-{}", execution_id_val).into(),
+                ))
+            });
 
             // Shared storage for collecting screenshots from events with metadata
             // (index, timestamp, annotation, element, base64)

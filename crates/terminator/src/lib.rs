@@ -1169,7 +1169,49 @@ impl Desktop {
             }
         }
     }
-
+    /// Close a browser tab safely using the browser extension
+    ///
+    /// This method can identify the tab to close by:
+    /// - tab_id: Close a specific tab by its Chrome tab ID
+    /// - url: Find and close a tab matching this URL
+    /// - title: Find and close a tab matching this title
+    /// - If none provided, closes the currently active tab
+    ///
+    /// Returns information about the closed tab for verification.
+    /// Returns None if no extension is connected or tab couldn't be found.
+    ///
+    /// # Safety
+    /// - Will NOT close protected browser pages (chrome://, about:, etc.)
+    /// - Returns the closed tab's URL/title so you can verify the right tab was closed
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use terminator::Desktop;
+    /// use std::time::Duration;
+    ///
+    /// async fn example() {
+    ///     let desktop = Desktop::new_default().unwrap();
+    ///     
+    ///     // Close by URL
+    ///     let result = desktop.close_tab(None, Some("example.com"), None).await;
+    ///     
+    ///     // Close by title
+    ///     let result = desktop.close_tab(None, None, Some("My Tab")).await;
+    ///     
+    ///     // Close active tab
+    ///     let result = desktop.close_tab(None, None, None).await;
+    /// }
+    /// ```
+    #[instrument(skip(self))]
+    pub async fn close_tab(
+        &self,
+        tab_id: Option<i32>,
+        url: Option<&str>,
+        title: Option<&str>,
+    ) -> Result<Option<extension_bridge::CloseTabResult>, AutomationError> {
+        use std::time::Duration;
+        extension_bridge::try_close_tab(tab_id, url, title, Duration::from_secs(10)).await
+    }
     #[instrument(skip(self))]
     pub async fn get_current_window(&self) -> Result<UIElement, AutomationError> {
         self.engine.get_current_window().await

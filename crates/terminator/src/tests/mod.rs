@@ -1,4 +1,6 @@
 mod boolean_selector_tests;
+#[cfg(test)]
+mod close_tab_tests;
 mod e2e_tests;
 mod firefox_window_tests;
 mod functional_verification_tests;
