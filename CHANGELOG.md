@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.11] - 2025-12-22
+
+### Added
+- Desktop: Add `closeTab` method for safe browser tab closing (#446)
+
+### Changed
+- Workflow: Emit step events in normal execution path
+
 ## [0.24.10] - 2025-12-22
 
 ### Changed
