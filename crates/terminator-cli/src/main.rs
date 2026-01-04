@@ -629,10 +629,11 @@ fn sync_nodejs_bindings(version: &str) {
 }
 
 fn sync_mcp_agent(version: &str) {
-    println!("📦 Syncing MCP agent...");
+    println!("📦 Syncing MCP agent to version {version}...");
 
     let mcp_dir = Path::new("crates/terminator-mcp-agent");
     if !mcp_dir.exists() {
+        println!("⚠️  MCP agent directory not found, skipping");
         return;
     }
 
@@ -641,6 +642,7 @@ fn sync_mcp_agent(version: &str) {
         eprintln!("⚠️  Warning: Failed to update MCP agent package.json: {e}");
         return;
     }
+    println!("✅ Updated MCP agent package.json to {version}");
 
     // Update platform packages
     let npm_dir = mcp_dir.join("npm");
