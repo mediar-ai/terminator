@@ -882,7 +882,9 @@ pub struct TypeIntoElementArgs {
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct PressKeyArgs {
-    #[schemars(description = "The key or key combination to press (e.g., 'Enter', 'Ctrl+A')")]
+    #[schemars(
+        description = "The key or key combination to press. Auto-normalized to curly brace format (e.g., 'Enter' -> '{Enter}'). Examples: 'Enter', 'Tab', 'Escape', 'Ctrl+A', '{Ctrl}c', '{Alt}{F4}'"
+    )]
     pub key: String,
     #[schemars(
         description = "Whether to try focusing the element before pressing the key (default: true). Set to false to skip focus attempt."
@@ -923,7 +925,7 @@ pub struct GlobalKeyArgs {
     pub process: String,
 
     #[schemars(
-        description = "The key or key combination to press (e.g., '{PageDown}', '{Ctrl}{V}')"
+        description = "The key or key combination to press. Auto-normalized to curly brace format (e.g., 'Enter' -> '{Enter}'). Examples: 'Enter', 'PageDown', 'Ctrl+V', '{Ctrl}{V}'"
     )]
     pub key: String,
 

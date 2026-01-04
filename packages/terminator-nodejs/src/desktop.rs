@@ -12,6 +12,17 @@ use napi_derive::napi;
 use std::sync::{Arc, Once};
 use terminator::Desktop as TerminatorDesktop;
 
+/// Normalize key format to ensure curly brace syntax for special keys.
+/// If key already contains `{`, assume it's correctly formatted.
+/// Otherwise, wrap the entire key in `{}` to ensure it's treated as a special key press.
+fn normalize_key(key: &str) -> String {
+    if key.contains('{') {
+        key.to_string()
+    } else {
+        format!("{{{}}}", key)
+    }
+}
+
 /// Result of screenshot capture operations
 #[derive(Default)]
 struct ScreenshotPaths {
@@ -2398,7 +2409,18 @@ impl Desktop {
         include_window_screenshot: Option<bool>,
         include_monitor_screenshots: Option<bool>,
     ) -> napi::Result<()> {
-        let result = self.inner.press_key(&key).await.map_err(map_error);
+        // Normalize key to ensure curly brace format (e.g., "Enter" -> "{Enter}")
+        let normalized_key = normalize_key(&key);
+        tracing::debug!(
+            "[TS SDK] desktop.press_key: normalized key: {} -> {}",
+            key,
+            normalized_key
+        );
+        let result = self
+            .inner
+            .press_key(&normalized_key)
+            .await
+            .map_err(map_error);
 
         // Get PID from process name if provided
         let pid = process

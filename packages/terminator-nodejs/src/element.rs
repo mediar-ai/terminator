@@ -13,6 +13,17 @@ use crate::{
 use crate::Selector;
 use napi::bindgen_prelude::Either;
 
+/// Normalize key format to ensure curly brace syntax for special keys.
+/// If key already contains `{`, assume it's correctly formatted.
+/// Otherwise, wrap the entire key in `{}` to ensure it's treated as a special key press.
+fn normalize_key(key: &str) -> String {
+    if key.contains('{') {
+        key.to_string()
+    } else {
+        format!("{{{}}}", key)
+    }
+}
+
 /// Click position within element bounds as percentages (0-100)
 #[napi(object)]
 #[derive(Default, Clone)]
@@ -646,8 +657,15 @@ impl Element {
         let _ = self.inner.activate_window();
         let try_focus_before = opts.try_focus_before.unwrap_or(true);
         let try_click_before = opts.try_click_before.unwrap_or(true);
+        // Normalize key to ensure curly brace format (e.g., "Enter" -> "{Enter}")
+        let normalized_key = normalize_key(&key);
+        tracing::debug!(
+            "[TS SDK] press_key: normalized key: {} -> {}",
+            key,
+            normalized_key
+        );
         self.inner
-            .press_key_with_state_and_focus(&key, try_focus_before, try_click_before)
+            .press_key_with_state_and_focus(&normalized_key, try_focus_before, try_click_before)
             .map_err(map_error)?;
 
         // Capture screenshots if requested
