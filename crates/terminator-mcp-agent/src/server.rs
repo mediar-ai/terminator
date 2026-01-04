@@ -3023,9 +3023,7 @@ Click types: 'left' (default), 'double', 'right'. Use ui_diff_before_after:true 
         }
     }
     #[tool(
-        description = "Sends a key press to a UI element. Use curly brace format: '{Ctrl}c', '{Alt}{F4}', '{Enter}', '{PageDown}', '{Tab}', etc. This action requires the application to be focused and may change the UI.
-
-Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g., 'Tab'). Use ui_diff_before_after:true to see changes (no need to call get_window_tree after)."
+        description = "Sends a key press to a UI element. Keys are auto-normalized to curly brace format (e.g., 'Enter' becomes '{Enter}'). Examples: 'Enter', 'Tab', 'Ctrl+A', '{Ctrl}c', '{Alt}{F4}'. Use ui_diff_before_after:true to see changes (no need to call get_window_tree after)."
     )]
     async fn press_key(
         &self,
@@ -3079,7 +3077,13 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
             );
         }
 
-        let key_to_press = args.key.clone();
+        // Normalize key to ensure curly brace format (e.g., "Enter" -> "{Enter}")
+        let key_to_press = normalize_key(&args.key);
+        tracing::debug!(
+            "[press_key] normalized key: {} -> {}",
+            args.key,
+            key_to_press
+        );
         let try_focus_before = args.try_focus_before;
         let try_click_before = args.try_click_before;
         let highlight_before = args.highlight.highlight_before_action;
@@ -3280,7 +3284,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
     }
 
     #[tool(
-        description = "Activates the window for the specified process and sends a key press to the focused element. Use curly brace format: '{Ctrl}c', '{Alt}{F4}', '{Enter}', '{PageDown}', '{Tab}', etc. Use ui_diff_before_after:true to see changes (no need to call get_window_tree after)."
+        description = "Activates the window for the specified process and sends a key press to the focused element. Keys are auto-normalized to curly brace format (e.g., 'Enter' becomes '{Enter}'). Examples: 'Enter', 'Tab', 'Ctrl+A', '{Ctrl}c', '{Alt}{F4}'. Use ui_diff_before_after:true to see changes (no need to call get_window_tree after)."
     )]
     async fn press_key_global(
         &self,
@@ -3351,13 +3355,21 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
         let element_info = build_element_info(&element);
         let window_info = build_element_info(&window);
 
+        // Normalize key to ensure curly brace format (e.g., "Enter" -> "{Enter}")
+        let normalized_key = normalize_key(&args.key);
+        tracing::debug!(
+            "[press_key_global] normalized key: {} -> {}",
+            args.key,
+            normalized_key
+        );
+
         // Perform the key press on the focused element
-        element.press_key(&args.key).map_err(|e| {
+        element.press_key(&normalized_key).map_err(|e| {
             McpError::resource_not_found(
                 "Failed to press key on focused element",
                 Some(json!({
                     "reason": e.to_string(),
-                    "key_pressed": args.key,
+                    "key_pressed": normalized_key,
                     "element_info": element_info
                 })),
             )
@@ -3367,7 +3379,7 @@ Note: Curly brace format (e.g., '{Tab}') is more reliable than plain format (e.g
             "action": "press_key_global",
             "status": "executed_without_error",
             "process": args.process,
-            "key_pressed": args.key,
+            "key_pressed": normalized_key,
             "window": window_info,
             "focused_element": element_info,
             "timestamp": chrono::Utc::now().to_rfc3339()
