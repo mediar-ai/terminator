@@ -9,6 +9,18 @@ use std::collections::HashMap;
 use std::time::Duration;
 use terminator::{AutomationError, Desktop, Selector, UIElement};
 
+/// Normalize key format to ensure curly brace syntax for special keys.
+/// If key already contains `{`, assume it's correctly formatted.
+/// Otherwise, wrap the entire key in `{}` to ensure it's treated as a special key press.
+/// Examples: "Enter" -> "{Enter}", "{Ctrl}c" -> "{Ctrl}c" (unchanged)
+pub fn normalize_key(key: &str) -> String {
+    if key.contains('{') {
+        key.to_string()
+    } else {
+        format!("{{{}}}", key)
+    }
+}
+
 /// Helper function to parse comma-separated alternative selectors into a Vec<String>
 pub fn parse_alternative_selectors(alternatives: Option<&str>) -> Vec<String> {
     alternatives
