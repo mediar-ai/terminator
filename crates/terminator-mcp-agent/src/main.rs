@@ -282,8 +282,11 @@ async fn main() -> Result<()> {
     // Fix Windows encoding issues (IBM437 -> UTF-8)
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
         let _ = std::process::Command::new("cmd")
             .args(["/c", "chcp", "65001"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output();
         eprintln!("Set Windows console to UTF-8 mode");
     }
