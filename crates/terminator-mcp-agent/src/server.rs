@@ -163,21 +163,21 @@ async fn capture_window_screenshot(desktop: &Desktop, process: &str) -> Option<S
     }
 }
 
-/// Helper to conditionally append window screenshot to existing content
+/// Helper to conditionally append window screenshot path to JSON result
 /// Captures screenshot by default (defaults to true)
-async fn append_window_screenshot_if_enabled(
+/// Adds "window_screenshot_path" field to the JSON if screenshot captured
+async fn append_window_screenshot_to_json(
     desktop: &Desktop,
     process: &str,
-    mut contents: Vec<Content>,
+    result_json: &mut serde_json::Value,
     include: Option<bool>,
-) -> Vec<Content> {
+) {
     // Capture by default (defaults to true)
     if include.unwrap_or(true) {
         if let Some(path) = capture_window_screenshot(desktop, process).await {
-            contents.push(Content::text(format!("Window screenshot saved: {}", path)));
+            result_json["window_screenshot_path"] = json!(path);
         }
     }
-    contents
 }
 
 #[tool_router]
@@ -2044,18 +2044,18 @@ impl DesktopWrapper {
         span.set_status(true, None);
         span.end();
 
+        append_window_screenshot_to_json(
+            &self.desktop,
+            &args.process,
+            &mut result_json,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
         let contents = vec![Content::json(result_json)?];
         let contents = append_monitor_screenshots_if_enabled(
             &self.desktop,
             contents,
             args.monitor.include_monitor_screenshots,
-        )
-        .await;
-        let contents = append_window_screenshot_if_enabled(
-            &self.desktop,
-            &args.process,
-            contents,
-            args.window_screenshot.include_window_screenshot,
         )
         .await;
 
@@ -2411,18 +2411,18 @@ impl DesktopWrapper {
         );
         span.set_status(true, None);
         span.end();
+        append_window_screenshot_to_json(
+            &self.desktop,
+            &args.selector.process,
+            &mut result_json,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
         let contents = vec![Content::json(result_json)?];
         let contents = append_monitor_screenshots_if_enabled(
             &self.desktop,
             contents,
             args.monitor.include_monitor_screenshots,
-        )
-        .await;
-        let contents = append_window_screenshot_if_enabled(
-            &self.desktop,
-            &args.selector.process,
-            contents,
-            args.window_screenshot.include_window_screenshot,
         )
         .await;
         Ok(CallToolResult::success(contents))
@@ -2520,7 +2520,7 @@ Click types: 'left' (default), 'double', 'right'. Use ui_diff_before_after:true 
                             crate::utils::ClickType::Double => "double",
                             crate::utils::ClickType::Right => "right",
                         };
-                        let result_json = json!({
+                        let mut result_json = json!({
                             "action": "click", "mode": "coordinates", "status": "executed_without_error",
                             "click_type": ct_str,
                             "clicked_at": { "x": x, "y": y },
@@ -2528,18 +2528,18 @@ Click types: 'left' (default), 'double', 'right'. Use ui_diff_before_after:true 
                         });
                         span.set_status(true, None);
                         span.end();
+                        append_window_screenshot_to_json(
+                            &self.desktop,
+                            args.process.as_deref().unwrap_or(""),
+                            &mut result_json,
+                            args.window_screenshot.include_window_screenshot,
+                        )
+                        .await;
                         let contents = vec![Content::json(result_json)?];
                         let contents = append_monitor_screenshots_if_enabled(
                             &self.desktop,
                             contents,
                             args.monitor.include_monitor_screenshots,
-                        )
-                        .await;
-                        let contents = append_window_screenshot_if_enabled(
-                            &self.desktop,
-                            args.process.as_deref().unwrap_or(""),
-                            contents,
-                            args.window_screenshot.include_window_screenshot,
                         )
                         .await;
                         return Ok(CallToolResult::success(contents));
@@ -2745,18 +2745,18 @@ Click types: 'left' (default), 'double', 'right'. Use ui_diff_before_after:true 
                         }
                         span.set_status(true, None);
                         span.end();
+                        append_window_screenshot_to_json(
+                            &self.desktop,
+                            args.process.as_deref().unwrap_or(""),
+                            &mut result_json,
+                            args.window_screenshot.include_window_screenshot,
+                        )
+                        .await;
                         let contents = vec![Content::json(result_json)?];
                         let contents = append_monitor_screenshots_if_enabled(
                             &self.desktop,
                             contents,
                             args.monitor.include_monitor_screenshots,
-                        )
-                        .await;
-                        let contents = append_window_screenshot_if_enabled(
-                            &self.desktop,
-                            args.process.as_deref().unwrap_or(""),
-                            contents,
-                            args.window_screenshot.include_window_screenshot,
                         )
                         .await;
                         return Ok(CallToolResult::success(contents));
@@ -3004,18 +3004,18 @@ Click types: 'left' (default), 'double', 'right'. Use ui_diff_before_after:true 
                 span.set_status(true, None);
                 span.end();
 
+                append_window_screenshot_to_json(
+                    &self.desktop,
+                    args.process.as_deref().unwrap_or(""),
+                    &mut result_json,
+                    args.window_screenshot.include_window_screenshot,
+                )
+                .await;
                 let contents = vec![Content::json(result_json)?];
                 let contents = append_monitor_screenshots_if_enabled(
                     &self.desktop,
                     contents,
                     args.monitor.include_monitor_screenshots,
-                )
-                .await;
-                let contents = append_window_screenshot_if_enabled(
-                    &self.desktop,
-                    args.process.as_deref().unwrap_or(""),
-                    contents,
-                    args.window_screenshot.include_window_screenshot,
                 )
                 .await;
                 Ok(CallToolResult::success(contents))
@@ -3266,18 +3266,18 @@ Click types: 'left' (default), 'double', 'right'. Use ui_diff_before_after:true 
 
         span.set_status(true, None);
         span.end();
+        append_window_screenshot_to_json(
+            &self.desktop,
+            &args.selector.process,
+            &mut result_json,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
         let contents = vec![Content::json(result_json)?];
         let contents = append_monitor_screenshots_if_enabled(
             &self.desktop,
             contents,
             args.monitor.include_monitor_screenshots,
-        )
-        .await;
-        let contents = append_window_screenshot_if_enabled(
-            &self.desktop,
-            &args.selector.process,
-            contents,
-            args.window_screenshot.include_window_screenshot,
         )
         .await;
         Ok(CallToolResult::success(contents))
@@ -3464,18 +3464,18 @@ Click types: 'left' (default), 'double', 'right'. Use ui_diff_before_after:true 
 
         span.set_status(true, None);
         span.end();
+        append_window_screenshot_to_json(
+            &self.desktop,
+            &args.process,
+            &mut result_json,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
         let contents = vec![Content::json(result_json)?];
         let contents = append_monitor_screenshots_if_enabled(
             &self.desktop,
             contents,
             args.monitor.include_monitor_screenshots,
-        )
-        .await;
-        let contents = append_window_screenshot_if_enabled(
-            &self.desktop,
-            &args.process,
-            contents,
-            args.window_screenshot.include_window_screenshot,
         )
         .await;
         Ok(CallToolResult::success(contents))
@@ -4861,18 +4861,18 @@ DATA PASSING:
         span.set_status(true, None);
         span.end();
 
+        append_window_screenshot_to_json(
+            &self.desktop,
+            &args.selector.process,
+            &mut result_json,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
         let contents = vec![Content::json(result_json)?];
         let contents = append_monitor_screenshots_if_enabled(
             &self.desktop,
             contents,
             args.monitor.include_monitor_screenshots,
-        )
-        .await;
-        let contents = append_window_screenshot_if_enabled(
-            &self.desktop,
-            &args.selector.process,
-            contents,
-            args.window_screenshot.include_window_screenshot,
         )
         .await;
         Ok(CallToolResult::success(contents))
@@ -5174,18 +5174,18 @@ DATA PASSING:
         span.set_status(true, None);
         span.end();
 
+        append_window_screenshot_to_json(
+            &self.desktop,
+            &args.selector.process,
+            &mut result_json,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
         let contents = vec![Content::json(result_json)?];
         let contents = append_monitor_screenshots_if_enabled(
             &self.desktop,
             contents,
             args.monitor.include_monitor_screenshots,
-        )
-        .await;
-        let contents = append_window_screenshot_if_enabled(
-            &self.desktop,
-            &args.selector.process,
-            contents,
-            args.window_screenshot.include_window_screenshot,
         )
         .await;
         Ok(CallToolResult::success(contents))
@@ -5290,18 +5290,18 @@ DATA PASSING:
                 span.set_status(true, None);
                 span.end();
 
+                append_window_screenshot_to_json(
+                    &self.desktop,
+                    &args.selector.process,
+                    &mut result_json,
+                    args.window_screenshot.include_window_screenshot,
+                )
+                .await;
                 let contents = vec![Content::json(result_json)?];
                 let contents = append_monitor_screenshots_if_enabled(
                     &self.desktop,
                     contents,
                     args.monitor.include_monitor_screenshots,
-                )
-                .await;
-                let contents = append_window_screenshot_if_enabled(
-                    &self.desktop,
-                    &args.selector.process,
-                    contents,
-                    args.window_screenshot.include_window_screenshot,
                 )
                 .await;
                 Ok(CallToolResult::success(contents))
@@ -5333,24 +5333,25 @@ DATA PASSING:
                 span.set_status(true, None);
                 span.end();
 
-                let contents = vec![Content::json(json!({
+                let mut result_json = json!({
                     "action": "validate_element",
                     "status": "execution_error",
                     "exists": false,
                     "reason": reason_payload,
                     "timestamp": chrono::Utc::now().to_rfc3339()
-                }))?];
+                });
+                append_window_screenshot_to_json(
+                    &self.desktop,
+                    &args.selector.process,
+                    &mut result_json,
+                    args.window_screenshot.include_window_screenshot,
+                )
+                .await;
+                let contents = vec![Content::json(result_json)?];
                 let contents = append_monitor_screenshots_if_enabled(
                     &self.desktop,
                     contents,
                     args.monitor.include_monitor_screenshots,
-                )
-                .await;
-                let contents = append_window_screenshot_if_enabled(
-                    &self.desktop,
-                    &args.selector.process,
-                    contents,
-                    args.window_screenshot.include_window_screenshot,
                 )
                 .await;
                 Ok(CallToolResult::success(contents))
@@ -5508,18 +5509,18 @@ DATA PASSING:
         span.set_status(true, None);
         span.end();
 
+        append_window_screenshot_to_json(
+            &self.desktop,
+            &args.selector.process,
+            &mut result_json,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
         let contents = vec![Content::json(result_json)?];
         let contents = append_monitor_screenshots_if_enabled(
             &self.desktop,
             contents,
             args.monitor.include_monitor_screenshots,
-        )
-        .await;
-        let contents = append_window_screenshot_if_enabled(
-            &self.desktop,
-            &args.selector.process,
-            contents,
-            args.window_screenshot.include_window_screenshot,
         )
         .await;
         Ok(CallToolResult::success(contents))
@@ -5632,18 +5633,18 @@ DATA PASSING:
                     span.set_status(true, None);
                     span.end();
 
+                    append_window_screenshot_to_json(
+                        &self.desktop,
+                        &args.selector.process,
+                        &mut result_json,
+                        args.window_screenshot.include_window_screenshot,
+                    )
+                    .await;
                     let contents = vec![Content::json(result_json)?];
                     let contents = append_monitor_screenshots_if_enabled(
                         &self.desktop,
                         contents,
                         args.monitor.include_monitor_screenshots,
-                    )
-                    .await;
-                    let contents = append_window_screenshot_if_enabled(
-                        &self.desktop,
-                        &args.selector.process,
-                        contents,
-                        args.window_screenshot.include_window_screenshot,
                     )
                     .await;
                     return Ok(CallToolResult::success(contents));
@@ -5793,18 +5794,18 @@ DATA PASSING:
                         span.set_status(true, None);
                         span.end();
 
+                        append_window_screenshot_to_json(
+                            &self.desktop,
+                            &args.selector.process,
+                            &mut result_json,
+                            args.window_screenshot.include_window_screenshot,
+                        )
+                        .await;
                         let contents = vec![Content::json(result_json)?];
                         let contents = append_monitor_screenshots_if_enabled(
                             &self.desktop,
                             contents,
                             args.monitor.include_monitor_screenshots,
-                        )
-                        .await;
-                        let contents = append_window_screenshot_if_enabled(
-                            &self.desktop,
-                            &args.selector.process,
-                            contents,
-                            args.window_screenshot.include_window_screenshot,
                         )
                         .await;
                         return Ok(CallToolResult::success(contents));
@@ -5966,18 +5967,18 @@ DATA PASSING:
         span.set_status(true, None);
         span.end();
 
+        append_window_screenshot_to_json(
+            &self.desktop,
+            &args.process,
+            &mut result_json,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
         let contents = vec![Content::json(result_json)?];
         let contents = append_monitor_screenshots_if_enabled(
             &self.desktop,
             contents,
             args.monitor.include_monitor_screenshots,
-        )
-        .await;
-        let contents = append_window_screenshot_if_enabled(
-            &self.desktop,
-            &args.process,
-            contents,
-            args.window_screenshot.include_window_screenshot,
         )
         .await;
         Ok(CallToolResult::success(contents))
@@ -6130,18 +6131,18 @@ DATA PASSING:
         span.set_status(true, None);
         span.end();
 
+        append_window_screenshot_to_json(
+            &self.desktop,
+            &args.app_name,
+            &mut result_json,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
         let contents = vec![Content::json(result_json)?];
         let contents = append_monitor_screenshots_if_enabled(
             &self.desktop,
             contents,
             args.monitor.include_monitor_screenshots,
-        )
-        .await;
-        let contents = append_window_screenshot_if_enabled(
-            &self.desktop,
-            &args.app_name,
-            contents,
-            args.window_screenshot.include_window_screenshot,
         )
         .await;
         Ok(CallToolResult::success(contents))
@@ -6357,18 +6358,18 @@ DATA PASSING:
         span.set_status(true, None);
         span.end();
 
+        append_window_screenshot_to_json(
+            &self.desktop,
+            &args.selector.process,
+            &mut result_json,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
         let contents = vec![Content::json(result_json)?];
         let contents = append_monitor_screenshots_if_enabled(
             &self.desktop,
             contents,
             args.monitor.include_monitor_screenshots,
-        )
-        .await;
-        let contents = append_window_screenshot_if_enabled(
-            &self.desktop,
-            &args.selector.process,
-            contents,
-            args.window_screenshot.include_window_screenshot,
         )
         .await;
         Ok(CallToolResult::success(contents))
@@ -6499,18 +6500,18 @@ DATA PASSING:
         span.set_status(true, None);
         span.end();
 
+        append_window_screenshot_to_json(
+            &self.desktop,
+            &args.selector.process,
+            &mut result_json,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
         let contents = vec![Content::json(result_json)?];
         let contents = append_monitor_screenshots_if_enabled(
             &self.desktop,
             contents,
             args.monitor.include_monitor_screenshots,
-        )
-        .await;
-        let contents = append_window_screenshot_if_enabled(
-            &self.desktop,
-            &args.selector.process,
-            contents,
-            args.window_screenshot.include_window_screenshot,
         )
         .await;
         Ok(CallToolResult::success(contents))
@@ -6746,18 +6747,18 @@ DATA PASSING:
         span.set_status(true, None);
         span.end();
 
+        append_window_screenshot_to_json(
+            &self.desktop,
+            &args.selector.process,
+            &mut result_json,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
         let contents = vec![Content::json(result_json)?];
         let contents = append_monitor_screenshots_if_enabled(
             &self.desktop,
             contents,
             args.monitor.include_monitor_screenshots,
-        )
-        .await;
-        let contents = append_window_screenshot_if_enabled(
-            &self.desktop,
-            &args.selector.process,
-            contents,
-            args.window_screenshot.include_window_screenshot,
         )
         .await;
         Ok(CallToolResult::success(contents))
@@ -6954,7 +6955,7 @@ DATA PASSING:
         span.end();
 
         // Build metadata with resize information
-        let metadata = json!({
+        let mut metadata = json!({
             "action": "capture_screenshot",
             "status": "executed_without_error",
             "capture_mode": capture_mode,
@@ -6980,6 +6981,13 @@ DATA PASSING:
 
         self.restore_window_management(should_restore).await;
 
+        append_window_screenshot_to_json(
+            &self.desktop,
+            &args.selector.process,
+            &mut metadata,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
         let contents = vec![
             Content::json(metadata)?,
             Content::image(base64_image, "image/jpeg".to_string()),
@@ -6988,13 +6996,6 @@ DATA PASSING:
             &self.desktop,
             contents,
             args.monitor.include_monitor_screenshots,
-        )
-        .await;
-        let contents = append_window_screenshot_if_enabled(
-            &self.desktop,
-            &args.selector.process,
-            contents,
-            args.window_screenshot.include_window_screenshot,
         )
         .await;
         Ok(CallToolResult::success(contents))
@@ -7197,18 +7198,18 @@ DATA PASSING:
         span.set_status(true, None);
         span.end();
 
+        append_window_screenshot_to_json(
+            &self.desktop,
+            &args.selector.process,
+            &mut result_json,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
         let contents = vec![Content::json(result_json)?];
         let contents = append_monitor_screenshots_if_enabled(
             &self.desktop,
             contents,
             args.monitor.include_monitor_screenshots,
-        )
-        .await;
-        let contents = append_window_screenshot_if_enabled(
-            &self.desktop,
-            &args.selector.process,
-            contents,
-            args.window_screenshot.include_window_screenshot,
         )
         .await;
         Ok(CallToolResult::success(contents))
@@ -7555,18 +7556,18 @@ DATA PASSING:
         span.set_status(true, None);
         span.end();
 
+        append_window_screenshot_to_json(
+            &self.desktop,
+            &args.selector.process,
+            &mut result_json,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
         let contents = vec![Content::json(result_json)?];
         let contents = append_monitor_screenshots_if_enabled(
             &self.desktop,
             contents,
             args.monitor.include_monitor_screenshots,
-        )
-        .await;
-        let contents = append_window_screenshot_if_enabled(
-            &self.desktop,
-            &args.selector.process,
-            contents,
-            args.window_screenshot.include_window_screenshot,
         )
         .await;
         Ok(CallToolResult::success(contents))
@@ -8303,18 +8304,18 @@ console.info = function(...args) {
         span.set_status(true, None);
         span.end();
 
+        append_window_screenshot_to_json(
+            &self.desktop,
+            &args.selector.process,
+            &mut result_json,
+            args.window_screenshot.include_window_screenshot,
+        )
+        .await;
         let contents = vec![Content::json(result_json)?];
         let contents = append_monitor_screenshots_if_enabled(
             &self.desktop,
             contents,
             args.monitor.include_monitor_screenshots,
-        )
-        .await;
-        let contents = append_window_screenshot_if_enabled(
-            &self.desktop,
-            &args.selector.process,
-            contents,
-            args.window_screenshot.include_window_screenshot,
         )
         .await;
         Ok(CallToolResult::success(contents))
