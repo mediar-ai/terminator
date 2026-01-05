@@ -5,6 +5,28 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tracing::{debug, error, info, trace, warn};
 
+/// Windows constant to prevent console window creation during process spawn
+/// This prevents focus stealing and window minimization when spawning child processes
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+/// Extension trait to apply CREATE_NO_WINDOW on Windows, no-op on other platforms
+trait CommandNoWindow {
+    fn no_window(&mut self) -> &mut Self;
+}
+
+impl CommandNoWindow for tokio::process::Command {
+    #[cfg(target_os = "windows")]
+    fn no_window(&mut self) -> &mut Self {
+        self.creation_flags(CREATE_NO_WINDOW)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn no_window(&mut self) -> &mut Self {
+        self
+    }
+}
+
 /// Shared buffer for capturing script logs in real-time.
 /// This allows logs to be retrieved even when script execution times out.
 #[derive(Clone, Default)]
@@ -391,6 +413,7 @@ async fn ensure_terminator_js_installed(runtime: &str) -> Result<std::path::Path
                     .args(command_args.iter())
                     .stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::piped())
+                    .no_window()
                     .spawn()
                 {
                     Ok(child) => child,
@@ -548,6 +571,7 @@ async fn ensure_terminator_js_installed(runtime: &str) -> Result<std::path::Path
                         .env("NPM_CONFIG_PREFER_OFFLINE", "false") // Always try network first
                         .stdout(std::process::Stdio::piped())
                         .stderr(std::process::Stdio::piped())
+                        .no_window()
                         .spawn();
 
                     match spawn_result {
@@ -718,6 +742,7 @@ async fn ensure_terminator_js_installed(runtime: &str) -> Result<std::path::Path
                         .args(command_args.iter())
                         .stdout(std::process::Stdio::piped())
                         .stderr(std::process::Stdio::piped())
+                        .no_window()
                         .spawn()
                     {
                         Ok(child) => child,
@@ -955,7 +980,12 @@ pub async fn execute_javascript_with_nodejs(
 
     // Check if bun is available, fallback to node
     let runtime = if let Some(bun_exe) = find_executable("bun") {
-        match Command::new(&bun_exe).arg("--version").output().await {
+        match Command::new(&bun_exe)
+            .arg("--version")
+            .no_window()
+            .output()
+            .await
+        {
             Ok(output) if output.status.success() => {
                 let version = String::from_utf8_lossy(&output.stdout);
                 info!(
@@ -1307,6 +1337,7 @@ try {{
 
     // Configure stdio
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.no_window();
 
     // Spawn the process
     let mut child = cmd.spawn().map_err(|e| {
@@ -1625,7 +1656,12 @@ pub async fn execute_typescript_with_nodejs(
 
     // Check if bun is available (it has native TypeScript support)
     let (runtime, use_tsx) = if let Some(bun_exe) = find_executable("bun") {
-        match Command::new(&bun_exe).arg("--version").output().await {
+        match Command::new(&bun_exe)
+            .arg("--version")
+            .no_window()
+            .output()
+            .await
+        {
             Ok(output) if output.status.success() => {
                 let version = String::from_utf8_lossy(&output.stdout);
                 info!(
@@ -1836,6 +1872,7 @@ console.log('[TypeScript] Current working directory:', process.cwd());
     }
 
     info!("[TypeScript] Executing command: {:?}", cmd);
+    cmd.no_window();
 
     let mut child = cmd.spawn().map_err(|e| {
         McpError::internal_error(
@@ -2050,7 +2087,12 @@ pub async fn execute_python_with_bindings(
     // Discover python interpreter
     let mut python_exe = find_executable("python").unwrap_or_else(|| "python".to_string());
     // If 'python' is not a valid executable, try python3
-    if let Ok(output) = Command::new(&python_exe).arg("--version").output().await {
+    if let Ok(output) = Command::new(&python_exe)
+        .arg("--version")
+        .no_window()
+        .output()
+        .await
+    {
         if !output.status.success() {
             if let Some(py3) = find_executable("python3") {
                 python_exe = py3;
@@ -2188,6 +2230,7 @@ asyncio.run(__runner__())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true) // Ensure child process is killed if parent dies
+        .no_window()
         .spawn()
         .map_err(|e| {
             McpError::internal_error(
@@ -2474,6 +2517,7 @@ pub async fn ensure_terminator_py_installed(python_exe: &str) -> Result<PathBuf,
             "PYTHONPATH",
             site_packages_dir.to_string_lossy().to_string(),
         );
+        cmd.no_window();
         match cmd.output().await {
             Ok(out) => out.status.success(),
             Err(_) => false,
@@ -2490,6 +2534,7 @@ pub async fn ensure_terminator_py_installed(python_exe: &str) -> Result<PathBuf,
                 "PYTHONPATH",
                 site_packages_dir.to_string_lossy().to_string(),
             );
+        cmd.no_window();
         if let Ok(out) = cmd.output().await {
             have_terminator = out.status.success();
         }
@@ -2499,6 +2544,7 @@ pub async fn ensure_terminator_py_installed(python_exe: &str) -> Result<PathBuf,
         // Check if uv is available
         let uv_available = Command::new("uv")
             .arg("--version")
+            .no_window()
             .output()
             .await
             .map(|o| o.status.success())
@@ -2537,7 +2583,7 @@ pub async fn ensure_terminator_py_installed(python_exe: &str) -> Result<PathBuf,
             info!("[Python] Installing {} using uv", pkg);
 
             // uv is much faster, so shorter timeout is fine
-            let install_future = Command::new("uv").args(args).output();
+            let install_future = Command::new("uv").args(args).no_window().output();
             match tokio::time::timeout(std::time::Duration::from_secs(10), install_future).await {
                 Ok(Ok(out)) => {
                     let stdout = String::from_utf8_lossy(&out.stdout);
@@ -2553,6 +2599,7 @@ pub async fn ensure_terminator_py_installed(python_exe: &str) -> Result<PathBuf,
                             "PYTHONPATH",
                             site_packages_dir.to_string_lossy().to_string(),
                         );
+                        verify.no_window();
                         if let Ok(v) = verify.output().await {
                             if v.status.success() {
                                 return Ok(site_packages_dir);
@@ -2642,7 +2689,12 @@ pub async fn execute_javascript_with_local_bindings(
 
     // Check if bun is available, fallback to node
     let runtime = if let Some(bun_exe) = find_executable("bun") {
-        match Command::new(&bun_exe).arg("--version").output().await {
+        match Command::new(&bun_exe)
+            .arg("--version")
+            .no_window()
+            .output()
+            .await
+        {
             Ok(output) if output.status.success() => {
                 info!("[Node.js Local] Found bun at: {}", bun_exe);
                 "bun"
@@ -2869,6 +2921,7 @@ pub async fn execute_javascript_with_local_bindings(
             .arg(&unique_filename)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
+            .no_window()
             .spawn()
     } else if cfg!(windows) && is_batch_file {
         // Use cmd.exe for batch files on Windows
@@ -2877,6 +2930,7 @@ pub async fn execute_javascript_with_local_bindings(
             .args(["/c", &runtime_exe, &unique_filename])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
+            .no_window()
             .spawn()
     } else if cfg!(windows) && runtime_exe.ends_with(".exe") {
         // Direct execution should work for .exe files
@@ -2885,6 +2939,7 @@ pub async fn execute_javascript_with_local_bindings(
             .arg(&unique_filename)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
+            .no_window()
             .spawn()
     } else {
         Command::new(&runtime_exe)
@@ -2892,6 +2947,7 @@ pub async fn execute_javascript_with_local_bindings(
             .arg(&unique_filename)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
+            .no_window()
             .spawn()
     }
     .map_err(|e| {

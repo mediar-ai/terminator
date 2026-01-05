@@ -22,6 +22,9 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
+
+/// Windows constant to prevent console window creation during process spawn
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 use tokio::runtime::Runtime;
 use tracing::{debug, error, info, warn};
 use uiautomation::controls::ControlType;
@@ -3159,6 +3162,7 @@ impl AccessibilityEngine for WindowsEngine {
         })?;
 
         // Use tokio::process::Command for async execution
+        // CREATE_NO_WINDOW prevents console allocation which can steal focus/minimize parent windows
         let output = tokio::process::Command::new("powershell")
             .args([
                 "-NoProfile",
@@ -3167,6 +3171,7 @@ impl AccessibilityEngine for WindowsEngine {
                 "-Command",
                 command_str,
             ])
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
             .await // Await the async output
             .map_err(|e| AutomationError::PlatformError(e.to_string()))?;
