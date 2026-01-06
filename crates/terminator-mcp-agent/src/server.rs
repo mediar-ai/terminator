@@ -10401,11 +10401,39 @@ impl ServerHandler for DesktopWrapper {
     async fn list_tools(
         &self,
         _request: Option<rmcp::model::PaginatedRequestParam>,
-        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+        context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<rmcp::model::ListToolsResult, McpError> {
-        Ok(rmcp::model::ListToolsResult::with_all_items(
-            self.tool_router.list_all(),
-        ))
+        let all_tools = self.tool_router.list_all();
+
+        // Get client name to check if tools should be filtered
+        let client_name = context
+            .peer
+            .peer_info()
+            .map(|info| info.client_info.name.to_string())
+            .unwrap_or_default();
+
+        // Check if this client has blocked tools (mode filtering)
+        let modes_guard = self.client_modes.lock().await;
+        if let Some(client_state) = modes_guard.get(&client_name) {
+            if !client_state.blocked_tools.is_empty() {
+                // Filter out blocked tools from the list
+                let filtered_tools: Vec<_> = all_tools
+                    .into_iter()
+                    .filter(|tool| !client_state.blocked_tools.contains(&tool.name.to_string()))
+                    .collect();
+                tracing::debug!(
+                    "[list_tools] Filtered {} tools for client '{}' in {} mode (blocked: {})",
+                    filtered_tools.len(),
+                    client_name,
+                    client_state.mode,
+                    client_state.blocked_tools.len()
+                );
+                return Ok(rmcp::model::ListToolsResult::with_all_items(filtered_tools));
+            }
+        }
+        drop(modes_guard);
+
+        Ok(rmcp::model::ListToolsResult::with_all_items(all_tools))
     }
 
     /// Called after a client completes initialization
