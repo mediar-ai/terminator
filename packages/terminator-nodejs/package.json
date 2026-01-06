@@ -4,12 +4,12 @@
     "url": "https://github.com/mediar-ai/terminator/issues"
   },
   "dependencies": {
-    "@mediar-ai/kv": "^0.23.30",
-    "esbuild": "^0.25.11"
+    "@mediar-ai/kv": "^0.23.30"
   },
   "description": "Node.js/TypeScript bindings for the Terminator Rust library (via napi-rs)",
   "devDependencies": {
-    "@napi-rs/cli": "^2.18.4"
+    "@napi-rs/cli": "^2.18.4",
+    "esbuild": "^0.25.11"
   },
   "engines": {
     "node": ">= 10"
