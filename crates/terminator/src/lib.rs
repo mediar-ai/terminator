@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex, RwLock};
+use sysinfo::{ProcessesToUpdate, System};
 use tracing::{debug, error, info, instrument};
 
 pub mod browser_script;
@@ -805,11 +806,26 @@ impl Desktop {
         let apps = self.applications()?;
         let process_lower = process.to_lowercase();
 
-        // Find matching window by process name
+        // Use sysinfo for reliable process name lookup (same as get_applications_and_windows_list)
+        let mut system = System::new();
+        system.refresh_processes(ProcessesToUpdate::All, true);
+
+        // Find matching window by process name using sysinfo
         let window_element = apps.into_iter().find(|app| {
-            app.process_name()
-                .map(|name| name.to_lowercase().contains(&process_lower))
-                .unwrap_or(false)
+            let pid = app.process_id().unwrap_or(0);
+            if pid > 0 {
+                system
+                    .process(sysinfo::Pid::from_u32(pid))
+                    .map(|p| {
+                        p.name()
+                            .to_string_lossy()
+                            .to_lowercase()
+                            .contains(&process_lower)
+                    })
+                    .unwrap_or(false)
+            } else {
+                false
+            }
         });
 
         let window_element = window_element.ok_or_else(|| {
