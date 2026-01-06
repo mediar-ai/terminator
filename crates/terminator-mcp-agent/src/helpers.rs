@@ -21,6 +21,65 @@ pub fn normalize_key(key: &str) -> String {
     }
 }
 
+/// Extract trailing special keys from text for type_into_element.
+/// AI models often pass text like "mediar.ai{Enter}" expecting Enter to be pressed after typing.
+/// This function splits the text into the actual text to type and the trailing keys to press.
+///
+/// Only detects keys at the END of the string. Keys in the middle are typed literally.
+/// Whitelist: {Enter}, {Return}, {Tab}, {Escape}, {Esc} (case-insensitive)
+///
+/// Examples:
+/// - "mediar.ai{Enter}" -> ("mediar.ai", vec!["{Enter}"])
+/// - "hello{Tab}{Enter}" -> ("hello", vec!["{Tab}", "{Enter}"])
+/// - "Use {Enter} to submit" -> ("Use {Enter} to submit", vec![]) - not at end
+/// - "{Enter}" -> ("", vec!["{Enter}"])
+/// - "plain text" -> ("plain text", vec![])
+pub fn extract_trailing_keys(text: &str) -> (String, Vec<String>) {
+    // Pattern: one or more special keys at the END of string
+    // Case-insensitive match for: Enter, Return, Tab, Escape, Esc
+    let pattern = r"(?i)(\{(?:Enter|Return|Tab|Escape|Esc)\})+$";
+    let re = match Regex::new(pattern) {
+        Ok(r) => r,
+        Err(_) => return (text.to_string(), vec![]),
+    };
+
+    if let Some(m) = re.find(text) {
+        let keys_part = m.as_str();
+        let text_part = &text[..m.start()];
+
+        // Extract individual keys from the matched portion
+        let key_re = match Regex::new(r"(?i)\{([^}]+)\}") {
+            Ok(r) => r,
+            Err(_) => return (text.to_string(), vec![]),
+        };
+
+        let keys: Vec<String> = key_re
+            .captures_iter(keys_part)
+            .map(|c| {
+                // Normalize to proper casing: {Enter}, {Tab}, {Escape}
+                let key_name = &c[1];
+                match key_name.to_lowercase().as_str() {
+                    "enter" | "return" => "{Enter}".to_string(),
+                    "tab" => "{Tab}".to_string(),
+                    "escape" | "esc" => "{Escape}".to_string(),
+                    _ => format!("{{{}}}", key_name),
+                }
+            })
+            .collect();
+
+        tracing::info!(
+            "[extract_trailing_keys] Extracted from '{}': text='{}', keys={:?}",
+            text,
+            text_part,
+            keys
+        );
+
+        (text_part.to_string(), keys)
+    } else {
+        (text.to_string(), vec![])
+    }
+}
+
 /// Helper function to parse comma-separated alternative selectors into a Vec<String>
 pub fn parse_alternative_selectors(alternatives: Option<&str>) -> Vec<String> {
     alternatives
