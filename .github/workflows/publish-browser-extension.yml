@@ -40,8 +40,8 @@ jobs:
             -d "client_secret=${{ secrets.CWS_CLIENT_SECRET }}" \
             -d "refresh_token=${{ secrets.CWS_REFRESH_TOKEN }}" \
             -d "grant_type=refresh_token")
-          ACCESS_TOKEN=$(echo "$RESPONSE" | grep -o '"access_token":"[^"]*' | cut -d'"' -f4)
-          if [ -z "$ACCESS_TOKEN" ]; then
+          ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
+          if [ -z "$ACCESS_TOKEN" ] || [ "$ACCESS_TOKEN" = "null" ]; then
             echo "[WARN] Failed to get access token: $RESPONSE"
             exit 1
           fi
@@ -57,7 +57,7 @@ jobs:
             -H "x-goog-api-version: 2" \
             -T terminator-browser-extension.zip)
           echo "Upload response: $RESPONSE"
-          UPLOAD_STATE=$(echo "$RESPONSE" | grep -o '"uploadState":"[^"]*' | cut -d'"' -f4)
+          UPLOAD_STATE=$(echo "$RESPONSE" | jq -r '.uploadState')
           if [ "$UPLOAD_STATE" != "SUCCESS" ]; then
             echo "[WARN] Upload failed: $RESPONSE"
             exit 1
@@ -72,7 +72,7 @@ jobs:
             -H "x-goog-api-version: 2" \
             -H "Content-Length: 0")
           echo "Publish response: $RESPONSE"
-          STATUS=$(echo "$RESPONSE" | grep -o '"status":\["[^"]*' | cut -d'"' -f4)
+          STATUS=$(echo "$RESPONSE" | jq -r '.status[0]')
           if [ "$STATUS" != "OK" ]; then
             echo "[WARN] Publish may require review: $RESPONSE"
           fi
