@@ -1395,20 +1395,16 @@ impl UIElementImpl for WindowsUIElement {
         }
 
         // Check bounds - element must have non-zero size to be visible
-        if let Ok((x, y, width, height)) = self.bounds() {
-            // NEW: Check for non-zero bounds (critical for preventing false positives)
+        if let Ok((_x, _y, width, height)) = self.bounds() {
+            // Check for non-zero bounds (critical for preventing false positives)
             if width <= 0.0 || height <= 0.0 {
                 tracing::debug!("Element has zero-size bounds: {}x{}", width, height);
                 return Ok(false);
             }
 
-            // Check if within work area (not behind taskbar)
-            if let Ok(work_area) = WorkArea::get_primary() {
-                if !work_area.intersects(x, y, width, height) {
-                    tracing::debug!("Element outside work area");
-                    return Ok(false);
-                }
-            }
+            // NOTE: Removed work_area check here - it only checked primary monitor
+            // which broke multi-monitor support. The is_offscreen() check above
+            // and bounds check are sufficient for visibility detection.
 
             return Ok(true);
         }

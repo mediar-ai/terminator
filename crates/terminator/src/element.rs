@@ -1601,28 +1601,6 @@ impl UIElement {
         const STEP_AMOUNT: f64 = 0.5; // Reduced from 1.0 to avoid over-scrolling - uses smaller increments
         const MIN_ELEMENT_SIZE: f64 = 5.0; // Minimum width/height for a valid UI element
 
-        // Helper: check whether element intersects window bounds (best-effort viewport proxy)
-        fn intersects(a: (f64, f64, f64, f64), b: (f64, f64, f64, f64)) -> bool {
-            let (ax, ay, aw, ah) = a;
-            let (bx, by, bw, bh) = b;
-            let a_right = ax + aw;
-            let a_bottom = ay + ah;
-            let b_right = bx + bw;
-            let b_bottom = by + bh;
-            ax < b_right && a_right > bx && ay < b_bottom && a_bottom > by
-        }
-
-        // Helper: check if element is within work area (excluding taskbar)
-        fn is_in_work_area(elem_bounds: (f64, f64, f64, f64)) -> bool {
-            use crate::platforms::windows::element::WorkArea;
-            if let Ok(work_area) = WorkArea::get_primary() {
-                let (x, y, width, height) = elem_bounds;
-                work_area.intersects(x, y, width, height)
-            } else {
-                true // If we can't get work area, assume it's visible
-            }
-        }
-
         // Initial snapshot for diagnostics
         let init_visible = self.is_visible().unwrap_or(false);
         let init_bounds = self.bounds().ok();
@@ -1670,26 +1648,24 @@ impl UIElement {
                 }
             };
 
-            // If visible and, when available, intersecting the window area AND within work area, we are done
-            if visible {
-                // Also check if element is within work area (not behind taskbar)
-                let in_work_area = is_in_work_area(elem_bounds);
+            // Early exit if bounds became invalid during scrolling (e.g., element got hidden/repositioned)
+            let (x, y, width, height) = elem_bounds;
+            if width <= MIN_ELEMENT_SIZE && height <= MIN_ELEMENT_SIZE {
+                warn!(
+                    "scroll_into_view:bounds_became_invalid step={} bounds=({}, {}, {}, {}) - stopping scroll",
+                    steps_taken, x, y, width, height
+                );
+                return Ok(());
+            }
 
-                if let Some(wb) = window_bounds {
-                    if intersects(elem_bounds, wb) && in_work_area {
-                        info!(
-                            "scroll_into_view:done steps_taken={} final_bounds={:?}",
-                            steps_taken, elem_bounds
-                        );
-                        return Ok(());
-                    }
-                } else if in_work_area {
-                    info!(
-                        "scroll_into_view:done (no window bounds) steps_taken={} final_bounds={:?}",
-                        steps_taken, elem_bounds
-                    );
-                    return Ok(());
-                }
+            // If visible with valid bounds, we're done - trust is_visible() for multi-monitor setups
+            // The work_area check only considers primary monitor which breaks for secondary monitors
+            if visible {
+                info!(
+                    "scroll_into_view:done (visible=true) steps_taken={} final_bounds={:?}",
+                    steps_taken, elem_bounds
+                );
+                return Ok(());
             }
 
             // Determine scroll directions based on position relative to window bounds and work area

@@ -2145,7 +2145,7 @@ impl DesktopWrapper {
     // NOTE: ensure_element_in_view logic moved to terminator backend UIElement::ensure_in_view()
 
     #[tool(
-        description = "Types text into a UI element with smart clipboard optimization and verification. Much faster than press key. REQUIRED: clear_before_typing parameter - set to true to clear existing text, false to append. Use ui_diff_before_after:true to see changes (no need to call get_window_tree after)."
+        description = "Types text into a UI element with smart clipboard optimization and verification. Much faster than press key. REQUIRED: clear_before_typing parameter - set to true to clear existing text, false to append. Use ui_diff_before_after:true to see changes (no need to call get_window_tree after). Trailing special keys like {Enter}, {Tab}, {Escape} are auto-detected and pressed after typing (e.g., 'search query{Enter}' types the query then presses Enter)."
     )]
     async fn type_into_element(
         &self,
@@ -2187,7 +2187,21 @@ impl DesktopWrapper {
             should_restore_value
         };
 
-        let text_to_type = args.text_to_type.clone();
+        // Extract trailing special keys (e.g., {Enter}) from text
+        // AI models often pass "text{Enter}" expecting Enter to be pressed after typing
+        let (actual_text, trailing_keys) =
+            crate::helpers::extract_trailing_keys(&args.text_to_type);
+        let has_trailing_keys = !trailing_keys.is_empty();
+
+        // Add telemetry for trailing keys extraction
+        if has_trailing_keys {
+            span.set_attribute("trailing_keys.count", trailing_keys.len().to_string());
+            span.set_attribute("trailing_keys.keys", trailing_keys.join(","));
+            span.set_attribute("text.actual_length", actual_text.len().to_string());
+        }
+
+        let text_to_type = actual_text.clone();
+        let trailing_keys_for_closure = trailing_keys.clone();
         let should_clear = args.clear_before_typing;
         let try_focus_before = args.try_focus_before;
         let try_click_before = args.try_click_before;
@@ -2229,6 +2243,7 @@ impl DesktopWrapper {
         let action = {
             move |element: UIElement| {
                 let text_to_type = text_to_type.clone();
+                let trailing_keys = trailing_keys_for_closure.clone();
                 async move {
                     // Activate window to ensure it has keyboard focus before typing
                     if let Err(e) = element.activate_window() {
@@ -2251,13 +2266,33 @@ impl DesktopWrapper {
                             );
                         }
                     }
-                    element.type_text_with_state_and_focus_restore(
+
+                    // Type the text (without trailing keys)
+                    let type_result = element.type_text_with_state_and_focus_restore(
                         &text_to_type,
                         true,
                         try_focus_before,
                         try_click_before,
                         false, // Don't restore at core level - MCP handles it
-                    )
+                    );
+
+                    // Press any trailing keys after typing (e.g., {Enter})
+                    if type_result.is_ok() && !trailing_keys.is_empty() {
+                        for key in &trailing_keys {
+                            tracing::info!("[type_into_element] Pressing trailing key: {}", key);
+                            // Small delay before pressing key to let UI settle
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                            if let Err(e) = element.press_key(key) {
+                                tracing::warn!(
+                                    "[type_into_element] Failed to press trailing key {}: {}",
+                                    key,
+                                    e
+                                );
+                            }
+                        }
+                    }
+
+                    type_result
                 }
             }
         };
@@ -2331,7 +2366,9 @@ impl DesktopWrapper {
         let mut result_json = json!({
             "action": "type_into_element",
             "status": "executed_without_error",
-            "text_typed": args.text_to_type,
+            "text_typed": actual_text,
+            "trailing_keys_pressed": trailing_keys,
+            "original_input": args.text_to_type,
             "cleared_before_typing": args.clear_before_typing,
             "action_result": {
                 "action": result.action,
