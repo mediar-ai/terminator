@@ -121,6 +121,47 @@ impl ScreenshotResult {
         encode_rgba_to_png(&resized.into_raw(), new_width, new_height)
     }
 
+    /// Encode the screenshot as JPEG bytes with optional resizing.
+    ///
+    /// If the image exceeds `max_dimension` in either width or height,
+    /// it will be resized while maintaining aspect ratio.
+    /// JPEG is ~4x smaller than PNG for screenshots.
+    ///
+    /// # Arguments
+    /// * `max_dimension` - Maximum width or height. If None, uses DEFAULT_MAX_DIMENSION (1920).
+    /// * `quality` - JPEG quality (0-100). If None, uses DEFAULT_JPEG_QUALITY (85).
+    ///
+    /// # Returns
+    /// JPEG-encoded bytes (potentially resized)
+    pub fn to_jpeg_resized(
+        &self,
+        max_dimension: Option<u32>,
+        quality: Option<u8>,
+    ) -> Result<Vec<u8>, ScreenshotError> {
+        let max_dim = max_dimension.unwrap_or(DEFAULT_MAX_DIMENSION);
+        let jpeg_quality = quality.unwrap_or(DEFAULT_JPEG_QUALITY);
+        let rgba_data = self.bgra_to_rgba();
+
+        // Check if resize is needed
+        if self.width <= max_dim && self.height <= max_dim {
+            return encode_rgba_to_jpeg(&rgba_data, self.width, self.height, jpeg_quality);
+        }
+
+        // Calculate new dimensions maintaining aspect ratio
+        let scale = (max_dim as f32 / self.width.max(self.height) as f32).min(1.0);
+        let new_width = (self.width as f32 * scale).round() as u32;
+        let new_height = (self.height as f32 * scale).round() as u32;
+
+        // Create image buffer and resize
+        let img = ImageBuffer::<Rgba<u8>, _>::from_raw(self.width, self.height, rgba_data)
+            .ok_or_else(|| {
+                ScreenshotError::ImageProcessing("Failed to create image buffer".into())
+            })?;
+
+        let resized = image::imageops::resize(&img, new_width, new_height, FilterType::Lanczos3);
+        encode_rgba_to_jpeg(&resized.into_raw(), new_width, new_height, jpeg_quality)
+    }
+
     /// Encode the screenshot as base64-encoded PNG string.
     ///
     /// Useful for embedding in JSON responses or passing to LLMs.
@@ -329,6 +370,8 @@ pub enum ScreenshotError {
     ImageProcessing(String),
     #[error("PNG encoding error: {0}")]
     PngEncoding(String),
+    #[error("JPEG encoding error: {0}")]
+    JpegEncoding(String),
 }
 
 /// Helper function to encode RGBA data to PNG bytes
@@ -347,4 +390,32 @@ fn encode_rgba_to_png(
         .map_err(|e| ScreenshotError::PngEncoding(e.to_string()))?;
 
     Ok(png_data)
+}
+
+/// Default JPEG quality for screenshot encoding (0-100)
+pub const DEFAULT_JPEG_QUALITY: u8 = 85;
+
+/// Helper function to encode RGBA data to JPEG bytes
+fn encode_rgba_to_jpeg(
+    rgba_data: &[u8],
+    width: u32,
+    height: u32,
+    quality: u8,
+) -> Result<Vec<u8>, ScreenshotError> {
+    use image::codecs::jpeg::JpegEncoder;
+    use image::ImageEncoder;
+
+    // Convert RGBA to RGB (drop alpha channel)
+    let rgb_data: Vec<u8> = rgba_data
+        .chunks_exact(4)
+        .flat_map(|rgba| [rgba[0], rgba[1], rgba[2]])
+        .collect();
+
+    let mut jpeg_data = Vec::new();
+    let encoder = JpegEncoder::new_with_quality(Cursor::new(&mut jpeg_data), quality);
+    encoder
+        .write_image(&rgb_data, width, height, image::ExtendedColorType::Rgb8)
+        .map_err(|e| ScreenshotError::JpegEncoding(e.to_string()))?;
+
+    Ok(jpeg_data)
 }

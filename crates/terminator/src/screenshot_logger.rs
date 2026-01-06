@@ -110,20 +110,20 @@ pub fn save_screenshot(
     }
 
     let dir = get_executions_dir();
-    let filename = format!("{}_{}.png", prefix, suffix);
+    let filename = format!("{}_{}.jpg", prefix, suffix);
     let path = dir.join(&filename);
 
-    // Get PNG bytes (with optional resize)
-    let png_bytes = match screenshot.to_png_resized(max_dimension) {
+    // Get JPEG bytes (with optional resize) - ~4x smaller than PNG
+    let jpeg_bytes = match screenshot.to_jpeg_resized(max_dimension, None) {
         Ok(bytes) => bytes,
         Err(e) => {
-            warn!("[screenshot_logger] Failed to encode PNG: {}", e);
+            warn!("[screenshot_logger] Failed to encode JPEG: {}", e);
             return None;
         }
     };
 
     // Write to file
-    if let Err(e) = fs::write(&path, &png_bytes) {
+    if let Err(e) = fs::write(&path, &jpeg_bytes) {
         warn!(
             "[screenshot_logger] Failed to save {}: {}",
             path.display(),
@@ -135,7 +135,7 @@ pub fn save_screenshot(
     info!(
         "[screenshot_logger] Saved screenshot: {} ({}KB)",
         filename,
-        png_bytes.len() / 1024
+        jpeg_bytes.len() / 1024
     );
 
     Some(SavedScreenshot { path, filename })
