@@ -460,6 +460,19 @@ pub trait UIElementImpl: Send + Sync + Debug {
         ))
     }
     fn hover(&self) -> Result<(), AutomationError>;
+    /// Hover over the element and hold for the specified duration
+    /// Duration is in milliseconds
+    fn hover_with_duration(&self, duration_ms: u64) -> Result<(), AutomationError> {
+        // Default implementation: hover then sleep for the duration
+        self.hover()?;
+        if duration_ms > 50 {
+            // Already waited 50ms in hover(), wait the remaining time
+            std::thread::sleep(std::time::Duration::from_millis(
+                duration_ms.saturating_sub(50),
+            ));
+        }
+        Ok(())
+    }
     fn focus(&self) -> Result<(), AutomationError>;
     fn invoke(&self) -> Result<(), AutomationError>;
     fn type_text(
@@ -978,8 +991,40 @@ impl UIElement {
     }
 
     /// Hover over this element
+    ///
+    /// Moves the mouse cursor to the element's clickable point.
+    /// Useful for triggering hover states, tooltips, and dropdown menus.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use terminator::UIElement;
+    /// # fn example(element: UIElement) -> Result<(), terminator::AutomationError> {
+    /// element.hover()?;  // Trigger hover state
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn hover(&self) -> Result<(), AutomationError> {
         self.inner.hover()
+    }
+
+    /// Hover over this element and hold for a specified duration
+    ///
+    /// Moves the mouse cursor to the element and waits for the specified time.
+    /// This is useful for triggering hover menus that require a sustained hover.
+    ///
+    /// # Arguments
+    /// * `duration_ms` - How long to hold the hover in milliseconds
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use terminator::UIElement;
+    /// # fn example(element: UIElement) -> Result<(), terminator::AutomationError> {
+    /// element.hover_with_duration(500)?;  // Hover for 500ms
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn hover_with_duration(&self, duration_ms: u64) -> Result<(), AutomationError> {
+        self.inner.hover_with_duration(duration_ms)
     }
 
     /// Focus this element

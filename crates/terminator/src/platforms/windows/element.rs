@@ -774,9 +774,53 @@ impl UIElementImpl for WindowsUIElement {
     }
 
     fn hover(&self) -> Result<(), AutomationError> {
-        Err(AutomationError::UnsupportedOperation(
-            "`hover` doesn't not support".to_string(),
-        ))
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_MOVE,
+            MOUSEINPUT,
+        };
+        use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+
+        // Get the hover target coordinates (same logic as click)
+        let (hover_x, hover_y, method, _path) = self.determine_click_coordinates()?;
+
+        tracing::debug!(
+            "Hovering over element at ({}, {}) using {}",
+            hover_x,
+            hover_y,
+            method
+        );
+
+        // Convert to absolute coordinates for SendInput (0-65535 range)
+        let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+        let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+        let abs_x = ((hover_x / screen_w as f64) * 65535.0).round() as i32;
+        let abs_y = ((hover_y / screen_h as f64) * 65535.0).round() as i32;
+
+        // Create mouse move input
+        let move_input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx: abs_x,
+                    dy: abs_y,
+                    mouseData: 0,
+                    dwFlags: MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+
+        // Execute the move
+        unsafe {
+            SendInput(&[move_input], std::mem::size_of::<INPUT>() as i32);
+        }
+
+        // Brief pause to allow UI to register hover state (tooltips, hover effects, etc.)
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        tracing::info!("Successfully hovered over element");
+        Ok(())
     }
 
     fn focus(&self) -> Result<(), AutomationError> {
