@@ -6,6 +6,10 @@ use super::types::{HandleGuard, ThreadSafeWinUIElement};
 use crate::{AutomationError, UIElement};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::os::windows::process::CommandExt;
+
+/// Windows constant to prevent console window creation during process spawn
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -514,6 +518,7 @@ fn fetch_startapps_from_powershell() -> Result<Vec<Value>, AutomationError> {
 
     let output = std::process::Command::new("powershell")
         .args(["-NoProfile", "-WindowStyle", "hidden", "-Command", &command])
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|e| AutomationError::PlatformError(e.to_string()))?;
 
