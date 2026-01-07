@@ -375,6 +375,12 @@ impl TypeScriptWorkflow {
         // Ensure dependencies are installed and cached
         self.ensure_dependencies_in(&execution_dir).await?;
 
+        // Extract ORG_TOKEN from inputs for KV HTTP backend (before inputs is consumed)
+        let org_token = inputs
+            .get("ORG_TOKEN")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
         // Create execution script (using execution_dir for imports)
         let exec_script = self.create_execution_script(
             &execution_dir,
@@ -615,6 +621,14 @@ impl TypeScriptWorkflow {
         if let Some(folder) = workflow_id {
             cmd.env("TERMINATOR_WORKFLOW_ID", folder);
             debug!("Set TERMINATOR_WORKFLOW_ID={} (folder name)", folder);
+        }
+
+        // Set ORG_TOKEN and KV_URL for HTTP KV backend if token is provided
+        // This allows workflows to use the remote KV store via @mediar-ai/kv
+        if let Some(ref token) = org_token {
+            cmd.env("ORG_TOKEN", token);
+            cmd.env("KV_URL", "https://app.mediar.ai/api/kv");
+            debug!("Set ORG_TOKEN and KV_URL for HTTP KV backend");
         }
 
         let mut child = cmd.spawn().map_err(|e| {
@@ -1577,5 +1591,52 @@ mod tests {
         let parsed = parse_log_line("[error] lowercase prefix");
         assert_eq!(parsed.level, LogLevel::Info); // Falls through to default
         assert_eq!(parsed.message, "[error] lowercase prefix");
+    }
+
+    #[test]
+    fn test_org_token_extraction_from_inputs() {
+        // Test that ORG_TOKEN can be extracted from inputs JSON
+        let inputs_with_token = serde_json::json!({
+            "ORG_TOKEN": "test-token-123",
+            "other_input": "value"
+        });
+
+        let org_token = inputs_with_token
+            .get("ORG_TOKEN")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        assert_eq!(org_token, Some("test-token-123".to_string()));
+    }
+
+    #[test]
+    fn test_org_token_extraction_missing() {
+        // Test that missing ORG_TOKEN returns None
+        let inputs_without_token = serde_json::json!({
+            "other_input": "value"
+        });
+
+        let org_token = inputs_without_token
+            .get("ORG_TOKEN")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        assert_eq!(org_token, None);
+    }
+
+    #[test]
+    fn test_org_token_extraction_null() {
+        // Test that null ORG_TOKEN returns None
+        let inputs_null_token = serde_json::json!({
+            "ORG_TOKEN": null,
+            "other_input": "value"
+        });
+
+        let org_token = inputs_null_token
+            .get("ORG_TOKEN")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        assert_eq!(org_token, None);
     }
 }
