@@ -10080,8 +10080,8 @@ impl DesktopWrapper {
             all_logs.extend(stderr_logs.drain(..));
         }
 
-        // Extract logs from run_command result (logs are embedded in the JSON result)
-        if tool_name == "run_command" {
+        // Extract logs from run_command/execute_sequence result (logs are embedded in the JSON result)
+        if tool_name == "run_command" || tool_name == "execute_sequence" {
             if let Ok(ref call_result) = result {
                 for content in &call_result.content {
                     if let Some(text) = crate::server::extract_content_text(content) {
