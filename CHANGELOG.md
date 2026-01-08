@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.16] - 2026-01-07
+
+### Fixed
+- MCP: Pass ORG_TOKEN as env var for KV HTTP backend - workflows now use remote KV store for duplicate detection
+- Core: Add CREATE_NO_WINDOW flag to prevent PowerShell console flash
+- Core: Use JPEG for screenshot disk logs (~4x smaller files)
+
+
 ## [0.24.12] - 2025-12-23
 
 ### Fixed
