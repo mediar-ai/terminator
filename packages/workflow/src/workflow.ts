@@ -287,10 +287,11 @@ function createWorkflowInstance<TInput = any>(
             let iterations = 0;
             let stepStartTime = 0;
             let currentStep: Step | undefined;
+            // Move currentIndex outside try block so it's accessible in catch for error reporting
+            let currentIndex = 0;
 
             try {
                 // Execute steps with support for branching via 'next' pointer
-                let currentIndex = 0;
 
                 while (
                     currentIndex < steps.length &&
@@ -454,29 +455,20 @@ function createWorkflowInstance<TInput = any>(
                 log.error(`❌ Workflow failed! (${duration}ms)`);
                 log.info("=".repeat(60));
 
-                // Find which step failed (use lastStepIndex if we have it)
-                const failedStepIndex =
-                    lastStepIndex !== undefined
-                        ? lastStepIndex
-                        : steps.findIndex(
-                              (s) =>
-                                  s?.config?.name &&
-                                  error.message?.includes(s.config.name),
-                          );
+                // The failed step is currentIndex (the step that threw the error)
+                // BUG FIX: Previously used lastStepIndex which was the PREVIOUS successfully completed step
+                const failedStepIndex = currentIndex;
+                log.info(`[DEBUG] Failed step index: ${failedStepIndex}, currentIndex: ${currentIndex}, lastStepIndex: ${lastStepIndex}`);
 
                 const failedStep =
-                    failedStepIndex >= 0
+                    failedStepIndex >= 0 && failedStepIndex < steps.length
                         ? steps[failedStepIndex]
                         : steps[steps.length - 1];
 
-                // If we don't have lastStepId yet, set it from failed step
-                if (!lastStepId && failedStep) {
-                    lastStepId = failedStep.config.id;
-                    lastStepIndex =
-                        failedStepIndex >= 0
-                            ? failedStepIndex
-                            : steps.length - 1;
-                }
+                // Always update lastStepId and lastStepIndex to the failed step
+                // This ensures the error response contains the correct failed step info
+                lastStepId = failedStep.config.id;
+                lastStepIndex = failedStepIndex >= 0 ? failedStepIndex : steps.length - 1;
 
                 // Call workflow-level error handler from config
                 // Skip onError if we're doing step control (testing specific steps)
