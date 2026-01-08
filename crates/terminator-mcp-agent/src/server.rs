@@ -10080,8 +10080,8 @@ impl DesktopWrapper {
             all_logs.extend(stderr_logs.drain(..));
         }
 
-        // Extract logs from run_command result (logs are embedded in the JSON result)
-        if tool_name == "run_command" {
+        // Extract logs from run_command/execute_sequence result (logs are embedded in the JSON result)
+        if tool_name == "run_command" || tool_name == "execute_sequence" {
             if let Ok(ref call_result) = result {
                 for content in &call_result.content {
                     if let Some(text) = crate::server::extract_content_text(content) {
@@ -10133,6 +10133,41 @@ impl DesktopWrapper {
 
         // Sort logs by timestamp
         all_logs.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+
+        // Extract logs from error data (for TypeScript workflow errors)
+        // The logs are embedded in error_data["logs"] when workflow fails
+        if let Err(ref e) = result {
+            if let Some(ref data) = e.data {
+                let now = chrono::Utc::now();
+                if let Some(logs_array) = data.get("logs").and_then(|v| v.as_array()) {
+                    tracing::debug!(
+                        "[call_tool] Extracting {} logs from error data for tool: {}",
+                        logs_array.len(),
+                        tool_name
+                    );
+                    for (i, log) in logs_array.iter().enumerate() {
+                        // Logs are structured as {timestamp, level, message}
+                        let level = log
+                            .get("level")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("INFO")
+                            .to_string();
+                        let message = log
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        if !message.is_empty() {
+                            all_logs.push(execution_logger::CapturedLogEntry {
+                                timestamp: now + chrono::Duration::microseconds(i as i64),
+                                level,
+                                message,
+                            });
+                        }
+                    }
+                }
+            }
+        }
 
         // Log execution response with duration, result, and captured logs
         if let Some(ctx) = log_ctx {

@@ -844,12 +844,48 @@ impl TypeScriptWorkflow {
                 let _ = tokio::time::timeout(std::time::Duration::from_millis(100), handle).await;
             }
 
-            // Extract captured logs even on failure
-            let logs: Vec<CapturedLogEntry> = captured_logs
+            // Extract captured logs even on failure - merge from stderr and log pipe
+            let mut logs: Vec<CapturedLogEntry> = captured_logs
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .drain(..)
                 .collect();
+
+            // Merge logs from log pipe on error path (Windows only)
+            // This ensures console.log output is captured even when workflow fails
+            #[cfg(windows)]
+            let log_pipe_handle = if let Some((handle, _, pipe_logs, receiver_task)) =
+                log_pipe_handle
+            {
+                // Wait for the pipe server to finish reading all data
+                handle.shutdown_and_wait().await;
+
+                // Wait for receiver task with timeout to prevent hanging on error
+                let _ = tokio::time::timeout(std::time::Duration::from_millis(100), receiver_task)
+                    .await;
+
+                if let Ok(mut pipe_captured) = pipe_logs.lock() {
+                    debug!(
+                        "[workflow_typescript] Error path: merging {} pipe logs with {} stderr logs",
+                        pipe_captured.len(),
+                        logs.len()
+                    );
+                    logs.extend(pipe_captured.drain(..));
+                }
+                None::<(
+                    crate::log_pipe::LogPipeServerHandle,
+                    String,
+                    std::sync::Arc<std::sync::Mutex<Vec<CapturedLogEntry>>>,
+                    tokio::task::JoinHandle<()>,
+                )>
+            } else {
+                None
+            };
+            // Suppress unused variable warning
+            let _ = &log_pipe_handle;
+
+            // Sort logs by timestamp
+            logs.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
 
             // Try to extract JSON from stdout (same logic as success case)
             let mut error_message = format!(
@@ -910,16 +946,10 @@ impl TypeScriptWorkflow {
                     .collect::<Vec<_>>());
             }
 
-            // Shutdown the pipe servers on error (Windows only)
+            // Shutdown the event pipe server on error (log_pipe already handled above) (Windows only)
             #[cfg(windows)]
             if let Some((handle, _)) = pipe_server_handle {
                 handle.shutdown().await;
-            }
-
-            #[cfg(windows)]
-            if let Some((handle, _, _, _receiver_task)) = log_pipe_handle {
-                handle.shutdown_and_wait().await;
-                // Note: We don't wait for receiver_task on error path - just clean up
             }
 
             return Err(McpError::internal_error(error_message, Some(error_data)));

@@ -1021,6 +1021,12 @@ impl WindowsRecorder {
 
             // Process events from the rdev listener
             for event_request in uia_event_rx {
+                // CRITICAL: Check if stopping BEFORE processing any event
+                // This ensures we exit quickly when stop() is called, preventing new UIA traversals
+                if uia_processor_is_stopping.load(Ordering::SeqCst) {
+                    info!("UIA processor loop exiting - recorder is stopping");
+                    break;
+                }
                 match event_request {
                     UIAInputRequest::ButtonPress { button, position } => {
                         let ctx = ButtonPressContext {
@@ -2292,6 +2298,12 @@ impl WindowsRecorder {
     /// Handles a button press request from the input listener thread.
     /// This function performs the UI Automation calls and is expected to run on a dedicated UIA thread.
     fn handle_button_press_request(button: MouseButton, ctx: &ButtonPressContext) {
+        // CRITICAL: Early exit if stopping - don't start expensive UIA traversals
+        if ctx.is_stopping.load(Ordering::SeqCst) {
+            debug!("handle_button_press_request: skipping - recorder is stopping");
+            return;
+        }
+
         // Check for double click first
         let current_time = Instant::now();
         let is_double_click = if let Ok(mut tracker) = ctx.double_click_tracker.try_lock() {
@@ -2835,6 +2847,12 @@ impl WindowsRecorder {
 
     /// Handles a button release request from the input listener thread.
     fn handle_button_release_request(button: MouseButton, ctx: &ButtonPressContext) {
+        // CRITICAL: Early exit if stopping - don't process events
+        if ctx.is_stopping.load(Ordering::SeqCst) {
+            debug!("handle_button_release_request: skipping - recorder is stopping");
+            return;
+        }
+
         // Emit pending Click events that were captured on mouse down
         // This ensures the click action completes before we emit events that might trigger modals
         if button == MouseButton::Left {
