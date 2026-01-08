@@ -844,7 +844,6 @@ impl TypeScriptWorkflow {
                 let _ = tokio::time::timeout(std::time::Duration::from_millis(100), handle).await;
             }
 
-
             // Extract captured logs even on failure - merge from stderr and log pipe
             let mut logs: Vec<CapturedLogEntry> = captured_logs
                 .lock()
@@ -855,14 +854,15 @@ impl TypeScriptWorkflow {
             // Merge logs from log pipe on error path (Windows only)
             // This ensures console.log output is captured even when workflow fails
             #[cfg(windows)]
-            let log_pipe_handle = if let Some((handle, _, pipe_logs, receiver_task)) = log_pipe_handle
+            let log_pipe_handle = if let Some((handle, _, pipe_logs, receiver_task)) =
+                log_pipe_handle
             {
                 // Wait for the pipe server to finish reading all data
                 handle.shutdown_and_wait().await;
 
                 // Wait for receiver task with timeout to prevent hanging on error
-                let _ =
-                    tokio::time::timeout(std::time::Duration::from_millis(100), receiver_task).await;
+                let _ = tokio::time::timeout(std::time::Duration::from_millis(100), receiver_task)
+                    .await;
 
                 if let Ok(mut pipe_captured) = pipe_logs.lock() {
                     debug!(
@@ -872,7 +872,12 @@ impl TypeScriptWorkflow {
                     );
                     logs.extend(pipe_captured.drain(..));
                 }
-                None::<(crate::log_pipe::LogPipeServerHandle, String, std::sync::Arc<std::sync::Mutex<Vec<CapturedLogEntry>>>, tokio::task::JoinHandle<()>)>
+                None::<(
+                    crate::log_pipe::LogPipeServerHandle,
+                    String,
+                    std::sync::Arc<std::sync::Mutex<Vec<CapturedLogEntry>>>,
+                    tokio::task::JoinHandle<()>,
+                )>
             } else {
                 None
             };
@@ -946,7 +951,6 @@ impl TypeScriptWorkflow {
             if let Some((handle, _)) = pipe_server_handle {
                 handle.shutdown().await;
             }
-
 
             return Err(McpError::internal_error(error_message, Some(error_data)));
         }
