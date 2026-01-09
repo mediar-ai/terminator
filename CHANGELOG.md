@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.18] - 2026-01-09
+
+### Added
+- MCP: Forward workflow Progress, Status, and Log events as MCP notifications
+- MCP: Use Windows Job Objects with KILL_ON_JOB_CLOSE to auto-terminate child processes when agent exits
+
+### Fixed
+- MCP: Extract logs from error data for TypeScript workflow failures
+- Recorder: Add early exit checks to prevent UIA traversals during stop
+- MCP: Extract logs from execute_sequence results in addition to run_command
+- MCP: Capture pipe logs on error path for workflow failures
+
 ## [0.24.16] - 2026-01-07
 
 ### Fixed
