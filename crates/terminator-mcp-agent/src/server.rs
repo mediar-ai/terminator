@@ -812,6 +812,7 @@ impl DesktopWrapper {
             inspect_overlay_handle: Arc::new(std::sync::Mutex::new(None)),
             client_modes: Arc::new(Mutex::new(std::collections::HashMap::new())),
             elicitation_peer: Arc::new(Mutex::new(None)),
+            broadcast_peers: Arc::new(Mutex::new(Vec::new())),
         })
     }
 
@@ -4004,6 +4005,7 @@ DATA PASSING:
 
                 // Clone peer for the event handler task
                 let peer_clone = peer.clone();
+                let broadcast_peers_clone = self.broadcast_peers.clone();
                 let progress_token_clone = progress_token.clone();
 
                 // Spawn task to collect screenshot events AND forward progress notifications
@@ -4029,16 +4031,27 @@ DATA PASSING:
                                 message,
                                 ..
                             } => {
-                                // Forward progress events as MCP notifications
-                                if let Some(ref p) = peer_clone {
-                                    let _ = p
-                                        .notify_progress(ProgressNotificationParam {
+                                // Broadcast progress events to ALL connected MCP clients
+                                // Dead peers are cleaned up on send failure
+                                let mut peers = broadcast_peers_clone.lock().await;
+                                let mut dead_indices = Vec::new();
+                                for (i, p) in peers.iter().enumerate() {
+                                    if p.notify_progress(ProgressNotificationParam {
                                             progress_token: progress_token_clone.clone(),
                                             progress: current,
                                             total,
-                                            message,
+                                            message: message.clone(),
                                         })
-                                        .await;
+                                        .await
+                                        .is_err()
+                                    {
+                                        dead_indices.push(i);
+                                    }
+                                }
+                                // Remove dead peers (reverse order to preserve indices)
+                                for i in dead_indices.into_iter().rev() {
+                                    peers.remove(i);
+                                    tracing::debug!("[broadcast] Removed dead peer at index {}", i);
                                 }
                             }
                             WorkflowEvent::Status { text, .. } => {
@@ -4272,6 +4285,7 @@ DATA PASSING:
 
                 // Clone peer for the event handler task
                 let peer_clone = peer.clone();
+                let broadcast_peers_clone2 = self.broadcast_peers.clone();
                 let progress_token_clone = progress_token.clone();
 
                 // Spawn task to collect screenshot events AND forward progress notifications
@@ -4297,16 +4311,27 @@ DATA PASSING:
                                 message,
                                 ..
                             } => {
-                                // Forward progress events as MCP notifications
-                                if let Some(ref p) = peer_clone {
-                                    let _ = p
-                                        .notify_progress(ProgressNotificationParam {
+                                // Broadcast progress events to ALL connected MCP clients
+                                // Dead peers are cleaned up on send failure
+                                let mut peers = broadcast_peers_clone2.lock().await;
+                                let mut dead_indices = Vec::new();
+                                for (i, p) in peers.iter().enumerate() {
+                                    if p.notify_progress(ProgressNotificationParam {
                                             progress_token: progress_token_clone.clone(),
                                             progress: current,
                                             total,
-                                            message,
+                                            message: message.clone(),
                                         })
-                                        .await;
+                                        .await
+                                        .is_err()
+                                    {
+                                        dead_indices.push(i);
+                                    }
+                                }
+                                // Remove dead peers (reverse order to preserve indices)
+                                for i in dead_indices.into_iter().rev() {
+                                    peers.remove(i);
+                                    tracing::debug!("[broadcast] Removed dead peer at index {}", i);
                                 }
                             }
                             WorkflowEvent::Status { text, .. } => {
@@ -10623,6 +10648,17 @@ impl ServerHandler for DesktopWrapper {
             tracing::info!(
                 "[on_initialized] Client initialized (no peer_info). supports_elicitation: {}",
                 supports
+            );
+        }
+
+        // Add peer to broadcast list for progress notifications
+        // All connected clients will receive emit.progress() updates
+        {
+            let mut broadcast_guard = self.broadcast_peers.lock().await;
+            broadcast_guard.push(peer.clone());
+            tracing::info!(
+                "[on_initialized] Added peer to broadcast list. Total peers: {}",
+                broadcast_guard.len()
             );
         }
 

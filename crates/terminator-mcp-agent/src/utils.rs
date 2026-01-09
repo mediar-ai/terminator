@@ -431,6 +431,10 @@ pub struct DesktopWrapper {
     /// Used to show UI prompts to the user even when tool calls come from a different peer
     #[serde(skip)]
     pub elicitation_peer: Arc<TokioMutex<Option<Peer<RoleServer>>>>,
+    /// All connected peers for broadcasting progress notifications
+    /// When emit.progress() is called, notifications are sent to ALL connected clients
+    #[serde(skip)]
+    pub broadcast_peers: Arc<TokioMutex<Vec<Peer<RoleServer>>>>,
 }
 
 impl Default for DesktopWrapper {
