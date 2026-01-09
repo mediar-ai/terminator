@@ -20,10 +20,9 @@ use image::{ExtendedColorType, ImageBuffer, ImageEncoder, Rgba};
 use regex::Regex;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
-    CallToolResult, Content, ElicitationSchema, EnumSchema, Implementation,
-    LoggingLevel, LoggingMessageNotificationParam, NumberOrString, PrimitiveSchema,
-    ProgressNotificationParam, ProgressToken, ProtocolVersion, ServerCapabilities, ServerInfo,
-    StringSchema,
+    CallToolResult, Content, ElicitationSchema, EnumSchema, Implementation, LoggingLevel,
+    LoggingMessageNotificationParam, NumberOrString, PrimitiveSchema, ProgressNotificationParam,
+    ProgressToken, ProtocolVersion, ServerCapabilities, ServerInfo, StringSchema,
 };
 use rmcp::tool_router;
 use rmcp::{tool, ErrorData as McpError, ServerHandler};
@@ -4069,7 +4068,12 @@ DATA PASSING:
                                         .await;
                                 }
                             }
-                            WorkflowEvent::Log { level, message, data, .. } => {
+                            WorkflowEvent::Log {
+                                level,
+                                message,
+                                data,
+                                ..
+                            } => {
                                 // Forward log events
                                 if let Some(ref p) = peer_clone {
                                     let log_level = match level.as_str() {
@@ -4349,7 +4353,12 @@ DATA PASSING:
                                         .await;
                                 }
                             }
-                            WorkflowEvent::Log { level, message, data, .. } => {
+                            WorkflowEvent::Log {
+                                level,
+                                message,
+                                data,
+                                ..
+                            } => {
                                 // Forward log events
                                 if let Some(ref p) = peer_clone {
                                     let log_level = match level.as_str() {
@@ -10054,7 +10063,12 @@ impl DesktopWrapper {
                         .in_current_span(),
                     );
 
-                    self.run_command_impl(args, Some(child_token), Some(request_context.peer.clone())).await
+                    self.run_command_impl(
+                        args,
+                        Some(child_token),
+                        Some(request_context.peer.clone()),
+                    )
+                    .await
                 }
                 Err(e) => Err(McpError::invalid_params(
                     "Invalid arguments for run_command",
