@@ -291,6 +291,10 @@ async fn main() -> Result<()> {
         eprintln!("Set Windows console to UTF-8 mode");
     }
 
+    // Initialize job object for automatic child process cleanup on exit
+    // This ensures bun/node processes are killed even if we're force-killed
+    child_process::init_job_object();
+
     let log_capture = init_logging()?;
 
     // Initialize Sentry if sentry feature is enabled (before OpenTelemetry)

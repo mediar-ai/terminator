@@ -20,8 +20,10 @@ use image::{ExtendedColorType, ImageBuffer, ImageEncoder, Rgba};
 use regex::Regex;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
-    CallToolResult, Content, ElicitationSchema, EnumSchema, Implementation, PrimitiveSchema,
-    ProtocolVersion, ServerCapabilities, ServerInfo, StringSchema,
+    CallToolResult, Content, ElicitationSchema, EnumSchema, Implementation,
+    LoggingLevel, LoggingMessageNotificationParam, NumberOrString, PrimitiveSchema,
+    ProgressNotificationParam, ProgressToken, ProtocolVersion, ServerCapabilities, ServerInfo,
+    StringSchema,
 };
 use rmcp::tool_router;
 use rmcp::{tool, ErrorData as McpError, ServerHandler};
@@ -3554,15 +3556,17 @@ DATA PASSING:
     )]
     async fn run_command(
         &self,
+        peer: Peer<RoleServer>,
         Parameters(args): Parameters<RunCommandArgs>,
     ) -> Result<CallToolResult, McpError> {
-        self.run_command_impl(args, None).await
+        self.run_command_impl(args, None, Some(peer)).await
     }
 
     async fn run_command_impl(
         &self,
         args: RunCommandArgs,
         cancellation_token: Option<tokio_util::sync::CancellationToken>,
+        peer: Option<Peer<RoleServer>>,
     ) -> Result<CallToolResult, McpError> {
         // Start telemetry span
         let mut span = StepSpan::new("run_command_impl", None);
@@ -3993,22 +3997,87 @@ DATA PASSING:
                 > = Arc::new(std::sync::Mutex::new(Vec::new()));
                 let screenshots_clone = collected_screenshots.clone();
 
-                // Spawn task to collect screenshot events
+                // Create progress token for MCP notifications
+                let progress_token = ProgressToken(NumberOrString::String(
+                    format!("run-command-{}", std::process::id()).into(),
+                ));
+
+                // Clone peer for the event handler task
+                let peer_clone = peer.clone();
+                let progress_token_clone = progress_token.clone();
+
+                // Spawn task to collect screenshot events AND forward progress notifications
                 let screenshot_collector = tokio::spawn(async move {
                     let mut index = 0usize;
                     while let Some(event) = event_rx.recv().await {
-                        if let WorkflowEvent::Screenshot {
-                            base64: Some(b64),
-                            timestamp,
-                            annotation,
-                            element,
-                            ..
-                        } = event
-                        {
-                            if let Ok(mut screenshots) = screenshots_clone.lock() {
-                                screenshots.push((index, timestamp, annotation, element, b64));
-                                index += 1;
+                        match event {
+                            WorkflowEvent::Screenshot {
+                                base64: Some(b64),
+                                timestamp,
+                                annotation,
+                                element,
+                                ..
+                            } => {
+                                if let Ok(mut screenshots) = screenshots_clone.lock() {
+                                    screenshots.push((index, timestamp, annotation, element, b64));
+                                    index += 1;
+                                }
                             }
+                            WorkflowEvent::Progress {
+                                current,
+                                total,
+                                message,
+                                ..
+                            } => {
+                                // Forward progress events as MCP notifications
+                                if let Some(ref p) = peer_clone {
+                                    let _ = p
+                                        .notify_progress(ProgressNotificationParam {
+                                            progress_token: progress_token_clone.clone(),
+                                            progress: current,
+                                            total,
+                                            message,
+                                        })
+                                        .await;
+                                }
+                            }
+                            WorkflowEvent::Status { text, .. } => {
+                                // Forward status events as logging messages
+                                if let Some(ref p) = peer_clone {
+                                    let _ = p
+                                        .notify_logging_message(LoggingMessageNotificationParam {
+                                            level: LoggingLevel::Info,
+                                            logger: Some("run_command".to_string()),
+                                            data: json!({
+                                                "type": "status",
+                                                "message": text
+                                            }),
+                                        })
+                                        .await;
+                                }
+                            }
+                            WorkflowEvent::Log { level, message, data, .. } => {
+                                // Forward log events
+                                if let Some(ref p) = peer_clone {
+                                    let log_level = match level.as_str() {
+                                        "error" => LoggingLevel::Error,
+                                        "warn" | "warning" => LoggingLevel::Warning,
+                                        "debug" => LoggingLevel::Debug,
+                                        _ => LoggingLevel::Info,
+                                    };
+                                    let _ = p
+                                        .notify_logging_message(LoggingMessageNotificationParam {
+                                            level: log_level,
+                                            logger: Some("run_command".to_string()),
+                                            data: json!({
+                                                "message": message,
+                                                "data": data
+                                            }),
+                                        })
+                                        .await;
+                                }
+                            }
+                            _ => {} // Ignore other events
                         }
                     }
                 });
@@ -4196,22 +4265,87 @@ DATA PASSING:
                 > = Arc::new(std::sync::Mutex::new(Vec::new()));
                 let screenshots_clone = collected_screenshots.clone();
 
-                // Spawn task to collect screenshot events
+                // Create progress token for MCP notifications
+                let progress_token = ProgressToken(NumberOrString::String(
+                    format!("run-command-{}", std::process::id()).into(),
+                ));
+
+                // Clone peer for the event handler task
+                let peer_clone = peer.clone();
+                let progress_token_clone = progress_token.clone();
+
+                // Spawn task to collect screenshot events AND forward progress notifications
                 let screenshot_collector = tokio::spawn(async move {
                     let mut index = 0usize;
                     while let Some(event) = event_rx.recv().await {
-                        if let WorkflowEvent::Screenshot {
-                            base64: Some(b64),
-                            timestamp,
-                            annotation,
-                            element,
-                            ..
-                        } = event
-                        {
-                            if let Ok(mut screenshots) = screenshots_clone.lock() {
-                                screenshots.push((index, timestamp, annotation, element, b64));
-                                index += 1;
+                        match event {
+                            WorkflowEvent::Screenshot {
+                                base64: Some(b64),
+                                timestamp,
+                                annotation,
+                                element,
+                                ..
+                            } => {
+                                if let Ok(mut screenshots) = screenshots_clone.lock() {
+                                    screenshots.push((index, timestamp, annotation, element, b64));
+                                    index += 1;
+                                }
                             }
+                            WorkflowEvent::Progress {
+                                current,
+                                total,
+                                message,
+                                ..
+                            } => {
+                                // Forward progress events as MCP notifications
+                                if let Some(ref p) = peer_clone {
+                                    let _ = p
+                                        .notify_progress(ProgressNotificationParam {
+                                            progress_token: progress_token_clone.clone(),
+                                            progress: current,
+                                            total,
+                                            message,
+                                        })
+                                        .await;
+                                }
+                            }
+                            WorkflowEvent::Status { text, .. } => {
+                                // Forward status events as logging messages
+                                if let Some(ref p) = peer_clone {
+                                    let _ = p
+                                        .notify_logging_message(LoggingMessageNotificationParam {
+                                            level: LoggingLevel::Info,
+                                            logger: Some("run_command".to_string()),
+                                            data: json!({
+                                                "type": "status",
+                                                "message": text
+                                            }),
+                                        })
+                                        .await;
+                                }
+                            }
+                            WorkflowEvent::Log { level, message, data, .. } => {
+                                // Forward log events
+                                if let Some(ref p) = peer_clone {
+                                    let log_level = match level.as_str() {
+                                        "error" => LoggingLevel::Error,
+                                        "warn" | "warning" => LoggingLevel::Warning,
+                                        "debug" => LoggingLevel::Debug,
+                                        _ => LoggingLevel::Info,
+                                    };
+                                    let _ = p
+                                        .notify_logging_message(LoggingMessageNotificationParam {
+                                            level: log_level,
+                                            logger: Some("run_command".to_string()),
+                                            data: json!({
+                                                "message": message,
+                                                "data": data
+                                            }),
+                                        })
+                                        .await;
+                                }
+                            }
+                            _ => {} // Ignore other events
                         }
                     }
                 });
@@ -9895,7 +10029,7 @@ impl DesktopWrapper {
                         .in_current_span(),
                     );
 
-                    self.run_command_impl(args, Some(child_token)).await
+                    self.run_command_impl(args, Some(child_token), Some(request_context.peer.clone())).await
                 }
                 Err(e) => Err(McpError::invalid_params(
                     "Invalid arguments for run_command",
