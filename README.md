@@ -80,8 +80,8 @@ See the [MCP Agent README](https://github.com/mediar-ai/terminator/tree/main/ter
 
 ## 🚀 What's new
 
-- 01/09/26 - desktop app is in public access - [download now](https://cdn.crabnebula.app/download/mediar/mediar/latest/platform/windows-x86_64)
-- 10/30 Public alpha is live - [n8n for legacy software](https://www.mediar.ai)
+- 01/09/26 - Mediar IDE (Cursor for Windows automation) is in public access - [download now](https://cdn.crabnebula.app/download/mediar/mediar/latest/platform/windows-x86_64)
+- 10/30 Public alpha is live - [Cursor for Windows automation](https://www.mediar.ai)
 - 09/26 Terminator was on [Cohere Labs podcast](https://www.youtube.com/watch?v=cfQxlk8KNmY), also [check the slides](https://092025-cohere.mediar.ai/)
 - 08/25 Big release — NodeJS SDK in YAML workflows, run JS in browser, OS event recording → YAML generation in MCP, and more
 - 08/25 [we raised $2.8m to give AI hands to every desktop](https://x.com/louis030195/status/1948745185178914929)
