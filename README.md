@@ -1,6 +1,16 @@
 ![Demo](https://github.com/user-attachments/assets/b33212a6-7bd1-4654-b658-8a2f9a3a8b77)
 
 <p align="center">
+  <a href="https://cdn.crabnebula.app/download/mediar/mediar/latest/platform/windows-x86_64">
+    <img src="https://img.shields.io/badge/⬇_Download_for_Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" height="50">
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://app.mediar.ai">
+    <img src="https://img.shields.io/badge/🌐_Use_on_macOS-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Use on macOS" height="50">
+  </a>
+</p>
+
+<p align="center">
   <a href="https://discord.gg/dU9EBuw7Uq">
     <img src="https://img.shields.io/discord/823813159592001537?color=5865F2&logo=discord&logoColor=white&style=flat-square" alt="Join us on Discord">
   </a>
@@ -70,6 +80,7 @@ See the [MCP Agent README](https://github.com/mediar-ai/terminator/tree/main/ter
 
 ## 🚀 What's new
 
+- 01/09/26 - desktop app is in public access - [download now](https://cdn.crabnebula.app/download/mediar/mediar/latest/platform/windows-x86_64)
 - 10/30 Public alpha is live - [n8n for legacy software](https://www.mediar.ai)
 - 09/26 Terminator was on [Cohere Labs podcast](https://www.youtube.com/watch?v=cfQxlk8KNmY), also [check the slides](https://092025-cohere.mediar.ai/)
 - 08/25 Big release — NodeJS SDK in YAML workflows, run JS in browser, OS event recording → YAML generation in MCP, and more
