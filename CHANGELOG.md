@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.19] - 2026-01-09
+
+### Added
+- MCP: Broadcast progress notifications to all connected MCP clients (not just the initiating one)
+- MCP: Auto-cleanup dead peers on send failure
+
 ## [0.24.18] - 2026-01-09
 
 ### Added
