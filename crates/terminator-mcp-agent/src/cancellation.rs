@@ -5,6 +5,8 @@ use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn, Instrument};
 
+use crate::child_process;
+
 /// Context for a single MCP request that can be cancelled
 #[derive(Clone, Debug)]
 pub struct RequestContext {
@@ -122,7 +124,7 @@ impl RequestManager {
         self.active_requests.read().await.len()
     }
 
-    /// Cancel all active requests
+    /// Cancel all active requests and kill their child processes
     pub async fn cancel_all(&self) {
         let requests = self.active_requests.read().await;
         let count = requests.len();
@@ -130,11 +132,18 @@ impl RequestManager {
             "[STOP-DEBUG] cancel_all: found {} active requests to cancel",
             count
         );
+        let mut total_killed = 0;
         for (id, context) in requests.iter() {
             info!("[STOP-DEBUG] Cancelling request: {}", id);
             context.cancel();
+            // Kill child processes associated with this execution_id
+            let killed = child_process::kill_by_execution_id(id);
+            total_killed += killed;
         }
-        info!("[STOP-DEBUG] cancel_all: cancelled {} requests", count);
+        info!(
+            "[STOP-DEBUG] cancel_all: cancelled {} requests, killed {} child processes",
+            count, total_killed
+        );
     }
 
     /// Get a request context by ID
