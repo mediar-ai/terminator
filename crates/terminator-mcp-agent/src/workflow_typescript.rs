@@ -767,6 +767,11 @@ impl TypeScriptWorkflow {
                             }
                         }
 
+                        // Skip empty lines to avoid log spam during shutdown
+                        if line.trim().is_empty() {
+                            continue;
+                        }
+
                         // Regular log line processing (fallback when logs not via pipe)
                         let parsed = parse_log_line(&line);
                         let msg = parsed.message.clone();
