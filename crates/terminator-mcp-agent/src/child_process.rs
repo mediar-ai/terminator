@@ -173,6 +173,47 @@ pub fn unregister(pid: u32) {
     }
 }
 
+/// Kill all child processes matching an execution_id (used by stop_execution)
+pub fn kill_by_execution_id(execution_id: &str) -> usize {
+    info!(
+        "[STOP-DEBUG] kill_by_execution_id called for: {}",
+        execution_id
+    );
+    let pids_to_kill: Vec<ChildProcessInfo> = match get_registry().write() {
+        Ok(mut registry) => {
+            let matching: Vec<u32> = registry
+                .iter()
+                .filter(|(_, info)| info.execution_id.as_deref() == Some(execution_id))
+                .map(|(pid, _)| *pid)
+                .collect();
+            matching
+                .iter()
+                .filter_map(|pid| registry.remove(pid))
+                .collect()
+        }
+        Err(e) => {
+            warn!("Failed to acquire child process registry lock: {}", e);
+            return 0;
+        }
+    };
+    let count = pids_to_kill.len();
+    if count == 0 {
+        debug!(
+            "[STOP-DEBUG] No child processes found for execution_id: {}",
+            execution_id
+        );
+        return 0;
+    }
+    info!(
+        "[STOP-DEBUG] Killing {} child process(es) for execution_id: {}",
+        count, execution_id
+    );
+    for info in pids_to_kill {
+        kill_process(info.pid, info.execution_id.as_deref());
+    }
+    count
+}
+
 pub fn active_count() -> usize {
     get_registry().read().map(|r| r.len()).unwrap_or(0)
 }
