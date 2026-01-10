@@ -4036,13 +4036,13 @@ DATA PASSING:
                                 let mut dead_indices = Vec::new();
                                 for (i, p) in peers.iter().enumerate() {
                                     if p.notify_progress(ProgressNotificationParam {
-                                            progress_token: progress_token_clone.clone(),
-                                            progress: current,
-                                            total,
-                                            message: message.clone(),
-                                        })
-                                        .await
-                                        .is_err()
+                                        progress_token: progress_token_clone.clone(),
+                                        progress: current,
+                                        total,
+                                        message: message.clone(),
+                                    })
+                                    .await
+                                    .is_err()
                                     {
                                         dead_indices.push(i);
                                     }
@@ -4321,13 +4321,13 @@ DATA PASSING:
                                 let mut dead_indices = Vec::new();
                                 for (i, p) in peers.iter().enumerate() {
                                     if p.notify_progress(ProgressNotificationParam {
-                                            progress_token: progress_token_clone.clone(),
-                                            progress: current,
-                                            total,
-                                            message: message.clone(),
-                                        })
-                                        .await
-                                        .is_err()
+                                        progress_token: progress_token_clone.clone(),
+                                        progress: current,
+                                        total,
+                                        message: message.clone(),
+                                    })
+                                    .await
+                                    .is_err()
                                     {
                                         dead_indices.push(i);
                                     }
