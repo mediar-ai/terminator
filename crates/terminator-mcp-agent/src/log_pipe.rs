@@ -194,6 +194,11 @@ impl LogPipeServerHandle {
 pub fn forward_log_to_tracing(entry: &LogEntry, execution_id: Option<&str>) {
     let msg = &entry.message;
 
+    // Skip empty messages to avoid log spam during shutdown
+    if msg.trim().is_empty() {
+        return;
+    }
+
     match (execution_id, entry.level.as_str()) {
         (Some(exec_id), "error") => {
             error!(target: "workflow.typescript", execution_id = %exec_id, "{}", msg)
