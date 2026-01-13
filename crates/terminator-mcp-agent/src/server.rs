@@ -4030,42 +4030,48 @@ DATA PASSING:
                                 message,
                                 ..
                             } => {
-                                // Broadcast progress events to ALL connected MCP clients
-                                // Dead peers are cleaned up on send failure
-                                let mut peers = broadcast_peers_clone.lock().await;
-                                let mut dead_indices = Vec::new();
-                                for (i, p) in peers.iter().enumerate() {
-                                    if p.notify_progress(ProgressNotificationParam {
-                                        progress_token: progress_token_clone.clone(),
-                                        progress: current,
-                                        total,
-                                        message: message.clone(),
-                                    })
-                                    .await
-                                    .is_err()
-                                    {
-                                        dead_indices.push(i);
+                                // Broadcast progress events to ALL connected MCP clients (fire-and-forget)
+                                // Non-blocking to avoid holding request slot during slow peer notifications
+                                let peers_for_progress = broadcast_peers_clone.clone();
+                                let progress_token_for_spawn = progress_token_clone.clone();
+                                tokio::spawn(async move {
+                                    let mut peers = peers_for_progress.lock().await;
+                                    let mut dead_indices = Vec::new();
+                                    for (i, p) in peers.iter().enumerate() {
+                                        if p.notify_progress(ProgressNotificationParam {
+                                            progress_token: progress_token_for_spawn.clone(),
+                                            progress: current,
+                                            total,
+                                            message: message.clone(),
+                                        })
+                                        .await
+                                        .is_err()
+                                        {
+                                            dead_indices.push(i);
+                                        }
                                     }
-                                }
-                                // Remove dead peers (reverse order to preserve indices)
-                                for i in dead_indices.into_iter().rev() {
-                                    peers.remove(i);
-                                    tracing::debug!("[broadcast] Removed dead peer at index {}", i);
-                                }
+                                    // Remove dead peers (reverse order to preserve indices)
+                                    for i in dead_indices.into_iter().rev() {
+                                        peers.remove(i);
+                                        tracing::debug!("[broadcast] Removed dead peer at index {}", i);
+                                    }
+                                });
                             }
                             WorkflowEvent::Status { text, .. } => {
-                                // Forward status events as logging messages
-                                if let Some(ref p) = peer_clone {
-                                    let _ = p
-                                        .notify_logging_message(LoggingMessageNotificationParam {
-                                            level: LoggingLevel::Info,
-                                            logger: Some("run_command".to_string()),
-                                            data: json!({
-                                                "type": "status",
-                                                "message": text
-                                            }),
-                                        })
-                                        .await;
+                                // Forward status events as logging messages (fire-and-forget)
+                                if let Some(p) = peer_clone.clone() {
+                                    tokio::spawn(async move {
+                                        let _ = p
+                                            .notify_logging_message(LoggingMessageNotificationParam {
+                                                level: LoggingLevel::Info,
+                                                logger: Some("run_command".to_string()),
+                                                data: json!({
+                                                    "type": "status",
+                                                    "message": text
+                                                }),
+                                            })
+                                            .await;
+                                    });
                                 }
                             }
                             WorkflowEvent::Log {
@@ -4074,24 +4080,26 @@ DATA PASSING:
                                 data,
                                 ..
                             } => {
-                                // Forward log events
-                                if let Some(ref p) = peer_clone {
+                                // Forward log events (fire-and-forget)
+                                if let Some(p) = peer_clone.clone() {
                                     let log_level = match level.as_str() {
                                         "error" => LoggingLevel::Error,
                                         "warn" | "warning" => LoggingLevel::Warning,
                                         "debug" => LoggingLevel::Debug,
                                         _ => LoggingLevel::Info,
                                     };
-                                    let _ = p
-                                        .notify_logging_message(LoggingMessageNotificationParam {
-                                            level: log_level,
-                                            logger: Some("run_command".to_string()),
-                                            data: json!({
-                                                "message": message,
-                                                "data": data
-                                            }),
-                                        })
-                                        .await;
+                                    tokio::spawn(async move {
+                                        let _ = p
+                                            .notify_logging_message(LoggingMessageNotificationParam {
+                                                level: log_level,
+                                                logger: Some("run_command".to_string()),
+                                                data: json!({
+                                                    "message": message,
+                                                    "data": data
+                                                }),
+                                            })
+                                            .await;
+                                    });
                                 }
                             }
                             _ => {} // Ignore other events
@@ -4315,42 +4323,48 @@ DATA PASSING:
                                 message,
                                 ..
                             } => {
-                                // Broadcast progress events to ALL connected MCP clients
-                                // Dead peers are cleaned up on send failure
-                                let mut peers = broadcast_peers_clone2.lock().await;
-                                let mut dead_indices = Vec::new();
-                                for (i, p) in peers.iter().enumerate() {
-                                    if p.notify_progress(ProgressNotificationParam {
-                                        progress_token: progress_token_clone.clone(),
-                                        progress: current,
-                                        total,
-                                        message: message.clone(),
-                                    })
-                                    .await
-                                    .is_err()
-                                    {
-                                        dead_indices.push(i);
+                                // Broadcast progress events to ALL connected MCP clients (fire-and-forget)
+                                // Non-blocking to avoid holding request slot during slow peer notifications
+                                let peers_for_progress = broadcast_peers_clone2.clone();
+                                let progress_token_for_spawn = progress_token_clone.clone();
+                                tokio::spawn(async move {
+                                    let mut peers = peers_for_progress.lock().await;
+                                    let mut dead_indices = Vec::new();
+                                    for (i, p) in peers.iter().enumerate() {
+                                        if p.notify_progress(ProgressNotificationParam {
+                                            progress_token: progress_token_for_spawn.clone(),
+                                            progress: current,
+                                            total,
+                                            message: message.clone(),
+                                        })
+                                        .await
+                                        .is_err()
+                                        {
+                                            dead_indices.push(i);
+                                        }
                                     }
-                                }
-                                // Remove dead peers (reverse order to preserve indices)
-                                for i in dead_indices.into_iter().rev() {
-                                    peers.remove(i);
-                                    tracing::debug!("[broadcast] Removed dead peer at index {}", i);
-                                }
+                                    // Remove dead peers (reverse order to preserve indices)
+                                    for i in dead_indices.into_iter().rev() {
+                                        peers.remove(i);
+                                        tracing::debug!("[broadcast] Removed dead peer at index {}", i);
+                                    }
+                                });
                             }
                             WorkflowEvent::Status { text, .. } => {
-                                // Forward status events as logging messages
-                                if let Some(ref p) = peer_clone {
-                                    let _ = p
-                                        .notify_logging_message(LoggingMessageNotificationParam {
-                                            level: LoggingLevel::Info,
-                                            logger: Some("run_command".to_string()),
-                                            data: json!({
-                                                "type": "status",
-                                                "message": text
-                                            }),
-                                        })
-                                        .await;
+                                // Forward status events as logging messages (fire-and-forget)
+                                if let Some(p) = peer_clone.clone() {
+                                    tokio::spawn(async move {
+                                        let _ = p
+                                            .notify_logging_message(LoggingMessageNotificationParam {
+                                                level: LoggingLevel::Info,
+                                                logger: Some("run_command".to_string()),
+                                                data: json!({
+                                                    "type": "status",
+                                                    "message": text
+                                                }),
+                                            })
+                                            .await;
+                                    });
                                 }
                             }
                             WorkflowEvent::Log {
@@ -4359,24 +4373,26 @@ DATA PASSING:
                                 data,
                                 ..
                             } => {
-                                // Forward log events
-                                if let Some(ref p) = peer_clone {
+                                // Forward log events (fire-and-forget)
+                                if let Some(p) = peer_clone.clone() {
                                     let log_level = match level.as_str() {
                                         "error" => LoggingLevel::Error,
                                         "warn" | "warning" => LoggingLevel::Warning,
                                         "debug" => LoggingLevel::Debug,
                                         _ => LoggingLevel::Info,
                                     };
-                                    let _ = p
-                                        .notify_logging_message(LoggingMessageNotificationParam {
-                                            level: log_level,
-                                            logger: Some("run_command".to_string()),
-                                            data: json!({
-                                                "message": message,
-                                                "data": data
-                                            }),
-                                        })
-                                        .await;
+                                    tokio::spawn(async move {
+                                        let _ = p
+                                            .notify_logging_message(LoggingMessageNotificationParam {
+                                                level: log_level,
+                                                logger: Some("run_command".to_string()),
+                                                data: json!({
+                                                    "message": message,
+                                                    "data": data
+                                                }),
+                                            })
+                                            .await;
+                                    });
                                 }
                             }
                             _ => {} // Ignore other events
