@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.20] - 2026-01-13
+
+### Added
+- MCP: Add `kill_by_execution_id` to terminate child processes by execution ID
+- MCP: Kill child processes when cancelling requests in `stop_execution`
+
+### Fixed
+- MCP: Make peer notifications non-blocking to prevent 503 busy errors
+- MCP: Skip empty log lines to avoid spam during shutdown
+
+### Changed
+- Build: Ignore Claude Code temp files in git
+
 ## [0.24.19] - 2026-01-09
 
 ### Added
