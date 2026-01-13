@@ -45,3 +45,4 @@ mcp.json
 
 # Windows null device file (created when running >nul in Git Bash)
 nul
+tmpclaude-*
