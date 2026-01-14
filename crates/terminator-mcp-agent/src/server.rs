@@ -4053,7 +4053,10 @@ DATA PASSING:
                                     // Remove dead peers (reverse order to preserve indices)
                                     for i in dead_indices.into_iter().rev() {
                                         peers.remove(i);
-                                        tracing::debug!("[broadcast] Removed dead peer at index {}", i);
+                                        tracing::debug!(
+                                            "[broadcast] Removed dead peer at index {}",
+                                            i
+                                        );
                                     }
                                 });
                             }
@@ -4062,14 +4065,16 @@ DATA PASSING:
                                 if let Some(p) = peer_clone.clone() {
                                     tokio::spawn(async move {
                                         let _ = p
-                                            .notify_logging_message(LoggingMessageNotificationParam {
-                                                level: LoggingLevel::Info,
-                                                logger: Some("run_command".to_string()),
-                                                data: json!({
-                                                    "type": "status",
-                                                    "message": text
-                                                }),
-                                            })
+                                            .notify_logging_message(
+                                                LoggingMessageNotificationParam {
+                                                    level: LoggingLevel::Info,
+                                                    logger: Some("run_command".to_string()),
+                                                    data: json!({
+                                                        "type": "status",
+                                                        "message": text
+                                                    }),
+                                                },
+                                            )
                                             .await;
                                     });
                                 }
@@ -4090,14 +4095,16 @@ DATA PASSING:
                                     };
                                     tokio::spawn(async move {
                                         let _ = p
-                                            .notify_logging_message(LoggingMessageNotificationParam {
-                                                level: log_level,
-                                                logger: Some("run_command".to_string()),
-                                                data: json!({
-                                                    "message": message,
-                                                    "data": data
-                                                }),
-                                            })
+                                            .notify_logging_message(
+                                                LoggingMessageNotificationParam {
+                                                    level: log_level,
+                                                    logger: Some("run_command".to_string()),
+                                                    data: json!({
+                                                        "message": message,
+                                                        "data": data
+                                                    }),
+                                                },
+                                            )
                                             .await;
                                     });
                                 }
@@ -4346,7 +4353,10 @@ DATA PASSING:
                                     // Remove dead peers (reverse order to preserve indices)
                                     for i in dead_indices.into_iter().rev() {
                                         peers.remove(i);
-                                        tracing::debug!("[broadcast] Removed dead peer at index {}", i);
+                                        tracing::debug!(
+                                            "[broadcast] Removed dead peer at index {}",
+                                            i
+                                        );
                                     }
                                 });
                             }
@@ -4355,14 +4365,16 @@ DATA PASSING:
                                 if let Some(p) = peer_clone.clone() {
                                     tokio::spawn(async move {
                                         let _ = p
-                                            .notify_logging_message(LoggingMessageNotificationParam {
-                                                level: LoggingLevel::Info,
-                                                logger: Some("run_command".to_string()),
-                                                data: json!({
-                                                    "type": "status",
-                                                    "message": text
-                                                }),
-                                            })
+                                            .notify_logging_message(
+                                                LoggingMessageNotificationParam {
+                                                    level: LoggingLevel::Info,
+                                                    logger: Some("run_command".to_string()),
+                                                    data: json!({
+                                                        "type": "status",
+                                                        "message": text
+                                                    }),
+                                                },
+                                            )
                                             .await;
                                     });
                                 }
@@ -4383,14 +4395,16 @@ DATA PASSING:
                                     };
                                     tokio::spawn(async move {
                                         let _ = p
-                                            .notify_logging_message(LoggingMessageNotificationParam {
-                                                level: log_level,
-                                                logger: Some("run_command".to_string()),
-                                                data: json!({
-                                                    "message": message,
-                                                    "data": data
-                                                }),
-                                            })
+                                            .notify_logging_message(
+                                                LoggingMessageNotificationParam {
+                                                    level: log_level,
+                                                    logger: Some("run_command".to_string()),
+                                                    data: json!({
+                                                        "message": message,
+                                                        "data": data
+                                                    }),
+                                                },
+                                            )
                                             .await;
                                     });
                                 }
