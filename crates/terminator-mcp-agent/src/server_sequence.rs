@@ -1722,7 +1722,23 @@ impl DesktopWrapper {
 
                         if error_occurred {
                             // Only mark as critical if there's no fallback to handle it
-                            if fallback_id_opt.is_none() {
+                            if let Some(fallback_id) = &fallback_id_opt {
+                                // Has fallback, log but don't mark as critical
+                                if let Some(id) = original_step.and_then(|s| s.id.as_deref()) {
+                                    tracing::info!(
+                                        step_id = %id,
+                                        tool = %tool_call.tool_name,
+                                        fallback_id = %fallback_id,
+                                        "Tool failed but has fallback configured"
+                                    );
+                                } else {
+                                    tracing::info!(
+                                        tool = %tool_call.tool_name,
+                                        fallback_id = %fallback_id,
+                                        "Tool failed but has fallback configured"
+                                    );
+                                }
+                            } else {
                                 critical_error_occurred = true;
                                 if let Some(id) = original_step.and_then(|s| s.id.as_deref()) {
                                     tracing::warn!(
@@ -1740,22 +1756,6 @@ impl DesktopWrapper {
                                         skippable = %tool_call.continue_on_error.unwrap_or(false),
                                         has_fallback = false,
                                         "Tool failed with unrecoverable error (no fallback)"
-                                    );
-                                }
-                            } else {
-                                // Has fallback, log but don't mark as critical
-                                if let Some(id) = original_step.and_then(|s| s.id.as_deref()) {
-                                    tracing::info!(
-                                        step_id = %id,
-                                        tool = %tool_call.tool_name,
-                                        fallback_id = %fallback_id_opt.as_ref().unwrap(),
-                                        "Tool failed but has fallback configured"
-                                    );
-                                } else {
-                                    tracing::info!(
-                                        tool = %tool_call.tool_name,
-                                        fallback_id = %fallback_id_opt.as_ref().unwrap(),
-                                        "Tool failed but has fallback configured"
                                     );
                                 }
                             }
