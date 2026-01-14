@@ -413,7 +413,10 @@ pub(crate) fn build_tree_with_cache(
 
     for prop in &properties {
         cache_request.add_property(*prop).map_err(|e| {
-            AutomationError::PlatformError(format!("Failed to add property {:?} to cache: {e}", prop))
+            AutomationError::PlatformError(format!(
+                "Failed to add property {:?} to cache: {e}",
+                prop
+            ))
         })?;
     }
 
@@ -421,9 +424,7 @@ pub(crate) fn build_tree_with_cache(
     // TreeScope values: Element=1, Children=2, Descendants=4, Subtree=7 (all combined)
     cache_request
         .set_tree_scope(TreeScope::Subtree)
-        .map_err(|e| {
-            AutomationError::PlatformError(format!("Failed to set tree scope: {e}"))
-        })?;
+        .map_err(|e| AutomationError::PlatformError(format!("Failed to set tree scope: {e}")))?;
 
     // Create condition for all elements
     let true_condition = automation.create_true_condition().map_err(|e| {
@@ -489,14 +490,24 @@ fn build_node_from_cached_element(
 
     let bounds = if include_all_bounds {
         element.get_cached_bounding_rectangle().ok().map(|r| {
-            (r.get_left() as f64, r.get_top() as f64, r.get_width() as f64, r.get_height() as f64)
+            (
+                r.get_left() as f64,
+                r.get_top() as f64,
+                r.get_width() as f64,
+                r.get_height() as f64,
+            )
         })
     } else {
         // Only include bounds for keyboard-focusable elements
         let is_focusable = element.is_cached_keyboard_focusable().unwrap_or(false);
         if is_focusable {
             element.get_cached_bounding_rectangle().ok().map(|r| {
-                (r.get_left() as f64, r.get_top() as f64, r.get_width() as f64, r.get_height() as f64)
+                (
+                    r.get_left() as f64,
+                    r.get_top() as f64,
+                    r.get_width() as f64,
+                    r.get_height() as f64,
+                )
             })
         } else {
             None
@@ -533,8 +544,8 @@ fn build_node_from_cached_element(
         bounds,
         enabled,
         is_selected: None,
-        child_count: None,      // Not fetching - was wasteful anyway
-        index_in_parent: None,  // Not fetching - was wasteful anyway
+        child_count: None,     // Not fetching - was wasteful anyway
+        index_in_parent: None, // Not fetching - was wasteful anyway
     };
 
     let mut node = crate::UINode {
@@ -545,7 +556,7 @@ fn build_node_from_cached_element(
     };
 
     // Check depth limit
-    let should_process_children = max_depth.map_or(true, |max| depth < max);
+    let should_process_children = max_depth.is_none_or(|max| depth < max);
 
     if should_process_children {
         // Get children from CACHE - instant, no IPC
