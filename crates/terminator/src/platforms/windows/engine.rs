@@ -3983,7 +3983,10 @@ impl AccessibilityEngine for WindowsEngine {
         }
 
         // Fallback to old recursive approach if caching fails
-        info!("[TREE_BUILD] Using fallback recursive approach for PID: {}", pid);
+        info!(
+            "[TREE_BUILD] Using fallback recursive approach for PID: {}",
+            pid
+        );
 
         // Wrap the raw OS element into our UIElement
         let window_element_wrapper = UIElement::new(Box::new(WindowsUIElement {
