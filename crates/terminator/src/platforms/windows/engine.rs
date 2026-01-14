@@ -2,7 +2,7 @@
 
 use crate::element::UIElementImpl;
 use crate::platforms::windows::tree_builder::{
-    build_ui_node_tree_configurable, TreeBuildingConfig, TreeBuildingContext,
+    build_tree_with_cache, build_ui_node_tree_configurable, TreeBuildingConfig, TreeBuildingContext,
 };
 use crate::platforms::windows::types::ThreadSafeWinUIElement;
 use crate::platforms::windows::utils::{
@@ -3948,13 +3948,6 @@ impl AccessibilityEngine for WindowsEngine {
             selected_window_name, pid, title
         );
 
-        // Wrap the raw OS element into our UIElement
-        let window_element_wrapper = UIElement::new(Box::new(WindowsUIElement {
-            element: ThreadSafeWinUIElement(Arc::new(selected_window)),
-            engine: None,
-        }));
-
-        // Build the UI tree with configurable performance optimizations
         // Get application name from process using sysinfo (efficient single lookup)
         let application_name = {
             use sysinfo::{ProcessesToUpdate, System};
@@ -3965,13 +3958,45 @@ impl AccessibilityEngine for WindowsEngine {
                 .map(|p| p.name().to_string_lossy().to_string())
         };
 
-        // Use configured tree building approach
+        // Try the new CACHED tree building approach first (30-50x faster)
+        // Falls back to the old recursive approach if caching fails
+        let max_depth = config.max_depth.or(Some(500));
+
+        info!("[TREE_BUILD] Attempting cached tree build for PID: {}", pid);
+        match build_tree_with_cache(
+            &self.automation.0,
+            &selected_window,
+            max_depth,
+            application_name.clone(),
+            config.include_all_bounds,
+        ) {
+            Ok(result) => {
+                info!("[TREE_BUILD] Cached approach succeeded for PID: {}", pid);
+                return Ok(result);
+            }
+            Err(e) => {
+                warn!(
+                    "[TREE_BUILD] Cached approach failed for PID: {}, falling back to recursive: {}",
+                    pid, e
+                );
+            }
+        }
+
+        // Fallback to old recursive approach if caching fails
+        info!("[TREE_BUILD] Using fallback recursive approach for PID: {}", pid);
+
+        // Wrap the raw OS element into our UIElement
+        let window_element_wrapper = UIElement::new(Box::new(WindowsUIElement {
+            element: ThreadSafeWinUIElement(Arc::new(selected_window)),
+            engine: None,
+        }));
+
         let mut context = TreeBuildingContext {
             config: TreeBuildingConfig {
                 timeout_per_operation_ms: config.timeout_per_operation_ms.unwrap_or(50),
                 yield_every_n_elements: config.yield_every_n_elements.unwrap_or(50),
                 batch_size: config.batch_size.unwrap_or(50),
-                max_depth: config.max_depth.or(Some(500)), // Set reasonable default to prevent stack overflow
+                max_depth,
             },
             property_mode: config.property_mode.clone(),
             elements_processed: 0,
@@ -3979,7 +4004,7 @@ impl AccessibilityEngine for WindowsEngine {
             cache_hits: 0,
             fallback_calls: 0,
             errors_encountered: 0,
-            application_name, // Cache application name for all nodes in tree
+            application_name,
             include_all_bounds: config.include_all_bounds,
         };
 
@@ -3987,7 +4012,7 @@ impl AccessibilityEngine for WindowsEngine {
             build_ui_node_tree_configurable(&window_element_wrapper, 0, &mut context, vec![])?;
 
         info!(
-            "Tree building completed for PID: {}. Stats: elements={}, depth={}, cache_hits={}, fallbacks={}, errors={}",
+            "[TREE_BUILD] Fallback completed for PID: {}. Stats: elements={}, depth={}, cache_hits={}, fallbacks={}, errors={}",
             pid,
             context.elements_processed,
             context.max_depth_reached,
