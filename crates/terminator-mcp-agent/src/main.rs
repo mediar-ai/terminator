@@ -280,6 +280,8 @@ async fn main() -> Result<()> {
     }));
 
     // Fix Windows encoding issues (IBM437 -> UTF-8)
+    // NOTE: Using spawn() instead of output() to avoid blocking startup.
+    // On some Azure VMs, chcp can take 6+ seconds which causes health check failures.
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -287,8 +289,8 @@ async fn main() -> Result<()> {
         let _ = std::process::Command::new("cmd")
             .args(["/c", "chcp", "65001"])
             .creation_flags(CREATE_NO_WINDOW)
-            .output();
-        eprintln!("Set Windows console to UTF-8 mode");
+            .spawn(); // Non-blocking - don't wait for completion
+        eprintln!("Set Windows console to UTF-8 mode (async)");
     }
 
     // Initialize job object for automatic child process cleanup on exit
