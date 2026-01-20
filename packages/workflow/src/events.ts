@@ -192,6 +192,43 @@ class EventTransport {
     }
 
     /**
+     * Flush pending writes to ensure all events are delivered
+     * Returns a promise that resolves when the stream is drained
+     */
+    async flush(): Promise<void> {
+        if (this.useStderr || !this.pipeStream) {
+            return;
+        }
+
+        return new Promise<void>((resolve) => {
+            if (!this.pipeStream) {
+                resolve();
+                return;
+            }
+
+            // If stream is already drained, resolve immediately
+            if (this.pipeStream.writableNeedDrain === false) {
+                resolve();
+                return;
+            }
+
+            // Wait for drain event
+            const onDrain = () => {
+                resolve();
+            };
+
+            this.pipeStream.once('drain', onDrain);
+
+            // Also resolve on error or close to avoid hanging
+            this.pipeStream.once('error', () => resolve());
+            this.pipeStream.once('close', () => resolve());
+
+            // Timeout fallback - don't wait forever
+            setTimeout(() => resolve(), 100);
+        });
+    }
+
+    /**
      * Close the transport
      */
     close(): void {
@@ -333,6 +370,14 @@ export const emit = {
      */
     raw(event: Omit<WorkflowEvent, '__mcp_event__' | 'timestamp'>): void {
         transport.send(event);
+    },
+
+    /**
+     * Flush all pending events to ensure they are delivered
+     * Call this before workflow exits to ensure all events are sent
+     */
+    async flush(): Promise<void> {
+        await transport.flush();
     },
 };
 
