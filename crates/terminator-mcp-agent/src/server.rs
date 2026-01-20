@@ -34,7 +34,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use sysinfo::{ProcessesToUpdate, System};
 use terminator::element::UIElementImpl;
-use terminator::{AutomationError, Browser, Desktop, Selector, UIElement};
+use terminator_computer_use::CallbackEvent;
 use tokio::sync::Mutex;
 use tracing::{info, warn, Instrument};
 
@@ -8625,11 +8625,62 @@ console.info = function(...args) {
             .prepare_window_management(&args.process, None, None, None, &args.window_mgmt)
             .await;
 
+        // Create progress callback for MCP notifications
+        let broadcast_peers = self.broadcast_peers.clone();
+        let progress_callback = Box::new(move |event: &CallbackEvent| {
+            let peers = broadcast_peers.clone();
+            let event = event.clone();
+            
+            tokio::spawn(async move {
+                let peers_guard = peers.lock().await;
+                for peer in peers_guard.iter() {
+                    match event {
+                        CallbackEvent::Step { current, total, message } => {
+                            // Send custom computer_use/progress notification
+                            let _ = peer
+                                .notify_logging_message(
+                                    LoggingMessageNotificationParam {
+                                        level: LoggingLevel::Info,
+                                        logger: Some("computer_use".to_string()),
+                                        data: json!({
+                                            "type": "progress",
+                                            "current": current,
+                                            "total": total,
+                                            "message": message
+                                        }),
+                                    },
+                                )
+                                .await;
+                        }
+                        CallbackEvent::StepCompleted(step) => {
+                            // Send step completion notification
+                            let _ = peer
+                                .notify_logging_message(
+                                    LoggingMessageNotificationParam {
+                                        level: LoggingLevel::Info,
+                                        logger: Some("computer_use".to_string()),
+                                        data: json!({
+                                            "type": "step_completed",
+                                            "step": step.step,
+                                            "action": step.action,
+                                            "success": step.success,
+                                            "error": step.error,
+                                            "message": format!("Completed step {}: {}", step.step, step.action)
+                                        }),
+                                    },
+                                )
+                                .await;
+                        }
+                    }
+                }
+            });
+        });
+
         // Call Desktop::gemini_computer_use (single source of truth)
         // This respects stop_execution() via cancellation token
         let result = self
             .desktop
-            .gemini_computer_use(&args.process, &args.goal, args.max_steps, None)
+            .gemini_computer_use(&args.process, &args.goal, args.max_steps, Some(progress_callback))
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 

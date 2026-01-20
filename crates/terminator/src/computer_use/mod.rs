@@ -21,7 +21,7 @@ use std::time::Duration;
 use sysinfo::{ProcessesToUpdate, System};
 use terminator_computer_use::{
     call_computer_use_backend, convert_normalized_to_screen, translate_gemini_keys,
-    ComputerUseActionResponse, ComputerUsePreviousAction, ComputerUseResult, ComputerUseStep,
+    CallbackEvent, ComputerUseActionResponse, ComputerUsePreviousAction, ComputerUseResult, ComputerUseStep,
     ProgressCallback,
 };
 use tracing::{info, warn};
@@ -520,6 +520,15 @@ impl Desktop {
 
             info!("[computer_use] Step {}/{}", step_num, max_steps);
 
+            // Send progress notification for step start
+            if let Some(ref callback) = on_step {
+                callback(&CallbackEvent::Step {
+                    current: step_num,
+                    total: max_steps,
+                    message: format!("Starting step {}: {}", step_num, max_steps),
+                });
+            }
+
             // 1. Capture screenshot of target window
             let capture_data = match capture_window_for_computer_use(self, process) {
                 Ok(data) => data,
@@ -627,7 +636,7 @@ impl Desktop {
 
             // Call progress callback if provided
             if let Some(ref callback) = on_step {
-                callback(&step);
+                callback(&CallbackEvent::StepCompleted(step.clone()));
             }
 
             steps.push(step);
