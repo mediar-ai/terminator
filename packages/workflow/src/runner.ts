@@ -140,6 +140,7 @@ export class WorkflowRunner {
           this.state.context.data = result.result;
           this.state.lastStepId = step.config.id;
           this.state.lastStepIndex = i;
+          await emit.flush(); // Ensure events are delivered before returning
           return {
             status: 'executed_without_error',
             lastStepId: this.state.lastStepId,
@@ -210,6 +211,7 @@ export class WorkflowRunner {
         this.state.lastStepIndex = i;
 
         // Return error result
+        await emit.flush(); // Ensure events are delivered before returning
         return {
           status: 'executed_with_error',
           lastStepId: this.state.lastStepId,
@@ -219,6 +221,7 @@ export class WorkflowRunner {
       }
     }
 
+    await emit.flush(); // Ensure events are delivered before returning
     return {
       status: 'executed_without_error',
       lastStepId: this.state.lastStepId,
