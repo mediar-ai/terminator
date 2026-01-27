@@ -1637,6 +1637,12 @@ impl UIElement {
 
         // Iteratively adjust
         let mut steps_taken: usize = 0;
+        let mut last_direction: Option<&'static str> = None;
+        let mut oscillation_count: usize = 0;
+        let mut stale_bounds_count: usize = 0;
+        let mut last_bounds: Option<(f64, f64, f64, f64)> = None;
+        const MAX_OSCILLATIONS: usize = 3; // Stop if direction flips more than 3 times
+        const MAX_STALE_BOUNDS: usize = 4; // Stop if bounds don't change for 4 steps
         loop {
             // Refresh visibility and geometry each iteration
             let visible = self.is_visible().unwrap_or(false);
@@ -1647,6 +1653,29 @@ impl UIElement {
                     return Err(e);
                 }
             };
+
+            // Detect if bounds aren't changing (scrolling has no effect on this element)
+            if let Some(prev_bounds) = last_bounds {
+                if prev_bounds == elem_bounds {
+                    stale_bounds_count += 1;
+                    if stale_bounds_count >= MAX_STALE_BOUNDS {
+                        warn!(
+                            "scroll_into_view:STOPPING_STALE_BOUNDS bounds unchanged for {} steps - scrolling has no effect on this element",
+                            stale_bounds_count
+                        );
+                        return Ok(()); // Return Ok to not block the action
+                    }
+                } else {
+                    stale_bounds_count = 0; // Reset if bounds changed
+                }
+            }
+            last_bounds = Some(elem_bounds);
+
+            // Log detailed state each iteration for debugging scroll oscillation
+            debug!(
+                "scroll_into_view:step={} visible={} elem_bounds={:?} window_bounds={:?} last_dir={:?} stale_count={}",
+                steps_taken, visible, elem_bounds, window_bounds, last_direction, stale_bounds_count
+            );
 
             // Early exit if bounds became invalid during scrolling (e.g., element got hidden/repositioned)
             let (x, y, width, height) = elem_bounds;
@@ -1718,6 +1747,25 @@ impl UIElement {
 
             // Perform one vertical step if needed
             if let Some(dir) = vertical_dir {
+                // Detect oscillation: direction flipped from last step
+                if let Some(last_dir) = last_direction {
+                    if last_dir != dir {
+                        oscillation_count += 1;
+                        warn!(
+                            "scroll_into_view:OSCILLATION_DETECTED count={} step={} dir_changed {} -> {} elem_bounds={:?} window_bounds={:?}",
+                            oscillation_count, steps_taken, last_dir, dir, elem_bounds, window_bounds
+                        );
+
+                        // Stop early if oscillating too much - element likely can't be scrolled into view
+                        if oscillation_count >= MAX_OSCILLATIONS {
+                            warn!(
+                                "scroll_into_view:STOPPING_DUE_TO_OSCILLATION count={} - element cannot be scrolled into view reliably",
+                                oscillation_count
+                            );
+                            return Ok(()); // Return Ok to not block the action, just skip scrolling
+                        }
+                    }
+                }
                 debug!(
                     "scroll_into_view:vertical_step dir={} step={} amount={}",
                     dir,
@@ -1726,6 +1774,7 @@ impl UIElement {
                 );
                 // Ignore individual step errors and continue to try alternate axes
                 let _ = self.scroll(dir, STEP_AMOUNT);
+                last_direction = Some(dir);
                 steps_taken += 1;
             }
 
