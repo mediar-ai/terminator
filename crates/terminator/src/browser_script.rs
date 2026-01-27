@@ -11,10 +11,36 @@ pub async fn execute_script(
     browser_element: &crate::UIElement,
     script: &str,
 ) -> Result<String, AutomationError> {
-    info!("🚀 Executing JavaScript via extension bridge");
+    // Get the browser process name for targeting the correct extension
+    let target_browser = browser_element
+        .process_name()
+        .map(|name| {
+            // Normalize common browser process names
+            let lower = name.to_lowercase();
+            if lower.contains("msedge") || lower.contains("edge") {
+                "msedge".to_string()
+            } else if lower.contains("chrome") {
+                "chrome".to_string()
+            } else if lower.contains("firefox") {
+                "firefox".to_string()
+            } else if lower.contains("brave") {
+                "brave".to_string()
+            } else if lower.contains("opera") {
+                "opera".to_string()
+            } else {
+                lower
+            }
+        })
+        .unwrap_or_else(|_| "chrome".to_string()); // Default to chrome if we can't determine
+
+    info!(
+        target_browser = %target_browser,
+        "🚀 Executing JavaScript via extension bridge"
+    );
     debug!(
         script_bytes = script.len(),
         script_preview = %script.chars().take(200).collect::<String>(),
+        target_browser = %target_browser,
         "Preparing to execute browser script"
     );
 
@@ -88,8 +114,12 @@ pub async fn execute_script(
             tokio::time::sleep(Duration::from_millis(1500)).await;
         }
 
-        match crate::extension_bridge::try_eval_via_extension(script, Duration::from_secs(120))
-            .await
+        match crate::extension_bridge::try_eval_in_browser(
+            &target_browser,
+            script,
+            Duration::from_secs(120),
+        )
+        .await
         {
             Ok(Some(result)) => {
                 debug!("Received response from extension, validating result...");
