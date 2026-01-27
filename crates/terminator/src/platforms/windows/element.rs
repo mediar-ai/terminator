@@ -1390,15 +1390,25 @@ impl UIElementImpl for WindowsUIElement {
             .map_err(|e| AutomationError::ElementNotFound(e.to_string()))?;
 
         if is_offscreen {
-            tracing::debug!("Element is offscreen");
+            tracing::debug!(
+                "is_visible:false reason=offscreen element={:?}",
+                self.element.0.get_name().unwrap_or_default()
+            );
             return Ok(false);
         }
 
         // Check bounds - element must have non-zero size to be visible
-        if let Ok((_x, _y, width, height)) = self.bounds() {
+        if let Ok((x, y, width, height)) = self.bounds() {
             // Check for non-zero bounds (critical for preventing false positives)
             if width <= 0.0 || height <= 0.0 {
-                tracing::debug!("Element has zero-size bounds: {}x{}", width, height);
+                tracing::debug!(
+                    "is_visible:false reason=zero_bounds bounds=({}, {}, {}, {}) element={:?}",
+                    x,
+                    y,
+                    width,
+                    height,
+                    self.element.0.get_name().unwrap_or_default()
+                );
                 return Ok(false);
             }
 
@@ -1406,10 +1416,22 @@ impl UIElementImpl for WindowsUIElement {
             // which broke multi-monitor support. The is_offscreen() check above
             // and bounds check are sufficient for visibility detection.
 
+            tracing::debug!(
+                "is_visible:true bounds=({}, {}, {}, {}) element={:?}",
+                x,
+                y,
+                width,
+                height,
+                self.element.0.get_name().unwrap_or_default()
+            );
             return Ok(true);
         }
 
         // If we can't get bounds, consider not visible
+        tracing::debug!(
+            "is_visible:false reason=no_bounds element={:?}",
+            self.element.0.get_name().unwrap_or_default()
+        );
         Ok(false)
     }
 
