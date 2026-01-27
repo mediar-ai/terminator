@@ -14,6 +14,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if extension files changed
+        id: changes
+        run: |
+          # Get the previous tag
+          PREV_TAG=$(git tag --sort=-version:refname | grep '^v' | head -n 2 | tail -n 1)
+          CURRENT_TAG=${GITHUB_REF#refs/tags/}
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous tag found, assuming changes"
+            echo "extension_changed=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Comparing $PREV_TAG to $CURRENT_TAG"
+
+          # Check if any extension files changed
+          CHANGED=$(git diff --name-only "$PREV_TAG" "$CURRENT_TAG" -- crates/terminator/browser-extension/ | wc -l)
+
+          if [ "$CHANGED" -gt 0 ]; then
+            echo "Extension files changed ($CHANGED files)"
+            echo "extension_changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "No extension files changed"
+            echo "extension_changed=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Package extension
         run: |
@@ -33,6 +61,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Get Chrome Web Store access token
+        if: steps.changes.outputs.extension_changed == 'true'
         id: cws_token
         run: |
           RESPONSE=$(curl -s -X POST https://oauth2.googleapis.com/token \
@@ -50,6 +79,7 @@ jobs:
           echo "[OK] Access token obtained"
 
       - name: Upload to Chrome Web Store
+        if: steps.changes.outputs.extension_changed == 'true'
         run: |
           RESPONSE=$(curl -s -X PUT \
             "https://www.googleapis.com/upload/chromewebstore/v1.1/items/${{ secrets.CWS_EXTENSION_ID }}" \
@@ -65,6 +95,7 @@ jobs:
           echo "[OK] Extension uploaded to Chrome Web Store"
 
       - name: Publish to Chrome Web Store
+        if: steps.changes.outputs.extension_changed == 'true'
         run: |
           RESPONSE=$(curl -s -X POST \
             "https://www.googleapis.com/chromewebstore/v1.1/items/${{ secrets.CWS_EXTENSION_ID }}/publish" \
