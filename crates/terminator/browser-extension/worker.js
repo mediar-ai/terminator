@@ -136,7 +136,24 @@ function connect() {
     // Reset backoff on successful connection
     currentReconnectDelayMs = BASE_RECONNECT_DELAY_MS;
     connectionAttempts = 0; // Reset connection attempts on successful connection
-    socket.send(JSON.stringify({ type: "hello", from: "extension" }));
+
+    // Detect which browser we're running in
+    const ua = navigator.userAgent;
+    let browserName = "unknown";
+    if (ua.includes("Edg/")) {
+      browserName = "msedge";
+    } else if (ua.includes("Brave/")) {
+      browserName = "brave";
+    } else if (ua.includes("OPR/") || ua.includes("Opera/")) {
+      browserName = "opera";
+    } else if (ua.includes("Chrome/")) {
+      browserName = "chrome";
+    } else if (ua.includes("Firefox/")) {
+      browserName = "firefox";
+    }
+    log("Detected browser:", browserName);
+
+    socket.send(JSON.stringify({ type: "hello", from: "extension", browser: browserName }));
   };
 
   socket.onclose = () => {
