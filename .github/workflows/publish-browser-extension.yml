@@ -32,8 +32,8 @@ jobs:
 
           echo "Comparing $PREV_TAG to $CURRENT_TAG"
 
-          # Check if any extension files changed
-          CHANGED=$(git diff --name-only "$PREV_TAG" "$CURRENT_TAG" -- crates/terminator/browser-extension/ | wc -l)
+          # Check if any extension files changed (excluding version-only files)
+          CHANGED=$(git diff --name-only "$PREV_TAG" "$CURRENT_TAG" -- crates/terminator/browser-extension/ | grep -v -E '(manifest\.json|build_check\.json)$' | wc -l)
 
           if [ "$CHANGED" -gt 0 ]; then
             echo "Extension files changed ($CHANGED files)"
