@@ -1775,28 +1775,19 @@ fn generate_run_command_snippet(args: &Value) -> String {
     let shell = args.get("shell").and_then(|v| v.as_str());
     let working_directory = args.get("working_directory").and_then(|v| v.as_str());
     let script_file = args.get("script_file").and_then(|v| v.as_str());
-    let env = args.get("env");
+    let _inlined_from = args.get("_inlined_from").and_then(|v| v.as_str());
+    let _env = args.get("env");
 
-    // If script_file is provided, generate file-loading code
+    // If script_file is still present (not inlined by CLI), generate a comment indicating the issue
+    // The CLI should have inlined the file content into "run" before calling this function
     if let Some(file) = script_file {
         if !file.is_empty() {
-            let escaped_file = file.replace('\\', "\\\\");
-            let mut code = format!(
-                "const fs = require('fs');\nconst scriptContent = fs.readFileSync(\"{}\", 'utf8');",
-                escaped_file
+            // Script file was not inlined - this happens when CLI is called without --working-dir
+            // or when the file doesn't exist. Generate a TODO comment for manual inlining.
+            return format!(
+                "// TODO: Inline script file '{}' content here\n// The CLI should be called with --working-dir to auto-inline script files\nthrow new Error('Script file {} not inlined - run migration with --working-dir');",
+                file, file
             );
-            // Add env variables if provided
-            if let Some(env_obj) = env.and_then(|v| v.as_object()) {
-                for (key, value) in env_obj {
-                    let val_str = match value {
-                        serde_json::Value::String(s) => format!("\"{}\"", s.replace('"', "\\\"")),
-                        _ => value.to_string(),
-                    };
-                    code.push_str(&format!("\nconst {} = {};", key, val_str));
-                }
-            }
-            code.push_str("\neval(scriptContent);");
-            return code;
         }
     }
 

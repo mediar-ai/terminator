@@ -12,8 +12,15 @@ pub use without_sentry::*;
 mod with_sentry {
     use tracing::info;
 
+    /// Default Sentry DSN for terminator-mcp-agent
+    /// This enables error tracking by default to help improve the software.
+    /// Users can opt-out by setting SENTRY_DISABLED=true
+    const DEFAULT_SENTRY_DSN: &str =
+        "https://20fa578ce8cbc60334a19a9f8909419c@o4507617161314304.ingest.us.sentry.io/4509487006220288";
+
     /// Initialize Sentry error tracking
-    /// Requires SENTRY_DSN environment variable to be set
+    /// Enabled by default to help improve software quality.
+    /// Set SENTRY_DISABLED=true to opt-out.
     /// Returns a guard that should be kept alive for the lifetime of the application
     pub fn init_sentry() -> Option<sentry::ClientInitGuard> {
         // Check if Sentry is explicitly disabled
@@ -25,14 +32,11 @@ mod with_sentry {
             return None;
         }
 
-        // Get DSN from environment
-        let dsn = match std::env::var("SENTRY_DSN") {
-            Ok(dsn) if !dsn.is_empty() => dsn,
-            _ => {
-                info!("Sentry DSN not configured (SENTRY_DSN env var not set). Error tracking disabled.");
-                return None;
-            }
-        };
+        // Get DSN from environment, or use default
+        let dsn = std::env::var("SENTRY_DSN")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| DEFAULT_SENTRY_DSN.to_string());
 
         info!("Initializing Sentry error tracking...");
 
@@ -84,12 +88,13 @@ mod with_sentry {
             scope.set_tag("platform", std::env::consts::OS);
             scope.set_tag("arch", std::env::consts::ARCH);
 
-            // Add deployment type to distinguish backend VMs from desktop clients
-            // backend-vm = Azure Windows VMs (Terraform/Packer deployed)
-            // desktop-client = User's local machine (mediar-app)
-            if let Ok(deployment_type) = std::env::var("SENTRY_DEPLOYMENT_TYPE") {
-                scope.set_tag("deployment_type", deployment_type);
-            }
+            // Add deployment type to distinguish:
+            // - oss = Open source users running terminator directly
+            // - backend-vm = Azure Windows VMs (Terraform/Packer deployed)
+            // - desktop-client = User's local machine (mediar-app)
+            let deployment_type = std::env::var("SENTRY_DEPLOYMENT_TYPE")
+                .unwrap_or_else(|_| "oss".to_string());
+            scope.set_tag("deployment_type", deployment_type);
 
             // Add Azure VM context (only present on backend VMs)
             if let Ok(vm_name) = std::env::var("AZURE_VM_NAME") {
@@ -118,7 +123,7 @@ mod with_sentry {
     }
 
     /// Create a Sentry tracing layer that can be added to the tracing subscriber
-    /// Returns None if Sentry is not initialized
+    /// Returns None if Sentry is disabled
     pub fn create_sentry_layer(
     ) -> Option<impl tracing_subscriber::Layer<tracing_subscriber::Registry> + Send + Sync> {
         // Check if Sentry is disabled
@@ -126,11 +131,6 @@ mod with_sentry {
             .unwrap_or_default()
             .eq_ignore_ascii_case("true")
         {
-            return None;
-        }
-
-        // Check if DSN is set
-        if std::env::var("SENTRY_DSN").ok()?.is_empty() {
             return None;
         }
 
