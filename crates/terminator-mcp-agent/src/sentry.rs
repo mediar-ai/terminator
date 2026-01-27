@@ -92,8 +92,8 @@ mod with_sentry {
             // - oss = Open source users running terminator directly
             // - backend-vm = Azure Windows VMs (Terraform/Packer deployed)
             // - desktop-client = User's local machine (mediar-app)
-            let deployment_type = std::env::var("SENTRY_DEPLOYMENT_TYPE")
-                .unwrap_or_else(|_| "oss".to_string());
+            let deployment_type =
+                std::env::var("SENTRY_DEPLOYMENT_TYPE").unwrap_or_else(|_| "oss".to_string());
             scope.set_tag("deployment_type", deployment_type);
 
             // Add Azure VM context (only present on backend VMs)

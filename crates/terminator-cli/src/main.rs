@@ -1116,7 +1116,8 @@ fn generate_snippet(args: McpSnippetArgs) -> Result<()> {
     // For run_command with script_file, read the file content and inline it
     if args.tool == "run_command" {
         // Clone the script_file value to avoid borrow issues
-        let script_file_opt = args_value.get("script_file")
+        let script_file_opt = args_value
+            .get("script_file")
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
@@ -1137,8 +1138,9 @@ fn generate_snippet(args: McpSnippetArgs) -> Result<()> {
 
             // Read the script file content
             if script_path.exists() {
-                let content = std::fs::read_to_string(&script_path)
-                    .with_context(|| format!("Failed to read script file: {}", script_path.display()))?;
+                let content = std::fs::read_to_string(&script_path).with_context(|| {
+                    format!("Failed to read script file: {}", script_path.display())
+                })?;
                 let content_len = content.len();
 
                 // Replace script_file with run containing the file content
@@ -1146,11 +1148,21 @@ fn generate_snippet(args: McpSnippetArgs) -> Result<()> {
                     obj.remove("script_file");
                     obj.insert("run".to_string(), serde_json::Value::String(content));
                     // Add a marker so the snippet generator knows this was inlined
-                    obj.insert("_inlined_from".to_string(), serde_json::Value::String(script_file.clone()));
+                    obj.insert(
+                        "_inlined_from".to_string(),
+                        serde_json::Value::String(script_file.clone()),
+                    );
                 }
-                eprintln!("[snippet] Inlined script_file: {} ({} bytes)", script_file, content_len);
+                eprintln!(
+                    "[snippet] Inlined script_file: {} ({} bytes)",
+                    script_file, content_len
+                );
             } else {
-                eprintln!("[snippet] Warning: script_file not found: {} (tried: {})", script_file, script_path.display());
+                eprintln!(
+                    "[snippet] Warning: script_file not found: {} (tried: {})",
+                    script_file,
+                    script_path.display()
+                );
             }
         }
     }
