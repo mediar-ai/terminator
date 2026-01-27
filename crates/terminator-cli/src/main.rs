@@ -196,6 +196,10 @@ struct McpSnippetArgs {
 
     /// Arguments as JSON string
     args: String,
+
+    /// Working directory for resolving relative script_file paths
+    #[arg(short, long)]
+    working_dir: Option<String>,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -1106,8 +1110,50 @@ fn validate_workflow_output(args: McpValidateArgs) -> Result<()> {
 /// Generate TypeScript SDK snippet from tool name and args
 fn generate_snippet(args: McpSnippetArgs) -> Result<()> {
     // Parse args JSON
-    let args_value: Value = serde_json::from_str(&args.args)
+    let mut args_value: Value = serde_json::from_str(&args.args)
         .with_context(|| format!("Failed to parse args JSON: {}", args.args))?;
+
+    // For run_command with script_file, read the file content and inline it
+    if args.tool == "run_command" {
+        // Clone the script_file value to avoid borrow issues
+        let script_file_opt = args_value.get("script_file")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
+
+        if let Some(script_file) = script_file_opt {
+            // Resolve the script file path
+            let script_path = if let Some(ref wd) = args.working_dir {
+                let wd_path = std::path::Path::new(wd);
+                let candidate = wd_path.join(&script_file);
+                if candidate.exists() {
+                    candidate
+                } else {
+                    std::path::PathBuf::from(&script_file)
+                }
+            } else {
+                std::path::PathBuf::from(&script_file)
+            };
+
+            // Read the script file content
+            if script_path.exists() {
+                let content = std::fs::read_to_string(&script_path)
+                    .with_context(|| format!("Failed to read script file: {}", script_path.display()))?;
+                let content_len = content.len();
+
+                // Replace script_file with run containing the file content
+                if let Some(obj) = args_value.as_object_mut() {
+                    obj.remove("script_file");
+                    obj.insert("run".to_string(), serde_json::Value::String(content));
+                    // Add a marker so the snippet generator knows this was inlined
+                    obj.insert("_inlined_from".to_string(), serde_json::Value::String(script_file.clone()));
+                }
+                eprintln!("[snippet] Inlined script_file: {} ({} bytes)", script_file, content_len);
+            } else {
+                eprintln!("[snippet] Warning: script_file not found: {} (tried: {})", script_file, script_path.display());
+            }
+        }
+    }
 
     // Generate snippet using terminator-mcp-agent's function
     let snippet = terminator_mcp_agent::execution_logger::generate_typescript_snippet(
