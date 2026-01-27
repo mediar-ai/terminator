@@ -10604,8 +10604,8 @@ impl ServerHandler for DesktopWrapper {
         };
 
         // Log response after execution
+        let duration_ms = start_time.elapsed().as_millis() as u64;
         if let Some(ctx) = log_ctx {
-            let duration_ms = start_time.elapsed().as_millis() as u64;
             match &result {
                 Ok(call_result) => {
                     // Convert content to JSON Value for logging
@@ -10630,6 +10630,22 @@ impl ServerHandler for DesktopWrapper {
                         logs_option,
                     );
                 }
+            }
+        }
+
+        // Track tool execution (PostHog analytics)
+        match &result {
+            Ok(_) => {
+                crate::posthog::track_tool_execution(&tool_name, true, duration_ms, None);
+            }
+            Err(e) => {
+                let error_msg = serde_json::to_string(&e).unwrap_or_else(|_| format!("{:?}", e));
+                crate::posthog::track_tool_execution(
+                    &tool_name,
+                    false,
+                    duration_ms,
+                    Some(&error_msg),
+                );
             }
         }
 

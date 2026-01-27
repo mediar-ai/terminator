@@ -308,6 +308,9 @@ async fn main() -> Result<()> {
     // Initialize execution logger (MCP request/response logging to files)
     terminator_mcp_agent::execution_logger::init();
 
+    // Track startup event (PostHog analytics)
+    terminator_mcp_agent::posthog::track_startup();
+
     // Add binary identification logging
     tracing::info!("========================================");
     tracing::info!("Terminator MCP Server v{}", env!("CARGO_PKG_VERSION"));

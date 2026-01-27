@@ -35,11 +35,6 @@ mod with_telemetry {
     use std::time::Duration;
     use tracing::info;
 
-    /// Default OTLP endpoint for terminator-mcp-agent (Mediar's OTEL collector)
-    /// This enables telemetry by default to help improve the software.
-    /// Users can opt-out by setting OTEL_SDK_DISABLED=true
-    const DEFAULT_OTLP_ENDPOINT: &str = "https://otel-collector-oss.mediar.ai";
-
     pub struct WorkflowSpan {
         span: BoxedSpan,
     }
@@ -221,12 +216,20 @@ mod with_telemetry {
     }
 
     pub fn init_telemetry() -> anyhow::Result<()> {
-        // Check if telemetry is explicitly disabled via OTEL_SDK_DISABLED=true
-        if std::env::var("OTEL_SDK_DISABLED")
+        // Disable telemetry by default to prevent connection issues
+        // Users must explicitly enable it via OTEL_SDK_ENABLED=true
+        let telemetry_enabled = std::env::var("OTEL_SDK_ENABLED")
             .unwrap_or_default()
-            .eq_ignore_ascii_case("true")
-        {
-            info!("OpenTelemetry is disabled via OTEL_SDK_DISABLED environment variable");
+            .eq_ignore_ascii_case("true");
+
+        if !telemetry_enabled {
+            info!("OpenTelemetry is disabled by default (set OTEL_SDK_ENABLED=true to enable)");
+            return Ok(());
+        }
+
+        // Check if telemetry is explicitly disabled
+        if std::env::var("OTEL_SDK_DISABLED").unwrap_or_default() == "true" {
+            info!("OpenTelemetry is disabled via OTEL_SDK_DISABLED");
             return Ok(());
         }
 
@@ -242,9 +245,9 @@ mod with_telemetry {
         // Set up propagator early
         global::set_text_map_propagator(TraceContextPropagator::new());
 
-        // Configure OTLP exporter - use default Mediar endpoint if not set
+        // Configure OTLP exporter
         let otlp_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
-            .unwrap_or_else(|_| DEFAULT_OTLP_ENDPOINT.to_string());
+            .unwrap_or_else(|_| "http://localhost:4318".to_string());
 
         // Get retry configuration from environment
         let retry_duration_mins = std::env::var("OTEL_RETRY_DURATION_MINS")
@@ -374,15 +377,6 @@ mod with_telemetry {
         };
         resource_kvs.push(KeyValue::new("automation.api", automation_api));
 
-        // Add deployment type to distinguish:
-        // - oss = Open source users running terminator directly
-        // - backend-vm = Azure Windows VMs (Terraform/Packer deployed)
-        // - desktop-client = User's local machine (mediar-app)
-        let deployment_type = std::env::var("OTEL_DEPLOYMENT_TYPE")
-            .or_else(|_| std::env::var("SENTRY_DEPLOYMENT_TYPE"))
-            .unwrap_or_else(|_| "oss".to_string());
-        resource_kvs.push(KeyValue::new("deployment.type", deployment_type));
-
         let resource = Resource::from_schema_url(resource_kvs, SCHEMA_URL);
 
         let exporter = opentelemetry_otlp::SpanExporter::builder()
@@ -440,11 +434,8 @@ mod with_telemetry {
             + Send
             + Sync,
     {
-        // Check if telemetry is explicitly disabled
-        if std::env::var("OTEL_SDK_DISABLED")
-            .unwrap_or_default()
-            .eq_ignore_ascii_case("true")
-        {
+        // Check if telemetry is disabled
+        if std::env::var("OTEL_SDK_DISABLED").unwrap_or_default() == "true" {
             return None;
         }
 
@@ -455,9 +446,8 @@ mod with_telemetry {
             return None;
         }
 
-        // Get OTLP endpoint - use default Mediar endpoint if not set
-        let otlp_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
-            .unwrap_or_else(|_| DEFAULT_OTLP_ENDPOINT.to_string());
+        // Get OTLP endpoint
+        let otlp_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok()?;
 
         // Create resource with service name and host info
         let mut resource_kvs = vec![
@@ -505,12 +495,6 @@ mod with_telemetry {
             _ => "unknown",
         };
         resource_kvs.push(KeyValue::new("automation.api", automation_api));
-
-        // Add deployment type to distinguish OSS users from backend VMs
-        let deployment_type = std::env::var("OTEL_DEPLOYMENT_TYPE")
-            .or_else(|_| std::env::var("SENTRY_DEPLOYMENT_TYPE"))
-            .unwrap_or_else(|_| "oss".to_string());
-        resource_kvs.push(KeyValue::new("deployment.type", deployment_type));
 
         let resource = Resource::from_schema_url(resource_kvs, SCHEMA_URL);
 
