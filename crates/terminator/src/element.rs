@@ -1616,6 +1616,15 @@ impl UIElement {
             return Ok(());
         }
 
+        // Skip scrolling if we can't determine window bounds - without bounds we can't
+        // reliably determine scroll direction and would just oscillate up/down blindly
+        if window_bounds.is_none() {
+            warn!(
+                "scroll_into_view:skipping - window_bounds=None, cannot determine scroll direction reliably. Element may still be actionable."
+            );
+            return Ok(());
+        }
+
         // Validate element bounds - skip scrolling for invalid/tiny elements
         if let Some((x, y, width, height)) = init_bounds {
             // Check for invalid bounds (e.g., 1x1 pixel elements at 0,0)

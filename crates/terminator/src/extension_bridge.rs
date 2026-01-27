@@ -109,7 +109,11 @@ enum BridgeIncoming {
 #[serde(tag = "type")]
 enum TypedIncoming {
     #[serde(rename = "hello")]
-    Hello { from: Option<String> },
+    Hello {
+        from: Option<String>,
+        /// Browser name (e.g., "chrome", "msedge", "firefox", "brave", "opera")
+        browser: Option<String>,
+    },
     #[serde(rename = "pong")]
     Pong,
     #[serde(rename = "console_event")]
@@ -151,6 +155,8 @@ struct Client {
     sender: mpsc::UnboundedSender<Message>,
     connected_at: std::time::Instant,
     client_type: ClientType,
+    /// Browser name for Browser clients (e.g., "chrome", "msedge", "firefox")
+    browser_name: Option<String>,
 }
 
 pub struct ExtensionBridge {
@@ -365,12 +371,13 @@ impl ExtensionBridge {
                         }
                     });
 
-                    // register client (default to Browser, will update if we receive ProxyEval)
+                    // register client (default to Browser, browser_name set when Hello received)
                     {
                         ws_clients.lock().await.push(Client {
                             sender: tx.clone(),
                             connected_at: std::time::Instant::now(),
                             client_type: ClientType::Browser,
+                            browser_name: None,
                         });
                     }
 
@@ -519,8 +526,27 @@ impl ExtensionBridge {
                                 let entry_val = entry.unwrap_or(serde_json::Value::Null);
                                 tracing::info!(id = %id, entry = %entry_val, "Log.entryAdded event");
                             }
-                            Ok(BridgeIncoming::Typed(TypedIncoming::Hello { .. })) => {
-                                tracing::info!("Extension connected");
+                            Ok(BridgeIncoming::Typed(TypedIncoming::Hello { browser, .. })) => {
+                                let browser_str = browser.as_deref().unwrap_or("unknown");
+                                tracing::info!(browser = %browser_str, "Extension connected");
+
+                                // Update the client's browser_name
+                                // Find the client with the matching sender (tx) and set browser_name
+                                {
+                                    let mut clients = ws_clients.lock().await;
+                                    for client in clients.iter_mut().rev() {
+                                        // Match by sender - tx is unique per client
+                                        if client.sender.same_channel(&tx) {
+                                            client.browser_name = browser.clone();
+                                            tracing::debug!(
+                                                browser = %browser_str,
+                                                "Updated client browser_name"
+                                            );
+                                            break;
+                                        }
+                                    }
+                                }
+
                                 // Request extension health info for logging
                                 let health_req = GetHealthRequest {
                                     action: "get_extension_health".to_string(),
@@ -700,6 +726,7 @@ impl ExtensionBridge {
             sender: tx,
             connected_at: std::time::Instant::now(),
             client_type: ClientType::Subprocess,
+            browser_name: None, // Subprocess proxies to all browsers
         }]));
 
         Ok(ExtensionBridge {
@@ -1036,6 +1063,173 @@ impl ExtensionBridge {
         }
     }
 
+    /// Evaluate JavaScript in a specific browser's active tab
+    ///
+    /// `target_browser` should be the process name like "chrome", "msedge", "firefox", etc.
+    /// Falls back to any available client if no matching browser is found.
+    pub async fn eval_in_browser(
+        &self,
+        target_browser: &str,
+        code: &str,
+        timeout: Duration,
+    ) -> Result<Option<String>, AutomationError> {
+        // Auto-retry logic: retry for up to 10 seconds if no clients connected
+        const MAX_RETRY_DURATION: Duration = Duration::from_secs(10);
+        const RETRY_INTERVAL: Duration = Duration::from_millis(500);
+        let start_time = tokio::time::Instant::now();
+
+        // Normalize the target browser name (handle common aliases)
+        let target_lower = target_browser.to_lowercase();
+        let normalized_target: String = match target_lower.as_str() {
+            "msedge" | "edge" | "microsoft edge" => "msedge".to_string(),
+            "chrome" | "google chrome" => "chrome".to_string(),
+            "firefox" | "mozilla firefox" => "firefox".to_string(),
+            "brave" | "brave browser" => "brave".to_string(),
+            "opera" => "opera".to_string(),
+            _ => target_lower,
+        };
+
+        tracing::info!(
+            target_browser = %target_browser,
+            normalized = %normalized_target,
+            "Looking for browser-specific extension client"
+        );
+
+        loop {
+            let (total_clients, matching_clients) = {
+                let clients = self.clients.lock().await;
+                let total = clients.len();
+                let matching = clients
+                    .iter()
+                    .filter(|c| {
+                        c.browser_name
+                            .as_ref()
+                            .is_some_and(|b| b == &normalized_target)
+                    })
+                    .count();
+                (total, matching)
+            };
+
+            if matching_clients > 0 {
+                tracing::debug!(
+                    "ExtensionBridge: found {} matching client(s) for browser '{}'",
+                    matching_clients,
+                    normalized_target
+                );
+                break;
+            }
+
+            if total_clients > 0 && start_time.elapsed() >= Duration::from_secs(2) {
+                // We have clients but none matching the target browser after 2 seconds
+                // This might mean the target browser doesn't have the extension
+                tracing::warn!(
+                    "ExtensionBridge: no client found for browser '{}' (have {} other client(s)). \
+                    Will fall back to most recent client.",
+                    normalized_target,
+                    total_clients
+                );
+                break;
+            }
+
+            if start_time.elapsed() >= MAX_RETRY_DURATION {
+                tracing::warn!(
+                    "ExtensionBridge: no clients connected after {} seconds; extension not available",
+                    MAX_RETRY_DURATION.as_secs()
+                );
+                return Ok(None);
+            }
+
+            tracing::info!(
+                "ExtensionBridge: waiting for {} extension client... (elapsed: {:.1}s)",
+                normalized_target,
+                start_time.elapsed().as_secs_f32()
+            );
+
+            tokio::time::sleep(RETRY_INTERVAL).await;
+        }
+
+        let id = Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel::<BridgeResult>();
+        self.pending.lock().await.insert(id.clone(), tx);
+        let req = EvalRequest {
+            id: id.clone(),
+            action: "eval".into(),
+            code: code.to_string(),
+            await_promise: true,
+        };
+        let payload = serde_json::to_string(&req)
+            .map_err(|e| AutomationError::PlatformError(format!("bridge serialize: {e}")))?;
+
+        // Find and send to the matching browser client
+        let mut ok = false;
+        {
+            let mut clients = self.clients.lock().await;
+            clients.retain(|c| !c.sender.is_closed());
+
+            // First try to find a client matching the target browser
+            let target_client = clients
+                .iter()
+                .rev() // Most recent first
+                .find(|c| {
+                    c.browser_name
+                        .as_ref()
+                        .is_some_and(|b| b == &normalized_target)
+                });
+
+            if let Some(c) = target_client {
+                tracing::info!(
+                    browser = %c.browser_name.as_deref().unwrap_or("unknown"),
+                    clients = clients.len(),
+                    preview = %payload.chars().take(120).collect::<String>(),
+                    "Sending eval to target browser extension"
+                );
+                ok = c.sender.send(Message::Text(payload.clone())).is_ok();
+                if ok {
+                    tracing::debug!(
+                        "Successfully sent eval to {} extension (connected at {:?})",
+                        c.browser_name.as_deref().unwrap_or("unknown"),
+                        c.connected_at
+                    );
+                }
+            } else if let Some(c) = clients.last() {
+                // Fall back to most recent client if no match
+                tracing::warn!(
+                    fallback_browser = %c.browser_name.as_deref().unwrap_or("unknown"),
+                    target_browser = %normalized_target,
+                    "No matching browser found, falling back to most recent client"
+                );
+                ok = c.sender.send(Message::Text(payload)).is_ok();
+            }
+        }
+
+        if !ok {
+            self.pending.lock().await.remove(&id);
+            tracing::warn!("ExtensionBridge: failed to send eval - no active clients available");
+            return Ok(None);
+        }
+
+        let res = tokio::time::timeout(timeout, rx).await;
+        match res {
+            Ok(Ok(Ok(val))) => Ok(Some(match val {
+                serde_json::Value::String(s) => s,
+                other => other.to_string(),
+            })),
+            Ok(Ok(Err(err))) => Ok(Some(format!("ERROR: {err}"))),
+            Ok(Err(_canceled)) => {
+                tracing::warn!("ExtensionBridge: oneshot canceled by receiver");
+                Ok(None)
+            }
+            Err(_elapsed) => {
+                let _ = self.pending.lock().await.remove(&id);
+                tracing::warn!(
+                    "ExtensionBridge: timed out waiting for EvalResult (id={})",
+                    id
+                );
+                Ok(None)
+            }
+        }
+    }
+
     /// Close a browser tab safely
     ///
     /// Identification priority:
@@ -1148,6 +1342,44 @@ pub async fn try_eval_via_extension(
         return new_bridge.eval_in_active_tab(code, timeout).await;
     }
     bridge.eval_in_active_tab(code, timeout).await
+}
+
+/// Evaluate JavaScript in a specific browser's active tab
+///
+/// `target_browser` should be the process name like "chrome", "msedge", "firefox", etc.
+pub async fn try_eval_in_browser(
+    target_browser: &str,
+    code: &str,
+    timeout: Duration,
+) -> Result<Option<String>, AutomationError> {
+    let bridge = ExtensionBridge::global().await;
+    if bridge._server_task.is_finished() {
+        tracing::error!(
+            "Extension bridge server task is not running - attempting to recreate bridge"
+        );
+
+        // Clear the broken bridge from supervisor
+        let supervisor = BRIDGE_SUPERVISOR.get_or_init(|| Arc::new(RwLock::new(None)));
+        {
+            let mut guard = supervisor.write().await;
+            *guard = None;
+        }
+
+        // Try to create a new bridge
+        let new_bridge = ExtensionBridge::global().await;
+        if new_bridge._server_task.is_finished() {
+            tracing::error!(
+                "Failed to recreate extension bridge - WebSocket server still unavailable"
+            );
+            return Ok(None);
+        }
+
+        tracing::info!("Successfully recreated extension bridge");
+        return new_bridge
+            .eval_in_browser(target_browser, code, timeout)
+            .await;
+    }
+    bridge.eval_in_browser(target_browser, code, timeout).await
 }
 
 pub async fn try_close_tab(
