@@ -1096,7 +1096,7 @@ impl ExtensionBridge {
         );
 
         loop {
-            let (total_clients, matching_clients) = {
+            let (total_clients, matching_clients, legacy_clients) = {
                 let clients = self.clients.lock().await;
                 let total = clients.len();
                 let matching = clients
@@ -1107,7 +1107,16 @@ impl ExtensionBridge {
                             .is_some_and(|b| b == &normalized_target)
                     })
                     .count();
-                (total, matching)
+                // Count clients with no browser_name that have been connected > 500ms
+                // These are likely old extensions that don't send the Hello message
+                let legacy = clients
+                    .iter()
+                    .filter(|c| {
+                        c.browser_name.is_none()
+                            && c.connected_at.elapsed() > Duration::from_millis(500)
+                    })
+                    .count();
+                (total, matching, legacy)
             };
 
             if matching_clients > 0 {
@@ -1115,6 +1124,17 @@ impl ExtensionBridge {
                     "ExtensionBridge: found {} matching client(s) for browser '{}'",
                     matching_clients,
                     normalized_target
+                );
+                break;
+            }
+
+            // If we have legacy clients (old extensions without browser identification),
+            // use them immediately - they don't send Hello so browser_name stays None
+            if legacy_clients > 0 {
+                tracing::info!(
+                    "ExtensionBridge: found {} legacy client(s) without browser identification, \
+                    proceeding with fallback (old extension version)",
+                    legacy_clients
                 );
                 break;
             }
