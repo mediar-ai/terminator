@@ -26,6 +26,9 @@ dist/
 # Terminator workflow recorder debug files
 terminator-workflow-recorder/*.txt
 
+# Build artifacts
+terminator-extension.zip
+
 # Development scripts (user-specific paths)
 scripts/copy-mcp-binary.ps1
 build-and-deploy.ps1
