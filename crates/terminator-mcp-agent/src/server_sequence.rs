@@ -2690,7 +2690,10 @@ impl DesktopWrapper {
                             message: Some(format!("Workflow running... ({}s)", elapsed_secs)),
                         })
                         .await;
-                    tracing::trace!("Sent heartbeat progress notification ({}s elapsed)", elapsed_secs);
+                    tracing::trace!(
+                        "Sent heartbeat progress notification ({}s elapsed)",
+                        elapsed_secs
+                    );
                 }
             });
 
