@@ -2670,6 +2670,30 @@ impl DesktopWrapper {
                 }
             });
 
+            // Spawn heartbeat task to send periodic progress notifications
+            // This ensures the client knows the workflow is still alive even during long operations
+            // MCP best practice: "Implementations MAY reset the timeout clock when receiving a progress notification"
+            let peer_for_heartbeat = peer.clone();
+            let progress_token_for_heartbeat = progress_token.clone();
+            let heartbeat_handle = tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(5));
+                let start_time = std::time::Instant::now();
+                loop {
+                    interval.tick().await;
+                    let elapsed_secs = start_time.elapsed().as_secs();
+                    // Send heartbeat progress notification
+                    let _ = peer_for_heartbeat
+                        .notify_progress(ProgressNotificationParam {
+                            progress_token: progress_token_for_heartbeat.clone(),
+                            progress: 0.0, // Indeterminate progress
+                            total: None,
+                            message: Some(format!("Workflow running... ({}s)", elapsed_secs)),
+                        })
+                        .await;
+                    tracing::trace!("Sent heartbeat progress notification ({}s elapsed)", elapsed_secs);
+                }
+            });
+
             // Execute workflow with event streaming
             // Extract folder from URL for SDK screenshot storage
             let workflow_folder = extract_workflow_folder_from_url(url);
@@ -2684,6 +2708,10 @@ impl DesktopWrapper {
                     workflow_folder.as_deref(),
                 )
                 .await?;
+
+            // Stop the heartbeat task now that workflow is complete
+            heartbeat_handle.abort();
+            tracing::debug!("Stopped heartbeat task after workflow completion");
 
             // Wait for notification handler to finish (it will exit when sender is dropped)
             let _ = notification_handle.await;
