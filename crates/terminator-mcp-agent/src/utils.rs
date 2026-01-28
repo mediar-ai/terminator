@@ -1233,6 +1233,10 @@ pub struct ExecuteBrowserScriptArgs {
         description = "Include browser console output (console.log, console.error, console.warn, console.info) in response. Defaults to false. When enabled, automatically intercepts console methods and returns captured logs alongside the script result. Original console methods still output to DevTools."
     )]
     pub include_logs: Option<bool>,
+    #[schemars(
+        description = "Working directory for resolving relative script_file paths. Injected automatically by mediar-app based on focused workflow."
+    )]
+    pub working_directory: Option<String>,
     #[serde(flatten)]
     pub selector: SelectorOptions,
 

@@ -7896,47 +7896,70 @@ Requires Chrome extension installed."
                         script_file
                     );
 
-                    // Priority 1: Try scripts_base_path if provided
-                    let scripts_base_guard = self.current_scripts_base_path.lock().await;
-                    if let Some(ref base_path) = *scripts_base_guard {
-                        tracing::info!(
-                            "[SCRIPTS_BASE_PATH] Checking scripts_base_path for browser script: {}",
-                            base_path
-                        );
-                        let base = std::path::Path::new(base_path);
-                        if base.exists() && base.is_dir() {
-                            let candidate = base.join(script_file);
-                            resolution_attempts
-                                .push(format!("scripts_base_path: {}", candidate.display()));
+                    // Priority 0: Try explicit working_directory first (like other file tools)
+                    if let Some(ref working_dir) = args.working_directory {
+                        let wd = expand_working_directory_shortcut(working_dir);
+                        let candidate = wd.join(script_file);
+                        resolution_attempts
+                            .push(format!("working_directory: {}", candidate.display()));
+                        if candidate.exists() {
                             tracing::info!(
-                                "[SCRIPTS_BASE_PATH] Looking for browser script at: {}",
+                                "[execute_browser_script] Resolved via working_directory: {} -> {}",
+                                script_file,
                                 candidate.display()
                             );
-                            if candidate.exists() {
+                            resolved_path = Some(candidate);
+                        } else {
+                            tracing::debug!(
+                                "[execute_browser_script] Script not found in working_directory: {}",
+                                candidate.display()
+                            );
+                        }
+                    }
+
+                    // Priority 1: Try scripts_base_path if provided (and not yet resolved)
+                    if resolved_path.is_none() {
+                        let scripts_base_guard = self.current_scripts_base_path.lock().await;
+                        if let Some(ref base_path) = *scripts_base_guard {
+                            tracing::info!(
+                                "[SCRIPTS_BASE_PATH] Checking scripts_base_path for browser script: {}",
+                                base_path
+                            );
+                            let base = std::path::Path::new(base_path);
+                            if base.exists() && base.is_dir() {
+                                let candidate = base.join(script_file);
+                                resolution_attempts
+                                    .push(format!("scripts_base_path: {}", candidate.display()));
                                 tracing::info!(
-                                    "[SCRIPTS_BASE_PATH] ✓ Found browser script in scripts_base_path: {} -> {}",
-                                    script_file,
+                                    "[SCRIPTS_BASE_PATH] Looking for browser script at: {}",
                                     candidate.display()
                                 );
-                                resolved_path = Some(candidate);
+                                if candidate.exists() {
+                                    tracing::info!(
+                                        "[SCRIPTS_BASE_PATH] ✓ Found browser script in scripts_base_path: {} -> {}",
+                                        script_file,
+                                        candidate.display()
+                                    );
+                                    resolved_path = Some(candidate);
+                                } else {
+                                    tracing::info!(
+                                        "[SCRIPTS_BASE_PATH] ✗ Browser script not found in scripts_base_path: {}",
+                                        candidate.display()
+                                    );
+                                }
                             } else {
-                                tracing::info!(
-                                    "[SCRIPTS_BASE_PATH] ✗ Browser script not found in scripts_base_path: {}",
-                                    candidate.display()
+                                tracing::warn!(
+                                    "[SCRIPTS_BASE_PATH] Base path does not exist or is not a directory: {}",
+                                    base_path
                                 );
                             }
                         } else {
-                            tracing::warn!(
-                                "[SCRIPTS_BASE_PATH] Base path does not exist or is not a directory: {}",
-                                base_path
+                            tracing::debug!(
+                                "[SCRIPTS_BASE_PATH] No scripts_base_path configured for browser script"
                             );
                         }
-                    } else {
-                        tracing::debug!(
-                            "[SCRIPTS_BASE_PATH] No scripts_base_path configured for browser script"
-                        );
+                        drop(scripts_base_guard);
                     }
-                    drop(scripts_base_guard);
 
                     // Priority 2: Try workflow directory if not found yet
                     if resolved_path.is_none() {
@@ -10590,17 +10613,104 @@ impl ServerHandler for DesktopWrapper {
             terminator::platforms::windows::restore_focus_state(state);
         }
 
+        // Collect all logs (stderr + result/error data)
+        let mut all_logs: Vec<execution_logger::CapturedLogEntry> = Vec::new();
+
         // Get stderr logs from TypeScript workflow execution (if any)
-        let stderr_logs: Vec<execution_logger::CapturedLogEntry> =
-            if let Ok(mut logs) = self.captured_stderr_logs.lock() {
-                logs.drain(..).collect()
-            } else {
-                Vec::new()
-            };
-        let logs_option = if stderr_logs.is_empty() {
+        if let Ok(mut logs) = self.captured_stderr_logs.lock() {
+            all_logs.extend(logs.drain(..));
+        }
+
+        // Extract logs from run_command/execute_sequence result (logs are embedded in the JSON result)
+        if tool_name == "run_command" || tool_name == "execute_sequence" {
+            if let Ok(ref call_result) = result {
+                for content in &call_result.content {
+                    if let Some(text) = crate::server::extract_content_text(content) {
+                        if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&text) {
+                            let now = chrono::Utc::now();
+                            // Extract "logs" array (stdout logs)
+                            if let Some(logs_array) =
+                                json_val.get("logs").and_then(|v| v.as_array())
+                            {
+                                for (i, log) in logs_array.iter().enumerate() {
+                                    // Handle both string logs and structured {timestamp, level, message} logs
+                                    if let Some(msg) = log.as_str() {
+                                        all_logs.push(execution_logger::CapturedLogEntry {
+                                            timestamp: now
+                                                + chrono::Duration::microseconds(i as i64),
+                                            level: "INFO".to_string(),
+                                            message: msg.to_string(),
+                                        });
+                                    } else if log.is_object() {
+                                        let level = log
+                                            .get("level")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("INFO")
+                                            .to_string();
+                                        let message = log
+                                            .get("message")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("")
+                                            .to_string();
+                                        if !message.is_empty() {
+                                            all_logs.push(execution_logger::CapturedLogEntry {
+                                                timestamp: now
+                                                    + chrono::Duration::microseconds(i as i64),
+                                                level,
+                                                message,
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Extract logs from error data (for TypeScript workflow errors)
+        // The logs are embedded in error_data["logs"] when workflow fails
+        if let Err(ref e) = result {
+            if let Some(ref data) = e.data {
+                let now = chrono::Utc::now();
+                if let Some(logs_array) = data.get("logs").and_then(|v| v.as_array()) {
+                    tracing::debug!(
+                        "[call_tool] Extracting {} logs from error data for tool: {}",
+                        logs_array.len(),
+                        tool_name
+                    );
+                    for (i, log) in logs_array.iter().enumerate() {
+                        // Logs are structured as {timestamp, level, message}
+                        let level = log
+                            .get("level")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("INFO")
+                            .to_string();
+                        let message = log
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        if !message.is_empty() {
+                            all_logs.push(execution_logger::CapturedLogEntry {
+                                timestamp: now + chrono::Duration::microseconds(i as i64),
+                                level,
+                                message,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sort logs by timestamp
+        all_logs.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+
+        let logs_option = if all_logs.is_empty() {
             None
         } else {
-            Some(stderr_logs)
+            Some(all_logs)
         };
 
         // Log response after execution
