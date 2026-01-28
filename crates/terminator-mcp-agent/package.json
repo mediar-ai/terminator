@@ -17,8 +17,8 @@
   ],
   "name": "terminator-mcp-agent",
   "optionalDependencies": {
-    "terminator-mcp-win32-arm64-msvc": "0.24.26",
-    "terminator-mcp-win32-x64-msvc": "0.24.26"
+    "terminator-mcp-win32-arm64-msvc": "0.24.27",
+    "terminator-mcp-win32-x64-msvc": "0.24.27"
   },
   "repository": {
     "type": "git",
@@ -31,5 +31,5 @@
     "sync-version": "node ./utils/sync-version.js",
     "update-badges": "node ./utils/update-badges.js"
   },
-  "version": "0.24.26"
+  "version": "0.24.27"
 }
