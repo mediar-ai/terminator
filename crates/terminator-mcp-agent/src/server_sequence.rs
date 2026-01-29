@@ -1160,7 +1160,7 @@ impl DesktopWrapper {
             }
 
             // Log step BEGIN only after skip checks - this ensures we only log steps that will actually execute
-            if let Some(step) = original_step {
+            let step_name = if let Some(step) = original_step {
                 if let Some(tool_name) = &step.tool_name {
                     info!(
                         "Step {} BEGIN tool='{}' id='{}' retries={} if_expr={:?} fallback_id={:?} jumps={}",
@@ -1172,6 +1172,7 @@ impl DesktopWrapper {
                         step.fallback_id,
                         step.jumps.as_ref().map(|j| j.len()).unwrap_or(0)
                     );
+                    Some(tool_name.clone())
                 } else if let Some(group_name) = &step.group_name {
                     info!(
                         "Step {} BEGIN group='{}' id='{}' steps={}",
@@ -1180,13 +1181,45 @@ impl DesktopWrapper {
                         step.id.as_deref().unwrap_or(""),
                         step.steps.as_ref().map(|v| v.len()).unwrap_or(0)
                     );
+                    Some(group_name.clone())
+                } else {
+                    None
                 }
+            } else {
+                None
+            };
+
+            // Send step-started notification to client for progress indication
+            // This allows the desktop app to show "Step X of Y" during execution
+            let total_steps = sequence_items.len();
+            let _ = peer.notify_logging_message(LoggingMessageNotificationParam {
+                level: LoggingLevel::Info,
+                logger: Some("workflow".to_string()),
+                data: json!({
+                    "type": "step_started",
+                    "step": current_index + 1,
+                    "total": total_steps,
+                    "name": step_name.clone().unwrap_or_else(|| format!("Step {}", current_index + 1)),
+                }),
+            });
+            // Also send progress notification for clients that support it
+            if let Some(token) = &client_progress_token {
+                let _ = peer.notify_progress(ProgressNotificationParam {
+                    progress_token: token.clone(),
+                    progress: (current_index + 1) as f64,
+                    total: Some(total_steps as f64),
+                    message: Some(format!(
+                        "Step {} of {}: {}",
+                        current_index + 1,
+                        total_steps,
+                        step_name.unwrap_or_else(|| format!("Step {}", current_index + 1))
+                    )),
+                });
             }
 
             // 2. Execute with retries
             let mut final_result = json!(null);
             let mut step_error_occurred = false;
-            let total_steps = sequence_items.len();
 
             for attempt in 0..=retries {
                 let item = &mut sequence_items[current_index];
