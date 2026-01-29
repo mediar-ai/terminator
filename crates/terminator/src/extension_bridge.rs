@@ -1181,7 +1181,6 @@ impl ExtensionBridge {
             .map_err(|e| AutomationError::PlatformError(format!("bridge serialize: {e}")))?;
 
         // Find and send to the matching browser client
-        let mut ok = false;
         {
             let mut clients = self.clients.lock().await;
             clients.retain(|c| !c.sender.is_closed());
@@ -1203,13 +1202,17 @@ impl ExtensionBridge {
                     preview = %payload.chars().take(120).collect::<String>(),
                     "Sending eval to target browser extension"
                 );
-                ok = c.sender.send(Message::Text(payload.clone())).is_ok();
-                if ok {
+                let send_ok = c.sender.send(Message::Text(payload.clone())).is_ok();
+                if send_ok {
                     tracing::debug!(
                         "Successfully sent eval to {} extension (connected at {:?})",
                         c.browser_name.as_deref().unwrap_or("unknown"),
                         c.connected_at
                     );
+                } else {
+                    self.pending.lock().await.remove(&id);
+                    tracing::warn!("ExtensionBridge: failed to send eval - client channel closed");
+                    return Ok(None);
                 }
             } else {
                 // No matching browser found - return error instead of falling back to wrong browser
@@ -1229,12 +1232,6 @@ impl ExtensionBridge {
                     normalized_target, connected_browsers, normalized_target
                 )));
             }
-        }
-
-        if !ok {
-            self.pending.lock().await.remove(&id);
-            tracing::warn!("ExtensionBridge: failed to send eval - no active clients available");
-            return Ok(None);
         }
 
         let res = tokio::time::timeout(timeout, rx).await;
