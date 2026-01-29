@@ -101,8 +101,21 @@ pub struct ComputerUseResult {
     pub execution_id: Option<String>,
 }
 
+/// Callback events for progress updates during computer use execution
+#[derive(Debug, Clone)]
+pub enum CallbackEvent {
+    /// Progress update for a specific step
+    Step { 
+        current: u32, 
+        total: u32, 
+        message: String 
+    },
+    /// Completion of a step with detailed information
+    StepCompleted(ComputerUseStep),
+}
+
 /// Callback for progress updates during computer use execution
-pub type ProgressCallback = Box<dyn Fn(&ComputerUseStep) + Send + Sync>;
+pub type ProgressCallback = Box<dyn Fn(&CallbackEvent) + Send + Sync>;
 
 // ===== Internal Types =====
 
