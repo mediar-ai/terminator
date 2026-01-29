@@ -1211,14 +1211,23 @@ impl ExtensionBridge {
                         c.connected_at
                     );
                 }
-            } else if let Some(c) = clients.last() {
-                // Fall back to most recent client if no match
-                tracing::warn!(
-                    fallback_browser = %c.browser_name.as_deref().unwrap_or("unknown"),
+            } else {
+                // No matching browser found - return error instead of falling back to wrong browser
+                let connected_browsers: Vec<_> = clients
+                    .iter()
+                    .filter_map(|c| c.browser_name.as_ref())
+                    .collect();
+                self.pending.lock().await.remove(&id);
+                tracing::error!(
                     target_browser = %normalized_target,
-                    "No matching browser found, falling back to most recent client"
+                    connected_browsers = ?connected_browsers,
+                    "Target browser extension not connected"
                 );
-                ok = c.sender.send(Message::Text(payload)).is_ok();
+                return Err(AutomationError::PlatformError(format!(
+                    "Browser extension for '{}' is not connected. Connected browsers: {:?}. \
+                    Make sure the Terminator Bridge extension is installed and enabled in {}.",
+                    normalized_target, connected_browsers, normalized_target
+                )));
             }
         }
 
