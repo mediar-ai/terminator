@@ -1201,20 +1201,22 @@ impl DesktopWrapper {
                     "total": total_steps,
                     "name": step_name.clone().unwrap_or_else(|| format!("Step {}", current_index + 1)),
                 }),
-            });
+            }).await;
             // Also send progress notification for clients that support it
             if let Some(token) = &client_progress_token {
-                let _ = peer.notify_progress(ProgressNotificationParam {
-                    progress_token: token.clone(),
-                    progress: (current_index + 1) as f64,
-                    total: Some(total_steps as f64),
-                    message: Some(format!(
-                        "Step {} of {}: {}",
-                        current_index + 1,
-                        total_steps,
-                        step_name.unwrap_or_else(|| format!("Step {}", current_index + 1))
-                    )),
-                });
+                let _ = peer
+                    .notify_progress(ProgressNotificationParam {
+                        progress_token: token.clone(),
+                        progress: (current_index + 1) as f64,
+                        total: Some(total_steps as f64),
+                        message: Some(format!(
+                            "Step {} of {}: {}",
+                            current_index + 1,
+                            total_steps,
+                            step_name.unwrap_or_else(|| format!("Step {}", current_index + 1))
+                        )),
+                    })
+                    .await;
             }
 
             // 2. Execute with retries
