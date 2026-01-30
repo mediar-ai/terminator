@@ -11,6 +11,9 @@
 </p>
 
 <p align="center">
+  <a href="https://t8r.tech">
+    <img src="https://img.shields.io/badge/Website-t8r.tech-FF3E00?style=flat-square" alt="Website">
+  </a>
   <a href="https://discord.gg/dU9EBuw7Uq">
     <img src="https://img.shields.io/discord/823813159592001537?color=5865F2&logo=discord&logoColor=white&style=flat-square" alt="Join us on Discord">
   </a>
