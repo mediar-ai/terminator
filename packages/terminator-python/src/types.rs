@@ -180,38 +180,18 @@ pub struct PropertyLoadingMode {
     pub mode: String,
 }
 
-impl PropertyLoadingMode {
-    pub fn fast() -> Self {
-        PropertyLoadingMode {
-            mode: "Fast".to_string(),
-        }
-    }
-
-    pub fn complete() -> Self {
-        PropertyLoadingMode {
-            mode: "Complete".to_string(),
-        }
-    }
-
-    pub fn smart() -> Self {
-        PropertyLoadingMode {
-            mode: "Smart".to_string(),
-        }
-    }
-}
-
 /// Configuration for tree building performance and completeness
 #[gen_stub_pyclass]
 #[pyclass(name = "TreeBuildConfig")]
 #[derive(Clone, Serialize)]
 pub struct TreeBuildConfig {
-    #[pyo3(get)]
+    #[pyo3(get, set)]
     pub property_mode: PropertyLoadingMode,
-    #[pyo3(get)]
+    #[pyo3(get, set)]
     pub timeout_per_operation_ms: Option<u64>,
-    #[pyo3(get)]
+    #[pyo3(get, set)]
     pub yield_every_n_elements: Option<usize>,
-    #[pyo3(get)]
+    #[pyo3(get, set)]
     pub batch_size: Option<usize>,
 }
 
@@ -627,6 +607,27 @@ impl UINode {
 #[gen_stub_pymethods]
 #[pymethods]
 impl PropertyLoadingMode {
+    #[staticmethod]
+    pub fn fast() -> Self {
+        PropertyLoadingMode {
+            mode: "Fast".to_string(),
+        }
+    }
+
+    #[staticmethod]
+    pub fn complete() -> Self {
+        PropertyLoadingMode {
+            mode: "Complete".to_string(),
+        }
+    }
+
+    #[staticmethod]
+    pub fn smart() -> Self {
+        PropertyLoadingMode {
+            mode: "Smart".to_string(),
+        }
+    }
+
     fn __repr__(&self) -> PyResult<String> {
         serde_json::to_string(self)
             .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
@@ -653,6 +654,16 @@ impl Monitor {
 #[gen_stub_pymethods]
 #[pymethods]
 impl TreeBuildConfig {
+    #[new]
+    pub fn new() -> Self {
+        Self {
+            property_mode: PropertyLoadingMode::fast(), // default
+            timeout_per_operation_ms: None,
+            yield_every_n_elements: None,
+            batch_size: None,
+        }
+    }
+
     fn __repr__(&self) -> PyResult<String> {
         serde_json::to_string(self)
             .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
