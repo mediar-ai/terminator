@@ -2,11 +2,11 @@
 
 <p align="center">
   <a href="https://cdn.crabnebula.app/download/mediar/mediar/latest/platform/windows-x86_64">
-    <img src="https://img.shields.io/badge/⬇_Download_for_Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" height="50">
+    <img src="https://img.shields.io/badge/Download_for_Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" height="50">
   </a>
   &nbsp;&nbsp;
   <a href="https://app.mediar.ai">
-    <img src="https://img.shields.io/badge/🌐_Use_on_macOS-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Use on macOS" height="50">
+    <img src="https://img.shields.io/badge/Use_on_macOS-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Use on macOS" height="50">
   </a>
 </p>
 
@@ -40,7 +40,7 @@
   </a>
 </p>
 
-## 🤖 Computer Use MCP that controls your entire desktop
+## Computer Use MCP that controls your entire desktop
 
 Give AI assistants (Claude, Cursor, VS Code, etc.) the ability to control your desktop and automate tasks across any application.
 
@@ -81,7 +81,7 @@ See the [MCP Agent README](https://github.com/mediar-ai/terminator/tree/main/ter
 - Check logs on Vercel to find most common errors
 - Test my app new features based on recent commits
 
-## 🚀 What's new
+## What's new
 
 - 01/09/26 - Mediar IDE (Cursor for Windows automation) is in public access - [download now](https://cdn.crabnebula.app/download/mediar/mediar/latest/platform/windows-x86_64)
 - 10/30 Public alpha is live - [Cursor for Windows automation](https://www.mediar.ai)
@@ -89,7 +89,7 @@ See the [MCP Agent README](https://github.com/mediar-ai/terminator/tree/main/ter
 - 08/25 Big release — NodeJS SDK in YAML workflows, run JS in browser, OS event recording → YAML generation in MCP, and more
 - 08/25 [we raised $2.8m to give AI hands to every desktop](https://x.com/louis030195/status/1948745185178914929)
 
-## 🧠 Why Terminator
+## Why Terminator
 
 ### For Developers
 
@@ -115,31 +115,31 @@ Terminator currently supports **Windows only**. macOS and Linux are not supporte
 | Feature                      | Windows | macOS | Linux | Notes                                                |
 | ---------------------------- | :-----: | :---: | :---: | ---------------------------------------------------- |
 | **Core Automation**          |         |       |       |                                                      |
-| Element Locators             |    ✅    |   ❌   |   ❌   | Find elements by `name`, `role`, `window`, etc.      |
-| UI Actions (`click`, `type`) |    ✅    |   ❌   |   ❌   | Core interactions with UI elements.                  |
-| Application Management       |    ✅    |   ❌   |   ❌   | Launch, list, and manage applications.               |
-| Window Management            |    ✅    |   ❌   |   ❌   | Get active window, list windows.                     |
+| Element Locators             |   Yes   |   No  |   No  | Find elements by `name`, `role`, `window`, etc.      |
+| UI Actions (`click`, `type`) |   Yes   |   No  |   No  | Core interactions with UI elements.                  |
+| Application Management       |   Yes   |   No  |   No  | Launch, list, and manage applications.               |
+| Window Management            |   Yes   |   No  |   No  | Get active window, list windows.                     |
 | **Advanced Features**        |         |       |       |                                                      |
-| Browser Automation           |    ✅    |   ❌   |   ❌   | Chrome extension enables browser control.            |
-| Workflow Recording           |    ✅    |   ❌   |   ❌   | Record human workflows for deterministic automation. |
-| Monitor Management           |    ✅    |   ❌   |   ❌   | Multi-display support.                               |
-| Screen & Element Capture     |    ✅    |   ❌   |   ❌   | Take screenshots of displays or elements.            |
+| Browser Automation           |   Yes   |   No  |   No  | Chrome extension enables browser control.            |
+| Workflow Recording           |   Yes   |   No  |   No  | Record human workflows for deterministic automation. |
+| Monitor Management           |   Yes   |   No  |   No  | Multi-display support.                               |
+| Screen & Element Capture     |   Yes   |   No  |   No  | Take screenshots of displays or elements.            |
 | **Libraries**                |         |       |       |                                                      |
-| Python (`terminator.py`)     |    🟡    |   ❌   |   ❌   | `pip install terminator`                             |
-| TypeScript (`@mediar-ai/terminator`) |    ✅    |   ❌   |   ❌   | `npm i @mediar-ai/terminator`                        |
-| Workflow (`@mediar-ai/workflow`) |    ✅    |   ❌   |   ❌   | `npm i @mediar-ai/workflow`                          |
-| CLI (`@mediar-ai/cli`)       |    ✅    |   ❌   |   ❌   | `npm i @mediar-ai/cli`                               |
-| KV (`@mediar-ai/kv`)         |    ✅    |   ❌   |   ❌   | `npm i @mediar-ai/kv`                                |
-| MCP (`terminator-mcp-agent`) |    ✅    |   ❌   |   ❌   | `npx -y terminator-mcp-agent --add-to-app [app]`     |
-| Rust (`terminator-rs`)       |    ✅    |   ❌   |   ❌   | `cargo add terminator-rs`                            |
+| Python (`terminator.py`)     | Partial |   No  |   No  | `pip install terminator`                             |
+| TypeScript (`@mediar-ai/terminator`) |   Yes   |   No  |   No  | `npm i @mediar-ai/terminator`                        |
+| Workflow (`@mediar-ai/workflow`) |   Yes   |   No  |   No  | `npm i @mediar-ai/workflow`                          |
+| CLI (`@mediar-ai/cli`)       |   Yes   |   No  |   No  | `npm i @mediar-ai/cli`                               |
+| KV (`@mediar-ai/kv`)         |   Yes   |   No  |   No  | `npm i @mediar-ai/kv`                                |
+| MCP (`terminator-mcp-agent`) |   Yes   |   No  |   No  | `npx -y terminator-mcp-agent --add-to-app [app]`     |
+| Rust (`terminator-rs`)       |   Yes   |   No  |   No  | `cargo add terminator-rs`                            |
 
 **Legend:**
 
-- ✅: **Supported** - The feature is stable and well-tested.
-- 🟡: **Partial / Experimental** - The feature is in development and may have limitations.
-- ❌: **Not Supported** - Not available on this platform.
+- **Yes**: Supported - The feature is stable and well-tested.
+- **Partial**: Partial / Experimental - The feature is in development and may have limitations.
+- **No**: Not available on this platform.
 
-## 🕵️ How to Inspect Accessibility Elements (like `name:Seven`)
+## How to Inspect Accessibility Elements (like `name:Seven`)
 
 To create reliable selectors (e.g. `name:Seven`, `role:Button`, `window:Calculator`), you need to inspect the Windows Accessibility Tree:
 
@@ -155,7 +155,7 @@ To create reliable selectors (e.g. `name:Seven`, `role:Button`, `window:Calculat
 
 | Platform | CLI | MCP Agent | Automation | Installation Method |
 |----------|:---:|:---------:|:----------:|---------------------|
-| Windows  | ✅  | ✅        | ✅         | npm/bunx |
+| Windows  | Yes | Yes       | Yes        | npm/bunx |
 
 **Note:** Terminator currently supports Windows only. macOS and Linux support is not available.
 
