@@ -1,0 +1,160 @@
+# Terminator - AI-Native Desktop Automation SDK
+
+> This file provides instructions for AI coding agents building with the Terminator SDK.
+> Windows-only. MIT licensed. https://github.com/mediar-ai/terminator
+
+## SDK Packages
+
+- **TypeScript/Node.js**: `npm install @mediar-ai/terminator` (native bindings via NAPI-RS)
+- **Python**: `pip install terminator-py` (PyO3 bindings, Python 3.10+)
+- **Rust**: `cargo add terminator-rs`
+- **TypeScript Workflows**: `npm install @mediar-ai/workflow zod` (deterministic step-based automation)
+- **MCP Agent**: `npm install -g terminator-mcp-agent` (standalone MCP server for AI agents)
+- **CLI**: `npx @mediar-ai/cli` or `npm install -g @mediar-ai/cli`
+
+## Critical Rules
+
+### Selectors - DO and DON'T
+
+NEVER use `#id` selectors - they are non-deterministic across machines.
+
+ALWAYS use `role:Type && name:Name` or `nativeid:` selectors derived from the actual UI tree.
+
+Selector syntax uses substring matching by default. Wildcards (`*`, `?`) are NOT supported.
+
+```
+role:Button && name:Save       # Good - deterministic
+name:Submit                    # Good - accessible name
+nativeid:btnOK                 # Good - native automation ID
+#some-id                       # BAD - non-deterministic, breaks across machines
+```
+
+### Selector Prefixes
+
+| Prefix | Example | Matches |
+|--------|---------|---------|
+| `role:` | `role:Button` | Accessibility role |
+| `name:` | `name:Save` | Accessible name/label (case-insensitive) |
+| `text:` | `text:Open` | Visible text content (case-sensitive) |
+| `id:` | `id:submit` | Accessibility/AutomationId |
+| `nativeid:` | `nativeid:42` | OS-specific automation ID |
+| `classname:` | `classname:Edit` | UI class name |
+| `nth:N` | `nth:0` | Nth match (0-based) |
+| `visible:` | `visible:true` | Filter by visibility |
+
+### Selector Combinators
+
+- `&&` (AND): `role:Button && name:Close`
+- `||` (OR): `name:Save || name:Submit`
+- `!` (NOT): `role:Button && !name:Cancel`
+- `>>` (descendant): `window:Calculator >> role:Button >> name:Seven`
+- `..` (parent): `role:Button|name:Submit >> ..`
+- Positional: `rightof:`, `leftof:`, `above:`, `below:`, `near:`
+
+### TypeScript Workflow SDK
+
+```typescript
+import { createStep, createWorkflow, z } from '@mediar-ai/workflow';
+
+const InputSchema = z.object({
+  userName: z.string().default('World'),
+});
+
+const openApp = createStep({
+  id: 'open-app',
+  name: 'Open Notepad',
+  execute: async ({ desktop }) => {
+    desktop.openApplication('notepad');
+    await desktop.delay(2000);
+  },
+});
+
+const typeGreeting = createStep({
+  id: 'type-greeting',
+  name: 'Type Greeting',
+  execute: async ({ desktop, input }) => {
+    const textbox = await desktop.locator('role:Edit').first(2000);
+    await textbox.typeText(`Hello, ${input.userName}!`);
+  },
+});
+
+const workflow = createWorkflow({
+  name: 'Simple Demo',
+  input: InputSchema,
+})
+  .step(openApp)
+  .step(typeGreeting)
+  .build();
+```
+
+CRITICAL: `.first()` and `.all()` REQUIRE a timeout in milliseconds.
+CRITICAL: Selectors MUST include process scope: `desktop.locator('process:chrome >> role:Button')`
+
+Use `context.data = {...}` in the final step to return data for MCP integration.
+
+### Node.js SDK (Direct Usage)
+
+```javascript
+const { Desktop } = require('@mediar-ai/terminator');
+const desktop = new Desktop();
+
+// Find elements
+const locator = desktop.locator('process:notepad >> role:Edit');
+const element = await locator.first(5000); // timeout in ms, REQUIRED
+
+// Actions
+await element.typeText('Hello');
+await element.click();
+await element.setSelected(true);  // For checkboxes/radio buttons
+
+// Get UI tree
+const root = await desktop.getRoot('notepad');
+const tree = root.getChildren();
+```
+
+### Python SDK
+
+```python
+from terminator import Desktop
+
+desktop = Desktop()
+locator = desktop.locator("process:notepad >> role:Edit")
+element = locator.first(timeout_ms=5000)
+element.type_text("Hello")
+```
+
+## Common Pitfalls
+
+1. **ElementNotVisible on click** - Element has zero-size bounds or is offscreen. Use `invokeElement()` instead (does not require viewport visibility), or scroll element into view first.
+
+2. **ElementNotStable on click** - Element bounds are still animating. Wait longer, or use `invokeElement()`.
+
+3. **ElementNotEnabled** - Element is disabled/grayed out. Check for missing required fields or unchecked dependencies.
+
+4. **Radio button clicks don't register** - Use `setSelected(true)` instead of `click()`.
+
+5. **Element not found** - May be deeper than default tree depth (30). Increase depth or scope the search with a more specific selector.
+
+6. **Hyperlink clicks don't navigate** - Target the child anchor element, not the container. Use `invokeElement()` or focus + Enter key.
+
+7. **Browser navigation kills script** - Scripts triggering page navigation can be killed before return executes. Return a result BEFORE navigating, then navigate in the next step.
+
+## Common Process Names (Windows)
+
+| Category | Process Names |
+|----------|--------------|
+| Browsers | `chrome`, `msedge`, `firefox`, `brave`, `opera` |
+| Editors/IDEs | `notepad`, `Code`, `Cursor`, `sublime_text`, `notepad++` |
+| Office | `EXCEL`, `WINWORD`, `POWERPNT`, `OUTLOOK` |
+| Communication | `Slack`, `Teams`, `Discord` |
+| System | `explorer`, `cmd`, `powershell`, `WindowsTerminal` |
+
+## Architecture
+
+Terminator uses Windows UI Automation (UIA) accessibility APIs to interact with desktop applications. It captures the accessibility tree, finds elements by selectors, and performs actions through the UIA interface. No pixel-based automation or image matching by default.
+
+For more details:
+- API Reference: docs/TERMINATOR_JS_API.md
+- Selectors: docs/SELECTORS_CHEATSHEET.md
+- Workflow SDK: packages/workflow/README.md
+- Examples: examples/

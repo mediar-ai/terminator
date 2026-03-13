@@ -34,7 +34,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use sysinfo::{ProcessesToUpdate, System};
 use terminator::element::UIElementImpl;
-use terminator::{AutomationError, Browser, Desktop, Selector, UIElement};
+use terminator::{
+    AutomationError, Browser, ComputerUseStep, Desktop, ProgressCallback, Selector, UIElement,
+};
 use tokio::sync::Mutex;
 use tracing::{info, warn, Instrument};
 
@@ -8648,11 +8650,54 @@ console.info = function(...args) {
             .prepare_window_management(&args.process, None, None, None, &args.window_mgmt)
             .await;
 
+        // Build progress callback to send MCP notifications to all connected peers
+        let max_steps = args.max_steps.unwrap_or(20) as f64;
+        let broadcast_peers = self.broadcast_peers.clone();
+        let progress_token = ProgressToken(NumberOrString::String(
+            format!("gemini-computer-use-{}", std::process::id()).into(),
+        ));
+        let on_step: Option<ProgressCallback> = Some(Box::new(move |step: &ComputerUseStep| {
+            info!(
+                "[gemini_computer_use] progress: step {}, action: {}, success: {}",
+                step.step, step.action, step.success
+            );
+            let peers_clone = broadcast_peers.clone();
+            let token = progress_token.clone();
+            let current = step.step as f64;
+            let total = max_steps;
+            let msg = format!(
+                "Step {}: {} ({})",
+                step.step,
+                step.action,
+                if step.success { "ok" } else { "failed" }
+            );
+            tokio::spawn(async move {
+                let mut peers = peers_clone.lock().await;
+                let mut dead_indices = Vec::new();
+                for (i, p) in peers.iter().enumerate() {
+                    if p.notify_progress(ProgressNotificationParam {
+                        progress_token: token.clone(),
+                        progress: current,
+                        total: Some(total),
+                        message: Some(msg.clone()),
+                    })
+                    .await
+                    .is_err()
+                    {
+                        dead_indices.push(i);
+                    }
+                }
+                for i in dead_indices.into_iter().rev() {
+                    peers.remove(i);
+                }
+            });
+        }));
+
         // Call Desktop::gemini_computer_use (single source of truth)
         // This respects stop_execution() via cancellation token
         let result = self
             .desktop
-            .gemini_computer_use(&args.process, &args.goal, args.max_steps, None)
+            .gemini_computer_use(&args.process, &args.goal, args.max_steps, on_step)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
