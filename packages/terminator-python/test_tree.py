@@ -62,12 +62,8 @@ def test_get_window_tree():
 
         print(f"Testing with application: {app_name} (PID: {pid})")
 
-        # Create a custom config for fast tree building
-        property_mode = terminator.PropertyLoadingMode()
-        property_mode.mode = "Fast"  # Can be "Fast", "Complete", or "Smart"
-
         config = terminator.TreeBuildConfig()
-        config.property_mode = property_mode
+        config.property_mode = terminator.PropertyLoadingMode.fast() # Can be "fast", "complete", or "smart"
         config.timeout_per_operation_ms = 50
         config.yield_every_n_elements = 50
         config.batch_size = 50
@@ -88,11 +84,8 @@ def test_get_window_tree():
 
         # Test with different property modes
         print("\n--- Testing with Complete property mode ---")
-        complete_mode = terminator.PropertyLoadingMode()
-        complete_mode.mode = "Complete"
-
         complete_config = terminator.TreeBuildConfig()
-        complete_config.property_mode = complete_mode
+        complete_config.property_mode = terminator.PropertyLoadingMode.complete()
 
         complete_tree = desktop.get_window_tree(pid, None, complete_config)
         print(f"Total elements with Complete mode: {count_elements(complete_tree)}")
