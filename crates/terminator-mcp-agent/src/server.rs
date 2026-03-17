@@ -10866,15 +10866,41 @@ impl ServerHandler for DesktopWrapper {
             );
         }
 
-        // Add peer to broadcast list for progress notifications
-        // All connected clients will receive emit.progress() updates
+        // Prune dead peers before adding new one, then add to broadcast list
         {
             let mut broadcast_guard = self.broadcast_peers.lock().await;
-            broadcast_guard.push(peer.clone());
-            tracing::info!(
-                "[on_initialized] Added peer to broadcast list. Total peers: {}",
-                broadcast_guard.len()
-            );
+            let before_count = broadcast_guard.len();
+
+            let mut alive = Vec::new();
+            for p in broadcast_guard.drain(..) {
+                // Try sending a lightweight log notification - if it fails, peer is dead
+                if p.notify_logging_message(LoggingMessageNotificationParam {
+                    level: LoggingLevel::Debug,
+                    logger: Some("peer-health-check".into()),
+                    data: serde_json::Value::String("ping".into()),
+                })
+                .await
+                .is_ok()
+                {
+                    alive.push(p);
+                }
+            }
+            let pruned = before_count - alive.len();
+            alive.push(peer.clone());
+            *broadcast_guard = alive;
+
+            if pruned > 0 {
+                tracing::info!(
+                    "[on_initialized] Pruned {} dead peers. Total live peers: {}",
+                    pruned,
+                    broadcast_guard.len()
+                );
+            } else {
+                tracing::info!(
+                    "[on_initialized] Added peer to broadcast list. Total peers: {}",
+                    broadcast_guard.len()
+                );
+            }
         }
 
         if supports {
