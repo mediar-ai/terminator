@@ -168,3 +168,8 @@ For detailed troubleshooting, debugging, and MCP server logs, [send us a message
 Contributions are welcome! Please feel free to submit issues and pull requests. many parts are experimental, and help is appreciated. 
 
 
+
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/louis030195-terminator-mcp-agent).
+
