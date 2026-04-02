@@ -312,6 +312,58 @@ impl WindowsUIElement {
         })
     }
 
+    /// Check if element bounds intersect with any monitor (multi-monitor support)
+    fn is_visible_on_any_monitor(&self, x: f64, y: f64, width: f64, height: f64) -> Result<bool, AutomationError> {
+        let monitors = xcap::Monitor::all()
+            .map_err(|e| AutomationError::PlatformError(format!("Failed to get monitors: {e}")))?;
+
+        let elem_left = x as i32;
+        let elem_top = y as i32;
+        let elem_right = elem_left + width as i32;
+        let elem_bottom = elem_top + height as i32;
+
+        for monitor in monitors {
+            let monitor_x = monitor.x().map_err(|e| {
+                AutomationError::PlatformError(format!("Failed to get monitor x: {e}"))
+            })?;
+            let monitor_y = monitor.y().map_err(|e| {
+                AutomationError::PlatformError(format!("Failed to get monitor y: {e}"))
+            })?;
+            let monitor_width = monitor.width().map_err(|e| {
+                AutomationError::PlatformError(format!("Failed to get monitor width: {e}"))
+            })? as i32;
+            let monitor_height = monitor.height().map_err(|e| {
+                AutomationError::PlatformError(format!("Failed to get monitor height: {e}"))
+            })? as i32;
+
+            let monitor_right = monitor_x + monitor_width;
+            let monitor_bottom = monitor_y + monitor_height;
+
+            // Check if element intersects with this monitor
+            if elem_left < monitor_right
+                && elem_right > monitor_x
+                && elem_top < monitor_bottom
+                && elem_bottom > monitor_y
+            {
+                tracing::debug!(
+                    "Element intersects with monitor '{}' at ({}, {}) {}x{}",
+                    monitor.name().unwrap_or_default(),
+                    monitor_x,
+                    monitor_y,
+                    monitor_width,
+                    monitor_height
+                );
+                return Ok(true);
+            }
+        }
+
+        tracing::debug!(
+            "is_visible_on_any_monitor:false - element bounds ({}, {}, {}, {}) don't intersect with any monitor",
+            x, y, width, height
+        );
+        Ok(false)
+    }
+
     // Helper: Ensure element is in viewport (simplified - no auto-scroll)
     fn ensure_in_viewport(&self) -> Result<(), AutomationError> {
         tracing::debug!("Checking element is in viewport");
@@ -329,33 +381,24 @@ impl WindowsUIElement {
 
     // Main validation: Comprehensive pre-action checks (like Playwright)
     fn validate_clickable(&self) -> Result<(), AutomationError> {
-        // 1. Check element is attached (not detached from DOM)
-        if self.element.0.is_offscreen().map_err(|e| {
-            AutomationError::ElementDetached(format!("Element detached or invalid: {e}"))
-        })? {
-            return Err(AutomationError::ElementNotVisible(
-                "Element is offscreen".to_string(),
-            ));
-        }
-
-        // 2. Check element is visible
+        // 1. Check element is visible (includes multi-monitor check)
         if !self.is_visible()? {
             return Err(AutomationError::ElementNotVisible(
                 "Element not visible".to_string(),
             ));
         }
 
-        // 3. Check element is enabled
+        // 2. Check element is enabled
         if !self.is_enabled()? {
             return Err(AutomationError::ElementNotEnabled(
                 "Element is disabled".to_string(),
             ));
         }
 
-        // 4. Ensure element is in viewport (scroll if needed)
+        // 3. Ensure element is in viewport (scroll if needed)
         self.ensure_in_viewport()?;
 
-        // 5. Removed wait_for_stable_bounds - relying on tree capture delay instead
+        // 4. Removed wait_for_stable_bounds - relying on tree capture delay instead
         // This speeds up click actions by ~800ms
 
         tracing::info!("Element passed all actionability checks");
@@ -1382,21 +1425,6 @@ impl UIElementImpl for WindowsUIElement {
     }
 
     fn is_visible(&self) -> Result<bool, AutomationError> {
-        // First check if the element is offscreen
-        let is_offscreen = self
-            .element
-            .0
-            .is_offscreen()
-            .map_err(|e| AutomationError::ElementNotFound(e.to_string()))?;
-
-        if is_offscreen {
-            tracing::debug!(
-                "is_visible:false reason=offscreen element={:?}",
-                self.element.0.get_name().unwrap_or_default()
-            );
-            return Ok(false);
-        }
-
         // Check bounds - element must have non-zero size to be visible
         if let Ok((x, y, width, height)) = self.bounds() {
             // Check for non-zero bounds (critical for preventing false positives)
@@ -1412,9 +1440,21 @@ impl UIElementImpl for WindowsUIElement {
                 return Ok(false);
             }
 
-            // NOTE: Removed work_area check here - it only checked primary monitor
-            // which broke multi-monitor support. The is_offscreen() check above
-            // and bounds check are sufficient for visibility detection.
+            // Check if element is visible on any monitor (multi-monitor support)
+            // This replaces the old is_offscreen() check which incorrectly returned true
+            // for elements on secondary monitors (GitHub issue #473)
+            let visible_on_monitor = self.is_visible_on_any_monitor(x, y, width, height)?;
+            if !visible_on_monitor {
+                tracing::debug!(
+                    "is_visible:false reason=not_on_any_monitor bounds=({}, {}, {}, {}) element={:?}",
+                    x,
+                    y,
+                    width,
+                    height,
+                    self.element.0.get_name().unwrap_or_default()
+                );
+                return Ok(false);
+            }
 
             tracing::debug!(
                 "is_visible:true bounds=({}, {}, {}, {}) element={:?}",
