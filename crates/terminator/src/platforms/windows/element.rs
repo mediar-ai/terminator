@@ -313,7 +313,13 @@ impl WindowsUIElement {
     }
 
     /// Check if element bounds intersect with any monitor (multi-monitor support)
-    fn is_visible_on_any_monitor(&self, x: f64, y: f64, width: f64, height: f64) -> Result<bool, AutomationError> {
+    fn is_visible_on_any_monitor(
+        &self,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    ) -> Result<bool, AutomationError> {
         let monitors = xcap::Monitor::all()
             .map_err(|e| AutomationError::PlatformError(format!("Failed to get monitors: {e}")))?;
 
