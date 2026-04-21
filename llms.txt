@@ -1,33 +1,60 @@
-# Terminator - AI-Native Desktop Automation SDK
+# Terminator: AI-Native Desktop Automation SDK
 
-> This file provides instructions for AI coding agents building with the Terminator SDK.
-> Windows-only. MIT licensed. https://github.com/mediar-ai/terminator
+> Instructions for AI coding agents building with Terminator.
+> MIT licensed. https://github.com/mediar-ai/terminator
+> Website: https://t8r.tech | Discord: https://discord.gg/dU9EBuw7Uq
+
+## What Terminator Is
+
+Terminator is a desktop automation framework, comparable to Playwright but for your entire OS instead of just browsers. It uses native accessibility APIs (Windows UI Automation, macOS Accessibility API) to find, inspect, and interact with UI elements across any desktop application. It captures the accessibility tree, matches elements via selectors, and performs actions through the OS accessibility interface. No pixel-based automation or image matching by default, though OCR and vision AI are available as supplementary detection methods.
+
+## Who It's For
+
+- Developers building cross-application desktop automations
+- AI agent builders who need MCP-based computer use (Claude Code, Cursor, VS Code, Windsurf)
+- Teams replacing legacy RPA with deterministic, code-first workflows
+- QA engineers automating desktop app testing
+
+## Platform Support
+
+Windows is the primary platform with full feature support. macOS support exists at the core Rust level. Linux uses AT-SPI2. The Node.js, Python, and MCP packages currently ship Windows binaries only.
 
 ## SDK Packages
 
-- **TypeScript/Node.js**: `npm install @mediar-ai/terminator` (native bindings via NAPI-RS)
-- **Python**: `pip install terminator-py` (PyO3 bindings, Python 3.10+)
-- **Rust**: `cargo add terminator-rs`
-- **TypeScript Workflows**: `npm install @mediar-ai/workflow zod` (deterministic step-based automation)
-- **MCP Agent**: `npm install -g terminator-mcp-agent` (standalone MCP server for AI agents)
-- **CLI**: `npx @mediar-ai/cli` or `npm install -g @mediar-ai/cli`
+| Package | Install | Language | Description |
+|---------|---------|----------|-------------|
+| terminator-rs | `cargo add terminator-rs` | Rust | Core library with all automation primitives |
+| @mediar-ai/terminator | `npm install @mediar-ai/terminator` | TypeScript/Node.js | Native bindings via NAPI-RS |
+| terminator-py | `pip install terminator-py` | Python 3.10+ | PyO3 bindings |
+| @mediar-ai/workflow | `npm install @mediar-ai/workflow zod` | TypeScript | Deterministic step-based workflow SDK |
+| terminator-mcp-agent | `npx -y terminator-mcp-agent@latest` | TypeScript | MCP server for AI agent integration |
+| @mediar-ai/cli | `npx @mediar-ai/cli` | TypeScript/Rust | CLI for version management, Azure deploy, workflow execution |
+| @mediar-ai/kv | `npm install @mediar-ai/kv` | TypeScript | Key-value store for workflow state sharing |
+| terminator-workflow-recorder | `cargo add terminator-workflow-recorder` | Rust | Records user workflows for deterministic replay |
 
-## Critical Rules
+## Architecture
 
-### Selectors - DO and DON'T
+The repo is a Rust workspace with the following structure:
 
-NEVER use `#id` selectors - they are non-deterministic across machines.
+- `crates/terminator` : Core Rust library (element finding, selectors, actions, tree building, OCR, browser scripting)
+- `crates/terminator-cli` : CLI binary for releases, Azure VM deploy, MCP client, workflow runner
+- `crates/terminator-mcp-agent` : MCP server exposing desktop automation as MCP tools
+- `crates/terminator-computer-use` : Gemini-based autonomous computer use agent
+- `crates/terminator-workflow-recorder` : Records human interactions into replayable workflows
+- `packages/terminator-nodejs` : NAPI-RS bindings producing the `@mediar-ai/terminator` npm package
+- `packages/terminator-python` : PyO3 bindings producing the `terminator-py` pip package
+- `packages/workflow` : TypeScript workflow SDK with Zod schemas, error recovery, step chaining
+- `packages/kv` : Pluggable KV store (Redis, filesystem, or memory backends)
 
-ALWAYS use `role:Type && name:Name` or `nativeid:` selectors derived from the actual UI tree.
+On Windows, the core uses the UI Automation (UIA) COM API. On macOS, it uses the Accessibility API (requires permissions). Browser automation is enhanced by a Chrome extension that enables DOM access and in-browser JavaScript execution alongside the accessibility tree.
 
-Selector syntax uses substring matching by default. Wildcards (`*`, `?`) are NOT supported.
+## Critical Rules for Selectors
 
-```
-role:Button && name:Save       # Good - deterministic
-name:Submit                    # Good - accessible name
-nativeid:btnOK                 # Good - native automation ID
-#some-id                       # BAD - non-deterministic, breaks across machines
-```
+### NEVER use `#id` selectors. They are non-deterministic across machines.
+
+### ALWAYS use `role:Type && name:Name` or `nativeid:` selectors derived from the actual UI tree.
+
+Selectors use substring matching by default. Wildcards (`*`, `?`) are NOT supported.
 
 ### Selector Prefixes
 
@@ -41,6 +68,9 @@ nativeid:btnOK                 # Good - native automation ID
 | `classname:` | `classname:Edit` | UI class name |
 | `nth:N` | `nth:0` | Nth match (0-based) |
 | `visible:` | `visible:true` | Filter by visibility |
+| `process:` | `process:chrome` | Scope to a specific process |
+| `window:` | `window:Calculator` | Scope to a specific window |
+| `pos:x,y` | `pos:100,200` | Element at screen coordinates (last resort) |
 
 ### Selector Combinators
 
@@ -48,10 +78,69 @@ nativeid:btnOK                 # Good - native automation ID
 - `||` (OR): `name:Save || name:Submit`
 - `!` (NOT): `role:Button && !name:Cancel`
 - `>>` (descendant): `window:Calculator >> role:Button >> name:Seven`
-- `..` (parent): `role:Button|name:Submit >> ..`
+- `..` (parent): `role:Button && name:Submit >> ..`
 - Positional: `rightof:`, `leftof:`, `above:`, `below:`, `near:`
 
-### TypeScript Workflow SDK
+## Node.js SDK (Direct Usage)
+
+```javascript
+const { Desktop } = require('@mediar-ai/terminator');
+const desktop = new Desktop();
+
+// Locate elements (timeout in ms is REQUIRED)
+const locator = desktop.locator('process:notepad >> role:Edit');
+const element = await locator.first(5000);
+
+// Actions
+await element.click();
+element.typeText('Hello', { clearBeforeTyping: true });
+await element.setSelected(true);  // For checkboxes/radio buttons
+element.invoke();                 // Default action, more reliable than click for some controls
+
+// Get UI tree
+const tree = desktop.getWindowTree('notepad');
+
+// Browser scripting
+const result = await element.executeBrowserScript('document.title');
+
+// OCR
+const ocrResult = await desktop.performOcrForProcess('chrome');
+
+// Screenshots
+const screenshot = desktop.captureWindowByProcess('notepad');
+const base64 = desktop.screenshotToBase64Png(screenshot);
+
+// Shell commands
+const output = await desktop.run('echo hello', 'powershell');
+```
+
+### Key Classes
+
+- **Desktop**: Main entry point. Application management, element location, screenshots, OCR, browser ops, shell commands, monitor management.
+- **Element**: UI element with click, type, focus, invoke, scroll, highlight, drag, window management, tree extraction.
+- **Locator**: Element finder with `first(timeoutMs)`, `all(timeoutMs)`, `validate(timeoutMs)`, `waitFor(condition, timeoutMs)`.
+- **Selector**: Typed selector API as alternative to string selectors. Factory methods: `Selector.process()`, `Selector.role()`, `Selector.name()`, etc.
+- **WindowManager**: Z-order aware window management with state capture/restore.
+
+### CRITICAL: `.first()` and `.all()` REQUIRE a timeout in milliseconds. No default.
+
+### CRITICAL: Scope selectors to a process: `desktop.locator('process:chrome >> role:Button')`
+
+## Python SDK
+
+```python
+from terminator import Desktop
+
+desktop = Desktop()
+locator = desktop.locator("process:notepad >> role:Edit")
+element = locator.first(timeout_ms=5000)
+element.type_text("Hello")
+element.click()
+```
+
+## TypeScript Workflow SDK
+
+Deterministic, step-based automation with Zod schemas, error recovery, and conditional execution.
 
 ```typescript
 import { createStep, createWorkflow, z } from '@mediar-ai/workflow';
@@ -78,66 +167,62 @@ const typeGreeting = createStep({
   },
 });
 
-const workflow = createWorkflow({
-  name: 'Simple Demo',
-  input: InputSchema,
-})
+const workflow = createWorkflow({ name: 'Demo', input: InputSchema })
   .step(openApp)
   .step(typeGreeting)
   .build();
 ```
 
-CRITICAL: `.first()` and `.all()` REQUIRE a timeout in milliseconds.
-CRITICAL: Selectors MUST include process scope: `desktop.locator('process:chrome >> role:Button')`
+Features: type-safe Zod inputs, `onError` retry/recovery per step, `context.state` for data passing between steps, conditional step execution, `success()` for early completion, `next()` for step jumps, workflow-level `onSuccess`/`onError` handlers.
 
-Use `context.data = {...}` in the final step to return data for MCP integration.
+## MCP Agent Setup
 
-### Node.js SDK (Direct Usage)
-
-```javascript
-const { Desktop } = require('@mediar-ai/terminator');
-const desktop = new Desktop();
-
-// Find elements
-const locator = desktop.locator('process:notepad >> role:Edit');
-const element = await locator.first(5000); // timeout in ms, REQUIRED
-
-// Actions
-await element.typeText('Hello');
-await element.click();
-await element.setSelected(true);  // For checkboxes/radio buttons
-
-// Get UI tree
-const root = await desktop.getRoot('notepad');
-const tree = root.getChildren();
+One-liner for Claude Code:
+```bash
+claude mcp add terminator "npx -y terminator-mcp-agent@latest"
 ```
 
-### Python SDK
-
-```python
-from terminator import Desktop
-
-desktop = Desktop()
-locator = desktop.locator("process:notepad >> role:Edit")
-element = locator.first(timeout_ms=5000)
-element.type_text("Hello")
+For Cursor, VS Code, Windsurf, add to MCP config:
+```json
+{
+  "mcpServers": {
+    "terminator-mcp-agent": {
+      "command": "npx",
+      "args": ["-y", "terminator-mcp-agent@latest"]
+    }
+  }
+}
 ```
+
+The MCP agent exposes desktop automation as MCP tools. It supports stdio and HTTP transport modes. HTTP mode includes `/health`, `/status`, and `/mcp` endpoints with configurable concurrency (`MCP_MAX_CONCURRENT` env var).
+
+## CLI Usage
+
+```bash
+npx @mediar-ai/cli --help
+
+# Version management
+terminator patch | minor | major
+terminator sync
+terminator release
+
+# Run workflows
+terminator mcp run workflow.yml
+terminator mcp run workflow.yml --start-from "step_5" --end-at "step_8"
+terminator mcp run workflow.yml --dry-run
+```
+
+Workflow files can be YAML or JSON, supporting conditional jumps between steps and engine-mode code execution (JavaScript or Python).
 
 ## Common Pitfalls
 
-1. **ElementNotVisible on click** - Element has zero-size bounds or is offscreen. Use `invokeElement()` instead (does not require viewport visibility), or scroll element into view first.
-
-2. **ElementNotStable on click** - Element bounds are still animating. Wait longer, or use `invokeElement()`.
-
-3. **ElementNotEnabled** - Element is disabled/grayed out. Check for missing required fields or unchecked dependencies.
-
-4. **Radio button clicks don't register** - Use `setSelected(true)` instead of `click()`.
-
-5. **Element not found** - May be deeper than default tree depth (30). Increase depth or scope the search with a more specific selector.
-
-6. **Hyperlink clicks don't navigate** - Target the child anchor element, not the container. Use `invokeElement()` or focus + Enter key.
-
-7. **Browser navigation kills script** - Scripts triggering page navigation can be killed before return executes. Return a result BEFORE navigating, then navigate in the next step.
+1. **ElementNotVisible on click**: Element has zero-size bounds or is offscreen. Use `invoke()` instead (does not require viewport visibility), or scroll into view first.
+2. **ElementNotStable on click**: Element bounds are still animating. Wait longer or use `invoke()`.
+3. **ElementNotEnabled**: Element is disabled. Check for missing required fields or unchecked dependencies.
+4. **Radio button clicks don't register**: Use `setSelected(true)` instead of `click()`.
+5. **Element not found**: May be deeper than default tree depth (30). Increase depth or scope the search with a more specific selector.
+6. **Hyperlink clicks don't navigate**: Target the child anchor element. Use `invoke()` or focus + Enter key.
+7. **Browser navigation kills script**: Scripts triggering page navigation can be killed before return executes. Return a result BEFORE navigating, then navigate in the next step.
 
 ## Common Process Names (Windows)
 
@@ -149,12 +234,22 @@ element.type_text("Hello")
 | Communication | `Slack`, `Teams`, `Discord` |
 | System | `explorer`, `cmd`, `powershell`, `WindowsTerminal` |
 
-## Architecture
+## Differentiators
 
-Terminator uses Windows UI Automation (UIA) accessibility APIs to interact with desktop applications. It captures the accessibility tree, finds elements by selectors, and performs actions through the UIA interface. No pixel-based automation or image matching by default.
+**vs Playwright**: Playwright automates browsers only. Terminator automates your entire OS: any desktop application, native UI, cross-app workflows. Uses the same accessibility tree concept but at the OS level.
 
-For more details:
+**vs legacy RPA (UiPath, Automation Anywhere)**: Terminator is code-first, open source (MIT), and designed for developers. No drag-and-drop GUI, no vendor lock-in. Pre-trained deterministic workflows with AI recovery only when needed.
+
+**vs screenshot-based computer use (ChatGPT Agents, Claude computer use, BrowserUse)**: Terminator uses structured accessibility APIs, not pixel matching. This makes it 100x faster (CPU speed, not LLM inference), more reliable (>95% success rate), and deterministic. AI is used only for error recovery, not for every action.
+
+**Key advantages**: Uses your existing browser session (no re-login needed), does not take over cursor or keyboard, works across accessibility tree + DOM + OCR + vision AI for maximum reliability.
+
+## Further Reading
+
 - API Reference: docs/TERMINATOR_JS_API.md
 - Selectors: docs/SELECTORS_CHEATSHEET.md
 - Workflow SDK: packages/workflow/README.md
+- MCP Agent: crates/terminator-mcp-agent/README.md
+- CLI: crates/terminator-cli/README.md
+- KV Store: packages/kv/README.md
 - Examples: examples/
