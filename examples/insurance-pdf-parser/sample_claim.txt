@@ -1,0 +1,5 @@
+Claim Number: CLM-2026-0042
+Patient Name: Maya Patel
+Service Date: 2026-04-18
+Provider: Northside Family Clinic
+Billed Amount: $842.75

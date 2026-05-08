@@ -22,6 +22,7 @@ This directory contains example scripts demonstrating various capabilities of th
 | Gmail Automation | `gmail_automation.py` | Automates common tasks within the Gmail web interface |
 | **Project Examples** | | |
 | PDF to Form | `pdf-to-form/` | Converts PDF data into web forms using Terminator |
+| Insurance PDF Parser | `insurance-pdf-parser/` | Extracts fixed insurance claim PDF fields into JSON |
 | reCAPTCHA Resolver | `recaptcha-resolver/` | Automated reCAPTCHA solving |
 | AI Explorer | `ai-explorer/` | AI-powered UI exploration |
 | Next.js Workflows | `nextjs-workflows/` | Next.js integration examples |
