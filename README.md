@@ -44,6 +44,20 @@
 
 Give AI assistants (Claude, Cursor, VS Code, etc.) the ability to control your desktop and automate tasks across any application.
 
+## Choose your installation path
+
+Use the install path that matches what you want to do:
+
+| Use case | Install command | What it installs |
+| --- | --- | --- |
+| Use Terminator with Claude Code or another MCP client | `claude mcp add terminator "npx -y terminator-mcp-agent@latest"` | The MCP agent that lets your AI client control desktop apps |
+| Use Terminator from Cursor, VS Code, Windsurf, or another MCP client | Add the MCP config below | The same MCP agent, configured manually |
+| Write Python automation scripts | `pip install terminator` | Python bindings only; this does not install the standalone CLI |
+| Use the TypeScript SDK | `npm i @mediar-ai/terminator` | TypeScript/Node.js bindings |
+| Use the standalone CLI on Windows | `npm install -g @mediar-ai/cli` | The `terminator` CLI wrapper with Windows binaries |
+
+If you installed the Python package and `terminator setup` is not available, install the standalone CLI separately with `npm install -g @mediar-ai/cli`.
+
 **Claude Code (one-liner):**
 ```bash
 claude mcp add terminator "npx -y terminator-mcp-agent@latest"
@@ -166,5 +180,4 @@ For detailed troubleshooting, debugging, and MCP server logs, [send us a message
 ## Contributing
 
 Contributions are welcome! Please feel free to submit issues and pull requests. many parts are experimental, and help is appreciated. 
-
 
