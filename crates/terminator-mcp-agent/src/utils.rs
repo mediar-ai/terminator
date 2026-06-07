@@ -887,7 +887,7 @@ pub struct TypeIntoElementArgs {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct PressKeyArgs {
     #[schemars(
-        description = "The key or key combination to press. Auto-normalized to curly brace format (e.g., 'Enter' -> '{Enter}'). Examples: 'Enter', 'Tab', 'Escape', 'Ctrl+A', '{Ctrl}c', '{Alt}{F4}'"
+        description = "The key or key combination to press. Use '+' for combos: 'Ctrl+Z', 'Ctrl+Shift+S', 'Alt+F4' (normalized to valid uiautomation syntax). Single keys: 'Enter', 'Tab', 'Escape', 'a'. Raw uiautomation syntax also accepted: '{Ctrl}z', '{Alt}{F4}', '{Ctrl}(AB)'. Do NOT brace a single letter as a named key ('{Z}' is invalid — use 'Ctrl+Z' or '{Ctrl}z')."
     )]
     pub key: String,
     #[schemars(
@@ -929,7 +929,7 @@ pub struct GlobalKeyArgs {
     pub process: String,
 
     #[schemars(
-        description = "The key or key combination to press. Auto-normalized to curly brace format (e.g., 'Enter' -> '{Enter}'). Examples: 'Enter', 'PageDown', 'Ctrl+V', '{Ctrl}{V}'"
+        description = "The key or key combination to press. Use '+' for combos: 'Ctrl+V', 'Ctrl+Shift+S', 'Alt+F4' (normalized to valid uiautomation syntax). Single keys: 'Enter', 'PageDown', 'a'. Raw uiautomation syntax also accepted: '{Ctrl}v', '{Alt}{F4}', '{Ctrl}(AB)'. Do NOT brace a single letter as a named key ('{V}' is invalid — use 'Ctrl+V' or '{Ctrl}v')."
     )]
     pub key: String,
 
