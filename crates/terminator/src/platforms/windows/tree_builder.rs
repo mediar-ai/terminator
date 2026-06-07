@@ -380,6 +380,23 @@ pub(crate) fn get_element_children_with_timeout(
     }
 }
 
+/// Hard cap on UI-tree recursion depth.
+///
+/// `build_node_from_cached_element` walks the cached tree recursively. On
+/// pathologically deep trees (some Win32/WPF apps nest hundreds of levels) this
+/// has overflowed the native stack — Windows terminates the process with exit
+/// code `0xC00000FD`, which the npm wrapper detects and restarts. We bound the
+/// depth even when the caller passes no `max_depth`, so a single deep window can
+/// never crash the server. 50 is comfortably above realistic UI nesting (the MCP
+/// default tree depth is 30).
+pub(crate) const SAFE_MAX_TREE_DEPTH: usize = 50;
+
+/// Clamp an optional caller-supplied max depth to [`SAFE_MAX_TREE_DEPTH`].
+/// `None` (no limit requested) becomes the cap; any larger value is capped.
+pub(crate) fn cap_tree_depth(requested: Option<usize>) -> usize {
+    requested.unwrap_or(SAFE_MAX_TREE_DEPTH).min(SAFE_MAX_TREE_DEPTH)
+}
+
 /// Build a UI node tree using UIA caching for dramatically improved performance.
 /// This uses a single IPC call to fetch all elements with their properties pre-loaded,
 /// instead of making ~15 IPC calls per element.
@@ -444,12 +461,14 @@ pub(crate) fn build_tree_with_cache(
         cache_build_time
     );
 
-    // Build tree recursively using CACHED data (no more IPC calls)
+    // Build tree recursively using CACHED data (no more IPC calls).
+    // Clamp depth to a hard cap so a pathologically deep tree can't overflow the
+    // native stack (see SAFE_MAX_TREE_DEPTH).
     let mut elements_count = 0;
     let result = build_node_from_cached_element(
         &cached_root,
         0,
-        max_depth,
+        Some(cap_tree_depth(max_depth)),
         &application_name,
         include_all_bounds,
         &mut elements_count,
@@ -581,4 +600,23 @@ fn build_node_from_cached_element(
     }
 
     Ok(node)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cap_tree_depth() {
+        // No explicit limit → cap applies (prevents unbounded recursion).
+        assert_eq!(cap_tree_depth(None), SAFE_MAX_TREE_DEPTH);
+        // A modest request is honoured as-is.
+        assert_eq!(cap_tree_depth(Some(10)), 10);
+        // An excessive request is clamped down.
+        assert_eq!(cap_tree_depth(Some(1000)), SAFE_MAX_TREE_DEPTH);
+        // Exactly at the cap stays at the cap.
+        assert_eq!(cap_tree_depth(Some(SAFE_MAX_TREE_DEPTH)), SAFE_MAX_TREE_DEPTH);
+        // Zero is a valid (root-only) request.
+        assert_eq!(cap_tree_depth(Some(0)), 0);
+    }
 }
