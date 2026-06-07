@@ -9,12 +9,75 @@ use std::collections::HashMap;
 use std::time::Duration;
 use terminator::{AutomationError, Desktop, Selector, UIElement};
 
-/// Normalize key format to ensure curly brace syntax for special keys.
-/// If key already contains `{`, assume it's correctly formatted.
-/// Otherwise, wrap the entire key in `{}` to ensure it's treated as a special key press.
-/// Examples: "Enter" -> "{Enter}", "{Ctrl}c" -> "{Ctrl}c" (unchanged)
+/// Normalize a key string into valid `uiautomation` `send_keys` syntax.
+///
+/// Background: the underlying `uiautomation` keyboard grammar uses `{...}` for
+/// *named* keys / modifiers and groups chord characters with `(...)` after a
+/// modifier (e.g. `{Ctrl}(AB)` = Ctrl+A+B). A bare letter after a modifier is
+/// also held (`{Ctrl}c` = Ctrl+C). Crucially, a single letter inside braces such
+/// as `{Z}` is NOT a valid named key and the platform rejects it with
+/// `E_INVALIDARG` ("Error Input Format"). The previous implementation turned the
+/// documented `"Ctrl+Z"` into `"{Ctrl+Z}"` (one unknown token) — so every
+/// modifier combo failed. See [[terminator-mcp]].
+///
+/// Rules:
+/// - Already contains `{` → assume raw uiautomation syntax, pass through untouched
+///   (e.g. `"{Enter}"`, `"{Ctrl}a"`, `"{Ctrl}(AB)"`).
+/// - Contains `+` → treat as a combo: every part but the last is a modifier
+///   (`{Ctrl}`/`{Alt}`/`{Shift}`/`{Win}`); the final part is a literal char if a
+///   single character, else a braced named key.
+///   `"Ctrl+Z"` -> `"{Ctrl}z"`, `"Ctrl+Shift+S"` -> `"{Ctrl}{Shift}s"`,
+///   `"Alt+F4"` -> `"{Alt}{F4}"`.
+/// - A lone single character → literal keypress (`"a"` -> `"a"`).
+/// - Any other bare token → braced named key (`"Enter"` -> `"{Enter}"`).
 pub fn normalize_key(key: &str) -> String {
+    // Raw uiautomation syntax — trust it.
     if key.contains('{') {
+        return key.to_string();
+    }
+
+    fn modifier(m: &str) -> String {
+        match m.to_lowercase().as_str() {
+            "ctrl" | "control" | "ctl" => "{Ctrl}".to_string(),
+            "alt" | "menu" => "{Alt}".to_string(),
+            "shift" => "{Shift}".to_string(),
+            "win" | "windows" | "meta" | "cmd" | "command" | "super" => "{Win}".to_string(),
+            other => format!("{{{}}}", other), // unknown modifier: best effort
+        }
+    }
+    fn final_key(k: &str) -> String {
+        if k.chars().count() == 1 {
+            // Letter/digit/symbol held under the preceding modifier — literal char.
+            k.to_lowercase()
+        } else {
+            // Named key (F4, Tab, Left, Enter, …) — braced.
+            format!("{{{}}}", k)
+        }
+    }
+
+    // "+"-style combo, e.g. "Ctrl+Z", "Ctrl+Shift+S", "Alt+F4".
+    if key.contains('+') {
+        let parts: Vec<&str> = key
+            .split('+')
+            .map(|p| p.trim())
+            .filter(|p| !p.is_empty())
+            .collect();
+        if parts.len() >= 2 {
+            let last = parts.len() - 1;
+            let mut out = String::new();
+            for (i, part) in parts.iter().enumerate() {
+                if i < last {
+                    out.push_str(&modifier(part));
+                } else {
+                    out.push_str(&final_key(part));
+                }
+            }
+            return out;
+        }
+    }
+
+    // Single token.
+    if key.chars().count() == 1 {
         key.to_string()
     } else {
         format!("{{{}}}", key)
@@ -934,6 +997,33 @@ pub async fn verify_post_action(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn test_normalize_key_modifier_combos() {
+        // `+`-style combos (the LLM-facing format) must become valid uiautomation
+        // syntax: modifiers as {Mod}, a final LETTER/DIGIT as a literal char (NOT
+        // braced — {Z} is not a valid named key and errors with E_INVALIDARG),
+        // a final NAMED key braced.
+        assert_eq!(normalize_key("Ctrl+Z"), "{Ctrl}z");
+        assert_eq!(normalize_key("ctrl+c"), "{Ctrl}c");
+        assert_eq!(normalize_key("Ctrl+Shift+S"), "{Ctrl}{Shift}s");
+        assert_eq!(normalize_key("Win+Shift+S"), "{Win}{Shift}s");
+        assert_eq!(normalize_key("Alt+F4"), "{Alt}{F4}");
+        assert_eq!(normalize_key("Ctrl+Shift+Tab"), "{Ctrl}{Shift}{Tab}");
+        assert_eq!(normalize_key("Alt+Left"), "{Alt}{Left}");
+    }
+
+    #[test]
+    fn test_normalize_key_single_and_passthrough() {
+        // Bare named key -> braced (unchanged behaviour).
+        assert_eq!(normalize_key("Enter"), "{Enter}");
+        // Already-formatted uiautomation strings pass through untouched.
+        assert_eq!(normalize_key("{Enter}"), "{Enter}");
+        assert_eq!(normalize_key("{Ctrl}a"), "{Ctrl}a");
+        assert_eq!(normalize_key("{Ctrl}(AB)"), "{Ctrl}(AB)");
+        // A lone single character is a literal keypress, not a (invalid) {a}.
+        assert_eq!(normalize_key("a"), "a");
+    }
 
     #[test]
     fn test_substitute_simple_string_variable() {
