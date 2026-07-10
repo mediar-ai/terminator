@@ -31,7 +31,7 @@ class SnipMode(Enum):
 async def select_snip_mode(app_window: terminator.Locator, mode: SnipMode):
     print(f"Selecting snip mode: {mode.value}")
     if is_windows_11():
-        button = await app_window.locator("ComboBox:Snipping Mode").first()
+        button = await app_window.locator("ComboBox:Snipping Area Dropdown Menu").first()
         options = button.list_options()
         for option in options:
             if option == mode.value:
@@ -92,6 +92,10 @@ async def run_snipping_tool():
                 "Name:New screenshot"
             ).first()
             new_screenshot_button.click()
+            # Wait for the full-screen capture overlay to become active before
+            # pressing the mouse; otherwise the initial mouse_click_and_hold is
+            # lost and the circular movement runs without the button held.
+            await asyncio.sleep(1)
 
         N = 100  # Number of sides for a near-circle
         screen: terminator.UIElement = await app_window.first()
