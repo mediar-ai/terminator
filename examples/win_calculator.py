@@ -11,11 +11,12 @@ async def run_calculator():
         # 1. Open Calculator
         print("Opening Calculator...")
         # Use calc.exe for better compatibility (UWP identifier may not work on all systems)
-        try:
-            calculator_window = desktop.open_application("uwp:Microsoft.WindowsCalculator")
-        except Exception:
-            # Fallback to calc.exe if UWP identifier fails
-            calculator_window = desktop.open_application("calc.exe")
+        # try:
+        calculator_window = desktop.open_application("Microsoft.WindowsCalculator_8wekyb3d8bbwe!App")
+        #     raise Exception("UWP identifier may not work on all systems, using calc.exe instead.")
+        # except Exception:
+        #     # Fallback to calc.exe if UWP identifier fails
+        # calculator_window = desktop.open_application("calc.exe")
         await asyncio.sleep(2)  # Allow app to open
 
         # Locators relative to the calculator window
@@ -23,10 +24,14 @@ async def run_calculator():
         display_element = calculator_window.locator(
             "nativeid:CalculatorResults"
         )  # Using AutomationId is often more stable
-        button_1 = await calculator_window.locator("Name:One").first()
-        button_plus = await calculator_window.locator("Name:Plus").first()
-        button_2 = await calculator_window.locator("Name:Two").first()
-        button_equals = await calculator_window.locator("Name:Equals").first()
+        # Use AutomationId (nativeid) rather than Name: the "Name:" selector does a
+        # case-insensitive *substring* match, so "Name:One" also matches the Scientific-mode
+        # buttons "'X' to the exponent" / "Ten to the exponent" / "Exponential" (they all
+        # contain "exp-ONE-nt"), and .first() would click the exponent button instead of "1".
+        button_1 = await calculator_window.locator("nativeid:num1Button").first()
+        button_plus = await calculator_window.locator("nativeid:plusButton").first()
+        button_2 = await calculator_window.locator("nativeid:num2Button").first()
+        button_equals = await calculator_window.locator("nativeid:equalButton").first()
 
         # 3. Get initial display text
         print("Getting initial display text...")
