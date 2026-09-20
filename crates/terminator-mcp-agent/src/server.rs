@@ -35,7 +35,8 @@ use std::time::Duration;
 use sysinfo::{ProcessesToUpdate, System};
 use terminator::element::UIElementImpl;
 use terminator::{
-    AutomationError, Browser, ComputerUseStep, Desktop, ProgressCallback, Selector, UIElement,
+    escape_cwd_single_quotes, AutomationError, Browser, ComputerUseStep, Desktop, ProgressCallback,
+    Selector, UIElement,
 };
 use tokio::sync::Mutex;
 use tracing::{info, warn, Instrument};
@@ -4830,8 +4831,10 @@ DATA PASSING:
             let shell = args.shell.as_deref().unwrap_or("powershell");
             let command_with_cd = if let Some(ref cwd) = args.working_directory {
                 match shell {
-                    "cmd" => format!("cd /d \"{cwd}\" && {run_str}"),
-                    "powershell" | "pwsh" => format!("cd '{cwd}'; {run_str}"),
+                    "cmd" => format!("cd /d \"{}\" && {run_str}", cwd.replace('"', "")),
+                    "powershell" | "pwsh" => {
+                        format!("cd '{}'; {run_str}", escape_cwd_single_quotes(cwd, shell))
+                    }
                     _ => run_str.clone(), // For other shells, handle cwd differently
                 }
             } else {
@@ -4865,7 +4868,7 @@ DATA PASSING:
             // On Unix-like systems (Linux, macOS)
             let shell = args.shell.as_deref().unwrap_or("bash");
             let command_with_cd = if let Some(ref cwd) = args.working_directory {
-                format!("cd '{cwd}' && {run_str}")
+                format!("cd '{}' && {run_str}", escape_cwd_single_quotes(cwd, shell))
             } else {
                 run_str.clone()
             };

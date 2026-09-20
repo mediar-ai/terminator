@@ -577,8 +577,10 @@ impl Desktop {
             let shell = shell.unwrap_or("powershell");
             let command_with_cd = if let Some(cwd) = working_directory {
                 match shell {
-                    "cmd" => format!("cd /d \"{cwd}\" && {command}"),
-                    "powershell" | "pwsh" => format!("cd '{cwd}'; {command}"),
+                    "cmd" => format!("cd /d \"{}\" && {command}", cwd.replace('"', "")),
+                    "powershell" | "pwsh" => {
+                        format!("cd '{}'; {command}", escape_cwd_single_quotes(cwd, shell))
+                    }
                     _ => command.to_string(),
                 }
             } else {
@@ -596,7 +598,7 @@ impl Desktop {
         } else {
             let shell = shell.unwrap_or("bash");
             let command_with_cd = if let Some(cwd) = working_directory {
-                format!("cd '{cwd}' && {command}")
+                format!("cd '{}' && {command}", escape_cwd_single_quotes(cwd, shell))
             } else {
                 command.to_string()
             };
@@ -2103,5 +2105,40 @@ impl Clone for Desktop {
             vision_cache: self.vision_cache.clone(),
             dom_cache: self.dom_cache.clone(),
         }
+    }
+}
+
+/// Escape a working-directory path for interpolation inside a single-quoted
+/// shell fragment (`cd '...' && <command>`), preventing command injection
+/// via quote characters in the path.
+///
+/// * PowerShell (`powershell`/`pwsh`): single quotes are doubled (`''`)
+/// * Unix shells (bash/sh/zsh): close-quote, escaped-quote, reopen (`'\''`)
+pub fn escape_cwd_single_quotes(cwd: &str, shell: &str) -> String {
+    if shell == "powershell" || shell == "pwsh" {
+        cwd.replace('\'', "''")
+    } else {
+        cwd.replace('\'', "'\\''")
+    }
+}
+
+#[cfg(test)]
+mod escape_cwd_tests {
+    use super::escape_cwd_single_quotes;
+
+    #[test]
+    fn unix_single_quote_is_escaped() {
+        // `'/tmp/a'b'` must not allow the quote to close the cd argument early
+        assert_eq!(
+            escape_cwd_single_quotes("/tmp/a'b", "bash"),
+            "/tmp/a'\\''b"
+        );
+        assert_eq!(escape_cwd_single_quotes("/tmp/normal", "sh"), "/tmp/normal");
+    }
+
+    #[test]
+    fn powershell_single_quote_is_doubled() {
+        assert_eq!(escape_cwd_single_quotes("C:\\a'b", "powershell"), "C:\\a''b");
+        assert_eq!(escape_cwd_single_quotes("C:\\a'b", "pwsh"), "C:\\a''b");
     }
 }
