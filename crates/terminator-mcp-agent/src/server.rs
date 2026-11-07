@@ -4830,6 +4830,1317 @@ DATA PASSING:
             let shell = args.shell.as_deref().unwrap_or("powershell");
             let command_with_cd = if let Some(ref cwd) = args.working_directory {
                 match shell {
+                    "cmd" => {
+                        let escaped_cwd = cwd.replace('"', "\"\"");
+                        format!("cd /d \"{escaped_cwd}\" && {run_str}")
+                    }
+                    "powershell" | "pwsh" => {
+                        let escaped_cwd = cwd.replace('\'', "''");
+                        format!("Set-Location -LiteralPath '{escaped_cwd}'; {run_str}")
+                    }
+                    _ => {
+                        let escaped_cwd = cwd.replace('\'', "'\\''");
+                        format!("cd -- '{escaped_cwd}' && {run_str}")
+                    }
+                }
+            } else {
+                run_str.clone()
+            };
+
+            let windows_cmd = match shell {
+                "bash" => {
+                    // Use Git Bash or WSL bash if available
+                    format!("bash -c \"{}\"", command_with_cd.replace('"', "\\\""))
+                }
+                "sh" => {
+                    // Use sh (might be Git Bash)
+                    format!("sh -c \"{}\"", command_with_cd.replace('"', "\\\""))
+                }
+                "cmd" => {
+                    // Use cmd.exe
+                    format!("cmd /c \"{command_with_cd}\"")
+                }
+                "powershell" | "pwsh" => {
+                    // Default to PowerShell on Windows
+                    command_with_cd
+                }
+                _ => {
+                    // For any other shell
+                    command_with_cd
+                }
+            };
+            (Some(windows_cmd), None)
+        } else {
+            // On Unix-like systems (Linux, macOS)
+            let shell = args.shell.as_deref().unwrap_or("bash");
+            let command_with_cd = if let Some(ref cwd) = args.working_directory {
+                let escaped_cwd = cwd.replace('\'', "'\\''");
+                format!("cd -- '{escaped_cwd}' && {run_str}")
+            } else {
+                run_str.clone()
+            };
+
+            let unix_cmd = match shell {
+                "python" => format!("python -c \"{}\"", command_with_cd.replace('"', "\\\"")),
+                "node" => format!("node -e \"{}\"", command_with_cd.replace('"', "\\\"")),
+                _ => command_with_cd, // For bash, sh, zsh, etc.
+            };
+            (None, Some(unix_cmd))
+        };
+
+        // Default timeout: 2 minutes (120000ms), 0 means no timeout
+            let timeout_ms = args.timeout_ms.unwrap_or(120_000);
+            let timeout_duration = std::time::Duration::from_millis(timeout_ms);
+
+            // Track resolved script path for working directory determination
+            let mut resolved_script_path: Option<PathBuf> = None;
+
+            // Resolve script content from file or inline
+            let script_content = if let Some(script_file) = &args.script_file {
+                // Check that both run and script_file aren't provided
+                if args.run.is_some() {
+                    return Err(McpError::invalid_params(
+                        "Cannot specify both 'run' and 'script_file'. Use one or the other.",
+                        None,
+                    ));
+                }
+
+                // Resolve script file with priority order:
+                // 1. Try scripts_base_path if provided (from workflow root level)
+                // 2. Fallback to workflow directory if available
+                // 3. Use path as-is
+                let resolved_path = {
+                    let script_path = std::path::Path::new(script_file);
+                    let mut resolved_path = None;
+                    let mut resolution_attempts = Vec::new();
+
+                    // Only resolve if path is relative
+                    if script_path.is_relative() {
+                        tracing::info!(
+                            "[SCRIPTS_BASE_PATH] Resolving relative script file: '{}'",
+                            script_file
+                        );
+
+                        // Priority 1: Try scripts_base_path if provided
+                        let scripts_base_guard = self.current_scripts_base_path.lock().await;
+                        if let Some(ref base_path) = *scripts_base_guard {
+                            tracing::info!(
+                                "[SCRIPTS_BASE_PATH] Checking scripts_base_path: {}",
+                                base_path
+                            );
+                            let base = std::path::Path::new(base_path);
+                            if base.exists() && base.is_dir() {
+                                let candidate = base.join(script_file);
+                                resolution_attempts
+                                    .push(format!("scripts_base_path: {}", candidate.display()));
+                                tracing::info!(
+                                    "[SCRIPTS_BASE_PATH] Looking for file at: {}",
+                                    candidate.display()
+                                );
+                                if candidate.exists() {
+                                    tracing::info!(
+                                        "[SCRIPTS_BASE_PATH] ✓ Found in scripts_base_path: {} -> {}",
+                                        script_file,
+                                        candidate.display()
+                                    );
+                                    resolved_path = Some(candidate);
+                                } else {
+                                    tracing::info!(
+                                        "[SCRIPTS_BASE_PATH] ✗ Not found in scripts_base_path: {}",
+                                        candidate.display()
+                                    );
+                                }
+                            } else {
+                                tracing::warn!(
+                                    "[SCRIPTS_BASE_PATH] Base path does not exist or is not a directory: {}",
+                                    base_path
+                                );
+                            }
+                        } else {
+                            tracing::debug!(
+                                "[SCRIPTS_BASE_PATH] No scripts_base_path configured for this workflow"
+                            );
+                        }
+                        drop(scripts_base_guard);
+
+                        // Priority 2: Try workflow directory if not found yet
+                        if resolved_path.is_none() {
+                            let workflow_dir_guard = self.current_workflow_dir.lock().await;
+                            if let Some(ref workflow_dir) = *workflow_dir_guard {
+                                tracing::info!(
+                                    "[SCRIPTS_BASE_PATH] Checking workflow directory: {}",
+                                    workflow_dir.display()
+                                );
+                                let candidate = workflow_dir.join(script_file);
+                                resolution_attempts
+                                    .push(format!("workflow_dir: {}", candidate.display()));
+                                tracing::info!(
+                                    "[SCRIPTS_BASE_PATH] Looking for file at: {}",
+                                    candidate.display()
+                                );
+                                if candidate.exists() {
+                                    tracing::info!(
+                                        "[SCRIPTS_BASE_PATH] ✓ Found in workflow directory: {} -> {}",
+                                        script_file,
+                                        candidate.display()
+                                    );
+                                    resolved_path = Some(candidate);
+                                } else {
+                                    tracing::info!(
+                                        "[SCRIPTS_BASE_PATH] ✗ Not found in workflow directory: {}",
+                                        candidate.display()
+                                    );
+                                }
+                            } else {
+                                tracing::debug!(
+                                    "[SCRIPTS_BASE_PATH] No workflow directory available"
+                                );
+                            }
+                        }
+
+                        // Priority 3: Check current directory or use as-is
+                        if resolved_path.is_none() {
+                            let candidate = script_path.to_path_buf();
+                            resolution_attempts.push(format!("as-is: {}", candidate.display()));
+
+                            // Check if file exists before using it
+                            if candidate.exists() {
+                                tracing::info!(
+                                    "[SCRIPTS_BASE_PATH] Found script file at: {}",
+                                    candidate.display()
+                                );
+                                resolved_path = Some(candidate);
+                            } else {
+                                tracing::warn!(
+                                    "[SCRIPTS_BASE_PATH] Script file not found: {} (tried: {:?})",
+                                    script_file,
+                                    resolution_attempts
+                                );
+                                // Return error immediately for missing file
+                                return Err(McpError::invalid_params(
+                                    format!("Script file '{script_file}' not found"),
+                                    Some(json!({
+                                        "file": script_file,
+                                        "resolution_attempts": resolution_attempts,
+                                        "error": "File does not exist"
+                                    })),
+                                ));
+                            }
+                        }
+                    } else {
+                        // Absolute path - check if exists
+                        let candidate = script_path.to_path_buf();
+                        if candidate.exists() {
+                            tracing::info!("[run_command] Using absolute path: {}", script_file);
+                            resolved_path = Some(candidate);
+                        } else {
+                            tracing::warn!(
+                                "[run_command] Absolute script file not found: {}",
+                                script_file
+                            );
+                            return Err(McpError::invalid_params(
+                                format!("Script file '{script_file}' not found"),
+                                Some(json!({
+                                    "file": script_file,
+                                    "error": "File does not exist at absolute path"
+                                })),
+                            ));
+                        }
+                    }
+
+                    resolved_path.unwrap()
+                };
+
+                // Store the resolved path for later use
+                resolved_script_path = Some(resolved_path.clone());
+
+                // Read script from resolved file path
+                tokio::fs::read_to_string(&resolved_path)
+                    .await
+                    .map_err(|e| {
+                        McpError::invalid_params(
+                            "Failed to read script file",
+                            Some(json!({
+                                "file": script_file,
+                                "resolved_path": resolved_path.to_string_lossy(),
+                                "error": e.to_string()
+                            })),
+                        )
+                    })?
+            } else if let Some(run) = &args.run {
+                run.clone()
+            } else {
+                return Err(McpError::invalid_params(
+                    "Either 'run' or 'script_file' must be provided when using 'engine'",
+                    None,
+                ));
+            };
+
+            // Build final script with env injection if provided
+            let mut final_script = String::new();
+
+            // Extract workflow variables and accumulated env from special env keys
+            let mut variables_json = "{}".to_string();
+            let mut accumulated_env_json = "{}".to_string();
+            let mut env_data = args.env.clone();
+
+            if let Some(env) = &env_data {
+                if let Some(env_obj) = env.as_object() {
+                    // Extract workflow variables
+                    if let Some(vars) = env_obj.get("_workflow_variables") {
+                        variables_json =
+                            serde_json::to_string(vars).unwrap_or_else(|_| "{}".to_string());
+                    }
+                    // Extract accumulated env
+                    if let Some(acc_env) = env_obj.get("_accumulated_env") {
+                        accumulated_env_json =
+                            serde_json::to_string(acc_env).unwrap_or_else(|_| "{}".to_string());
+                    }
+                }
+            }
+
+            // Remove special keys from env before normal processing
+            if let Some(env) = &mut env_data {
+                if let Some(env_obj) = env.as_object_mut() {
+                    env_obj.remove("_workflow_variables");
+                    env_obj.remove("_accumulated_env");
+                }
+            }
+
+            // Prepare explicit env if provided
+            let explicit_env_json = if let Some(env) = &env_data {
+                if env.as_object().is_some_and(|o| !o.is_empty()) {
+                    serde_json::to_string(&env).map_err(|e| {
+                        McpError::internal_error(
+                            "Failed to serialize env data",
+                            Some(json!({"error": e.to_string()})),
+                        )
+                    })?
+                } else {
+                    "{}".to_string()
+                }
+            } else {
+                "{}".to_string()
+            };
+
+            // Inject based on engine type
+            if matches!(
+                engine.as_str(),
+                "node" | "bun" | "javascript" | "js" | "typescript" | "ts"
+            ) {
+                // First inject accumulated env
+                final_script.push_str(&format!("var env = {accumulated_env_json};\n"));
+
+                // Merge explicit env if provided
+                if explicit_env_json != "{}" {
+                    final_script
+                        .push_str(&format!("env = Object.assign(env, {explicit_env_json});\n"));
+                }
+
+                // Inject individual variables from env
+                let merged_env = if explicit_env_json != "{}" {
+                    // Merge accumulated and explicit env for individual vars
+                    format!("Object.assign({{}}, {accumulated_env_json}, {explicit_env_json})")
+                } else {
+                    accumulated_env_json.clone()
+                };
+
+                if let Ok(env_obj) =
+                    serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&merged_env)
+                {
+                    for (key, value) in env_obj {
+                        if Self::is_valid_js_identifier(&key) {
+                            // Smart handling of potentially double-stringified JSON (same as browser scripts)
+                            let injectable_value = if let Some(str_val) = value.as_str() {
+                                let trimmed = str_val.trim();
+                                // Check if it looks like JSON (object or array)
+                                if (trimmed.starts_with('{') && trimmed.ends_with('}'))
+                                    || (trimmed.starts_with('[') && trimmed.ends_with(']'))
+                                {
+                                    // Try to parse as JSON to avoid double stringification
+                                    match serde_json::from_str::<serde_json::Value>(str_val) {
+                                        Ok(parsed) => {
+                                            tracing::debug!(
+                                                "[run_command] Detected JSON string for env.{}, parsing to avoid double stringification",
+                                                key
+                                            );
+                                            parsed
+                                        }
+                                        Err(_) => value.clone(),
+                                    }
+                                } else {
+                                    value.clone()
+                                }
+                            } else {
+                                value.clone()
+                            };
+
+                            // Now stringify for injection (single level of stringification)
+                            if let Ok(value_json) = serde_json::to_string(&injectable_value) {
+                                final_script.push_str(&format!("var {key} = {value_json};\n"));
+                                tracing::debug!(
+                                    "[run_command] Injected env.{} as individual variable",
+                                    key
+                                );
+                            }
+                        }
+                    }
+                }
+
+                // Inject variables
+                final_script.push_str(&format!("var variables = {variables_json};\n"));
+
+                // Auto-initialize kv if ORG_TOKEN was injected
+                if accumulated_env_json.contains("\"ORG_TOKEN\"")
+                    || explicit_env_json.contains("\"ORG_TOKEN\"")
+                {
+                    final_script.push_str("var kv = createKVClient(ORG_TOKEN);\n");
+                    tracing::debug!("[run_command] Auto-initialized kv with ORG_TOKEN");
+                }
+
+                tracing::debug!("[run_command] Injected accumulated env, explicit env, individual vars, and workflow variables for JavaScript");
+            } else if matches!(engine.as_str(), "python" | "py") {
+                // For Python, inject as dictionaries
+                final_script.push_str(&format!("env = {accumulated_env_json}\n"));
+
+                // Merge explicit env if provided
+                if explicit_env_json != "{}" {
+                    final_script.push_str(&format!("env.update({explicit_env_json})\n"));
+                }
+
+                // Inject individual variables from env
+                let merged_env = if explicit_env_json != "{}" {
+                    // For Python, we need to merge differently
+                    let mut base: serde_json::Map<String, serde_json::Value> =
+                        serde_json::from_str(&accumulated_env_json).unwrap_or_default();
+                    if let Ok(explicit) = serde_json::from_str::<
+                        serde_json::Map<String, serde_json::Value>,
+                    >(&explicit_env_json)
+                    {
+                        base.extend(explicit);
+                    }
+                    serde_json::to_string(&base).unwrap_or_else(|_| "{}".to_string())
+                } else {
+                    accumulated_env_json.clone()
+                };
+
+                if let Ok(env_obj) =
+                    serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&merged_env)
+                {
+                    for (key, value) in env_obj {
+                        if Self::is_valid_js_identifier(&key) {
+                            // Smart handling of potentially double-stringified JSON (same as browser/JS scripts)
+                            let injectable_value = if let Some(str_val) = value.as_str() {
+                                let trimmed = str_val.trim();
+                                // Check if it looks like JSON (object or array)
+                                if (trimmed.starts_with('{') && trimmed.ends_with('}'))
+                                    || (trimmed.starts_with('[') && trimmed.ends_with(']'))
+                                {
+                                    // Try to parse as JSON to avoid double stringification
+                                    match serde_json::from_str::<serde_json::Value>(str_val) {
+                                        Ok(parsed) => {
+                                            tracing::debug!(
+                                                "[run_command] Detected JSON string for env.{}, parsing to avoid double stringification",
+                                                key
+                                            );
+                                            parsed
+                                        }
+                                        Err(_) => value.clone(),
+                                    }
+                                } else {
+                                    value.clone()
+                                }
+                            } else {
+                                value.clone()
+                            };
+
+                            // Now stringify for injection (single level of stringification)
+                            if let Ok(value_json) = serde_json::to_string(&injectable_value) {
+                                final_script.push_str(&format!("{key} = {value_json}\n"));
+                                tracing::debug!(
+                                    "[run_command] Injected env.{} as individual variable",
+                                    key
+                                );
+                            }
+                        }
+                    }
+                }
+
+                final_script.push_str(&format!("variables = {variables_json}\n"));
+                tracing::debug!("[run_command] Injected accumulated env, explicit env, individual vars, and workflow variables for Python");
+            }
+
+            // Append the actual script
+            final_script.push_str(&script_content);
+
+            // Map engine to executor
+            let is_js = matches!(engine.as_str(), "node" | "bun" | "javascript" | "js");
+            let is_ts = matches!(engine.as_str(), "typescript" | "ts");
+            let is_py = matches!(engine.as_str(), "python" | "py");
+
+            if is_js {
+                // Determine the working directory for script execution
+                let script_working_dir = if let Some(ref script_path) = resolved_script_path {
+                    // When using script_file with scripts_base_path, change working dir to script's directory
+                    let scripts_base_guard = self.current_scripts_base_path.lock().await;
+                    if scripts_base_guard.is_some() {
+                        // Use the resolved script path's parent directory
+                        script_path.parent().map(|p| p.to_path_buf())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                // Create shared log buffer for real-time log capture (useful for timeout scenarios)
+                let include_logs = args.include_logs.unwrap_or(true);
+                let log_buffer = if include_logs {
+                    Some(scripting_engine::ScriptLogBuffer::new())
+                } else {
+                    None
+                };
+
+                // Create event channel to collect workflow events (including screenshots)
+                let (event_tx, mut event_rx) = create_event_channel();
+                // Store screenshots with metadata: (index, timestamp, annotation, element, base64)
+                #[allow(clippy::type_complexity)]
+                let collected_screenshots: Arc<
+                    std::sync::Mutex<Vec<(usize, String, Option<String>, Option<String>, String)>>,
+                > = Arc::new(std::sync::Mutex::new(Vec::new()));
+                let screenshots_clone = collected_screenshots.clone();
+
+                // Create progress token for MCP notifications
+                let progress_token = ProgressToken(NumberOrString::String(
+                    format!("run-command-{}", std::process::id()).into(),
+                ));
+
+                // Clone peer for the event handler task
+                let peer_clone = peer.clone();
+                let broadcast_peers_clone = self.broadcast_peers.clone();
+                let progress_token_clone = progress_token.clone();
+
+                // Spawn task to collect screenshot events AND forward progress notifications
+                let screenshot_collector = tokio::spawn(async move {
+                    let mut index = 0usize;
+                    while let Some(event) = event_rx.recv().await {
+                        match event {
+                            WorkflowEvent::Screenshot {
+                                base64: Some(b64),
+                                timestamp,
+                                annotation,
+                                element,
+                                ..
+                            } => {
+                                if let Ok(mut screenshots) = screenshots_clone.lock() {
+                                    screenshots.push((index, timestamp, annotation, element, b64));
+                                    index += 1;
+                                }
+                            }
+                            WorkflowEvent::Progress {
+                                current,
+                                total,
+                                message,
+                                ..
+                            } => {
+                                // Broadcast progress events to ALL connected MCP clients (fire-and-forget)
+                                // Non-blocking to avoid holding request slot during slow peer notifications
+                                let peers_for_progress = broadcast_peers_clone.clone();
+                                let progress_token_for_spawn = progress_token_clone.clone();
+                                tokio::spawn(async move {
+                                    let mut peers = peers_for_progress.lock().await;
+                                    let mut dead_indices = Vec::new();
+                                    for (i, p) in peers.iter().enumerate() {
+                                        if p.notify_progress(ProgressNotificationParam {
+                                            progress_token: progress_token_for_spawn.clone(),
+                                            progress: current,
+                                            total,
+                                            message: message.clone(),
+                                        })
+                                        .await
+                                        .is_err()
+                                        {
+                                            dead_indices.push(i);
+                                        }
+                                    }
+                                    // Remove dead peers (reverse order to preserve indices)
+                                    for i in dead_indices.into_iter().rev() {
+                                        peers.remove(i);
+                                        tracing::debug!(
+                                            "[broadcast] Removed dead peer at index {}",
+                                            i
+                                        );
+                                    }
+                                });
+                            }
+                            WorkflowEvent::Status { text, .. } => {
+                                // Forward status events as logging messages (fire-and-forget)
+                                if let Some(p) = peer_clone.clone() {
+                                    tokio::spawn(async move {
+                                        let _ = p
+                                            .notify_logging_message(
+                                                LoggingMessageNotificationParam {
+                                                    level: LoggingLevel::Info,
+                                                    logger: Some("run_command".to_string()),
+                                                    data: json!({
+                                                        "type": "status",
+                                                        "message": text
+                                                    }),
+                                                },
+                                            )
+                                            .await;
+                                    });
+                                }
+                            }
+                            WorkflowEvent::Log {
+                                level,
+                                message,
+                                data,
+                                ..
+                            } => {
+                                // Forward log events (fire-and-forget)
+                                if let Some(p) = peer_clone.clone() {
+                                    let log_level = match level.as_str() {
+                                        "error" => LoggingLevel::Error,
+                                        "warn" | "warning" => LoggingLevel::Warning,
+                                        "debug" => LoggingLevel::Debug,
+                                        _ => LoggingLevel::Info,
+                                    };
+                                    tokio::spawn(async move {
+                                        let _ = p
+                                            .notify_logging_message(
+                                                LoggingMessageNotificationParam {
+                                                    level: log_level,
+                                                    logger: Some("run_command".to_string()),
+                                                    data: json!({
+                                                        "message": message,
+                                                        "data": data
+                                                    }),
+                                                },
+                                            )
+                                            .await;
+                                    });
+                                }
+                            }
+                            _ => {} // Ignore other events
+                        }
+                    }
+                });
+
+                let execution_id = format!("run-js-{}", std::process::id());
+                let execution_future = scripting_engine::execute_javascript_with_nodejs(
+                    final_script,
+                    cancellation_token,
+                    script_working_dir,
+                    log_buffer.clone(),
+                    Some(event_tx),
+                    Some(&execution_id),
+                );
+
+                let execution_result = if timeout_ms == 0 {
+                    execution_future.await?
+                } else {
+                    match tokio::time::timeout(timeout_duration, execution_future).await {
+                        Ok(result) => result?,
+                        Err(_) => {
+                            // On timeout, include any logs captured before the timeout if include_logs is true
+                            let mut error_data = json!({
+                                "reason": format!("Execution exceeded timeout of {}ms", timeout_ms),
+                                "engine": "javascript",
+                                "timeout_ms": timeout_ms
+                            });
+                            if let Some(ref buf) = log_buffer {
+                                let partial_logs = buf.get_logs();
+                                let partial_stderr = buf.get_stderr();
+                                if !partial_logs.is_empty() {
+                                    error_data["logs"] = json!(partial_logs);
+                                }
+                                if !partial_stderr.is_empty() {
+                                    error_data["stderr"] = json!(partial_stderr);
+                                }
+                            }
+                            return Err(McpError::internal_error(
+                                "JavaScript execution timed out",
+                                Some(error_data),
+                            ));
+                        }
+                    }
+                };
+
+                // Wait for screenshot collector to finish
+                let _ = screenshot_collector.await;
+
+                // Extract logs, stderr, and actual result
+                let logs = execution_result.get("logs").cloned();
+                let stderr = execution_result.get("stderr").cloned();
+                let actual_result = execution_result
+                    .get("result")
+                    .cloned()
+                    .unwrap_or(execution_result.clone());
+
+                // Debug log extraction
+                if let Some(ref log_array) = logs {
+                    if let Some(arr) = log_array.as_array() {
+                        info!(
+                            "[run_command] Extracted {} log lines from JavaScript execution",
+                            arr.len()
+                        );
+                    }
+                }
+
+                // Check if the JavaScript result indicates a failure
+                // This makes run_command consistent with execute_browser_script behavior
+                if let Some(obj) = actual_result.as_object() {
+                    if let Some(status) = obj.get("status") {
+                        if let Some(status_str) = status.as_str() {
+                            if status_str == "failed" || status_str == "error" {
+                                // Extract error message if provided
+                                let message = obj
+                                    .get("message")
+                                    .and_then(|m| m.as_str())
+                                    .unwrap_or("Script returned failure status");
+
+                                info!(
+                                    "[run_command] Script returned status: '{}', treating as error",
+                                    status_str
+                                );
+
+                                // Return an error to trigger fallback_id in workflows
+                                return Err(McpError::internal_error(
+                                    format!("JavaScript execution failed: {message}"),
+                                    Some(actual_result),
+                                ));
+                            }
+                        }
+                    }
+                }
+
+                // Build response
+                let include_logs = args.include_logs.unwrap_or(true);
+                let mut response = json!({
+                    "action": "run_command",
+                    "mode": "engine",
+                    "engine": engine,
+                    "status": "executed_without_error",
+                    "result": actual_result
+                });
+
+                // Conditionally include logs and stderr based on include_logs parameter
+                if include_logs {
+                    if let Some(logs) = logs {
+                        response["logs"] = logs;
+                    }
+                    if let Some(stderr) = stderr {
+                        response["stderr"] = stderr;
+                    }
+                }
+
+                span.set_status(true, None);
+                span.end();
+
+                // Build content with JSON response and any collected screenshots
+                // Add screenshot metadata to response for ordering context
+                if let Ok(screenshots) = collected_screenshots.lock() {
+                    if !screenshots.is_empty() {
+                        let screenshot_metadata: Vec<serde_json::Value> = screenshots
+                            .iter()
+                            .map(|(idx, ts, annotation, element, _)| {
+                                json!({
+                                    "index": idx,
+                                    "timestamp": ts,
+                                    "annotation": annotation,
+                                    "element": element
+                                })
+                            })
+                            .collect();
+                        response["screenshots"] = json!(screenshot_metadata);
+                    }
+                }
+
+                let mut contents = vec![Content::json(response)?];
+
+                // Append collected screenshots as image content (in order)
+                if let Ok(screenshots) = collected_screenshots.lock() {
+                    for (_, _, _, _, base64_image) in screenshots.iter() {
+                        contents.push(Content::image(
+                            base64_image.clone(),
+                            "image/png".to_string(),
+                        ));
+                    }
+                    if !screenshots.is_empty() {
+                        info!(
+                            "[run_command] Appended {} screenshots to response",
+                            screenshots.len()
+                        );
+                    }
+                }
+
+                return Ok(CallToolResult::success(
+                    append_monitor_screenshots_if_enabled(&self.desktop, contents, None).await,
+                ));
+            } else if is_ts {
+                // Determine the working directory for script execution
+                let script_working_dir = if let Some(ref script_path) = resolved_script_path {
+                    // When using script_file with scripts_base_path, change working dir to script's directory
+                    let scripts_base_guard = self.current_scripts_base_path.lock().await;
+                    if scripts_base_guard.is_some() {
+                        // Use the resolved script path's parent directory
+                        script_path.parent().map(|p| p.to_path_buf())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                // Create shared log buffer for real-time log capture (useful for timeout scenarios)
+                let include_logs = args.include_logs.unwrap_or(true);
+                let log_buffer = if include_logs {
+                    Some(scripting_engine::ScriptLogBuffer::new())
+                } else {
+                    None
+                };
+
+                // Create event channel to collect workflow events (including screenshots)
+                let (event_tx, mut event_rx) = create_event_channel();
+                // Store screenshots with metadata: (index, timestamp, annotation, element, base64)
+                #[allow(clippy::type_complexity)]
+                let collected_screenshots: Arc<
+                    std::sync::Mutex<Vec<(usize, String, Option<String>, Option<String>, String)>>,
+                > = Arc::new(std::sync::Mutex::new(Vec::new()));
+                let screenshots_clone = collected_screenshots.clone();
+
+                // Create progress token for MCP notifications
+                let progress_token = ProgressToken(NumberOrString::String(
+                    format!("run-command-{}", std::process::id()).into(),
+                ));
+
+                // Clone peer for the event handler task
+                let peer_clone = peer.clone();
+                let broadcast_peers_clone2 = self.broadcast_peers.clone();
+                let progress_token_clone = progress_token.clone();
+
+                // Spawn task to collect screenshot events AND forward progress notifications
+                let screenshot_collector = tokio::spawn(async move {
+                    let mut index = 0usize;
+                    while let Some(event) = event_rx.recv().await {
+                        match event {
+                            WorkflowEvent::Screenshot {
+                                base64: Some(b64),
+                                timestamp,
+                                annotation,
+                                element,
+                                ..
+                            } => {
+                                if let Ok(mut screenshots) = screenshots_clone.lock() {
+                                    screenshots.push((index, timestamp, annotation, element, b64));
+                                    index += 1;
+                                }
+                            }
+                            WorkflowEvent::Progress {
+                                current,
+                                total,
+                                message,
+                                ..
+                            } => {
+                                // Broadcast progress events to ALL connected MCP clients (fire-and-forget)
+                                // Non-blocking to avoid holding request slot during slow peer notifications
+                                let peers_for_progress = broadcast_peers_clone2.clone();
+                                let progress_token_for_spawn = progress_token_clone.clone();
+                                tokio::spawn(async move {
+                                    let mut peers = peers_for_progress.lock().await;
+                                    let mut dead_indices = Vec::new();
+                                    for (i, p) in peers.iter().enumerate() {
+                                        if p.notify_progress(ProgressNotificationParam {
+                                            progress_token: progress_token_for_spawn.clone(),
+                                            progress: current,
+                                            total,
+                                            message: message.clone(),
+                                        })
+                                        .await
+                                        .is_err()
+                                        {
+                                            dead_indices.push(i);
+                                        }
+                                    }
+                                    // Remove dead peers (reverse order to preserve indices)
+                                    for i in dead_indices.into_iter().rev() {
+                                        peers.remove(i);
+                                        tracing::debug!(
+                                            "[broadcast] Removed dead peer at index {}",
+                                            i
+                                        );
+                                    }
+                                });
+                            }
+                            WorkflowEvent::Status { text, .. } => {
+                                // Forward status events as logging messages (fire-and-forget)
+                                if let Some(p) = peer_clone.clone() {
+                                    tokio::spawn(async move {
+                                        let _ = p
+                                            .notify_logging_message(
+                                                LoggingMessageNotificationParam {
+                                                    level: LoggingLevel::Info,
+                                                    logger: Some("run_command".to_string()),
+                                                    data: json!({
+                                                        "type": "status",
+                                                        "message": text
+                                                    }),
+                                                },
+                                            )
+                                            .await;
+                                    });
+                                }
+                            }
+                            WorkflowEvent::Log {
+                                level,
+                                message,
+                                data,
+                                ..
+                            } => {
+                                // Forward log events (fire-and-forget)
+                                if let Some(p) = peer_clone.clone() {
+                                    let log_level = match level.as_str() {
+                                        "error" => LoggingLevel::Error,
+                                        "warn" | "warning" => LoggingLevel::Warning,
+                                        "debug" => LoggingLevel::Debug,
+                                        _ => LoggingLevel::Info,
+                                    };
+                                    tokio::spawn(async move {
+                                        let _ = p
+                                            .notify_logging_message(
+                                                LoggingMessageNotificationParam {
+                                                    level: log_level,
+                                                    logger: Some("run_command".to_string()),
+                                                    data: json!({
+                                                        "message": message,
+                                                        "data": data
+                                                    }),
+                                                },
+                                            )
+                                            .await;
+                                    });
+                                }
+                            }
+                            _ => {} // Ignore other events
+                        }
+                    }
+                });
+
+                let execution_id = format!("run-ts-{}", std::process::id());
+                let execution_future = scripting_engine::execute_typescript_with_nodejs(
+                    final_script,
+                    cancellation_token,
+                    script_working_dir,
+                    log_buffer.clone(),
+                    Some(event_tx),
+                    Some(&execution_id),
+                );
+
+                let execution_result = if timeout_ms == 0 {
+                    execution_future.await?
+                } else {
+                    match tokio::time::timeout(timeout_duration, execution_future).await {
+                        Ok(result) => result?,
+                        Err(_) => {
+                            // On timeout, include any logs captured before the timeout if include_logs is true
+                            let mut error_data = json!({
+                                "reason": format!("Execution exceeded timeout of {}ms", timeout_ms),
+                                "engine": "typescript",
+                                "timeout_ms": timeout_ms
+                            });
+                            if let Some(ref buf) = log_buffer {
+                                let partial_logs = buf.get_logs();
+                                let partial_stderr = buf.get_stderr();
+                                if !partial_logs.is_empty() {
+                                    error_data["logs"] = json!(partial_logs);
+                                }
+                                if !partial_stderr.is_empty() {
+                                    error_data["stderr"] = json!(partial_stderr);
+                                }
+                            }
+                            return Err(McpError::internal_error(
+                                "TypeScript execution timed out",
+                                Some(error_data),
+                            ));
+                        }
+                    }
+                };
+
+                // Wait for screenshot collector to finish
+                let _ = screenshot_collector.await;
+
+                // Extract logs, stderr, and actual result (same as JS)
+                let logs = execution_result.get("logs").cloned();
+                let stderr = execution_result.get("stderr").cloned();
+                let actual_result = execution_result
+                    .get("result")
+                    .cloned()
+                    .unwrap_or(execution_result.clone());
+
+                // Check if the TypeScript result indicates a failure
+                if let Some(obj) = actual_result.as_object() {
+                    if let Some(status) = obj.get("status") {
+                        if let Some(status_str) = status.as_str() {
+                            if status_str == "failed" || status_str == "error" {
+                                // Extract error message if provided
+                                let message = obj
+                                    .get("message")
+                                    .and_then(|m| m.as_str())
+                                    .unwrap_or("Script returned failure status");
+
+                                info!(
+                                    "[run_command] TypeScript script returned status: '{}', treating as error",
+                                    status_str
+                                );
+
+                                // Return an error to trigger fallback_id in workflows
+                                return Err(McpError::internal_error(
+                                    format!("TypeScript execution failed: {message}"),
+                                    Some(actual_result),
+                                ));
+                            }
+                        }
+                    }
+                }
+
+                // Build response
+                let include_logs = args.include_logs.unwrap_or(true);
+                let mut response = json!({
+                    "action": "run_command",
+                    "mode": "engine",
+                    "engine": engine,
+                    "status": "executed_without_error",
+                    "result": actual_result
+                });
+
+                // Conditionally include logs and stderr based on include_logs parameter
+                if include_logs {
+                    if let Some(logs) = logs {
+                        response["logs"] = logs;
+                    }
+                    if let Some(stderr) = stderr {
+                        response["stderr"] = stderr;
+                    }
+                }
+
+                span.set_status(true, None);
+                span.end();
+
+                // Build content with JSON response and any collected screenshots
+                // Add screenshot metadata to response for ordering context
+                if let Ok(screenshots) = collected_screenshots.lock() {
+                    if !screenshots.is_empty() {
+                        let screenshot_metadata: Vec<serde_json::Value> = screenshots
+                            .iter()
+                            .map(|(idx, ts, annotation, element, _)| {
+                                json!({
+                                    "index": idx,
+                                    "timestamp": ts,
+                                    "annotation": annotation,
+                                    "element": element
+                                })
+                            })
+                            .collect();
+                        response["screenshots"] = json!(screenshot_metadata);
+                    }
+                }
+
+                let mut contents = vec![Content::json(response)?];
+
+                // Append collected screenshots as image content (in order)
+                if let Ok(screenshots) = collected_screenshots.lock() {
+                    for (_, _, _, _, base64_image) in screenshots.iter() {
+                        contents.push(Content::image(
+                            base64_image.clone(),
+                            "image/png".to_string(),
+                        ));
+                    }
+                    if !screenshots.is_empty() {
+                        info!(
+                            "[run_command] Appended {} screenshots to response",
+                            screenshots.len()
+                        );
+                    }
+                }
+
+                return Ok(CallToolResult::success(
+                    append_monitor_screenshots_if_enabled(&self.desktop, contents, None).await,
+                ));
+            } else if is_py {
+                // Determine the working directory for script execution
+                let script_working_dir = if let Some(ref script_path) = resolved_script_path {
+                    // When using script_file with scripts_base_path, change working dir to script's directory
+                    let scripts_base_guard = self.current_scripts_base_path.lock().await;
+                    if scripts_base_guard.is_some() {
+                        // Use the resolved script path's parent directory
+                        script_path.parent().map(|p| p.to_path_buf())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                let execution_future = scripting_engine::execute_python_with_bindings(
+                    final_script,
+                    script_working_dir,
+                );
+
+                let execution_result = if timeout_ms == 0 {
+                    execution_future.await?
+                } else {
+                    match tokio::time::timeout(timeout_duration, execution_future).await {
+                        Ok(result) => result?,
+                        Err(_) => {
+                            return Err(McpError::internal_error(
+                                "Python execution timed out",
+                                Some(json!({
+                                    "reason": format!("Execution exceeded timeout of {}ms", timeout_ms),
+                                    "engine": "python",
+                                    "timeout_ms": timeout_ms
+                                })),
+                            ));
+                        }
+                    }
+                };
+
+                // Extract logs, stderr, and actual result (same structure as JS/TS now)
+                let logs = execution_result.get("logs").cloned();
+                let stderr = execution_result.get("stderr").cloned();
+                let actual_result = execution_result
+                    .get("result")
+                    .cloned()
+                    .unwrap_or(execution_result.clone());
+
+                // Check if the Python result indicates a failure (same as JavaScript)
+                if let Some(obj) = actual_result.as_object() {
+                    if let Some(status) = obj.get("status") {
+                        if let Some(status_str) = status.as_str() {
+                            if status_str == "failed" || status_str == "error" {
+                                // Extract error message if provided
+                                let message = obj
+                                    .get("message")
+                                    .and_then(|m| m.as_str())
+                                    .unwrap_or("Script returned failure status");
+
+                                info!("[run_command] Python script returned status: '{}', treating as error", status_str);
+
+                                // Return an error to trigger fallback_id in workflows
+                                return Err(McpError::internal_error(
+                                    format!("Python execution failed: {message}"),
+                                    Some(actual_result),
+                                ));
+                            }
+                        }
+                    }
+                }
+
+                // Build response
+                let include_logs = args.include_logs.unwrap_or(true);
+                let mut response = json!({
+                    "action": "run_command",
+                    "mode": "engine",
+                    "engine": engine,
+                    "status": "executed_without_error",
+                    "result": actual_result
+                });
+
+                // Conditionally include logs and stderr based on include_logs parameter
+                if include_logs {
+                    if let Some(logs) = logs {
+                        response["logs"] = logs;
+                    }
+                    if let Some(stderr) = stderr {
+                        response["stderr"] = stderr;
+                    }
+                }
+
+                span.set_status(true, None);
+                span.end();
+
+                return Ok(CallToolResult::success(
+                    append_monitor_screenshots_if_enabled(
+                        &self.desktop,
+                        vec![Content::json(response)?],
+                        None,
+                    )
+                    .await,
+                ));
+            } else {
+                return Err(McpError::invalid_params(
+                    "Unsupported engine. Use 'node'/'bun'/'javascript'/'typescript'/'ts' or 'python'",
+                    Some(json!({"engine": engine_value})),
+                ));
+            }
+        }
+
+        // Shell-based execution path
+        // For shell mode, we also support script_file but env is ignored
+        let run_str = if let Some(script_file) = &args.script_file {
+            // Check that both run and script_file aren't provided
+            if args.run.is_some() {
+                return Err(McpError::invalid_params(
+                    "Cannot specify both 'run' and 'script_file'. Use one or the other.",
+                    None,
+                ));
+            }
+
+            // Read script from file
+            // Resolve script file with priority order (same logic as engine mode)
+            let resolved_path = {
+                let script_path = std::path::Path::new(script_file);
+                let mut resolved_path = None;
+                let mut resolution_attempts = Vec::new();
+
+                // Only resolve if path is relative
+                if script_path.is_relative() {
+                    tracing::info!(
+                        "[SCRIPTS_BASE_PATH] Resolving relative shell script: '{}'",
+                        script_file
+                    );
+
+                    // Priority 1: Try scripts_base_path if provided
+                    let scripts_base_guard = self.current_scripts_base_path.lock().await;
+                    if let Some(ref base_path) = *scripts_base_guard {
+                        tracing::info!(
+                            "[SCRIPTS_BASE_PATH] Checking scripts_base_path for shell script: {}",
+                            base_path
+                        );
+                        let base = std::path::Path::new(base_path);
+                        if base.exists() && base.is_dir() {
+                            let candidate = base.join(script_file);
+                            resolution_attempts
+                                .push(format!("scripts_base_path: {}", candidate.display()));
+                            tracing::info!(
+                                "[SCRIPTS_BASE_PATH] Looking for shell script at: {}",
+                                candidate.display()
+                            );
+                            if candidate.exists() {
+                                tracing::info!(
+                                    "[SCRIPTS_BASE_PATH] ✓ Found shell script in scripts_base_path: {} -> {}",
+                                    script_file,
+                                    candidate.display()
+                                );
+                                resolved_path = Some(candidate);
+                            } else {
+                                tracing::info!(
+                                    "[SCRIPTS_BASE_PATH] ✗ Shell script not found in scripts_base_path: {}",
+                                    candidate.display()
+                                );
+                            }
+                        } else {
+                            tracing::warn!(
+                                "[SCRIPTS_BASE_PATH] Base path does not exist or is not a directory: {}",
+                                base_path
+                            );
+                        }
+                    } else {
+                        tracing::debug!(
+                            "[SCRIPTS_BASE_PATH] No scripts_base_path configured for shell script"
+                        );
+                    }
+                    drop(scripts_base_guard);
+
+                    // Priority 2: Try workflow directory if not found yet
+                    if resolved_path.is_none() {
+                        let workflow_dir_guard = self.current_workflow_dir.lock().await;
+                        if let Some(ref workflow_dir) = *workflow_dir_guard {
+                            let candidate = workflow_dir.join(script_file);
+                            resolution_attempts
+                                .push(format!("workflow_dir: {}", candidate.display()));
+                            if candidate.exists() {
+                                tracing::info!(
+                                    "[run_command shell] Resolved via workflow directory: {} -> {}",
+                                    script_file,
+                                    candidate.display()
+                                );
+                                resolved_path = Some(candidate);
+                            }
+                        }
+                    }
+
+                    // Priority 3: Check current directory or use as-is
+                    if resolved_path.is_none() {
+                        let candidate = script_path.to_path_buf();
+                        resolution_attempts.push(format!("as-is: {}", candidate.display()));
+
+                        // Check if file exists before using it
+                        if candidate.exists() {
+                            tracing::info!(
+                                "[run_command shell] Found script file at: {}",
+                                candidate.display()
+                            );
+                            resolved_path = Some(candidate);
+                        } else {
+                            tracing::warn!(
+                                "[run_command shell] Script file not found: {} (tried: {:?})",
+                                script_file,
+                                resolution_attempts
+                            );
+                            // Return error immediately for missing file
+                            return Err(McpError::invalid_params(
+                                format!("Script file '{script_file}' not found"),
+                                Some(json!({
+                                    "file": script_file,
+                                    "resolution_attempts": resolution_attempts,
+                                    "error": "File does not exist"
+                                })),
+                            ));
+                        }
+                    }
+                } else {
+                    // Absolute path - check if exists
+                    let candidate = script_path.to_path_buf();
+                    if candidate.exists() {
+                        tracing::info!("[run_command shell] Using absolute path: {}", script_file);
+                        resolved_path = Some(candidate);
+                    } else {
+                        tracing::warn!(
+                            "[run_command shell] Absolute script file not found: {}",
+                            script_file
+                        );
+                        return Err(McpError::invalid_params(
+                            format!("Script file '{script_file}' not found"),
+                            Some(json!({
+                                "file": script_file,
+                                "error": "File does not exist at absolute path"
+                            })),
+                        ));
+                    }
+                }
+
+                resolved_path.unwrap()
+            };
+
+            // Read script from resolved file path
+            tokio::fs::read_to_string(&resolved_path)
+                .await
+                .map_err(|e| {
+                    McpError::invalid_params(
+                        "Failed to read script file",
+                        Some(json!({
+                            "file": script_file,
+                            "resolved_path": resolved_path.to_string_lossy(),
+                            "error": e.to_string()
+                        })),
+                    )
+                })?
+        } else if let Some(run) = &args.run {
+            run.clone()
+        } else {
+            return Err(McpError::invalid_params(
+                "Either 'run' or 'script_file' must be provided",
+                None,
+            ));
+        };
+
+        // Determine which shell to use based on platform and user preference
+        let (windows_cmd, unix_cmd) = if cfg!(target_os = "windows") {
+            // On Windows, prepare the command for execution
+            let shell = args.shell.as_deref().unwrap_or("powershell");
+            let command_with_cd = if let Some(ref cwd) = args.working_directory {
+                match shell {
                     "cmd" => format!("cd /d \"{cwd}\" && {run_str}"),
                     "powershell" | "pwsh" => format!("cd '{cwd}'; {run_str}"),
                     _ => run_str.clone(), // For other shells, handle cwd differently
